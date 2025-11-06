@@ -1,0 +1,317 @@
+import { useState } from "react";
+import { Code } from "lucide-react";
+import styles from "./schema-editor-form.module.css";
+
+interface SchemaEditorFormProps {
+  schema: Record<string, unknown>;
+  onChange: (schema: Record<string, unknown>) => void;
+  path?: string[];
+  onViewSource?: () => void;
+}
+
+export function SchemaEditorForm({ schema, onChange, path = [], onViewSource }: SchemaEditorFormProps) {
+  const updateSchema = (updates: Partial<Record<string, unknown>>) => {
+    // If type is being changed to array, initialize items if not present
+    if (updates.type === "array" && !schema.items) {
+      onChange({ ...schema, ...updates, items: { type: "string" } });
+    } else {
+      onChange({ ...schema, ...updates });
+    }
+  };
+
+  const toggleEnum = (enabled: boolean) => {
+    if (enabled) {
+      // Enable enum with default values based on type
+      const type = schema.type as string || "string";
+      const defaultValues = type === "number" ? [1, 2, 3] : ["option1", "option2", "option3"];
+      updateSchema({ enum: defaultValues });
+    } else {
+      // Disable enum
+      const newSchema = { ...schema };
+      delete newSchema.enum;
+      onChange(newSchema);
+    }
+  };
+
+  const updateNestedProperty = (propertyName: string, newValue: Record<string, unknown>) => {
+    const properties = (schema.properties as Record<string, unknown>) || {};
+    updateSchema({
+      properties: {
+        ...properties,
+        [propertyName]: newValue,
+      },
+    });
+  };
+
+  const removeProperty = (propertyName: string) => {
+    const properties = { ...(schema.properties as Record<string, unknown>) };
+    delete properties[propertyName];
+
+    const required = (schema.required as string[]) || [];
+    const newRequired = required.filter((r) => r !== propertyName);
+
+    updateSchema({
+      properties,
+      required: newRequired.length > 0 ? newRequired : undefined,
+    });
+  };
+
+  const addProperty = () => {
+    const properties = (schema.properties as Record<string, unknown>) || {};
+    const newPropertyName = `newProperty${Object.keys(properties).length + 1}`;
+    updateSchema({
+      properties: {
+        ...properties,
+        [newPropertyName]: { type: "string" },
+      },
+    });
+  };
+
+  const toggleRequired = (propertyName: string) => {
+    const required = (schema.required as string[]) || [];
+    const isRequired = required.includes(propertyName);
+
+    const newRequired = isRequired ? required.filter((r) => r !== propertyName) : [...required, propertyName];
+
+    updateSchema({
+      required: newRequired.length > 0 ? newRequired : undefined,
+    });
+  };
+
+  const updatePropertyName = (oldName: string, newName: string) => {
+    if (oldName === newName) return;
+
+    const properties = { ...(schema.properties as Record<string, unknown>) };
+    const propertyValue = properties[oldName];
+    delete properties[oldName];
+    properties[newName] = propertyValue;
+
+    const required = (schema.required as string[]) || [];
+    const newRequired = required.map((r) => (r === oldName ? newName : r));
+
+    updateSchema({
+      properties,
+      required: newRequired.length > 0 ? newRequired : undefined,
+    });
+  };
+
+  return (
+    <div className={styles.container}>
+      {path.length === 0 && onViewSource && (
+        <button className={styles.viewSourceButton} onClick={onViewSource}>
+          <Code size={16} />
+          View Source
+        </button>
+      )}
+      <div className={styles.fieldGroup}>
+        <div className={styles.fieldRow}>
+          <label className={styles.label}>Type</label>
+          <select
+            className={styles.select}
+            value={(schema.type as string) || "string"}
+            onChange={(e) => updateSchema({ type: e.target.value })}
+          >
+            <option value="string">String</option>
+            <option value="number">Number</option>
+            <option value="boolean">Boolean</option>
+            <option value="object">Object</option>
+            <option value="array">Array</option>
+            <option value="null">Null</option>
+          </select>
+        </div>
+
+        <div className={styles.fieldRow}>
+          <label className={styles.label}>Description</label>
+          <textarea
+            className={styles.textarea}
+            value={(schema.description as string) || ""}
+            onChange={(e) => updateSchema({ description: e.target.value })}
+            placeholder="Add a description for this field..."
+          />
+        </div>
+
+        {/* Show enum checkbox for string and number types */}
+        {(schema.type === "string" || schema.type === "number" || !schema.type) && (
+          <div className={styles.checkboxContainer}>
+            <input
+              type="checkbox"
+              className={styles.checkbox}
+              id={`enum-${path.join("-") || "root"}`}
+              checked={!!schema.enum}
+              onChange={(e) => toggleEnum(e.target.checked)}
+            />
+            <label className={styles.checkboxLabel} htmlFor={`enum-${path.join("-") || "root"}`}>
+              Enum (constrained values)
+            </label>
+          </div>
+        )}
+      </div>
+
+      {schema.type === "object" && (
+        <div className={styles.nestedContainer}>
+          <div className={styles.propertiesHeader}>
+            <h3 className={styles.propertyTitle}>Properties</h3>
+            <button className={styles.addButton} onClick={addProperty}>
+              Add Property
+            </button>
+          </div>
+          {Object.entries((schema.properties as Record<string, unknown>) || {}).map(
+            ([propertyName, propertySchema]) => (
+              <PropertyEditor
+                key={propertyName}
+                propertyName={propertyName}
+                propertySchema={propertySchema as Record<string, unknown>}
+                isRequired={((schema.required as string[]) || []).includes(propertyName)}
+                onUpdate={(newValue) => updateNestedProperty(propertyName, newValue)}
+                onRemove={() => removeProperty(propertyName)}
+                onToggleRequired={() => toggleRequired(propertyName)}
+                onRename={(newName) => updatePropertyName(propertyName, newName)}
+              />
+            ),
+          )}
+        </div>
+      )}
+
+      {schema.type === "array" && (
+        <div className={styles.nestedContainer}>
+          <h3 className={styles.propertyTitle}>Array Items Schema</h3>
+          <SchemaEditorForm
+            schema={(schema.items as Record<string, unknown>) || { type: "string" }}
+            onChange={(newItems) => updateSchema({ items: newItems })}
+            path={[...path, "items"]}
+          />
+        </div>
+      )}
+
+      {!!schema.enum && Array.isArray(schema.enum) && (
+        <div className={styles.nestedContainer}>
+          <h3 className={styles.propertyTitle}>Allowed Values</h3>
+          <EnumEditor
+            values={(schema.enum as Array<string | number>) || []}
+            onChange={(newEnum) => updateSchema({ enum: newEnum })}
+            type={(schema.type as string) || "string"}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface PropertyEditorProps {
+  propertyName: string;
+  propertySchema: Record<string, unknown>;
+  isRequired: boolean;
+  onUpdate: (schema: Record<string, unknown>) => void;
+  onRemove: () => void;
+  onToggleRequired: () => void;
+  onRename: (newName: string) => void;
+}
+
+interface EnumEditorProps {
+  values: Array<string | number>;
+  onChange: (values: Array<string | number>) => void;
+  type: string;
+}
+
+function EnumEditor({ values, onChange, type }: EnumEditorProps) {
+  const [editingValues, setEditingValues] = useState<Array<string | number>>(values);
+
+  const addValue = () => {
+    const newValue = type === "number" ? editingValues.length + 1 : `option${editingValues.length + 1}`;
+    const newValues = [...editingValues, newValue];
+    setEditingValues(newValues);
+    onChange(newValues);
+  };
+
+  const removeValue = (index: number) => {
+    const newValues = editingValues.filter((_, i) => i !== index);
+    setEditingValues(newValues);
+    onChange(newValues);
+  };
+
+  const updateValue = (index: number, newValue: string) => {
+    const newValues = [...editingValues];
+    if (type === "number") {
+      const numValue = parseFloat(newValue);
+      newValues[index] = isNaN(numValue) ? 0 : numValue;
+    } else {
+      newValues[index] = newValue;
+    }
+    setEditingValues(newValues);
+    onChange(newValues);
+  };
+
+  return (
+    <div className={styles.enumContainer}>
+      {editingValues.map((value, index) => (
+        <div key={index} className={styles.enumItem}>
+          <input
+            className={styles.input}
+            type={type === "number" ? "number" : "text"}
+            value={value}
+            onChange={(e) => updateValue(index, e.target.value)}
+            placeholder={type === "number" ? "Enter number..." : "Enter value..."}
+          />
+          <button
+            className={styles.removeButton}
+            onClick={() => removeValue(index)}
+            disabled={editingValues.length === 1}
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      <button className={styles.addButton} onClick={addValue}>
+        + Add Value
+      </button>
+    </div>
+  );
+}
+
+function PropertyEditor({
+  propertyName,
+  propertySchema,
+  isRequired,
+  onUpdate,
+  onRemove,
+  onToggleRequired,
+  onRename,
+}: PropertyEditorProps) {
+  const [editingName, setEditingName] = useState(propertyName);
+
+  return (
+    <div className={styles.fieldGroup}>
+      <div className={styles.propertyHeader}>
+        <input
+          className={styles.input}
+          value={editingName}
+          onChange={(e) => setEditingName(e.target.value)}
+          onBlur={() => onRename(editingName)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              onRename(editingName);
+            }
+          }}
+        />
+        <button className={styles.removeButton} onClick={onRemove}>
+          Remove
+        </button>
+      </div>
+
+      <div className={styles.checkboxContainer}>
+        <input
+          type="checkbox"
+          className={styles.checkbox}
+          id={`required-${propertyName}`}
+          checked={isRequired}
+          onChange={onToggleRequired}
+        />
+        <label className={styles.checkboxLabel} htmlFor={`required-${propertyName}`}>
+          Required
+        </label>
+      </div>
+
+      <SchemaEditorForm schema={propertySchema} onChange={onUpdate} />
+    </div>
+  );
+}

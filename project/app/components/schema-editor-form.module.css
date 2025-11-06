@@ -1,0 +1,197 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.viewSourceButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  background: var(--color-accent-3);
+  color: var(--color-accent-11);
+  border: 1px solid var(--color-accent-6);
+  border-radius: var(--radius-2);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  align-self: flex-start;
+}
+
+.viewSourceButton:hover {
+  background: var(--color-accent-4);
+  border-color: var(--color-accent-7);
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-neutral-2);
+  border-radius: var(--radius-3);
+  border: 1px solid var(--color-neutral-6);
+}
+
+.fieldRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.label {
+  font: var(--font-caption);
+  font-weight: 500;
+  color: var(--color-neutral-11);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.input {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-neutral-1);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-2);
+  color: var(--color-neutral-12);
+  font: var(--font-body);
+  transition: border-color 0.2s var(--ease);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-accent-9);
+  box-shadow: 0 0 0 3px var(--color-accent-3);
+}
+
+.select {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-neutral-1);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-2);
+  color: var(--color-neutral-12);
+  font: var(--font-body);
+  cursor: pointer;
+  transition: border-color 0.2s var(--ease);
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--color-accent-9);
+  box-shadow: 0 0 0 3px var(--color-accent-3);
+}
+
+.textarea {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-neutral-1);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-2);
+  color: var(--color-neutral-12);
+  font: var(--font-body);
+  min-height: 80px;
+  resize: vertical;
+  transition: border-color 0.2s var(--ease);
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: var(--color-accent-9);
+  box-shadow: 0 0 0 3px var(--color-accent-3);
+}
+
+.nestedContainer {
+  margin-left: var(--space-4);
+  padding-left: var(--space-4);
+  border-left: 2px solid var(--color-neutral-6);
+}
+
+.propertyHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.propertyTitle {
+  font: var(--font-subheading);
+  color: var(--color-accent-11);
+  font-weight: 600;
+}
+
+.removeButton {
+  padding: var(--space-1) var(--space-2);
+  background: transparent;
+  border: 1px solid var(--color-error-7);
+  border-radius: var(--radius-2);
+  color: var(--color-error-11);
+  font-size: var(--font-size-0);
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+}
+
+.removeButton:hover {
+  background: var(--color-error-3);
+  border-color: var(--color-error-9);
+}
+
+.addButton {
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 1px solid var(--color-accent-7);
+  border-radius: var(--radius-2);
+  color: var(--color-accent-11);
+  font: var(--font-body);
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+  margin-top: var(--space-2);
+}
+
+.addButton:hover {
+  background: var(--color-accent-3);
+  border-color: var(--color-accent-9);
+}
+
+.propertiesHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+
+.propertiesHeader .addButton {
+  margin-top: 0;
+}
+
+.checkboxContainer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--color-accent-9);
+}
+
+.checkboxLabel {
+  font: var(--font-body);
+  color: var(--color-neutral-11);
+  cursor: pointer;
+}
+
+.enumContainer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.enumItem {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
