@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import styles from "./json-instance-form.module.css";
 
 interface JsonInstanceFormProps {
@@ -105,8 +105,18 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
 
   if (type === "object") {
     const properties = (schema.properties as Record<string, Record<string, unknown>>) || {};
-    const objectValue = (value as Record<string, unknown>) || {};
+    // Only required properties should be present initially
     const required = (schema.required as string[]) || [];
+    let objectValue = (value as Record<string, unknown>) || {};
+    // If value is empty, initialize with only required properties
+    if (Object.keys(objectValue).length === 0 && Object.keys(properties).length > 0) {
+      objectValue = {};
+      required.forEach((key) => {
+        if (properties[key]) {
+          objectValue[key] = getDefaultValue(properties[key]);
+        }
+      });
+    }
 
     const updateProperty = (key: string, newValue: unknown) => {
       onChange({
@@ -115,10 +125,28 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
       });
     };
 
+    // Find non-required properties not present in objectValue
+    const addableProperties = Object.keys(properties).filter(
+      (key) => !required.includes(key) && !(key in objectValue)
+    );
+
+    const handleAddProperty = (key: string) => {
+      onChange({
+        ...objectValue,
+        [key]: getDefaultValue(properties[key]),
+      });
+    };
+
     return (
       <div className={styles.objectContainer}>
         {Object.entries(properties).map(([key, propSchema]) => {
           const isRequired = required.includes(key);
+          // Show if required OR if instance data exists for it
+          if (!isRequired && !(key in objectValue)) return null;
+          const handleRemoveProperty = () => {
+            const { [key]: _, ...rest } = objectValue;
+            onChange(rest);
+          };
           return (
             <div key={key} className={styles.propertyGroup}>
               <div className={styles.propertyHeader}>
@@ -126,6 +154,17 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
                   {key.charAt(0).toUpperCase() + key.slice(1)}
                   {isRequired && <span className={styles.requiredMark}>*</span>}
                 </span>
+                {!isRequired && key in objectValue && (
+                  <button
+                    className={styles.removeButton}
+                    type="button"
+                    onClick={handleRemoveProperty}
+                    title={`Remove ${key}`}
+                    style={{ marginLeft: 8 }}
+                  >
+                    ×
+                  </button>
+                )}
               </div>
               <JsonInstanceForm
                 schema={propSchema}
@@ -135,6 +174,22 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
             </div>
           );
         })}
+        {addableProperties.length > 0 && (
+          <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+            {addableProperties.map((key) => (
+              <button
+                key={key}
+                className={styles.addButton}
+                type="button"
+                onClick={() => handleAddProperty(key)}
+                title={`Add ${key}`}
+                style={{ padding: '0 12px', fontSize: '1em', borderRadius: '16px', display: 'flex', alignItems: 'center', height: 32 }}
+              >
+                +{key.charAt(0).toUpperCase() + key.slice(1)}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -151,9 +206,22 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
       arrayValue = [];
     }
 
+    // Ref for focusing the last added item (primitive or object)
+    const lastPrimitiveRef = useRef<HTMLDivElement | null>(null);
+    const lastObjectRef = useRef<HTMLDivElement | null>(null);
     const addItem = () => {
       const defaultValue = getDefaultValue(items);
       onChange([...arrayValue, defaultValue]);
+      setTimeout(() => {
+        if (isObjectItem && lastObjectRef.current) {
+          // Focus the first input/select in the object form
+          const el = lastObjectRef.current.querySelector('input,select,textarea,button');
+          if (el && 'focus' in el) (el as HTMLElement).focus();
+        } else if (!isObjectItem && lastPrimitiveRef.current) {
+          const el = lastPrimitiveRef.current.querySelector('input,select,textarea,button');
+          if (el && 'focus' in el) (el as HTMLElement).focus();
+        }
+      }, 0);
     };
 
     const removeItem = (index: number) => {
@@ -167,24 +235,89 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
       onChange(newArray);
     };
 
-    return (
-      <div className={styles.arrayContainer}>
-        {arrayValue.map((item, index) => (
-          <div key={index} className={styles.arrayItem}>
-            <div className={styles.arrayItemHeader}>
-              <span className={styles.arrayItemLabel}>Item {index + 1}</span>
-              <button className={styles.removeButton} onClick={() => removeItem(index)}>
-                Remove
-              </button>
+    // Navigation state for array editing, unique per array instance (e.g., per user roles)
+    const parentKey = typeof value === 'object' && value !== null ? (value as any).id ?? value : value;
+    const [currentIndexMap, setCurrentIndexMap] = useState<Record<string, number>>({});
+    const key = String(parentKey ?? 'default');
+    const currentIndex = currentIndexMap[key] ?? 0;
+    const maxIndex = arrayValue.length - 1;
+    // Reset navigation index if parent value changes (e.g., switching users)
+    useEffect(() => {
+      setCurrentIndexMap((map) => ({ ...map, [key]: 0 }));
+    }, [key, arrayValue.length]);
+    const setCurrentIndex = (idx: number) => {
+      setCurrentIndexMap((map) => ({ ...map, [key]: idx }));
+    };
+    const focusObjectForm = () => {
+      if (isObjectItem && lastObjectRef.current) {
+        const el = lastObjectRef.current.querySelector('input,select,textarea,button');
+        if (el && 'focus' in el) (el as HTMLElement).focus();
+      }
+    };
+    const goPrev = () => {
+      setCurrentIndex(Math.max(0, currentIndex - 1));
+      setTimeout(focusObjectForm, 0);
+    };
+    const goNext = () => {
+      setCurrentIndex(Math.min(maxIndex, currentIndex + 1));
+      setTimeout(focusObjectForm, 0);
+    };
+    // Clamp currentIndex if array shrinks
+    if (currentIndex > maxIndex && maxIndex >= 0) setCurrentIndex(maxIndex);
+
+    const isObjectItem = items.type === "object";
+    if (isObjectItem) {
+      return (
+        <div className={styles.arrayContainer}>
+          {arrayValue.length > 0 && (
+            <div className={styles.arrayItem}>
+              <div className={styles.arrayItemHeader}>
+                <span className={styles.arrayItemLabel}>Item {currentIndex + 1} of {arrayValue.length}</span>
+                <button className={styles.removeButton} onClick={() => { removeItem(currentIndex); setCurrentIndex(Math.max(0, currentIndex - 1)); }}>
+                  Remove
+                </button>
+              </div>
+              <div ref={lastObjectRef} tabIndex={-1} style={{ outline: 'none' }}>
+                <JsonInstanceForm schema={items} value={arrayValue[currentIndex]} onChange={(newValue) => updateItem(currentIndex, newValue)} />
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                {currentIndex > 0 && (
+                  <button className={styles.addButton} onClick={goPrev}>&lt; Prev</button>
+                )}
+                {currentIndex < maxIndex && (
+                  <button className={styles.addButton} onClick={goNext}>Next &gt;</button>
+                )}
+              </div>
             </div>
-            <JsonInstanceForm schema={items} value={item} onChange={(newValue) => updateItem(index, newValue)} />
-          </div>
-        ))}
-        <button className={styles.addButton} onClick={addItem}>
-          + Add Item
-        </button>
-      </div>
-    );
+          )}
+          <button className={styles.addButton} onClick={addItem} style={{ marginTop: 12 }}>
+            + Add Item
+          </button>
+        </div>
+      );
+    } else {
+      // Render all items for arrays of primitives (string, number, etc.)
+      return (
+        <div className={styles.arrayContainer}>
+          {arrayValue.map((item, idx) => (
+            <div key={idx} className={styles.arrayItem}>
+              <div className={styles.arrayItemHeader}>
+                <span className={styles.arrayItemLabel}>Item {idx + 1} of {arrayValue.length}</span>
+                <button className={styles.removeButton} onClick={() => removeItem(idx)}>
+                  Remove
+                </button>
+              </div>
+              <div ref={idx === arrayValue.length - 1 ? lastPrimitiveRef : undefined} tabIndex={-1} style={{ outline: 'none' }}>
+                <JsonInstanceForm schema={items} value={item} onChange={(newValue) => updateItem(idx, newValue)} />
+              </div>
+            </div>
+          ))}
+          <button className={styles.addButton} onClick={addItem} style={{ marginTop: 12 }}>
+            + Add Item
+          </button>
+        </div>
+      );
+    }
   }
 
   if (type === "null") {

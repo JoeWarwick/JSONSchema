@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from "react";
-import type { Route } from "./+types/workbench";
 import { Sparkles, Copy, Check, X, Upload, Link as LinkIcon, Download, FileUp } from "lucide-react";
 import styles from "./workbench.module.css";
 import { generateSchema, isValidJSON } from "~/utils/schema-generator";
@@ -16,7 +15,7 @@ function renamePropertyInObject(obj: any, oldName: string, newName: string) {
 import { SchemaEditorForm } from "~/components/schema-editor-form";
 import { JsonInstanceForm } from "~/components/json-instance-form";
 
-export function meta({}: Route.MetaArgs) {
+export function meta() {
   return [
     { title: "Schema Sculptor - JSON Schema Workbench" },
     {
@@ -198,6 +197,11 @@ export default function Workbench() {
       const content = e.target?.result as string;
       setJsonInput(content);
       setError(null);
+      // If valid JSON, set instanceData to the loaded document
+      try {
+        const parsed = JSON.parse(content);
+        setInstanceData(parsed);
+      } catch {}
     };
     reader.onerror = () => {
       setError("Failed to read file");
@@ -221,6 +225,7 @@ export default function Workbench() {
       }
       const data = await response.json();
       setJsonInput(JSON.stringify(data, null, 2));
+      setInstanceData(data);
       setJsonUrl("");
     } catch (err) {
       setError(`Failed to load JSON from URL: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -239,6 +244,8 @@ export default function Workbench() {
       try {
         const parsedSchema = JSON.parse(content);
         setSchema(parsedSchema);
+        // If no instance data, generate default instance for the loaded schema
+        setInstanceData((prev: unknown) => prev == null ? generateDefaultInstance(parsedSchema) : prev);
         setError(null);
       } catch (err) {
         setError("Invalid schema file. Please upload a valid JSON schema.");
@@ -266,6 +273,8 @@ export default function Workbench() {
       }
       const data = await response.json();
       setSchema(data);
+      // If no instance data, generate default instance for the loaded schema
+      setInstanceData((prev: unknown) => prev == null ? generateDefaultInstance(data) : prev);
       setSchemaUrl("");
     } catch (err) {
       setError(`Failed to load schema from URL: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -326,10 +335,10 @@ export default function Workbench() {
             <button 
               className={styles.controlButton}
               onClick={() => fileInputRef.current?.click()}
-              title="Upload JSON file"
+              title="Load JSON file"
             >
-              <Upload size={16} />
-              Upload File
+              <FileUp size={16} />
+              Load File
             </button>
             <button 
               className={styles.controlButton}
@@ -366,6 +375,11 @@ export default function Workbench() {
             onChange={(e) => {
               setJsonInput(e.target.value);
               setError(null);
+              // Try to parse and update instance form if valid
+              try {
+                const parsed = JSON.parse(e.target.value);
+                setInstanceData(parsed);
+              } catch {}
             }}
             placeholder="Paste your JSON here..."
             spellCheck={false}
@@ -384,24 +398,24 @@ export default function Workbench() {
             <h2 className={styles.panelTitle}>Schema Editor</h2>
           </div>
 
-          {schema ? (
-            <>
-              <div className={styles.inputControls}>
-                <input
-                  type="file"
-                  ref={schemaFileInputRef}
-                  onChange={handleSchemaFileUpload}
-                  accept=".json,application/json"
-                  style={{ display: 'none' }}
-                />
-                <button 
-                  className={styles.controlButton}
-                  onClick={() => schemaFileInputRef.current?.click()}
-                  title="Load schema from file"
-                >
-                  <FileUp size={16} />
-                  Load File
-                </button>
+          <>
+            <div className={styles.inputControls}>
+              <input
+                type="file"
+                ref={schemaFileInputRef}
+                onChange={handleSchemaFileUpload}
+                accept=".json,application/json"
+                style={{ display: 'none' }}
+              />
+              <button 
+                className={styles.controlButton}
+                onClick={() => schemaFileInputRef.current?.click()}
+                title="Load schema from file"
+              >
+                <FileUp size={16} />
+                Load File
+              </button>
+              {schema && (
                 <button 
                   className={styles.controlButton}
                   onClick={handleSaveSchema}
@@ -410,27 +424,29 @@ export default function Workbench() {
                   <Download size={16} />
                   Save Schema
                 </button>
-                <div className={styles.urlInputGroup}>
-                  <input
-                    type="url"
-                    className={styles.urlInput}
-                    value={schemaUrl}
-                    onChange={(e) => setSchemaUrl(e.target.value)}
-                    placeholder="Enter schema URL..."
-                    onKeyDown={(e) => e.key === 'Enter' && handleLoadSchemaFromUrl()}
-                  />
-                  <button 
-                    className={styles.controlButton}
-                    onClick={handleLoadSchemaFromUrl}
-                    disabled={isLoadingSchemaUrl}
-                    title="Load schema from URL"
-                  >
-                    <LinkIcon size={16} />
-                    {isLoadingSchemaUrl ? 'Loading...' : 'Load URL'}
-                  </button>
-                </div>
+              )}
+              <div className={styles.urlInputGroup}>
+                <input
+                  type="url"
+                  className={styles.urlInput}
+                  value={schemaUrl}
+                  onChange={(e) => setSchemaUrl(e.target.value)}
+                  placeholder="Enter schema URL..."
+                  onKeyDown={(e) => e.key === 'Enter' && handleLoadSchemaFromUrl()}
+                />
+                <button 
+                  className={styles.controlButton}
+                  onClick={handleLoadSchemaFromUrl}
+                  disabled={isLoadingSchemaUrl}
+                  title="Load schema from URL"
+                >
+                  <LinkIcon size={16} />
+                  {isLoadingSchemaUrl ? 'Loading...' : 'Load URL'}
+                </button>
               </div>
+            </div>
 
+            {schema ? (
               <div className={styles.editorContainer}>
                 <SchemaEditorForm 
                   schema={schema} 
@@ -441,9 +457,9 @@ export default function Workbench() {
                     if (!instanceData) return;
                     if (path.length > 0) {
                       // Nested: traverse path in instanceData
-                      let obj = instanceData;
-                      let parent = null;
-                      let key = null;
+                      let obj: any = instanceData;
+                      let parent: any = null;
+                      let key: string | null = null;
                       for (let p of path) {
                         parent = obj;
                         key = p;
@@ -464,10 +480,10 @@ export default function Workbench() {
                   }}
                 />
               </div>
-            </>
-          ) : (
-            <div className={styles.emptyState}>Generate a schema to start editing</div>
-          )}
+            ) : (
+              <div className={styles.emptyState}>Generate or load a schema to start editing</div>
+            )}
+          </>
         </div>
 
         <div className={styles.panel}>

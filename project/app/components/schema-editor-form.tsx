@@ -35,8 +35,16 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
         nextSchema = { ...items, type: "object" };
       }
     }
-    // If type is being changed to array, initialize items if not present
-    else if (updates.type === "array" && !schema.items) {
+    // If type is being changed from string with enum to array, move enum to items
+    else if (updates.type === "array" && (schema.type === "string" || !schema.type)) {
+      let items: Record<string, unknown> = { type: "string" };
+      if (schema.enum) {
+        items.enum = schema.enum;
+      }
+      // Remove enum from root
+      const { enum: _removed, ...rest } = schema;
+      nextSchema = { ...rest, ...updates, items };
+    } else if (updates.type === "array" && !schema.items) {
       nextSchema = { ...schema, ...updates, items: { type: "string" } };
     } else {
       nextSchema = { ...schema, ...updates };
