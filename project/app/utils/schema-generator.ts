@@ -1,4 +1,28 @@
 /**
+ * Validates a JSON Schema for structural correctness.
+ * Specifically checks for invalid array/object hoisting at the root.
+ * Returns null if valid, or an error message string if invalid.
+ */
+export function validateSchema(schema: Record<string, unknown>): string | null {
+  if (!schema || typeof schema !== 'object') return 'Schema must be an object.';
+  const type = schema.type;
+  if (type === 'array') {
+    const items = schema.items;
+    if (!items || typeof items !== 'object') {
+      return 'Array type must have a valid items schema.';
+    }
+    // If items is an object, check if it is a valid object schema
+    if ((items as any).type === 'object') {
+      const objSchema = items as Record<string, unknown>;
+      if (!objSchema.properties || typeof objSchema.properties !== 'object') {
+        return 'Array of objects must have properties defined.';
+      }
+    }
+  }
+  // Add more checks as needed
+  return null;
+}
+/**
  * Generates a JSON Schema from a given JSON object
  */
 export function generateSchema(json: unknown): Record<string, unknown> {

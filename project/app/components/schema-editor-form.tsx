@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { validateSchema } from "../utils/schema-generator";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import styles from "./schema-editor-form.module.css";
 
@@ -7,37 +8,43 @@ interface SchemaEditorFormProps {
   onChange: (schema: Record<string, unknown>) => void;
   path?: string[];
   onViewSource?: () => void;
+  onPropertyRename?: (oldName: string, newName: string, path?: string[]) => void;
 }
 
-export function SchemaEditorForm({ schema, onChange, path = [], onViewSource }: SchemaEditorFormProps) {
+export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, onPropertyRename }: SchemaEditorFormProps) {
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const updateSchema = (updates: Partial<Record<string, unknown>>) => {
+    let nextSchema: Record<string, unknown>;
     // If type is being changed from object to array, hoist the object into items
     if (updates.type === "array" && schema.type === "object") {
       const { type, ...rest } = schema;
-      onChange({ type: "array", items: { type: "object", ...rest } });
+      nextSchema = { type: "array", items: { type: "object", ...rest } };
     }
     // If type is being changed from array to object, unhoist the items into the object
     else if (updates.type === "object" && schema.type === "array" && schema.items) {
       const items = schema.items as Record<string, unknown>;
-      
-      // If items is an array, convert each item to a property with index suffix
       if (Array.isArray(items)) {
         const properties: Record<string, unknown> = {};
         items.forEach((item, index) => {
           const propertyName = `property${index}`;
           properties[propertyName] = item;
         });
-        onChange({ type: "object", properties });
+        nextSchema = { type: "object", properties };
       } else {
-        onChange({ ...items, type: "object" });
+        nextSchema = { ...items, type: "object" };
       }
     }
     // If type is being changed to array, initialize items if not present
     else if (updates.type === "array" && !schema.items) {
-      onChange({ ...schema, ...updates, items: { type: "string" } });
+      nextSchema = { ...schema, ...updates, items: { type: "string" } };
     } else {
-      onChange({ ...schema, ...updates });
+      nextSchema = { ...schema, ...updates };
+    }
+    const error = validateSchema(nextSchema);
+    setValidationError(error);
+    if (!error) {
+      onChange(nextSchema);
     }
   };
 
@@ -115,9 +122,16 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource }: 
       properties,
       required: newRequired.length > 0 ? newRequired : undefined,
     });
+    if (onPropertyRename) {
+      onPropertyRename(oldName, newName, path);
+    }
   };
 
   return (
+    <>
+      {validationError && (
+        <div style={{ color: 'red', marginBottom: 8 }}>{validationError}</div>
+      )}
     <div className={styles.container}>
 
       <div className={styles.fieldGroup}>
@@ -201,8 +215,10 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource }: 
         </div>
       )}
     </div>
+    </>
   );
 }
+
 
 interface PropertyEditorProps {
   propertyName: string;

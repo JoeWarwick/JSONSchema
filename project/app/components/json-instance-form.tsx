@@ -141,7 +141,15 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
 
   if (type === "array") {
     const items = (schema.items as Record<string, unknown>) || { type: "string" };
-    const arrayValue = (value as unknown[]) || [];
+    let arrayValue: unknown[];
+    if (Array.isArray(value)) {
+      arrayValue = value;
+    } else if (value && typeof value === "object") {
+      // If value is an object (from previous object type), wrap it in an array
+      arrayValue = [value];
+    } else {
+      arrayValue = [];
+    }
 
     const addItem = () => {
       const defaultValue = getDefaultValue(items);

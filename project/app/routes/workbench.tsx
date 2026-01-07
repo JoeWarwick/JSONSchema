@@ -3,6 +3,16 @@ import type { Route } from "./+types/workbench";
 import { Sparkles, Copy, Check, X, Upload, Link as LinkIcon, Download, FileUp } from "lucide-react";
 import styles from "./workbench.module.css";
 import { generateSchema, isValidJSON } from "~/utils/schema-generator";
+
+// Utility to rename a property in an object (shallow)
+function renamePropertyInObject(obj: any, oldName: string, newName: string) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
+  if (!(oldName in obj)) return obj;
+  const newObj = { ...obj };
+  newObj[newName] = newObj[oldName];
+  delete newObj[oldName];
+  return newObj;
+}
 import { SchemaEditorForm } from "~/components/schema-editor-form";
 import { JsonInstanceForm } from "~/components/json-instance-form";
 
@@ -426,6 +436,32 @@ export default function Workbench() {
                   schema={schema} 
                   onChange={setSchema} 
                   onViewSource={() => setShowSchemaSource(true)}
+                  onPropertyRename={(oldName, newName, path = []) => {
+                    // Only support root-level for now, can be extended for nested
+                    if (!instanceData) return;
+                    if (path.length > 0) {
+                      // Nested: traverse path in instanceData
+                      let obj = instanceData;
+                      let parent = null;
+                      let key = null;
+                      for (let p of path) {
+                        parent = obj;
+                        key = p;
+                        obj = obj && typeof obj === 'object' ? obj[p] : undefined;
+                      }
+                      if (parent && key && typeof parent[key] === 'object') {
+                        parent[key] = renamePropertyInObject(parent[key], oldName, newName);
+                        const updated = { ...instanceData };
+                        setInstanceData(updated);
+                        setJsonInput(JSON.stringify(updated, null, 2));
+                      }
+                    } else {
+                      // Root-level
+                      const newInstance = renamePropertyInObject(instanceData, oldName, newName);
+                      setInstanceData(newInstance);
+                      setJsonInput(JSON.stringify(newInstance, null, 2));
+                    }
+                  }}
                 />
               </div>
             </>
