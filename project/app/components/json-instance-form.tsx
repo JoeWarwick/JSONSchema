@@ -82,6 +82,7 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
   }
 
   if (type === "boolean") {
+    const description = schema.description as string | undefined;
     return (
       <div className={styles.field}>
         <div className={styles.checkboxContainer}>
@@ -92,9 +93,11 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
             checked={(value as boolean) || false}
             onChange={(e) => onChange(e.target.checked)}
           />
-          <label className={styles.checkboxLabel} htmlFor={`bool-${Math.random()}`}>
-            {(schema.description as string) || "Boolean value"}
-          </label>
+          {description && (
+            <label className={styles.checkboxLabel} htmlFor={`bool-${Math.random()}`}>
+              {description}
+            </label>
+          )}
         </div>
       </div>
     );
@@ -120,7 +123,7 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
             <div key={key} className={styles.propertyGroup}>
               <div className={styles.propertyHeader}>
                 <span className={styles.propertyName}>
-                  {key}
+                  {key.charAt(0).toUpperCase() + key.slice(1)}
                   {isRequired && <span className={styles.requiredMark}>*</span>}
                 </span>
               </div>

@@ -1,4 +1,4 @@
-## theme.css File Generation Rules
+# theme.css File Generation Rules
 
 - When generating a new application, your **first step** must be creating a `theme.css` that reflects the app’s design and requirements.
 - The project starts with a default template `theme.css`. This file defines the **required variables** listed below.
@@ -8,9 +8,9 @@
 - You may add **additional semantic variables** if necessary, but the full required set must remain.
 - If any required variable is missing, **the output is invalid**.
 
-### Required Variables
+## Required Variables
 
-**Typography**
+### Typography
 
 - `--font-display`
 - `--font-heading`
@@ -19,22 +19,22 @@
 - `--font-caption`
 - `--font-code`
 
-**Neutral Colors**
+### Neutral Colors
 
 - `--color-neutral-1` → `--color-neutral-12`
 - `--color-neutral-contrast`
 
-**Accent Colors**
+### Accent Colors
 
 - `--color-accent-1` → `--color-accent-12`
 - `--color-accent-contrast`
 
-**Error Colors**
+### Error Colors
 
 - `--color-error-1` → `--color-error-12`
 - `--color-error-contrast`
 
-**Success Colors**
+### Success Colors
 
 - `--color-success-1` → `--color-success-12`
 - `--color-success-contrast`

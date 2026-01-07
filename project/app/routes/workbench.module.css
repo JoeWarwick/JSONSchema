@@ -56,6 +56,71 @@
   font-size: var(--font-size-3);
 }
 
+.inputControls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.urlInputGroup {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.urlInput {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-neutral-1);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-3);
+  color: var(--color-neutral-12);
+  font: var(--font-body);
+  font-size: var(--font-size-1);
+  transition: border-color 0.2s var(--ease);
+}
+
+.urlInput:focus {
+  outline: none;
+  border-color: var(--color-accent-9);
+  box-shadow: 0 0 0 3px var(--color-accent-3);
+}
+
+.urlInput::placeholder {
+  color: var(--color-neutral-9);
+}
+
+.controlButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-neutral-1);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-3);
+  color: var(--color-neutral-11);
+  font: var(--font-body);
+  font-size: var(--font-size-1);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+  white-space: nowrap;
+}
+
+.controlButton:hover:not(:disabled) {
+  background: var(--color-neutral-3);
+  border-color: var(--color-neutral-7);
+  color: var(--color-neutral-12);
+}
+
+.controlButton:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.controlButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .jsonInput {
   flex: 1;
   padding: var(--space-4);
@@ -180,13 +245,14 @@
   gap: var(--space-2);
 }
 
-.copyButton {
+.actionButton {
   padding: var(--space-2) var(--space-4);
   background: transparent;
   border: 1px solid var(--color-accent-7);
   border-radius: var(--radius-3);
   color: var(--color-accent-11);
   font: var(--font-body);
+  font-size: var(--font-size-1);
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s var(--ease);
@@ -195,12 +261,12 @@
   gap: var(--space-2);
 }
 
-.copyButton:hover {
+.actionButton:hover {
   background: var(--color-accent-3);
   border-color: var(--color-accent-9);
 }
 
-.copyButton.copied {
+.actionButton.copied {
   background: var(--color-success-3);
   border-color: var(--color-success-9);
   color: var(--color-success-11);
@@ -240,6 +306,12 @@
   transform: translateX(0);
 }
 
+.schemaControls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
 .emptyState {
   flex: 1;
   display: flex;
@@ -259,5 +331,14 @@
 
   .panel {
     min-height: 400px;
+  }
+
+  .urlInputGroup {
+    flex-direction: column;
+  }
+
+  .controlButton {
+    width: 100%;
+    justify-content: center;
   }
 }

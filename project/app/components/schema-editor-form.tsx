@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Code } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import styles from "./schema-editor-form.module.css";
 
 interface SchemaEditorFormProps {
@@ -10,9 +10,31 @@ interface SchemaEditorFormProps {
 }
 
 export function SchemaEditorForm({ schema, onChange, path = [], onViewSource }: SchemaEditorFormProps) {
+
   const updateSchema = (updates: Partial<Record<string, unknown>>) => {
+    // If type is being changed from object to array, hoist the object into items
+    if (updates.type === "array" && schema.type === "object") {
+      const { type, ...rest } = schema;
+      onChange({ type: "array", items: { type: "object", ...rest } });
+    }
+    // If type is being changed from array to object, unhoist the items into the object
+    else if (updates.type === "object" && schema.type === "array" && schema.items) {
+      const items = schema.items as Record<string, unknown>;
+      
+      // If items is an array, convert each item to a property with index suffix
+      if (Array.isArray(items)) {
+        const properties: Record<string, unknown> = {};
+        items.forEach((item, index) => {
+          const propertyName = `property${index}`;
+          properties[propertyName] = item;
+        });
+        onChange({ type: "object", properties });
+      } else {
+        onChange({ ...items, type: "object" });
+      }
+    }
     // If type is being changed to array, initialize items if not present
-    if (updates.type === "array" && !schema.items) {
+    else if (updates.type === "array" && !schema.items) {
       onChange({ ...schema, ...updates, items: { type: "string" } });
     } else {
       onChange({ ...schema, ...updates });
@@ -97,12 +119,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource }: 
 
   return (
     <div className={styles.container}>
-      {path.length === 0 && onViewSource && (
-        <button className={styles.viewSourceButton} onClick={onViewSource}>
-          <Code size={16} />
-          View Source
-        </button>
-      )}
+
       <div className={styles.fieldGroup}>
         <div className={styles.fieldRow}>
           <label className={styles.label}>Type</label>
@@ -118,16 +135,6 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource }: 
             <option value="array">Array</option>
             <option value="null">Null</option>
           </select>
-        </div>
-
-        <div className={styles.fieldRow}>
-          <label className={styles.label}>Description</label>
-          <textarea
-            className={styles.textarea}
-            value={(schema.description as string) || ""}
-            onChange={(e) => updateSchema({ description: e.target.value })}
-            placeholder="Add a description for this field..."
-          />
         </div>
 
         {/* Show enum checkbox for string and number types */}
@@ -278,6 +285,7 @@ function PropertyEditor({
   onRename,
 }: PropertyEditorProps) {
   const [editingName, setEditingName] = useState(propertyName);
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
   return (
     <div className={styles.fieldGroup}>
@@ -309,6 +317,28 @@ function PropertyEditor({
         <label className={styles.checkboxLabel} htmlFor={`required-${propertyName}`}>
           Required
         </label>
+      </div>
+
+      <div className={styles.fieldRow}>
+        <button
+          type="button"
+          className={styles.descriptionToggle}
+          onClick={() => setDescriptionExpanded(!descriptionExpanded)}
+        >
+          {descriptionExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          <span>Description</span>
+          {!descriptionExpanded && typeof propertySchema.description === 'string' && propertySchema.description && (
+            <span className={styles.descriptionPreview}>{propertySchema.description}</span>
+          )}
+        </button>
+        {descriptionExpanded && (
+          <textarea
+            className={styles.textarea}
+            value={(propertySchema.description as string) || ""}
+            onChange={(e) => onUpdate({ ...propertySchema, description: e.target.value })}
+            placeholder="Add a description for this property..."
+          />
+        )}
       </div>
 
       <SchemaEditorForm schema={propertySchema} onChange={onUpdate} />
