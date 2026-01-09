@@ -1,0 +1,8 @@
+const { render, screen } = require('@testing-library/react');
+const GraphicalSchemaEditor = require('./graphical-schema-editor');
+
+test('renders graphical schema editor', () => {
+    render(<GraphicalSchemaEditor />);
+    const linkElement = screen.getByText(/graphical schema editor/i);
+    expect(linkElement).toBeInTheDocument();
+});

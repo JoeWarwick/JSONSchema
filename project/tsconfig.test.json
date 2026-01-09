@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "esModuleInterop": true
+  },
+  "include": ["app/components/**/*.test.tsx", "app/components/**/*.tsx", "app/hooks/**/*.ts", "app/utils/**/*.ts"]
+}

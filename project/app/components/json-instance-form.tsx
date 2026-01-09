@@ -267,6 +267,16 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
 
     const isObjectItem = items.type === "object";
     if (isObjectItem) {
+      const navButtons = (
+        <div style={{ display: 'flex', gap: 8, margin: '12px 0' }}>
+          {currentIndex > 0 && (
+            <button className={styles.addButton} onClick={goPrev}>&lt;&lt;</button>
+          )}
+          {currentIndex < maxIndex && (
+            <button className={styles.addButton} onClick={goNext}>&gt;&gt;</button>
+          )}
+        </div>
+      );
       return (
         <div className={styles.arrayContainer}>
           {arrayValue.length > 0 && (
@@ -277,17 +287,11 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
                   Remove
                 </button>
               </div>
+              {navButtons}
               <div ref={lastObjectRef} tabIndex={-1} style={{ outline: 'none' }}>
                 <JsonInstanceForm schema={items} value={arrayValue[currentIndex]} onChange={(newValue) => updateItem(currentIndex, newValue)} />
               </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                {currentIndex > 0 && (
-                  <button className={styles.addButton} onClick={goPrev}>&lt; Prev</button>
-                )}
-                {currentIndex < maxIndex && (
-                  <button className={styles.addButton} onClick={goNext}>Next &gt;</button>
-                )}
-              </div>
+              {navButtons}
             </div>
           )}
           <button className={styles.addButton} onClick={addItem} style={{ marginTop: 12 }}>

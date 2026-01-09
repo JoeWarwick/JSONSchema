@@ -1,4 +1,13 @@
-import { useState } from "react";
+// Type guard for schema.items with enum
+function isSchemaWithEnum(obj: unknown): obj is { enum: Array<string | number>; type?: string } {
+  return !!obj && typeof obj === 'object' && Array.isArray((obj as any).enum);
+}
+import { useState, useEffect } from "react";
+import {
+  addPropertyToSchema,
+  removePropertyFromSchema,
+  updateNestedPropertyInSchema
+} from "./schema-behaviors";
 import { validateSchema } from "../utils/schema-generator";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import styles from "./schema-editor-form.module.css";
@@ -51,7 +60,8 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
     }
     const error = validateSchema(nextSchema);
     setValidationError(error);
-    if (!error) {
+    // Only call onChange if the schema actually changed and is valid
+    if (!error && JSON.stringify(nextSchema) !== JSON.stringify(schema)) {
       onChange(nextSchema);
     }
   };
@@ -71,37 +81,18 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
   };
 
   const updateNestedProperty = (propertyName: string, newValue: Record<string, unknown>) => {
-    const properties = (schema.properties as Record<string, unknown>) || {};
-    updateSchema({
-      properties: {
-        ...properties,
-        [propertyName]: newValue,
-      },
-    });
+    const nextSchema = updateNestedPropertyInSchema(schema, propertyName, newValue);
+    updateSchema(nextSchema as any);
   };
 
   const removeProperty = (propertyName: string) => {
-    const properties = { ...(schema.properties as Record<string, unknown>) };
-    delete properties[propertyName];
-
-    const required = (schema.required as string[]) || [];
-    const newRequired = required.filter((r) => r !== propertyName);
-
-    updateSchema({
-      properties,
-      required: newRequired.length > 0 ? newRequired : undefined,
-    });
+    const nextSchema = removePropertyFromSchema(schema, propertyName);
+    updateSchema(nextSchema as any);
   };
 
   const addProperty = () => {
-    const properties = (schema.properties as Record<string, unknown>) || {};
-    const newPropertyName = `newProperty${Object.keys(properties).length + 1}`;
-    updateSchema({
-      properties: {
-        ...properties,
-        [newPropertyName]: { type: "string" },
-      },
-    });
+    const nextSchema = addPropertyToSchema(schema);
+    updateSchema(nextSchema as any);
   };
 
   const toggleRequired = (propertyName: string) => {
@@ -140,93 +131,98 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
       {validationError && (
         <div style={{ color: 'red', marginBottom: 8 }}>{validationError}</div>
       )}
-    <div className={styles.container}>
+      <div className={styles.container}>
 
-      <div className={styles.fieldGroup}>
-        <div className={styles.fieldRow}>
-          <label className={styles.label}>Type</label>
-          <select
-            className={styles.select}
-            value={(schema.type as string) || "string"}
-            onChange={(e) => updateSchema({ type: e.target.value })}
-          >
-            <option value="string">String</option>
-            <option value="number">Number</option>
-            <option value="boolean">Boolean</option>
-            <option value="object">Object</option>
-            <option value="array">Array</option>
-            <option value="null">Null</option>
-          </select>
+        <div className={styles.fieldGroup}>
+          <div className={styles.fieldRow}>
+            <label className={styles.label}>Type</label>
+            <select
+              className={styles.select}
+              value={(schema.type as string) || "string"}
+              onChange={(e) => updateSchema({ type: e.target.value })}
+            >
+              <option value="string">String</option>
+              <option value="number">Number</option>
+              <option value="boolean">Boolean</option>
+              <option value="object">Object</option>
+              <option value="array">Array</option>
+              <option value="null">Null</option>
+            </select>
+          </div>
+
+          {/* Show enum checkbox for string and number types */}
+          {(schema.type === "string" || schema.type === "number" || !schema.type) && (
+            <div className={styles.checkboxContainer}>
+              <input
+                type="checkbox"
+                className={styles.checkbox}
+                id={`enum-${path.join("-") || "root"}`}
+                checked={!!schema.enum}
+                onChange={(e) => toggleEnum(e.target.checked)}
+              />
+              <label className={styles.checkboxLabel} htmlFor={`enum-${path.join("-") || "root"}`}>
+                Enum (constrained values)
+              </label>
+            </div>
+          )}
         </div>
 
-        {/* Show enum checkbox for string and number types */}
-        {(schema.type === "string" || schema.type === "number" || !schema.type) && (
-          <div className={styles.checkboxContainer}>
-            <input
-              type="checkbox"
-              className={styles.checkbox}
-              id={`enum-${path.join("-") || "root"}`}
-              checked={!!schema.enum}
-              onChange={(e) => toggleEnum(e.target.checked)}
+        {schema.type === "object" && (
+          <div className={styles.nestedContainer}>
+            <div className={styles.propertiesHeader}>
+              <h3 className={styles.propertyTitle}>Properties</h3>
+              <button className={styles.addButton} onClick={addProperty}>
+                Add Property
+              </button>
+            </div>
+            {Object.entries((schema.properties as Record<string, unknown>) || {}).map(
+              ([propertyName, propertySchema]) => (
+                <PropertyEditor
+                  key={propertyName}
+                  propertyName={propertyName}
+                  propertySchema={propertySchema as Record<string, unknown>}
+                  isRequired={((schema.required as string[]) || []).includes(propertyName)}
+                  onUpdate={(newValue) => updateNestedProperty(propertyName, newValue)}
+                  onRemove={() => removeProperty(propertyName)}
+                  onToggleRequired={() => toggleRequired(propertyName)}
+                  onRename={(newName) => updatePropertyName(propertyName, newName)}
+                />
+              ),
+            )}
+          </div>
+        )}
+
+        {schema.type === "array" && (() => {
+          const itemsSchema = (schema.items && typeof schema.items === "object" && !Array.isArray(schema.items))
+            ? (schema.items as Record<string, unknown>)
+            : { type: "string" };
+          return (
+            <div className={styles.nestedContainer}>
+              <h3 className={styles.propertyTitle}>Array Items Schema</h3>
+              <SchemaEditorForm
+                schema={itemsSchema}
+                onChange={(newItems) => updateSchema({ items: newItems })}
+                path={[...path, "items"]}
+              />
+            </div>
+          );
+        })()}
+
+        {/* Only show EnumEditor for root if not array type */}
+        {!!schema.enum && Array.isArray(schema.enum) && schema.type !== "array" && (
+          <div className={styles.nestedContainer}>
+            <h3 className={styles.propertyTitle}>Allowed Values</h3>
+            <EnumEditor
+              values={(schema.enum as Array<string | number>) || []}
+              onChange={(newEnum) => updateSchema({ enum: newEnum })}
+              type={(schema.type as string) || "string"}
             />
-            <label className={styles.checkboxLabel} htmlFor={`enum-${path.join("-") || "root"}`}>
-              Enum (constrained values)
-            </label>
           </div>
         )}
       </div>
-
-      {schema.type === "object" && (
-        <div className={styles.nestedContainer}>
-          <div className={styles.propertiesHeader}>
-            <h3 className={styles.propertyTitle}>Properties</h3>
-            <button className={styles.addButton} onClick={addProperty}>
-              Add Property
-            </button>
-          </div>
-          {Object.entries((schema.properties as Record<string, unknown>) || {}).map(
-            ([propertyName, propertySchema]) => (
-              <PropertyEditor
-                key={propertyName}
-                propertyName={propertyName}
-                propertySchema={propertySchema as Record<string, unknown>}
-                isRequired={((schema.required as string[]) || []).includes(propertyName)}
-                onUpdate={(newValue) => updateNestedProperty(propertyName, newValue)}
-                onRemove={() => removeProperty(propertyName)}
-                onToggleRequired={() => toggleRequired(propertyName)}
-                onRename={(newName) => updatePropertyName(propertyName, newName)}
-              />
-            ),
-          )}
-        </div>
-      )}
-
-      {schema.type === "array" && (
-        <div className={styles.nestedContainer}>
-          <h3 className={styles.propertyTitle}>Array Items Schema</h3>
-          <SchemaEditorForm
-            schema={(schema.items as Record<string, unknown>) || { type: "string" }}
-            onChange={(newItems) => updateSchema({ items: newItems })}
-            path={[...path, "items"]}
-          />
-        </div>
-      )}
-
-      {!!schema.enum && Array.isArray(schema.enum) && (
-        <div className={styles.nestedContainer}>
-          <h3 className={styles.propertyTitle}>Allowed Values</h3>
-          <EnumEditor
-            values={(schema.enum as Array<string | number>) || []}
-            onChange={(newEnum) => updateSchema({ enum: newEnum })}
-            type={(schema.type as string) || "string"}
-          />
-        </div>
-      )}
-    </div>
     </>
   );
 }
-
 
 interface PropertyEditorProps {
   propertyName: string;
@@ -246,6 +242,11 @@ interface EnumEditorProps {
 
 function EnumEditor({ values, onChange, type }: EnumEditorProps) {
   const [editingValues, setEditingValues] = useState<Array<string | number>>(values);
+
+  // Sync local state from props when values change
+  useEffect(() => {
+    setEditingValues(values);
+  }, [values]);
 
   const addValue = () => {
     const newValue = type === "number" ? editingValues.length + 1 : `option${editingValues.length + 1}`;
@@ -272,6 +273,19 @@ function EnumEditor({ values, onChange, type }: EnumEditorProps) {
     onChange(newValues);
   };
 
+  const [newEnumValue, setNewEnumValue] = useState("");
+  const handleNewEnumKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && newEnumValue.trim() !== "") {
+      const valueToAdd = type === "number" ? parseFloat(newEnumValue) : newEnumValue.trim();
+      if (!editingValues.includes(valueToAdd)) {
+        const newValues = [...editingValues, valueToAdd];
+        setEditingValues(newValues);
+        onChange(newValues);
+      }
+      setNewEnumValue("");
+      e.preventDefault();
+    }
+  };
   return (
     <div className={styles.enumContainer}>
       {editingValues.map((value, index) => (
@@ -292,9 +306,29 @@ function EnumEditor({ values, onChange, type }: EnumEditorProps) {
           </button>
         </div>
       ))}
-      <button className={styles.addButton} onClick={addValue}>
-        + Add Value
-      </button>
+      <div className={styles.enumItem}>
+        <input
+          className={styles.input}
+          type={type === "number" ? "number" : "text"}
+          value={newEnumValue}
+          onChange={e => setNewEnumValue(e.target.value)}
+          onKeyDown={handleNewEnumKeyDown}
+          placeholder={type === "number" ? "Add number and press Enter" : "Add value and press Enter"}
+        />
+        <button className={styles.addButton} onClick={() => {
+          if (newEnumValue.trim() !== "") {
+            const valueToAdd = type === "number" ? parseFloat(newEnumValue) : newEnumValue.trim();
+            if (!editingValues.includes(valueToAdd)) {
+              const newValues = [...editingValues, valueToAdd];
+              setEditingValues(newValues);
+              onChange(newValues);
+            }
+            setNewEnumValue("");
+          }
+        }}>
+          + Add Value
+        </button>
+      </div>
     </div>
   );
 }
@@ -338,23 +372,9 @@ function PropertyEditor({
           checked={isRequired}
           onChange={onToggleRequired}
         />
-        <label className={styles.checkboxLabel} htmlFor={`required-${propertyName}`}>
-          Required
-        </label>
-      </div>
-
-      <div className={styles.fieldRow}>
-        <button
-          type="button"
-          className={styles.descriptionToggle}
-          onClick={() => setDescriptionExpanded(!descriptionExpanded)}
-        >
-          {descriptionExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          <span>Description</span>
-          {!descriptionExpanded && typeof propertySchema.description === 'string' && propertySchema.description && (
-            <span className={styles.descriptionPreview}>{propertySchema.description}</span>
-          )}
-        </button>
+        {!descriptionExpanded && typeof propertySchema.description === 'string' && propertySchema.description && (
+          <span className={styles.descriptionPreview}>{propertySchema.description}</span>
+        )}
         {descriptionExpanded && (
           <textarea
             className={styles.textarea}

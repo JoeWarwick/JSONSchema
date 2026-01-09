@@ -1,0 +1,24 @@
+module.exports = {
+  preset: 'ts-jest',
+  testEnvironment: 'jsdom',
+  transform: {
+    '^.+\\.tsx?$': 'ts-jest',
+  },
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
+  testPathIgnorePatterns: ['/node_modules/', '/dist/'],
+  coverageDirectory: 'coverage',
+  collectCoverageFrom: ['app/**/*.{ts,tsx}', '!**/node_modules/**'],
+  setupFilesAfterEnv: ['<rootDir>/setupTests.js'],
+}; 
+
+{
+  "dependencies": {
+    "jest": "^27.0.0",
+    "ts-jest": "^27.0.0",
+    "@types/jest": "^27.0.0"
+  },
+  "devDependencies": {
+    "babel-jest": "^27.0.0",
+    "react-test-renderer": "^17.0.0"
+  }
+}

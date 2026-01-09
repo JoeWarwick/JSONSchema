@@ -1,0 +1,25 @@
+.a1 {
+  color: #b180d7;
+  font-weight: 600;
+}
+.a2 {
+  color: #388e3c;
+  font-weight: 600;
+}
+.graphicalEditorContainer {
+  display: flex;
+  height: 600px;
+  background: var(--color-neutral-2);
+  border-radius: var(--radius-4);
+  border: 1px solid var(--color-neutral-6);
+  margin-top: var(--space-4);
+}
+
+.editorSidebar {
+  width: 220px;
+  background: var(--color-neutral-1);
+  border-left: 1px solid var(--color-neutral-6);
+  padding: var(--space-4);
+  font-size: var(--font-size-1);
+  color: var(--color-neutral-10);
+}

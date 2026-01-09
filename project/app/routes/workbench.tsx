@@ -15,6 +15,8 @@ function renamePropertyInObject(obj: any, oldName: string, newName: string) {
 import { SchemaEditorForm } from "~/components/schema-editor-form";
 import { JsonInstanceForm } from "~/components/json-instance-form";
 
+import { GraphicalSchemaEditor } from "~/components/graphical-schema-editor";
+
 export function meta() {
   return [
     { title: "Schema Sculptor - JSON Schema Workbench" },
@@ -137,6 +139,7 @@ export default function Workbench() {
 
   // Auto-save schema to localStorage whenever it changes
   useEffect(() => {
+    console.log('Schema updated:', schema);
     if (schema) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(schema));
     } else {
@@ -311,93 +314,42 @@ export default function Workbench() {
     URL.revokeObjectURL(url);
   };
 
+  // Tabbed UI state
+  const [activeTab, setActiveTab] = useState<'json' | 'schema' | 'instance' | 'output' | 'graph'>('json');
+
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Schema Sculptor</h1>
-        <p className={styles.subtitle}>Transform JSON into editable schemas with precision and control</p>
+        <h4 className={styles.title}>Schema Sculptor - JSON Schema Workbench</h4>
+        <p className={styles.subtitle}>Generate and modify JSON schemas with an intuitive form-based editor</p>
       </header>
 
-      <div className={styles.workspace}>
-        <div className={styles.panel}>
-          <div className={styles.panelHeader}>
-            <h2 className={styles.panelTitle}>JSON Input</h2>
-          </div>
+      <div className={styles.tabs}>
+        <button className={activeTab === 'json' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('json')}>JSON Input</button>
+        <button className={activeTab === 'instance' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('instance')}>Instance Editor</button>
+        <button className={activeTab === 'schema' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('schema')}>Schema Input</button>
+        <button className={activeTab === 'graph' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('graph')}>Schema Editor</button>
+      </div>
 
-          <div className={styles.inputControls}>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileUpload}
-              accept=".json,application/json"
-              style={{ display: 'none' }}
-            />
-            <button 
-              className={styles.controlButton}
-              onClick={() => fileInputRef.current?.click()}
-              title="Load JSON file"
-            >
-              <FileUp size={16} />
-              Load File
-            </button>
-            <button 
-              className={styles.controlButton}
-              onClick={handleSaveJson}
-              title="Save JSON to file"
-            >
-              <Download size={16} />
-              Save JSON
-            </button>
-            <div className={styles.urlInputGroup}>
-              <input
-                type="url"
-                className={styles.urlInput}
-                value={jsonUrl}
-                onChange={(e) => setJsonUrl(e.target.value)}
-                placeholder="Enter JSON URL..."
-                onKeyDown={(e) => e.key === 'Enter' && handleLoadFromUrl()}
+      <div className={styles.tabPanel}>
+        {activeTab === 'graph' && (
+          <div className={styles.panel}>
+            <div className={styles.panelHeader}>
+              <h2 className={styles.panelTitle}>Graphical Schema Editor</h2>
+            </div>
+            <div className={styles.editorContainer}>
+              <GraphicalSchemaEditor 
+                schema={schema ?? {}} 
+                onChange={(newSchema) => {
+                  setSchema(newSchema);
+                  // If instanceData is null, generate default instance for new schema
+                  setInstanceData((prev: unknown) => prev == null ? generateDefaultInstance(newSchema) : prev);
+                }} 
               />
-              <button 
-                className={styles.controlButton}
-                onClick={handleLoadFromUrl}
-                disabled={isLoadingUrl}
-                title="Load JSON from URL"
-              >
-                <LinkIcon size={16} />
-                {isLoadingUrl ? 'Loading...' : 'Load URL'}
-              </button>
             </div>
           </div>
-
-          <textarea
-            className={`${styles.jsonInput} ${error ? styles.error : ""}`}
-            value={jsonInput}
-            onChange={(e) => {
-              setJsonInput(e.target.value);
-              setError(null);
-              // Try to parse and update instance form if valid
-              try {
-                const parsed = JSON.parse(e.target.value);
-                setInstanceData(parsed);
-              } catch {}
-            }}
-            placeholder="Paste your JSON here..."
-            spellCheck={false}
-          />
-
-          {error && <div className={styles.errorMessage}>{error}</div>}
-
-          <button className={styles.generateButton} onClick={handleGenerate}>
-            <Sparkles size={18} />
-            Generate Schema
-          </button>
-        </div>
-
-        <div className={styles.panel}>
-          <div className={styles.panelHeader}>
-            <h2 className={styles.panelTitle}>Schema Editor</h2>
-          </div>
-
+        )}
+        {activeTab === 'schema' && (
           <>
             <div className={styles.inputControls}>
               <input
@@ -445,11 +397,13 @@ export default function Workbench() {
                 </button>
               </div>
             </div>
-
-            {schema ? (
+            <div className={styles.panel}>
+              <div className={styles.panelHeader}>
+                <h2 className={styles.panelTitle}>Schema Editor</h2>
+              </div>
               <div className={styles.editorContainer}>
                 <SchemaEditorForm 
-                  schema={schema} 
+                  schema={schema ?? {}} 
                   onChange={setSchema} 
                   onViewSource={() => setShowSchemaSource(true)}
                   onPropertyRename={(oldName, newName, path = []) => {
@@ -460,94 +414,165 @@ export default function Workbench() {
                       let obj: any = instanceData;
                       let parent: any = null;
                       let key: string | null = null;
-                      for (let p of path) {
+                      for (let i = 0; i < path.length; i++) {
                         parent = obj;
-                        key = p;
-                        obj = obj && typeof obj === 'object' ? obj[p] : undefined;
+                        key = path[i];
+                        obj = obj?.[key];
                       }
-                      if (parent && key && typeof parent[key] === 'object') {
-                        parent[key] = renamePropertyInObject(parent[key], oldName, newName);
-                        const updated = { ...instanceData };
-                        setInstanceData(updated);
-                        setJsonInput(JSON.stringify(updated, null, 2));
+                      if (parent && key && typeof obj !== 'undefined') {
+                        parent[newName] = obj;
+                        delete parent[oldName];
+                        setInstanceData({ ...instanceData });
                       }
                     } else {
-                      // Root-level
-                      const newInstance = renamePropertyInObject(instanceData, oldName, newName);
-                      setInstanceData(newInstance);
-                      setJsonInput(JSON.stringify(newInstance, null, 2));
+                      setInstanceData((prev: any) => {
+                        if (!prev) return prev;
+                        return renamePropertyInObject(prev, oldName, newName);
+                      });
                     }
                   }}
                 />
               </div>
-            ) : (
-              <div className={styles.emptyState}>Generate or load a schema to start editing</div>
-            )}
-          </>
-        </div>
-
-        <div className={styles.panel}>
-          <div className={styles.panelHeader}>
-            <h2 className={styles.panelTitle}>Instance Editor</h2>
-          </div>
-
-          {schema && instanceData !== null ? (
-            <div className={styles.editorContainer}>
-              <JsonInstanceForm 
-                schema={schema} 
-                value={instanceData} 
-                onChange={(newData) => {
-                  setInstanceData(newData);
-                  setJsonInput(JSON.stringify(newData, null, 2));
-                }} 
-              />
             </div>
-          ) : (
-            <div className={styles.emptyState}>Generate a schema to edit instance data</div>
-          )}
-        </div>
-
-        <div className={`${styles.panel} ${styles.schemaOutputPanel} ${showSchemaSource ? styles.visible : ""}`}>
-          <div className={styles.panelHeader}>
-            <h2 className={styles.panelTitle}>Schema Output</h2>
-            <div className={styles.headerActions}>
-              {schema && (
-                <>
-                  <button className={styles.actionButton} onClick={handleSaveSchema} title="Save schema">
-                    <Download size={16} />
-                    Save
+          </>
+        )}
+        {/* End of schema and graph panels, now start JSON panel */}
+        {activeTab === 'json' && (
+          <>
+            <div className={styles.panel}>
+              <div className={styles.panelHeader}>
+                <h2 className={styles.panelTitle}>JSON Input</h2>
+              </div>
+              <div className={styles.inputControls}>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  accept=".json,application/json"
+                  style={{ display: 'none' }}
+                />
+                <button 
+                  className={styles.controlButton}
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Load JSON file"
+                >
+                  <FileUp size={16} />
+                  Load File
+                </button>
+                <button 
+                  className={styles.controlButton}
+                  onClick={handleSaveJson}
+                  title="Save JSON to file"
+                >
+                  <Download size={16} />
+                  Save JSON
+                </button>
+                <div className={styles.urlInputGroup}>
+                  <input
+                    type="url"
+                    className={styles.urlInput}
+                    value={jsonUrl}
+                    onChange={(e) => setJsonUrl(e.target.value)}
+                    placeholder="Enter JSON URL..."
+                    onKeyDown={(e) => e.key === 'Enter' && handleLoadFromUrl()}
+                  />
+                  <button 
+                    className={styles.controlButton}
+                    onClick={handleLoadFromUrl}
+                    disabled={isLoadingUrl}
+                    title="Load JSON from URL"
+                  >
+                    <LinkIcon size={16} />
+                    {isLoadingUrl ? 'Loading...' : 'Load URL'}
                   </button>
-                  <button className={`${styles.actionButton} ${copied ? styles.copied : ""}`} onClick={handleCopy}>
-                    {copied ? (
-                      <>
-                        <Check size={16} />
-                        Copied!
-                      </>
-                    ) : (
-                      <>
-                        <Copy size={16} />
-                        Copy
-                      </>
-                    )}
-                  </button>
-                </>
-              )}
-              <button 
-                className={styles.closeButton} 
-                onClick={() => setShowSchemaSource(false)}
-                aria-label="Close"
-              >
-                <X size={18} />
+                </div>
+              </div>
+              <textarea
+                className={`${styles.jsonInput} ${error ? styles.error : ""}`}
+                value={jsonInput}
+                onChange={(e) => {
+                  setJsonInput(e.target.value);
+                  setError(null);
+                  // Try to parse and update instance form if valid
+                  try {
+                    const parsed = JSON.parse(e.target.value);
+                    setInstanceData(parsed);
+                  } catch {}
+                }}
+                placeholder="Paste your JSON here..."
+                spellCheck={false}
+              />
+              {error && <div className={styles.errorMessage}>{error}</div>}
+              <button className={styles.generateButton} onClick={handleGenerate}>
+                <Sparkles size={18} />
+                Generate Schema
               </button>
             </div>
+          </>
+        )}
+        {activeTab === 'instance' && (
+          <div className={styles.panel}>
+            <div className={styles.panelHeader}>
+              <h2 className={styles.panelTitle}>Instance Editor</h2>
+            </div>
+            {schema && instanceData !== null ? (
+              <div className={styles.editorContainer}>
+                <JsonInstanceForm 
+                  schema={schema} 
+                  value={instanceData} 
+                  onChange={(newData) => {
+                    setInstanceData(newData);
+                    setJsonInput(JSON.stringify(newData, null, 2));
+                  }} 
+                />
+              </div>
+            ) : (
+              <div className={styles.emptyState}>Generate a schema to edit instance data</div>
+            )}
           </div>
-
-          {schema ? (
-            <pre className={styles.schemaOutput}>{JSON.stringify(schema, null, 2)}</pre>
-          ) : (
-            <div className={styles.emptyState}>Your generated schema will appear here</div>
-          )}
-        </div>
+        )}
+        {activeTab === 'output' && (
+          <div className={`${styles.panel} ${styles.schemaOutputPanel} ${showSchemaSource ? styles.visible : ""}`}> 
+            <div className={styles.panelHeader}>
+              <h2 className={styles.panelTitle}>Schema Output</h2>
+              <div className={styles.headerActions}>
+                {schema && (
+                  <>
+                    <button className={styles.actionButton} onClick={handleSaveSchema} title="Save schema">
+                      <Download size={16} />
+                      Save
+                    </button>
+                    <button className={`${styles.actionButton} ${copied ? styles.copied : ""}`} onClick={handleCopy}>
+                      {copied ? (
+                        <>
+                          <Check size={16} />
+                          Copied!
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={16} />
+                          Copy
+                        </>
+                      )}
+                    </button>
+                  </>
+                )}
+                <button 
+                  className={styles.closeButton} 
+                  onClick={() => setShowSchemaSource(false)}
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            {schema ? (
+              <pre className={styles.schemaOutput}>{JSON.stringify(schema, null, 2)}</pre>
+            ) : (
+              <div className={styles.emptyState}>Your generated schema will appear here</div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
