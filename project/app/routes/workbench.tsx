@@ -247,8 +247,8 @@ export default function Workbench() {
       try {
         const parsedSchema = JSON.parse(content);
         setSchema(parsedSchema);
-        // If no instance data, generate default instance for the loaded schema
-        setInstanceData((prev: unknown) => prev == null ? generateDefaultInstance(parsedSchema) : prev);
+        // Always regenerate instance data for new schema
+        setInstanceData(generateDefaultInstance(parsedSchema));
         setError(null);
       } catch (err) {
         setError("Invalid schema file. Please upload a valid JSON schema.");
@@ -276,8 +276,8 @@ export default function Workbench() {
       }
       const data = await response.json();
       setSchema(data);
-      // If no instance data, generate default instance for the loaded schema
-      setInstanceData((prev: unknown) => prev == null ? generateDefaultInstance(data) : prev);
+      // Always regenerate instance data for new schema
+      setInstanceData(generateDefaultInstance(data));
       setSchemaUrl("");
     } catch (err) {
       setError(`Failed to load schema from URL: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -338,13 +338,12 @@ export default function Workbench() {
               <h2 className={styles.panelTitle}>Graphical Schema Editor</h2>
             </div>
             <div className={styles.editorContainer}>
-              <GraphicalSchemaEditor 
-                schema={schema ?? {}} 
+              <GraphicalSchemaEditor
+                schema={schema ?? {}}
                 onChange={(newSchema) => {
                   setSchema(newSchema);
-                  // If instanceData is null, generate default instance for new schema
                   setInstanceData((prev: unknown) => prev == null ? generateDefaultInstance(newSchema) : prev);
-                }} 
+                }}
               />
             </div>
           </div>

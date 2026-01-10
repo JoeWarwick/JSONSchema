@@ -18,9 +18,18 @@ export function schemaNodeDataToSchema(node: SchemaNodeData): Record<string, unk
   if (node.required) {
     schema.required = [node.label];
   }
-  // Add properties if present (for object type)
+  // Recursively serialize properties for object type
   if (node.type === "object" && node.properties && typeof node.properties === "object") {
-    schema.properties = node.properties;
+    const serializedProps: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(node.properties)) {
+      if (value && typeof value === 'object') {
+        // Recursively serialize each property node
+        serializedProps[key] = schemaNodeDataToSchema(value as SchemaNodeData);
+      } else {
+        serializedProps[key] = value;
+      }
+    }
+    schema.properties = serializedProps;
   }
   return schema;
 }

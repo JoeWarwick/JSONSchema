@@ -71,6 +71,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
   if (!node) return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a node to edit its properties.</div>;
   const { data } = node;
   const [label, setLabel] = React.useState<string>(data.label || '');
+  const nameInputRef = React.useRef<HTMLInputElement>(null);
   const [type, setType] = React.useState<string>(data.type || '');
   const [ofType, setOfType] = React.useState<string>(data.ofType || '');
   const jsonTypes = [
@@ -85,7 +86,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
   const isRoot = node.id === '1';
   const [required, setRequired] = React.useState<boolean>(isRoot ? true : !!data.required);
   const enumValues: string[] = Array.isArray(data.enum) ? data.enum : [];
-  const isEnum: boolean = Array.isArray(data.enum) && data.enum.length > 0;
+  const isEnum: boolean = Array.isArray(data.enum);
   const [defaultValue, setDefaultValue] = React.useState<string>(data.default ?? '');
 
   React.useEffect(() => {
@@ -94,11 +95,20 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     setOfType(data.ofType || '');
     setRequired(!!data.required);
     setDefaultValue(data.default ?? '');
+    // Focus name input if this is a new property node
+    if (data.label && /^newProperty\d+$/.test(data.label)) {
+      setTimeout(() => {
+        if (nameInputRef.current) {
+          nameInputRef.current.focus();
+          nameInputRef.current.select();
+        }
+      }, 0);
+    }
   }, [node?.id]);
 
   // Helper to build patch for onChange
   const buildPatch = (override?: Partial<NodeData>) => {
-    let patch: Partial<NodeData> = { label, type, required, ...override };
+    let patch: Partial<NodeData> = { id: node.id, label, type, required, ...override };
     const prevType = data.type;
     const newType = override?.type || type;
     // If type is being changed from object to array, hoist the object into items
@@ -160,12 +170,17 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
 
   // Enum editor UI
   const [enumInput, setEnumInput] = React.useState<string>('');
+  const enumInputRef = React.useRef<HTMLInputElement>(null);
   const handleAddEnum = () => {
     if (enumInput.trim() && !enumValues.includes(enumInput.trim())) {
       const newEnum = [...enumValues, enumInput.trim()];
       setEnumInput('');
       // Always include isEnum: true to keep the editor visible
       onChange(buildPatch({ enum: newEnum, isEnum: true }));
+      // Refocus input after add
+      setTimeout(() => {
+        enumInputRef.current?.focus();
+      }, 0);
     }
   };
   const handleRemoveEnum = (v: string) => {
@@ -192,7 +207,12 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     onChange(buildPatch({ required: e.target.checked }));
   };
   const handleIsEnumChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onChange(buildPatch({ isEnum: e.target.checked, enum: e.target.checked ? enumValues : undefined }));
+    if (e.target.checked) {
+      // Always set enum to a new empty array to guarantee re-render and enum node creation
+      onChange(buildPatch({ isEnum: true, enum: [] }));
+    } else {
+      onChange(buildPatch({ isEnum: false, enum: undefined }));
+    }
   };
   const handleDefaultValueChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setDefaultValue(e.target.value);
@@ -202,7 +222,14 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }} onSubmit={e => e.preventDefault()}>
       <label style={{ fontWeight: 500 }}>Name
-        <input value={label} onChange={e => setLabel(e.target.value)} onBlur={handleLabelBlur} style={{ width: '100%', marginTop: 2, padding: 4, borderRadius: 4, border: '1px solid #ccc' }} readOnly={isRoot} />
+        <input
+          ref={nameInputRef}
+          value={label}
+          onChange={e => setLabel(e.target.value)}
+          onBlur={handleLabelBlur}
+          style={{ width: '100%', marginTop: 2, padding: 4, borderRadius: 4, border: '1px solid #ccc' }}
+          readOnly={isRoot}
+        />
       </label>
       <label style={{ fontWeight: 500 }}>Type
         <select value={type} onChange={handleTypeChange} style={{ width: '100%', marginTop: 2, padding: 4, borderRadius: 4, border: '1px solid #ccc' }}>
@@ -228,28 +255,34 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
         </label>
       )}
       <label style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <input type="checkbox" checked={isEnum} onChange={handleIsEnumChange} /> Enum
+        <input type="checkbox" checked={isEnum} onChange={handleIsEnumChange} data-testid="enum-checkbox" /> Enum
       </label>
       {isEnum && (
         <div>
-          <label style={{ fontWeight: 500 }}>Enum Values</label>
+          <label style={{ fontWeight: 500 }} data-testid="enum-values-label">Enum Values</label>
           <ul style={{ padding: 0, margin: '4px 0 8px 0', listStyle: 'none' }}>
-            {enumValues.map((v: string, i: number) => (
-              <li key={i} style={{ display: 'flex', alignItems: 'center', marginBottom: 2 }}>
-                <span style={{ background: '#fffde7', border: '1px solid #ffe082', borderRadius: 6, padding: '2px 8px', fontSize: 13, marginRight: 6 }}>{v}</span>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveEnum(v)}
-                  data-testid={`remove-enum-${v}`}
-                  style={{ background: 'none', border: 'none', color: '#e53935', cursor: 'pointer', fontSize: 14, fontWeight: 700 }}
-                >
-                  ×
-                </button>
-              </li>
-            ))}
+            {enumValues.length === 0 ? (
+              <li style={{ color: '#888', fontStyle: 'italic', fontSize: 13 }}>No enum values yet.</li>
+            ) : (
+              enumValues.map((v: string, i: number) => (
+                <li key={i} style={{ display: 'flex', alignItems: 'center', marginBottom: 2 }}>
+                  <span style={{ background: '#fffde7', border: '1px solid #ffe082', borderRadius: 6, padding: '2px 8px', fontSize: 13, marginRight: 6 }}>{v}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveEnum(v)}
+                    data-testid={`remove-enum-${v}`}
+                    style={{ background: 'none', border: 'none', color: '#e53935', cursor: 'pointer', fontSize: 14, fontWeight: 700 }}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))
+            )}
           </ul>
           <div style={{ display: 'flex', gap: 4 }}>
             <input
+              id="enum-input"
+              ref={enumInputRef}
               value={enumInput}
               onChange={e => setEnumInput(e.target.value)}
               style={{ flex: 1, borderRadius: 6, border: '1px solid #ffe082', padding: '2px 8px', fontSize: 13 }}
@@ -262,8 +295,8 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
                 }
               }}
             />
-            <button type="button" onClick={handleAddEnum} 
-            style={{ background: '#ffe082', border: 'none', borderRadius: 6, padding: '2px 10px', fontWeight: 600, cursor: 'pointer' }} data-testid="add-enum-button">+</button>
+            <button type="button" onClick={handleAddEnum}
+              style={{ background: '#ffe082', border: 'none', borderRadius: 6, padding: '2px 10px', fontWeight: 600, cursor: 'pointer' }} data-testid="add-enum-button">+</button>
           </div>
         </div>
       )}
@@ -455,7 +488,9 @@ const ItemsGroupNode = ({ data }: { data: SchemaNodeData }) => (
   </GroupBox>
 );
 
-const nodeTypes: { [key: string]: React.FC<any> } = {
+
+// Define nodeTypes outside the component to avoid React Flow recreation warning
+export const nodeTypes: { [key: string]: React.FC<any> } = {
   root: RootNode,
   property: CustomNode,
   enum: EnumNode,
@@ -479,6 +514,9 @@ const initialEdges: Edge[] = [];
 // No longer needed: all property nodes use CustomNode
 
 export function GraphicalSchemaEditor({ schema, onChange, useTestData }: GraphicalSchemaEditorProps) {
+
+  // Ref to store label of selected node before graph rebuild
+  const selectedNodeLabelRef = React.useRef<string | null>(null);
   // Load schema from localStorage if not provided
   const STORAGE_KEY = 'schema-sculptor-schema';
   const [loadedSchema, setLoadedSchema] = React.useState<Record<string, unknown> | null>(null);
@@ -490,7 +528,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         if (raw) {
           setLoadedSchema(JSON.parse(raw));
         }
-      } catch {}
+      } catch { }
     }
   }, [schema, useTestData]);
   // Helper to generate unique IDs
@@ -504,6 +542,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
 
     function walkSchema(obj: any, parentId?: string, label?: string, x = 0, y = 0, parentRequired?: string[]): string {
       const id = getId();
+      obj.id = id; // Assign the generated node id to the schema property
       let type = obj.type || 'object';
       let ofType = undefined;
       let nodeType = 'property';
@@ -561,103 +600,172 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     return { nodes, edges };
   }, []);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(useTestData ? initialNodes : []);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(useTestData ? initialEdges : []);
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null);
-  // Memoize selectedNode to avoid unnecessary re-renders
+
+  // Find the selected node from nodes and selectedNodeId
   const selectedNode = React.useMemo(() => {
     if (!selectedNodeId) return null;
-    // Find by id only, not by object reference
-    const found = nodes.find(n => n.id === selectedNodeId);
-    // Return a stable object reference if possible
-    return found ? { ...found } : null;
-  }, [selectedNodeId, nodes]);
+    // Try to find by ID
+    let node = nodes.find(n => n.id === selectedNodeId);
+    if (node) return node;
+    // If not found, try to find enum node with same label as previous selection
+    if (selectedNodeLabelRef.current) {
+      node = nodes.find(n => n.type === 'enum' && n.data && n.data.label === selectedNodeLabelRef.current);
+      if (node) return node;
+    }
+    return null;
+  }, [nodes, selectedNodeId]);
 
   // Node property update handler
   const handleNodePropertyChange = (patch: Partial<NodeData>) => {
     // Only patch the targeted node
-    setNodes((prevNodes: Node<SchemaNodeData>[]) =>
-      prevNodes.map((node: Node<SchemaNodeData>) =>
-      node.id === patch.id ? { ...node, data: { ...node.data, ...patch } } : node
-      )
-    );
+    setNodes((prevNodes: Node<SchemaNodeData>[]) => {
+      // Find the node being updated
+      const nodeToUpdate = prevNodes.find((node: Node<SchemaNodeData>) => node.id === patch.id);
+      if (!nodeToUpdate) return prevNodes;
+      const oldLabel = nodeToUpdate.data.label;
+      const newLabel = patch.label ?? oldLabel;
+      let updatedNodes = prevNodes.map((node: Node<SchemaNodeData>) =>
+        node.id === patch.id ? { ...node, data: { ...node.data, ...patch } } : node
+      );
+      // If label changed, update parent properties key
+      if (oldLabel !== newLabel && nodeToUpdate.data.parent) {
+        updatedNodes = updatedNodes.map((node: Node<SchemaNodeData>) => {
+          if (node.id === nodeToUpdate.data.parent && node.data.properties) {
+            const props = { ...(node.data.properties || {}) };
+            // Find the full property node data for the new label
+            const fullPropNode = updatedNodes.find(n => n.id === nodeToUpdate.id);
+            if (props[oldLabel]) {
+              if (fullPropNode) {
+                props[newLabel] = schemaNodeDataToSchema({ ...fullPropNode.data, label: newLabel });
+              } else {
+                props[newLabel] = schemaNodeDataToSchema({ ...props[oldLabel], label: newLabel, id: nodeToUpdate.id, type: nodeToUpdate.data.type });
+              }
+              delete props[oldLabel];
+            } else {
+              // Fallback: remove all auto-generated keys and add the new one
+              Object.keys(props).forEach(k => {
+                if (/^newProperty\d+$/.test(k)) delete props[k];
+              });
+              if (fullPropNode) {
+                props[newLabel] = schemaNodeDataToSchema({ ...fullPropNode.data, label: newLabel });
+              } else {
+                props[newLabel] = { type: nodeToUpdate.data.type || 'string', title: newLabel };
+              }
+            }
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                properties: props,
+              },
+            };
+          }
+          return node;
+        });
+        // Immediately update the schema after renaming
+        setTimeout(() => {
+          const rootNode = updatedNodes.find(n => n.id === '1');
+          if (rootNode) {
+            // Recursively keep all fields except ReactFlow/graph-only fields
+            function cleanProperties(props: any) {
+              if (!props) return props;
+              const cleaned: any = {};
+              for (const [k, v] of Object.entries(props)) {
+                if (v && typeof v === 'object') {
+                  // Remove only graph-specific fields (id, parent, position, type: 'property', etc.)
+                  const { id, parent, position, ...rest } = v as any;
+                  // Recursively clean nested properties
+                  if (rest.properties) {
+                    rest.properties = cleanProperties(rest.properties);
+                  }
+                  cleaned[k] = { ...rest };
+                } else {
+                  cleaned[k] = v;
+                }
+              }
+              return cleaned;
+            }
+            const cleanedRoot = {
+              ...rootNode.data,
+              properties: cleanProperties(rootNode.data.properties),
+            };
+            const newSchema = schemaNodeDataToSchema(cleanedRoot);
+            onChange(newSchema);
+          }
+        }, 0);
+      }
+      return updatedNodes;
+    });
 
     // Helper to recursively find and update the property in the schema
     interface SchemaObject {
-        id?: string;
-        properties?: Record<string, SchemaObject>;
-        items?: SchemaObject;
-        [key: string]: any;
+      id?: string;
+      properties?: Record<string, SchemaObject>;
+      items?: SchemaObject;
+      [key: string]: any;
     }
 
     interface PropertyPatch {
-        id?: string;
-        [key: string]: any;
+      id?: string;
+      [key: string]: any;
     }
 
     function updatePropertyInSchema(obj: SchemaObject, patch: PropertyPatch): boolean {
-        if (!obj || typeof obj !== 'object') return false;
-        // Always ensure properties exists for objects
-        if (obj.type === 'object' && !obj.properties) {
-          obj.properties = {};
-        }
-        if (obj.properties) {
-          // Try to patch existing property
-          for (const key of Object.keys(obj.properties)) {
-            if (obj.properties[key].id === patch.id) {
-              // ENUM PATCH LOGIC: If array, nest enum under items
-              if (obj.properties[key].type === 'array') {
-                if ('enum' in obj.properties[key]) {
-                  delete obj.properties[key].enum;
-                }
-                if (Array.isArray(patch.enum)) {
-                  if (!obj.properties[key].items) obj.properties[key].items = { type: obj.properties[key].ofType || 'string' };
-                  // Always replace the enum array
-                  obj.properties[key].items.enum = patch.enum.slice();
-                } else if (obj.properties[key].items && 'enum' in obj.properties[key].items && (!patch.enum || !Array.isArray(patch.enum))) {
-                  delete obj.properties[key].items.enum;
-                }
-              } else {
-                if (Array.isArray(patch.enum)) {
-                  obj.properties[key].enum = [...patch.enum];
-                } else {
-                  delete obj.properties[key].enum;
-                }
-              }
-              return true;
-            }
-            if (updatePropertyInSchema(obj.properties[key], patch)) return true;
-          }
-          // If not found, add as a new property (using patch.label as key if available)
-          if (patch.label && !Object.values(obj.properties).some(p => p.id === patch.id)) {
-            return true;
-          }
-        }
-        if (obj.items) {
-          if (obj.id === patch.id) {
-            if (obj.type === 'array') {
-              if ('enum' in obj) {
-                delete obj.enum;
-              }
+      if (!obj || typeof obj !== 'object') return false;
+      // Always ensure properties exists for objects
+      if (obj.type === 'object' && !obj.properties) {
+        obj.properties = {};
+      }
+      if (obj.properties) {
+        for (const key of Object.keys(obj.properties)) {
+          if (obj.properties[key].id === patch.id) {
+            // --- FIX: Always patch enum into items.enum for array properties ---
+            if (obj.properties[key].type === 'array') {
+              if (!obj.properties[key].items) obj.properties[key].items = { type: obj.properties[key].ofType || 'string' };
               if (Array.isArray(patch.enum)) {
-                if (!obj.items) obj.items = { type: obj.ofType || 'string' };
-                // Always replace the enum array
-                obj.items.enum = patch.enum.slice();
-              } else if (obj.items && 'enum' in obj.items && (!patch.enum || !Array.isArray(patch.enum))) {
-                delete obj.items.enum;
+                obj.properties[key].items.enum = patch.enum.slice();
+              } else if ('enum' in obj.properties[key].items) {
+                delete obj.properties[key].items.enum;
               }
             } else {
               if (Array.isArray(patch.enum)) {
-                obj.items.enum = [...patch.enum];
+                obj.properties[key].enum = [...patch.enum];
               } else {
-                delete obj.items.enum;
+                delete obj.properties[key].enum;
               }
             }
             return true;
           }
-          if (updatePropertyInSchema(obj.items, patch)) return true;
+          if (updatePropertyInSchema(obj.properties[key], patch)) return true;
         }
-        return false;
+        if (patch.label && !Object.values(obj.properties).some(p => p.id === patch.id)) {
+          return true;
+        }
+      }
+      if (obj.items) {
+        if (obj.id === patch.id) {
+          if (obj.type === 'array') {
+            if (!obj.items) obj.items = { type: obj.ofType || 'string' };
+            if (Array.isArray(patch.enum)) {
+              obj.items.enum = patch.enum.slice();
+            } else if ('enum' in obj.items) {
+              delete obj.items.enum;
+            }
+          } else {
+            if (Array.isArray(patch.enum)) {
+              obj.items.enum = [...patch.enum];
+            } else {
+              delete obj.items.enum;
+            }
+          }
+          return true;
+        }
+        if (updatePropertyInSchema(obj.items, patch)) return true;
+      }
+      return false;
     }
     let updatedSchema = JSON.parse(JSON.stringify(schema));
     updatePropertyInSchema(updatedSchema, patch);
@@ -684,14 +792,42 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     if (!activeSchema) return;
     const { nodes, edges } = schemaToGraph(activeSchema);
     // Only rebuild nodes/edges if the count changes (structural change)
+    // Store label of selected node before graph rebuild
+    setNodes(prevNodes => {
+      if (selectedNodeId) {
+        const prevNode = prevNodes.find(n => n.id === selectedNodeId);
+        selectedNodeLabelRef.current = prevNode?.data?.label || null;
+      }
+      return prevNodes;
+    });
     if ((nodes.length !== prevNodeCount.current) || (edges.length !== prevEdgeCount.current)) {
       setNodes(nodes);
       setEdges(edges);
-      setSelectedNodeId(null);
+      // Try to preserve selected node if possible
+      setSelectedNodeId(prevSelected => {
+        if (!prevSelected) return nodes.length > 0 ? nodes[0].id : null;
+        // If the node still exists after rebuild, keep it selected
+        if (nodes.some(n => n.id === prevSelected)) return prevSelected;
+        // Try to restore selection by label if node is lost
+        const label = selectedNodeLabelRef.current;
+        if (label) {
+          const nodeByLabel = nodes.find(n => n.data && n.data.label === label);
+          if (nodeByLabel) return nodeByLabel.id;
+        }
+        // Fallback: select first node if available
+        return nodes.length > 0 ? nodes[0].id : null;
+      });
       prevNodeCount.current = nodes.length;
       prevEdgeCount.current = edges.length;
+    } else {
+      // Only update nodes/edges data if the structure is the same (property edit)
+      setNodes(prevNodes => nodes.map(n => {
+        const prev = prevNodes.find(pn => pn.id === n.id);
+        return prev ? { ...n, position: prev.position } : n;
+      }));
+      setEdges(edges);
     }
-    // Otherwise, do not rebuild nodes/edges (preserve selection and form)
+    // Otherwise, do not reset selection (preserve selection and form)
   }, [schema, loadedSchema, setNodes, setEdges, useTestData, schemaToGraph]);
 
   // Two-way sync: only trigger graphToSchema when nodes/edges are changed by user actions
@@ -725,7 +861,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
   // Node right-click handler
   const handleNodeContextMenu = (event: React.MouseEvent, node: Node) => {
     event.preventDefault();
-    if (node.id === '1') return; // Prevent root node from being right-clicked
+    // Allow root node to open context menu for property addition
     setContextMenu({
       visible: true,
       position: { x: event.clientX, y: event.clientY },
@@ -735,92 +871,119 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
 
   // Add Property action
   const handleAddProperty = () => {
-      setNodes((prevNodes: Node<SchemaNodeData>[]) => {
-        let newNodes = [...prevNodes];
-        let parentNode = newNodes.find(n => n.id === contextMenu?.nodeId);
-        if (!parentNode) return prevNodes;
+    let newPropertyId: string | null = null;
+    let newPropertyNode: Node<SchemaNodeData> | null = null;
+    let parentNodeId: string | null = null;
+    setNodes((prevNodes: Node<SchemaNodeData>[]) => {
+      let newNodes = [...prevNodes];
+      let parentNode = newNodes.find(n => n.id === contextMenu?.nodeId);
+      if (!parentNode) return prevNodes;
 
-        interface CreatePropertyNodeParams {
-        parentId: string;
-        parentPos: { x: number; y: number };
-        }
+      const getNextId = () => (Math.max(0, ...newNodes.map(n => parseInt(n.id, 10) || 0)) + 1).toString();
 
-        interface GetNextId {
-        (): string;
-        }
-
-        const getNextId: GetNextId = () =>
-        (Math.max(0, ...newNodes.map(n => parseInt(n.id, 10) || 0)) + 1).toString();
-
-        const createPropertyNode = (
-        parentId: string,
-        parentPos: { x: number; y: number }
-        ): Node<SchemaNodeData> => {
+      const createPropertyNode = (parentId: string, parentPos: { x: number; y: number }): Node<SchemaNodeData> => {
         const newId = getNextId();
         const newLabel = `newProperty${newNodes.length + 1}`;
+        newPropertyId = newId;
+        parentNodeId = parentId;
         const propertyNode: Node<SchemaNodeData> = {
           id: newId,
           type: 'property',
           data: {
-          id: newId,
-          label: newLabel,
-          type: 'string',
-          parent: parentId,
+            id: newId,
+            label: newLabel,
+            type: 'string',
+            parent: parentId,
           },
           position: {
-          x: parentPos.x + 250,
-          y: parentPos.y + 60 * (newNodes.length + 1),
+            x: parentPos.x + 250,
+            y: parentPos.y + 60 * ((Object.keys(parentNode.data.properties ?? {}).length) + 1),
           },
         };
-        // Use functional update for setEdges to avoid stale closure
         setEdges((edges: Edge[]) => [
           ...edges,
           { id: `e${parentId}-${newId}`, source: parentId, target: newId, type: 'default' },
         ]);
+        // Update parent node's properties field
+        newNodes = newNodes.map(n => {
+          if (n.id === parentId) {
+            // Remove all keys that match /^newProperty\d+$/ (old auto-generated names)
+            const props = { ...(n.data.properties || {}) };
+            Object.keys(props).forEach(k => {
+              if (/^newProperty\d+$/.test(k)) delete props[k];
+            });
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                properties: {
+                  ...props,
+                  [newLabel]: { type: 'string' },
+                },
+              },
+            };
+          }
+          return n;
+        });
+        newPropertyNode = propertyNode;
         return propertyNode;
-        };
+      };
 
-        if (parentNode.data.type === 'object') {
+      if (parentNode.data.type === 'object') {
         newNodes = [...newNodes, createPropertyNode(parentNode.id, parentNode.position)];
-        } else if (parentNode.data.type === 'array' && parentNode.data.ofType === 'object') {
-        // Find the items node (child of this array node with type object)
+      } else if (parentNode.data.type === 'array' && parentNode.data.ofType === 'object') {
         const itemsNode = newNodes.find(
           n => n.data.parent === parentNode.id && n.data.type === 'object'
         );
         if (itemsNode) {
           newNodes = [...newNodes, createPropertyNode(itemsNode.id, itemsNode.position)];
         } else {
-          // If no items node exists, create one and then add property
           const itemsId = getNextId();
           const itemsNodeObj: Node<SchemaNodeData> = {
-          id: itemsId,
-          type: 'property',
-          data: {
             id: itemsId,
-            label: 'items',
-            type: 'object',
-            parent: parentNode.id,
-          },
-          position: {
-            x: parentNode.position.x + 250,
-            y: parentNode.position.y,
-          },
+            type: 'property',
+            data: {
+              id: itemsId,
+              label: 'items',
+              type: 'object',
+              parent: parentNode.id,
+            },
+            position: {
+              x: parentNode.position.x + 250,
+              y: parentNode.position.y,
+            },
           };
           setEdges((edges: Edge[]) => [
-          ...edges,
-          { id: `e${parentNode.id}-${itemsId}`, source: parentNode.id, target: itemsId, type: 'default' },
+            ...edges,
+            { id: `e${parentNode.id}-${itemsId}`, source: parentNode.id, target: itemsId, type: 'default' },
           ]);
           newNodes = [
-          ...newNodes,
-          itemsNodeObj,
-          createPropertyNode(itemsId, itemsNodeObj.position),
+            ...newNodes,
+            itemsNodeObj,
+            createPropertyNode(itemsId, itemsNodeObj.position),
           ];
         }
+      }
+      // Immediately update the schema after property addition
+      setTimeout(() => {
+        const rootNode = newNodes.find(n => n.id === '1');
+        if (rootNode) {
+          const newSchema = schemaNodeDataToSchema(rootNode.data);
+          onChange(newSchema);
         }
-        return newNodes;
-      });
-      setContextMenu(null);
-      };
+      }, 0);
+      return newNodes;
+    });
+    // After nodes update, select the new property node
+    setTimeout(() => {
+      if (newPropertyId) setSelectedNodeId(newPropertyId);
+      // Trigger schema update for the new property node
+      if (newPropertyNode) {
+        handleNodePropertyChange({ ...newPropertyNode.data });
+      }
+    }, 0);
+    setContextMenu(null);
+  };
 
   // Delete Property action (with confirmation)
   const handleDeleteProperty = () => {
@@ -833,33 +996,33 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         nds
           .filter((n: Node<SchemaNodeData>) => n.id !== contextMenu.nodeId)
           .map((n: Node<SchemaNodeData>) => {
-        // If this node is a parent, remove property from its properties
-        interface NodeWithProperties extends Node<SchemaNodeData> {
-          data: SchemaNodeData & { properties?: Record<string, unknown> };
-        }
-        if (
-          n.data.type === 'object' &&
-          (n as NodeWithProperties).data.properties &&
-          contextMenu.nodeId !== null &&
-          (n as NodeWithProperties).data.properties?.[contextMenu.nodeId]
-        ) {
-          const updatedData: Record<string, unknown> = removePropertyFromSchema(
-            n.data as unknown as Record<string, unknown>,
-            contextMenu.nodeId
-          );
-          // Merge updatedData into n.data, preserving SchemaNodeData shape
-          return {
-            ...n,
-            data: {
-          ...n.data,
-          ...updatedData,
-          id: n.data.id,
-          label: n.data.label,
-          type: n.data.type,
-            } as SchemaNodeData,
-          };
-        }
-        return n;
+            // If this node is a parent, remove property from its properties
+            interface NodeWithProperties extends Node<SchemaNodeData> {
+              data: SchemaNodeData & { properties?: Record<string, unknown> };
+            }
+            if (
+              n.data.type === 'object' &&
+              (n as NodeWithProperties).data.properties &&
+              contextMenu.nodeId !== null &&
+              (n as NodeWithProperties).data.properties?.[contextMenu.nodeId]
+            ) {
+              const updatedData: Record<string, unknown> = removePropertyFromSchema(
+                n.data as unknown as Record<string, unknown>,
+                contextMenu.nodeId
+              );
+              // Merge updatedData into n.data, preserving SchemaNodeData shape
+              return {
+                ...n,
+                data: {
+                  ...n.data,
+                  ...updatedData,
+                  id: n.data.id,
+                  label: n.data.label,
+                  type: n.data.type,
+                } as SchemaNodeData,
+              };
+            }
+            return n;
           })
       );
       setEdges((eds: Edge[]) => eds.filter((e: Edge) => e.target !== contextMenu.nodeId && e.source !== contextMenu.nodeId));
@@ -904,11 +1067,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         </ReactFlow>
       </ReactFlowProvider>
       <div className={styles.editorSidebar}>
-        {/* Memoize NodePropertyEditor to avoid remounts and preserve state */}
-        {selectedNode && (
-          <MemoizedNodePropertyEditor node={selectedNode} onChange={handleNodePropertyChange} />
-        )}
-        {!selectedNode && <MemoizedNodePropertyEditor node={null} onChange={handleNodePropertyChange} />}
+        {/* Always show NodePropertyEditor for selected node, including enum node */}
+        <MemoizedNodePropertyEditor key={selectedNode?.id} node={selectedNode} onChange={handleNodePropertyChange} />
       </div>
       {contextMenu?.visible && (
         <ContextMenu
