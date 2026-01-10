@@ -406,7 +406,6 @@ export default function Workbench() {
                   onChange={setSchema} 
                   onViewSource={() => setShowSchemaSource(true)}
                   onPropertyRename={(oldName, newName, path = []) => {
-                    // Only support root-level for now, can be extended for nested
                     if (!instanceData) return;
                     if (path.length > 0) {
                       // Nested: traverse path in instanceData

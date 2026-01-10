@@ -36,6 +36,174 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     });
   });
 
+  it('adds a property to a nested object path (deep object)', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        users: {
+          type: 'object',
+          properties: {
+            profile: {
+              type: 'object',
+              properties: {
+                address: {
+                  type: 'object',
+                  properties: {}
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+    let latestSchema = testSchema;
+    const handleChange = (schema: any) => {
+      latestSchema = schema;
+    };
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={handleChange} />);
+
+    // Right-click the deep 'address' node to open context menu
+    const addressNode = await screen.findByText('address');
+    fireEvent.contextMenu(addressNode);
+
+    // Click "Add Property"
+    const addPropertyItem = await screen.findByText('Add Property');
+    fireEvent.click(addPropertyItem);
+
+    // The new property node should be selected and the name input focused
+    const nameInput = await screen.findByLabelText('Name');
+    fireEvent.change(nameInput, { target: { value: 'city' } });
+    fireEvent.blur(nameInput);
+
+    // Wait for the schema to update with the new nested property
+    await waitFor(() => {
+      const props = latestSchema?.properties?.users?.properties?.profile?.properties?.address?.properties || {};
+      expect(Object.keys(props)).toContain('city');
+    });
+  });
+
+  it('renames an existing generated property and updates the schema key', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        users: {
+          type: 'object',
+          properties: {
+            profile: {
+              type: 'object',
+              properties: {
+                address: {
+                  type: 'object',
+                  properties: {
+                    newProperty1: { type: 'string' }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+    let latestSchema = testSchema;
+    const handleChange = (schema: any) => {
+      latestSchema = schema;
+    };
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={handleChange} />);
+
+    // Select the node that currently has the generated name
+    const generatedNode = await screen.findByText('newProperty1');
+    fireEvent.click(generatedNode);
+
+    // Rename it to 'city'
+    const nameInput = await screen.findByLabelText('Name');
+    fireEvent.change(nameInput, { target: { value: 'city' } });
+    fireEvent.blur(nameInput);
+
+    // Ensure the emitted schema reflects the renamed key
+    await waitFor(() => {
+      const props = latestSchema?.properties?.users?.properties?.profile?.properties?.address?.properties || {};
+      expect(Object.keys(props)).toContain('city');
+      expect(Object.keys(props)).not.toContain('newProperty1');
+    });
+  });
+
+  it('renames an existing property and updates the schema key', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        person: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' }
+          }
+        }
+      }
+    };
+    let latestSchema = testSchema;
+    const handleChange = (schema: any) => {
+      latestSchema = schema;
+    };
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={handleChange} />);
+
+    // Select the existing 'name' node and rename it to 'fullName'
+    const nameNode = await screen.findByText('name');
+    fireEvent.click(nameNode);
+
+    const nameInput = await screen.findByLabelText('Name');
+    fireEvent.change(nameInput, { target: { value: 'fullName' } });
+    fireEvent.blur(nameInput);
+
+    // Wait for the schema to reflect the renamed key
+    await waitFor(() => {
+      const props = latestSchema?.properties?.person?.properties || {};
+      expect(Object.keys(props)).toContain('fullName');
+      expect(Object.keys(props)).not.toContain('name');
+    });
+  });
+
+  it('renaming an existing nested property updates the schema key', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        users: {
+          type: 'object',
+          properties: {
+            profile: {
+              type: 'object',
+              properties: {
+                address: {
+                  type: 'object',
+                  properties: {
+                    street: { type: 'string' }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+    let latestSchema = testSchema;
+    const handleChange = (schema: any) => { latestSchema = schema; };
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={handleChange} />);
+
+    // Open the existing 'street' node
+    const streetNode = await screen.findByText('street');
+    fireEvent.click(streetNode);
+
+    // Rename to 'city'
+    const nameInput = await screen.findByLabelText('Name');
+    fireEvent.change(nameInput, { target: { value: 'city' } });
+    fireEvent.blur(nameInput);
+
+    // Wait for the schema to reflect the rename (no more 'street', now 'city')
+    await waitFor(() => {
+      const addrProps = latestSchema?.properties?.users?.properties?.profile?.properties?.address?.properties || {};
+      expect(Object.keys(addrProps)).toContain('city');
+      expect(Object.keys(addrProps)).not.toContain('street');
+    });
+  });
+
   it('focuses enum input after adding value with Enter, after toggling enum off and on', async () => {
     const testSchema = {
       type: 'object',

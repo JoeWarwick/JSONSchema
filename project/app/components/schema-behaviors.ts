@@ -8,8 +8,17 @@ export function schemaNodeDataToSchema(node: SchemaNodeData): Record<string, unk
   };
   if (node.ofType) {
     schema.items = { type: node.ofType };
+    // If the node has an enum and it's an array type, treat the enum as items.enum
+    if (Array.isArray(node.enum) && node.enum.length > 0) {
+      (schema.items as any).enum = node.enum;
+    }
+    // If items object explicitly contains enum, prefer that
+    if (node.items && typeof node.items === 'object' && Array.isArray((node.items as any).enum) && (node.items as any).enum.length > 0) {
+      (schema.items as any).enum = (node.items as any).enum;
+    }
   }
-  if (node.enum && Array.isArray(node.enum) && node.enum.length > 0) {
+  // For primitive nodes (non-array), serialize node.enum as schema.enum
+  if (!(node.ofType) && node.enum && Array.isArray(node.enum) && node.enum.length > 0) {
     schema.enum = node.enum;
   }
   if (node.default !== undefined && node.default !== "") {
