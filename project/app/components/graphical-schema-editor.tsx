@@ -42,6 +42,7 @@ const EnumNode = ({ data }: { data: SchemaNodeData & { enum: string[] } }) => {
   );
 };
 import React, { useState } from "react";
+import { validateValueAgainstSchema } from "../utils/validation";
 import { ContextMenu } from "./ContextMenu";
 import {
   addPropertyToSchema,
@@ -91,6 +92,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
   const enumValues: string[] = Array.isArray(data.enum) ? data.enum : [];
   const isEnum: boolean = Array.isArray(data.enum);
   const [defaultValue, setDefaultValue] = React.useState<string>(data.default ?? '');
+  const [defaultError, setDefaultError] = React.useState<string | null>(null);
   const [pattern, setPattern] = React.useState<string | undefined>(data.pattern);
   const [format, setFormat] = React.useState<string | undefined>(data.format);
   const [description, setDescription] = React.useState<string | undefined>(data.description);
@@ -305,7 +307,24 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
   };
   const handleDefaultValueChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setDefaultValue(e.target.value);
-    onChange(buildPatchWithAnnotations({ defaultValue: e.target.value }));
+    // don't emit immediately; validate on blur
+  };
+  const handleDefaultValueBlur = () => {
+    const raw = defaultValue;
+    let parsed: any = raw;
+    if (type === 'number') parsed = raw === '' ? '' : Number(raw);
+    if (type === 'boolean') parsed = raw === 'true' ? true : raw === 'false' ? false : raw;
+    const schemaForValidation: Record<string, unknown> = {};
+    if (type) schemaForValidation.type = type;
+    if (format) schemaForValidation.format = format;
+    if (isEnum && Array.isArray(enumValues)) schemaForValidation.enum = enumValues;
+    const err = validateValueAgainstSchema(parsed, schemaForValidation);
+    if (err) {
+      setDefaultError(err);
+    } else {
+      setDefaultError(null);
+      onChange(buildPatchWithAnnotations({ defaultValue: parsed }));
+    }
   };
 
   return (
@@ -393,11 +412,12 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
       )}
       <div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <input value={defaultValue} onChange={handleDefaultValueChange} style={{ flex: 1, marginTop: 2, padding: 4, borderRadius: 4, border: '1px solid #ccc' }} placeholder="Default value" aria-label="Default value" />
+          <input value={defaultValue} onChange={handleDefaultValueChange} onBlur={handleDefaultValueBlur} style={{ flex: 1, marginTop: 2, padding: 4, borderRadius: 4, border: '1px solid #ccc' }} placeholder="Default value" aria-label="Default value" />
           {defaultValue !== '' && (
             <button type="button" onClick={() => { setDefaultValue(''); onChange(buildPatchWithAnnotations({ defaultValue: '' })); }} className={styles.removeControl} title="Remove default">×</button>
           )}
         </div>
+        {defaultError && <div style={{ color: '#e53935', fontSize: 12, marginTop: 6 }}>{defaultError}</div>}
       </div>
       {!(type === 'boolean' || type === 'object' || type === 'null') && (
         <div style={{ borderTop: '1px dashed #eee', paddingTop: 10 }}>

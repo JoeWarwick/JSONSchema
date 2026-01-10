@@ -32,6 +32,21 @@ describe('JsonInstanceForm extras', () => {
     jest.useRealTimers();
   });
 
+  test('hides draft select when all enum options already present (object parent)', () => {
+    const schema = { 
+      type: 'object',
+      properties: {
+        dietary: { type: 'array', items: { type: 'string', enum: ['Vegetarian', 'Lactose Intolerant'] }, uniqueItems: true }
+      },
+      required: ['dietary']
+    } as any;
+    const onChange = jest.fn();
+    const { container } = render(<JsonInstanceForm schema={schema} value={{ dietary: ['Vegetarian', 'Lactose Intolerant'] }} onChange={onChange} />);
+    // there should be one select per existing enum item inside the array plus the parent property UI
+    const selects = container.querySelectorAll('select');
+    expect(selects.length).toBe(2);
+  });
+
   test('shows writeOnly badge in object property list and password input for field', () => {
     const schema = { type: 'object', properties: { secret: { type: 'string', writeOnly: true } } } as any;
     const onChange = jest.fn();

@@ -12,7 +12,7 @@ interface JsonInstanceFormProps {
 export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormProps) {
   const type = schema.type as string;
   const [inputError, setInputError] = useState<string | null>(null);
-  const [draftValue, setDraftValue] = useState<string>('');
+  
   const min = (schema.minimum as number | undefined) ?? undefined;
   const max = (schema.maximum as number | undefined) ?? undefined;
   const step = (schema.multipleOf as number | undefined) ?? undefined;
@@ -273,18 +273,7 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
     const defaultValueForAdd = getDefaultValue(itemsSchema);
     const keyFor = (v: unknown) => (typeof v === 'object' ? JSON.stringify(v) : String(v));
 
-    // Draft parsing and validation for primitives
-    const parseDraft = (draft: string) => {
-      if (itemsSchema.type === 'number') return draft === '' ? undefined : Number(draft);
-      if (itemsSchema.type === 'boolean') return draft === 'true' ? true : draft === 'false' ? false : undefined;
-      return draft;
-    };
-    const draftParsed = parseDraft(draftValue);
-    const draftKey = draftParsed === undefined ? null : keyFor(draftParsed);
-    const effectiveDefaultKey = keyFor(defaultValueForAdd);
-    const effectiveAddKey = draftKey ?? effectiveDefaultKey;
-    const isDraftValid = draftParsed === undefined ? true : validateValueAgainstSchema(draftParsed, itemsSchema) === null;
-    const canAddLive = !(uniqueRequired && arrayValue.some(v => keyFor(v) === effectiveAddKey)) && isDraftValid;
+    
 
     // compute duplicates
     const counts = new Map<string, number>();
@@ -336,6 +325,8 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
     const goNext = () => { setCurrentIndex(Math.min(maxIndex, currentIndex + 1)); setTimeout(focusObjectForm, 0); };
     if (currentIndex > maxIndex && maxIndex >= 0) setCurrentIndex(maxIndex);
 
+    
+
     if (isObjectItem) {
       const navButtons = (
         <div style={{ display: 'flex', gap: 8, margin: '12px 0' }}>
@@ -369,20 +360,7 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
     return (
       <div className={styles.arrayContainer}>
         {hasDuplicates && <div style={{ color: '#e53935', marginBottom: 8 }}>Array requires unique items — duplicates detected.</div>}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-          {itemsSchema.type === 'number' ? (
-            <input className={styles.input} type="number" value={draftValue} onChange={e => setDraftValue(e.target.value)} placeholder="New item..." />
-          ) : itemsSchema.type === 'boolean' ? (
-            <select className={styles.select} value={draftValue} onChange={e => setDraftValue(e.target.value)}>
-              <option value="">-- select --</option>
-              <option value="true">true</option>
-              <option value="false">false</option>
-            </select>
-          ) : (
-            <input className={styles.input} type={ (itemsSchema as any).format === 'email' ? 'email' : 'text'} value={draftValue} onChange={e => setDraftValue(e.target.value)} placeholder="New item..." />
-          )}
-          <div style={{ color: '#e53935', fontSize: 13 }}>{!(draftParsed === undefined ? true : validateValueAgainstSchema(draftParsed, itemsSchema) === null) ? 'Invalid value' : ''}</div>
-        </div>
+        {/* draft input moved below to avoid appearing above the existing list */}
         {arrayValue.map((item, idx) => {
           const k = keyFor(item);
           const isDup = uniqueRequired && (counts.get(k) || 0) > 1;
@@ -408,14 +386,14 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
             </div>
           );
         })}
+        {/* Add button: always append a default item (no draft input) */}
         <div style={{ marginTop: 12 }}>
-          <button className={styles.addButton} onClick={() => {
-            const toAdd = draftKey ? (itemsSchema.type === 'number' ? Number(draftValue) : (itemsSchema.type === 'boolean' ? draftValue === 'true' : draftValue)) : defaultValueForAdd;
-            if (!(uniqueRequired && arrayValue.some(v => keyFor(v) === keyFor(toAdd)))) {
-              onChange([...arrayValue, toAdd]);
-              setDraftValue('');
-            }
-          }} disabled={!canAddLive} title={!canAddLive ? 'Would create duplicate or invalid value' : undefined}>
+          <button
+            className={styles.addButton}
+            onClick={() => addItemHandler(defaultValueForAdd)}
+            disabled={uniqueRequired && arrayValue.some(v => keyFor(v) === keyFor(defaultValueForAdd))}
+            title={uniqueRequired && arrayValue.some(v => keyFor(v) === keyFor(defaultValueForAdd)) ? 'Would create duplicate item' : undefined}
+          >
             + Add Item
           </button>
         </div>
