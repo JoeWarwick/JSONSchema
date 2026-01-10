@@ -6,6 +6,24 @@ export function schemaNodeDataToSchema(node: SchemaNodeData): Record<string, unk
     type: node.type,
     title: node.label,
   };
+  if (node.format !== undefined) schema.format = node.format;
+  if (node.pattern !== undefined) schema.pattern = node.pattern;
+  if (node.description !== undefined) schema.description = node.description;
+  if (node.minimum !== undefined) schema.minimum = node.minimum;
+  if (node.maximum !== undefined) schema.maximum = node.maximum;
+  if (node.exclusiveMinimum !== undefined) schema.exclusiveMinimum = node.exclusiveMinimum;
+  if (node.exclusiveMaximum !== undefined) schema.exclusiveMaximum = node.exclusiveMaximum;
+  if (node.minLength !== undefined) schema.minLength = node.minLength;
+  if (node.maxLength !== undefined) schema.maxLength = node.maxLength;
+  if (node.multipleOf !== undefined) schema.multipleOf = node.multipleOf;
+  if (node.minItems !== undefined) schema.minItems = node.minItems;
+  if (node.maxItems !== undefined) schema.maxItems = node.maxItems;
+  if (node.uniqueItems !== undefined) schema.uniqueItems = node.uniqueItems;
+  if (node.readOnly !== undefined) schema.readOnly = node.readOnly;
+  if (node.writeOnly !== undefined) schema.writeOnly = node.writeOnly;
+  if (node.deprecated !== undefined) schema.deprecated = node.deprecated;
+  if (node.const !== undefined) schema.const = node.const;
+  if (node.examples !== undefined) schema.examples = node.examples;
   if (node.ofType) {
     schema.items = { type: node.ofType };
     // If the node has an enum and it's an array type, treat the enum as items.enum
@@ -24,9 +42,8 @@ export function schemaNodeDataToSchema(node: SchemaNodeData): Record<string, unk
   if (node.default !== undefined && node.default !== "") {
     schema.default = node.default;
   }
-  if (node.required) {
-    schema.required = [node.label];
-  }
+  // `required` is represented on the parent object as an array of property names.
+  // Individual property nodes should not serialize their own `required` array here.
   // Recursively serialize properties for object type
   if (node.type === "object" && node.properties && typeof node.properties === "object") {
     const serializedProps: Record<string, unknown> = {};
@@ -98,11 +115,30 @@ export interface SchemaNodeData {
   type: SchemaNodeType;
   ofType?: SchemaNodeType;
   parent?: string;
-  enum?: boolean;
-  default?: string;
+  enum?: Array<string | number> | boolean;
+  default?: any;
   required?: boolean;
-  items?: SchemaNodeData[];
+  items?: SchemaNodeData[] | Record<string, unknown>;
   properties?: Record<string, unknown>;
+  // Additional optional annotations
+  format?: string;
+  pattern?: string;
+  description?: string;
+  minimum?: number;
+  maximum?: number;
+  exclusiveMinimum?: boolean | number;
+  exclusiveMaximum?: boolean | number;
+  minLength?: number;
+  maxLength?: number;
+  multipleOf?: number;
+  minItems?: number;
+  maxItems?: number;
+  uniqueItems?: boolean;
+  readOnly?: boolean;
+  writeOnly?: boolean;
+  deprecated?: boolean;
+  const?: any;
+  examples?: unknown[];
 }
 
 export interface GraphicalSchemaEditorProps {

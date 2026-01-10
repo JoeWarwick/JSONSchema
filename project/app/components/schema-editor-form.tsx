@@ -3,6 +3,7 @@ function isSchemaWithEnum(obj: unknown): obj is { enum: Array<string | number>; 
   return !!obj && typeof obj === 'object' && Array.isArray((obj as any).enum);
 }
 import { useState, useEffect } from "react";
+import { validateValueAgainstSchema } from "../utils/validation";
 import {
   addPropertyToSchema,
   removePropertyFromSchema,
@@ -22,6 +23,12 @@ interface SchemaEditorFormProps {
 
 export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, onPropertyRename }: SchemaEditorFormProps) {
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [defaultError, setDefaultError] = useState<string | null>(null);
+  const [editingDefault, setEditingDefault] = useState<string>(String(schema.default ?? ""));
+
+  useEffect(() => {
+    setEditingDefault(String(schema.default ?? ""));
+  }, [schema.default]);
 
   const updateSchema = (updates: Partial<Record<string, unknown>>) => {
     let nextSchema: Record<string, unknown>;
@@ -150,9 +157,153 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
             </select>
           </div>
 
-          {/* Show enum checkbox for string and number types */}
-          {(schema.type === "string" || schema.type === "number" || !schema.type) && (
-            <div className={styles.checkboxContainer}>
+          {/* Facet controls: hide for boolean/object/null and when enum is present */}
+          {!(schema.type === "boolean" || schema.type === "object" || schema.type === "null" || !!schema.enum) && (
+            <>
+            {/* Addable string-specific properties: format / pattern / default */}
+            {(schema.type === "string" || !schema.type) && (
+            <div className={styles.inlineAdd}>
+              {!('format' in schema) ? (
+                <button
+                  type="button"
+                  className={styles.addSmall}
+                  onClick={() => updateSchema({ format: 'date-time' })}
+                >
+                  + format
+                </button>
+              ) : (
+                <div className={styles.fieldRow}>
+                  <label className={styles.label}>Format</label>
+                  <select
+                    className={styles.select}
+                    value={(schema.format as string) || ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "") {
+                        const next = { ...schema } as Record<string, unknown>;
+                        delete next.format;
+                        onChange(next);
+                      } else {
+                        updateSchema({ format: v });
+                      }
+                    }}
+                  >
+                    <option value="">— Select format —</option>
+                    <option value="date-time">date-time</option>
+                    <option value="date">date</option>
+                    <option value="time">time</option>
+                    <option value="email">email</option>
+                    <option value="uri">uri</option>
+                    <option value="hostname">hostname</option>
+                    <option value="ipv4">ipv4</option>
+                    <option value="ipv6">ipv6</option>
+                    <option value="uuid">uuid</option>
+                  </select>
+                  <button
+                    type="button"
+                    className={styles.infoSmall}
+                    title={
+                      'Common formats: date-time (ISO 8601), date (YYYY-MM-DD), time (HH:MM:SS), email, uri, hostname, ipv4, ipv6, uuid'
+                    }
+                  >
+                    ⓘ
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.removeSmall}
+                    onClick={() => {
+                      const next = { ...schema } as Record<string, unknown>;
+                      delete next.format;
+                      onChange(next);
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+
+              {!('pattern' in schema) ? (
+                <button
+                  type="button"
+                  className={styles.addSmall}
+                  onClick={() => updateSchema({ pattern: '^.*$' })}
+                >
+                  + pattern
+                </button>
+              ) : (
+                <div className={styles.fieldRow}>
+                  <label className={styles.label}>Pattern</label>
+                  <input
+                    className={styles.input}
+                    value={String((schema.pattern as string) || '')}
+                    onChange={(e) => updateSchema({ pattern: e.target.value })}
+                    placeholder="Regex pattern"
+                  />
+                  <button
+                    type="button"
+                    className={styles.removeSmall}
+                    onClick={() => {
+                      const next = { ...schema } as Record<string, unknown>;
+                      delete next.pattern;
+                      onChange(next);
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+
+              {!('default' in schema) ? (
+                <button
+                  type="button"
+                  className={styles.addSmall}
+                  onClick={() => { setDefaultError(null); setEditingDefault(''); updateSchema({ default: '' }); }}
+                >
+                  + default
+                </button>
+              ) : (
+                <div className={styles.fieldRow}>
+                  <label className={styles.label}>Default</label>
+                  <input
+                    className={styles.input}
+                    value={editingDefault}
+                    onChange={(e) => setEditingDefault(e.target.value)}
+                    onBlur={() => {
+                      const raw = editingDefault;
+                      const parsed = (schema.type === 'number') ? (raw === '' ? '' : parseFloat(raw)) : raw;
+                      const error = validateValueAgainstSchema(parsed, schema);
+                      if (error) {
+                        setDefaultError(error);
+                      } else {
+                        setDefaultError(null);
+                        updateSchema({ default: parsed as any });
+                      }
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                    placeholder="Default value"
+                  />
+                  <button
+                    type="button"
+                    className={styles.removeSmall}
+                    onClick={() => {
+                      const next = { ...schema } as Record<string, unknown>;
+                      delete next.default;
+                      onChange(next);
+                      setDefaultError(null);
+                      setEditingDefault('');
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+              {defaultError && <div style={{ color: 'red', marginTop: 6 }}>{defaultError}</div>}
+            </div>
+            )}
+
+            {/* Show enum checkbox for string and number types */}
+            {(schema.type === "string" || schema.type === "number" || !schema.type) && (
+              <div className={styles.checkboxContainer}>
               <input
                 type="checkbox"
                 className={styles.checkbox}
@@ -164,6 +315,177 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
                 Enum (constrained values)
               </label>
             </div>
+            )}
+
+          {/* Number-specific facets: minimum / maximum / multipleOf / examples */}
+          {schema.type === "number" && (
+            <div className={styles.inlineAdd}>
+              {!('minimum' in schema) ? (
+                <button type="button" className={styles.addSmall} onClick={() => updateSchema({ minimum: 0 })}>+ minimum</button>
+              ) : (
+                <div className={styles.fieldRow}>
+                  <label className={styles.label}>Minimum</label>
+                  <input
+                    className={styles.input}
+                    type="number"
+                    value={schema.minimum === undefined ? '' : String(schema.minimum)}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === '') {
+                        const next = { ...schema } as Record<string, unknown>;
+                        delete next.minimum;
+                        onChange(next);
+                      } else {
+                        updateSchema({ minimum: parseFloat(raw) });
+                      }
+                    }}
+                    placeholder="Minimum"
+                  />
+                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.minimum; onChange(next); }}>Remove</button>
+                </div>
+              )}
+
+              {!('maximum' in schema) ? (
+                <button type="button" className={styles.addSmall} onClick={() => updateSchema({ maximum: 0 })}>+ maximum</button>
+              ) : (
+                <div className={styles.fieldRow}>
+                  <label className={styles.label}>Maximum</label>
+                  <input
+                    className={styles.input}
+                    type="number"
+                    value={schema.maximum === undefined ? '' : String(schema.maximum)}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === '') {
+                        const next = { ...schema } as Record<string, unknown>;
+                        delete next.maximum;
+                        onChange(next);
+                      } else {
+                        updateSchema({ maximum: parseFloat(raw) });
+                      }
+                    }}
+                    placeholder="Maximum"
+                  />
+                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.maximum; onChange(next); }}>Remove</button>
+                </div>
+              )}
+
+              {!('multipleOf' in schema) ? (
+                <button type="button" className={styles.addSmall} onClick={() => updateSchema({ multipleOf: 1 })}>+ multipleOf</button>
+              ) : (
+                <div className={styles.fieldRow}>
+                  <label className={styles.label}>multipleOf</label>
+                  <input
+                    className={styles.input}
+                    type="number"
+                    step="any"
+                    value={schema.multipleOf === undefined ? '' : String(schema.multipleOf)}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === '') {
+                        const next = { ...schema } as Record<string, unknown>;
+                        delete next.multipleOf;
+                        onChange(next);
+                      } else {
+                        updateSchema({ multipleOf: parseFloat(raw) });
+                      }
+                    }}
+                    placeholder="multipleOf"
+                  />
+                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.multipleOf; onChange(next); }}>Remove</button>
+                </div>
+              )}
+
+              {!('examples' in schema) ? (
+                <button type="button" className={styles.addSmall} onClick={() => { const example = schema.type === 'number' ? [0] : ['example']; updateSchema({ examples: example }); }}>+ examples</button>
+              ) : (
+                <div className={styles.fieldRow}>
+                  <label className={styles.label}>Examples</label>
+                  <input
+                    className={styles.input}
+                    value={Array.isArray(schema.examples) ? (schema.examples as any[]).join(', ') : ''}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const arr = raw.split(',').map(s => s.trim()).filter(Boolean).map(v => schema.type === 'number' ? parseFloat(v) : v);
+                      updateSchema({ examples: arr });
+                    }}
+                    placeholder="Comma-separated examples"
+                  />
+                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.examples; onChange(next); }}>Remove</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Array-specific facets: uniqueItems / minItems / maxItems */}
+          {schema.type === "array" && (
+            <div className={styles.inlineAdd}>
+              {!('uniqueItems' in schema) ? (
+                <button type="button" className={styles.addSmall} onClick={() => updateSchema({ uniqueItems: true })}>+ uniqueItems</button>
+              ) : (
+                <div className={styles.fieldRow}>
+                  <label className={styles.label}>uniqueItems</label>
+                  <input
+                    type="checkbox"
+                    checked={!!schema.uniqueItems}
+                    onChange={(e) => updateSchema({ uniqueItems: e.target.checked })}
+                  />
+                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.uniqueItems; onChange(next); }}>Remove</button>
+                </div>
+              )}
+
+              {!('minItems' in schema) ? (
+                <button type="button" className={styles.addSmall} onClick={() => updateSchema({ minItems: 0 })}>+ minItems</button>
+              ) : (
+                <div className={styles.fieldRow}>
+                  <label className={styles.label}>minItems</label>
+                  <input
+                    className={styles.input}
+                    type="number"
+                    value={schema.minItems === undefined ? '' : String(schema.minItems)}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === '') {
+                        const next = { ...schema } as Record<string, unknown>;
+                        delete next.minItems;
+                        onChange(next);
+                      } else {
+                        updateSchema({ minItems: parseInt(raw, 10) });
+                      }
+                    }}
+                    placeholder="minItems"
+                  />
+                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.minItems; onChange(next); }}>Remove</button>
+                </div>
+              )}
+
+              {!('maxItems' in schema) ? (
+                <button type="button" className={styles.addSmall} onClick={() => updateSchema({ maxItems: 0 })}>+ maxItems</button>
+              ) : (
+                <div className={styles.fieldRow}>
+                  <label className={styles.label}>maxItems</label>
+                  <input
+                    className={styles.input}
+                    type="number"
+                    value={schema.maxItems === undefined ? '' : String(schema.maxItems)}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === '') {
+                        const next = { ...schema } as Record<string, unknown>;
+                        delete next.maxItems;
+                        onChange(next);
+                      } else {
+                        updateSchema({ maxItems: parseInt(raw, 10) });
+                      }
+                    }}
+                    placeholder="maxItems"
+                  />
+                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.maxItems; onChange(next); }}>Remove</button>
+                </div>
+              )}
+            </div>
+          )}
+            </>
           )}
         </div>
 
