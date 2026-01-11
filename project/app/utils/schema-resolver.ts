@@ -3,10 +3,72 @@
 // that can handle hoisting top-level $ref -> $defs and $anchor -> $ref mapping.
 export async function resolveSchema(schema: Record<string, unknown> | null): Promise<Record<string, unknown> | null> {
   if (!schema || typeof schema !== 'object') return schema;
+  
 
   try {
     const parser = await import('json-schema-ref-parser');
-    const deref = await (parser as any).default.dereference(schema);
+    const parserModule = (parser as any).default || parser;
+    
+    // Provide a lightweight HTTP resolver using global `fetch` so remote
+    // https:// refs can be resolved in browser or Node (when fetch is available).
+    const httpResolver = {
+      order: 1,
+      canRead: (file: any) => typeof file.url === 'string' && /^https?:\/\//i.test(file.url),
+      read: async (file: any) => {
+        if (typeof fetch !== 'function') {
+          // Let parser fall back if no fetch available in this environment
+          throw new Error('fetch is not available to resolve remote $ref');
+        }
+        const res = await fetch(file.url);
+        if (!res.ok) throw new Error(`Failed to fetch ${file.url}: ${res.status}`);
+        const ct = res.headers.get?.('content-type') || '';
+        if (ct.includes('application/json') || ct.includes('application/ld+json')) return res.json();
+        // Some schemas may be returned as text/yaml; return raw text for the parser to handle
+        return res.text();
+      }
+    };
+
+    const deref = await parserModule.dereference(schema, { resolve: { http: httpResolver } });
+
+    // If the parser left any external http(s) $ref nodes unresolved (some
+    // environments or parser configs may choose to leave externals), try a
+    // best-effort post-pass that fetches those remote schemas and inlines them.
+    try {
+      const remoteCache = new Map<string, any>();
+      const fetchRemote = async (url: string) => {
+        if (remoteCache.has(url)) return remoteCache.get(url);
+        if (typeof fetch !== 'function') throw new Error('fetch not available for remote $ref inlining');
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
+        const ct = res.headers.get?.('content-type') || '';
+        const body = ct.includes('application/json') || ct.includes('application/ld+json') ? await res.json() : await res.text();
+        remoteCache.set(url, body);
+        return body;
+      };
+
+      const replaceRemoteRefs = async (node: any, parent: any, key?: string) => {
+        if (!node || typeof node !== 'object') return;
+        if (Array.isArray(node)) {
+          for (let i = 0; i < node.length; i++) await replaceRemoteRefs(node[i], node, i);
+          return;
+        }
+        if (node.$ref && typeof node.$ref === 'string' && /^https?:\/\//i.test(node.$ref)) {
+          try {
+            const remote = await fetchRemote(node.$ref);
+            const clone = typeof remote === 'string' ? JSON.parse(remote) : JSON.parse(JSON.stringify(remote));
+            if (parent && typeof key !== 'undefined') parent[key] = clone;
+            // continue walking the inlined clone
+            await replaceRemoteRefs(clone, parent, key);
+            return;
+          } catch (e) {
+            return; // leave as-is on failure
+          }
+        }
+        for (const k of Object.keys(node)) await replaceRemoteRefs(node[k], node, k);
+      };
+
+      await replaceRemoteRefs(deref, null);
+    } catch (_) {}
     // Normalize parser output: if it still contains $defs or appears to be
     // a defs map, hoist/inline into a root object with `properties` so editors
     // always receive a concrete root-object schema.

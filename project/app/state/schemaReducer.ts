@@ -126,12 +126,22 @@ export function getEditorSchema(state: SchemaState): Schema {
 export async function ensureResolved(dispatch: (a: SchemaAction) => void, source: Schema) {
   dispatch({ type: SET_DEREF_IN_PROGRESS, payload: true });
   try {
+    // Prefer the full async resolver so remote $ref can be fetched before
+    // updating the resolved cache. If the async resolver fails, fall back
+    // to the synchronous fast resolver to avoid leaving the UI without a view.
     try {
-      const fast = resolveSchemaSync(source);
-      if (fast) dispatch({ type: SET_RESOLVED_CACHE, payload: fast });
-    } catch (_) {}
-    const asyncResolved = await resolveSchema(source);
-    dispatch({ type: SET_RESOLVED_CACHE, payload: asyncResolved });
+      const asyncResolved = await resolveSchema(source);
+      if (asyncResolved) dispatch({ type: SET_RESOLVED_CACHE, payload: asyncResolved });
+      else {
+        const fast = resolveSchemaSync(source);
+        if (fast) dispatch({ type: SET_RESOLVED_CACHE, payload: fast });
+      }
+    } catch (e) {
+      try {
+        const fast = resolveSchemaSync(source);
+        if (fast) dispatch({ type: SET_RESOLVED_CACHE, payload: fast });
+      } catch (_) {}
+    }
   } catch (e) {
     // ensure we clear in-progress flag
     dispatch({ type: SET_DEREF_IN_PROGRESS, payload: false });

@@ -14,6 +14,7 @@ function renamePropertyInObject(obj: any, oldName: string, newName: string) {
   return newObj;
 }
 import { SchemaEditorForm } from "~/components/schema-editor-form";
+import { resolveSchema } from "~/utils/schema-resolver";
 import { JsonInstanceForm } from "~/components/json-instance-form";
 
 import { GraphicalSchemaEditor } from "~/components/graphical-schema-editor";
@@ -376,6 +377,7 @@ export default function Workbench() {
       <header className={styles.header}>
         <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
           <h4 className={styles.title}>Schema Sculptor - JSON Schema Workbench</h4>
+          
           {/* Debug badge: shows whether resolvedCache or source is used */}
           <div style={{marginLeft: 8}}>
             <small style={{color: '#999'}}>Schema source:</small>
