@@ -19,7 +19,18 @@ export async function resolveSchema(schema: Record<string, unknown> | null): Pro
           // Let parser fall back if no fetch available in this environment
           throw new Error('fetch is not available to resolve remote $ref');
         }
-        const res = await fetch(file.url);
+        let target = file.url as string;
+        try {
+          // Development convenience: if a ref points to example.com, prefer
+          // a local copy served from the dev server under `/schemas/` so
+          // developers don't need an external host. Only rewrite in browser.
+          if (typeof window !== 'undefined' && typeof target === 'string' && target.startsWith('https://example.com/')) {
+            const parts = target.split('/');
+            const name = parts[parts.length - 1] || 'schema.json';
+            target = `${window.location.origin}/schemas/${name}`;
+          }
+        } catch (_) {}
+        const res = await fetch(target);
         if (!res.ok) throw new Error(`Failed to fetch ${file.url}: ${res.status}`);
         const ct = res.headers.get?.('content-type') || '';
         if (ct.includes('application/json') || ct.includes('application/ld+json')) return res.json();
