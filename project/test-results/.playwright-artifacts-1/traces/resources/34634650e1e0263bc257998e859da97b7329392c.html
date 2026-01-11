@@ -1,0 +1,2286 @@
+<!DOCTYPE html><html lang="en" class="" style="color-scheme:light"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Schema Sculptor - JSON Schema Workbench</title><meta name="description" content="Generate and modify JSON schemas with an intuitive form-based editor"/><script src="/node_modules/@dazl/color-scheme/dist/client.js"></script><style data-react-router-critical-css="">
+/* /app/styles/reset.css */
+/* Josh Comeau CSS Reset 
+ * Source: https://www.joshwcomeau.com/css/custom-css-reset/
+ * Description: A modern CSS reset to improve consistency and control over default styles.
+ */
+
+/* 1. Use a more-intuitive box-sizing model */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+/* 2. Remove default margin */
+* {
+  margin: 0;
+}
+body {
+  /* 3. Add accessible line-height */
+  line-height: 1.5;
+  /* 4. Improve text rendering */
+  -webkit-font-smoothing: antialiased;
+}
+/* 5. Improve media defaults */
+img,
+picture,
+video,
+canvas,
+svg {
+  display: block;
+  max-width: 100%;
+}
+/* 6. Inherit fonts for form controls */
+input,
+button,
+textarea,
+select {
+  font: inherit;
+}
+/* 7. Avoid text overflows */
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  overflow-wrap: break-word;
+}
+/* 8. Improve line wrapping */
+p {
+  text-wrap: pretty;
+}
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  text-wrap: balance;
+}
+
+/* Custom additions to the original Josh Comeau reset by Dazl */
+
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+button {
+  border: none;
+  cursor: pointer;
+}
+
+
+/* /app/styles/global.css */
+html {
+  font: var(--font-body);
+  color: var(--color-neutral-11);
+  background-color: var(--color-neutral-1);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+
+/* /app/styles/tokens/keyframes.css */
+@keyframes fade-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes scale-up {
+  to {
+    transform: scale(1.25);
+  }
+}
+
+@keyframes scale-down {
+  to {
+    transform: scale(0.75);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes blink {
+  0%,
+  to {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes bounce {
+  25% {
+    transform: translateY(-20%);
+  }
+  40% {
+    transform: translateY(-3%);
+  }
+  0%,
+  60%,
+  to {
+    transform: translateY(0);
+  }
+}
+
+
+/* /app/styles/tokens/animations.css */
+:where(html) {
+  --ease: cubic-bezier(0.25, 0, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 1, 1);
+  --ease-out: cubic-bezier(0, 0, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.5, 0, 0.5, 1);
+  --ease-bounce-out: cubic-bezier(0.5, 1.25, 0.75, 1.25);
+  --ease-bounce-in: cubic-bezier(0.5, -0.75, 0.75, 1);
+  --ease-bounce-in-out: cubic-bezier(0.5, -0.5, 0.1, 1.5);
+
+  --animation-fade-in: fade-in 0.5s var(--ease);
+  --animation-fade-out: fade-out 0.5s var(--ease);
+
+  --animation-scale-up: scale-up 0.5s var(--ease);
+  --animation-scale-down: scale-down 0.5s var(--ease);
+
+  --animation-spin: spin 2s linear infinite;
+  --animation-blink: blink 1s var(--ease-out) infinite;
+  --animation-bounce: bounce 2s var(--ease-bounce-in-out) infinite;
+}
+
+
+/* /app/styles/tokens/colors.css */
+:where(html) {
+  --gray-1: light-dark(#fcfcfc, #111111);
+  --gray-2: light-dark(#f9f9f9, #191919);
+  --gray-3: light-dark(#efefef, #222222);
+  --gray-4: light-dark(#e8e8e8, #2a2a2a);
+  --gray-5: light-dark(#e0e0e0, #313131);
+  --gray-6: light-dark(#d8d8d8, #3a3a3a);
+  --gray-7: light-dark(#cecece, #484848);
+  --gray-8: light-dark(#bbbbbb, #606060);
+  --gray-9: light-dark(#8d8d8d, #6e6e6e);
+  --gray-10: light-dark(#838383, #7b7b7b);
+  --gray-11: light-dark(#646464, #b4b4b4);
+  --gray-12: light-dark(#202020, #eeeeee);
+  --gray-contrast: #fff;
+
+  --mauve-1: light-dark(#fdfcfd, #121113);
+  --mauve-2: light-dark(#faf9fb, #1a191b);
+  --mauve-3: light-dark(#f2eff3, #232225);
+  --mauve-4: light-dark(#eae7ec, #2b292d);
+  --mauve-5: light-dark(#e2dfe6, #323035);
+  --mauve-6: light-dark(#dbd8e0, #3c393f);
+  --mauve-7: light-dark(#d0cdd7, #49474e);
+  --mauve-8: light-dark(#bcbac7, #625f69);
+  --mauve-9: light-dark(#8e8c99, #6f6d78);
+  --mauve-10: light-dark(#83818e, #7d7a85);
+  --mauve-11: light-dark(#65636d, #b5b2bc);
+  --mauve-12: light-dark(#211f26, #eeeef0);
+  --mauve-contrast: #fff;
+
+  --slate-1: light-dark(#fcfcfd, #111113);
+  --slate-2: light-dark(#f9f9fb, #18191b);
+  --slate-3: light-dark(#f0f0f3, #212225);
+  --slate-4: light-dark(#e7e8ec, #272a2d);
+  --slate-5: light-dark(#e0e1e6, #2e3135);
+  --slate-6: light-dark(#d9d9e0, #363a3f);
+  --slate-7: light-dark(#cdced6, #43484e);
+  --slate-8: light-dark(#b9bbc6, #5a6169);
+  --slate-9: light-dark(#8b8d98, #696e77);
+  --slate-10: light-dark(#80838d, #777b84);
+  --slate-11: light-dark(#60646c, #b0b4ba);
+  --slate-12: light-dark(#1c2024, #edeef0);
+  --slate-contrast: #fff;
+
+  --sage-1: light-dark(#fbfdfc, #101211);
+  --sage-2: light-dark(#f7f9f8, #171918);
+  --sage-3: light-dark(#eef1f0, #202221);
+  --sage-4: light-dark(#e6e9e8, #272a28);
+  --sage-5: light-dark(#dfe2e0, #2e3130);
+  --sage-6: light-dark(#d7dad8, #373b39);
+  --sage-7: light-dark(#cbcfcd, #444947);
+  --sage-8: light-dark(#b8bcbb, #5b625f);
+  --sage-9: light-dark(#868e8b, #63706b);
+  --sage-10: light-dark(#7c8481, #717d79);
+  --sage-11: light-dark(#5f6563, #adb5b2);
+  --sage-12: light-dark(#1a211e, #eceeed);
+  --sage-contrast: #fff;
+
+  --olive-1: light-dark(#fcfdfc, #111210);
+  --olive-2: light-dark(#f8faf8, #181917);
+  --olive-3: light-dark(#eff1ef, #212220);
+  --olive-4: light-dark(#e7e9e7, #282a27);
+  --olive-5: light-dark(#dfe2df, #2f312e);
+  --olive-6: light-dark(#d7dad7, #383a37);
+  --olive-7: light-dark(#cccfcc, #454943);
+  --olive-8: light-dark(#b9bcb8, #5c625b);
+  --olive-9: light-dark(#898e87, #687066);
+  --olive-10: light-dark(#7f837d, #767d74);
+  --olive-11: light-dark(#60655f, #afb5ad);
+  --olive-12: light-dark(#1d211c, #eceeec);
+  --olive-contrast: #fff;
+
+  --sand-1: light-dark(#fdfdfc, #111110);
+  --sand-2: light-dark(#f9f9f8, #191918);
+  --sand-3: light-dark(#f1f0ef, #222221);
+  --sand-4: light-dark(#e9e9e6, #2a2a28);
+  --sand-5: light-dark(#e2e1de, #31312e);
+  --sand-6: light-dark(#dad9d6, #3b3a37);
+  --sand-7: light-dark(#cfcfca, #494844);
+  --sand-8: light-dark(#bcbbb5, #62605a);
+  --sand-9: light-dark(#8d8d86, #6f6d66);
+  --sand-10: light-dark(#82827c, #7d7b74);
+  --sand-11: light-dark(#63635e, #b5b3ad);
+  --sand-12: light-dark(#21201c, #eeeeec);
+  --sand-contrast: #fff;
+
+  --tomato-1: light-dark(#fffcfc, #181111);
+  --tomato-2: light-dark(#fff8f7, #1f1513);
+  --tomato-3: light-dark(#ffebe7, #391714);
+  --tomato-4: light-dark(#ffdcd3, #4e1511);
+  --tomato-5: light-dark(#ffcdc2, #5e1c16);
+  --tomato-6: light-dark(#fdbdaf, #6e2920);
+  --tomato-7: light-dark(#f5a898, #863a2d);
+  --tomato-8: light-dark(#ec8e7b, #ac4d39);
+  --tomato-9: light-dark(#e54d2e, #e54d2e);
+  --tomato-10: light-dark(#dd4425, #ec6142);
+  --tomato-11: light-dark(#d13415, #ff8e6c);
+  --tomato-12: light-dark(#5c271f, #fbd3cb);
+  --tomato-contrast: #fff;
+
+  --red-1: light-dark(#fffcfc, #191111);
+  --red-2: light-dark(#fff7f7, #201314);
+  --red-3: light-dark(#feebec, #3b1219);
+  --red-4: light-dark(#ffdbdc, #500e1c);
+  --red-5: light-dark(#ffcdce, #611623);
+  --red-6: light-dark(#fdbdbe, #73232d);
+  --red-7: light-dark(#f4a9aa, #8c333a);
+  --red-8: light-dark(#eb8e90, #b54548);
+  --red-9: light-dark(#e5484d, #e5484d);
+  --red-10: light-dark(#dd3e42, #ec5e5e);
+  --red-11: light-dark(#ce2c31, #ff8a88);
+  --red-12: light-dark(#641723, #ffd1d9);
+  --red-contrast: #fff;
+
+  --ruby-1: light-dark(#fffcfd, #191113);
+  --ruby-2: light-dark(#fff7f8, #1e1517);
+  --ruby-3: light-dark(#feeaed, #3a141e);
+  --ruby-4: light-dark(#ffdce1, #4e1325);
+  --ruby-5: light-dark(#fecfd6, #5e1a2e);
+  --ruby-6: light-dark(#f8bfc8, #6f2539);
+  --ruby-7: light-dark(#efacb8, #883447);
+  --ruby-8: light-dark(#e592a3, #b3445a);
+  --ruby-9: light-dark(#e54666, #e54666);
+  --ruby-10: light-dark(#dc3b5d, #ec5a72);
+  --ruby-11: light-dark(#ca244d, #ff8a94);
+  --ruby-12: light-dark(#64172b, #fed2e1);
+  --ruby-contrast: #fff;
+
+  --crimson-1: light-dark(#fffcfd, #191114);
+  --crimson-2: light-dark(#fef7f9, #201318);
+  --crimson-3: light-dark(#ffe9f0, #381525);
+  --crimson-4: light-dark(#fedce7, #4d122f);
+  --crimson-5: light-dark(#facedd, #5c1839);
+  --crimson-6: light-dark(#f3bed1, #6d2445);
+  --crimson-7: light-dark(#eaacc3, #873357);
+  --crimson-8: light-dark(#e094b2, #b0436e);
+  --crimson-9: light-dark(#e93d82, #e93d82);
+  --crimson-10: light-dark(#df3478, #ee528a);
+  --crimson-11: light-dark(#cb1d63, #ff87a8);
+  --crimson-12: light-dark(#621639, #fdd3e8);
+  --crimson-contrast: #fff;
+
+  --pink-1: light-dark(#fffcfe, #191117);
+  --pink-2: light-dark(#fef7fb, #21121d);
+  --pink-3: light-dark(#fee9f6, #37172f);
+  --pink-4: light-dark(#fbdcef, #4b143d);
+  --pink-5: light-dark(#f6cee7, #591c47);
+  --pink-6: light-dark(#efbfdd, #692955);
+  --pink-7: light-dark(#e7acd1, #833869);
+  --pink-8: light-dark(#dd93c2, #a84885);
+  --pink-9: light-dark(#d6409f, #d6409f);
+  --pink-10: light-dark(#cf3897, #de51a8);
+  --pink-11: light-dark(#c2298a, #ff80ca);
+  --pink-12: light-dark(#651249, #fdd1ea);
+  --pink-contrast: #fff;
+
+  --plum-1: light-dark(#fefcff, #181118);
+  --plum-2: light-dark(#fdf7fd, #201320);
+  --plum-3: light-dark(#fbebfb, #351935);
+  --plum-4: light-dark(#f7def8, #451d47);
+  --plum-5: light-dark(#f1d1f3, #502454);
+  --plum-6: light-dark(#e9c2ec, #5e3062);
+  --plum-7: light-dark(#deade3, #734079);
+  --plum-8: light-dark(#cf91d8, #92549c);
+  --plum-9: light-dark(#ab4aba, #ab4aba);
+  --plum-10: light-dark(#a144af, #b658c4);
+  --plum-11: light-dark(#953ea3, #e796f3);
+  --plum-12: light-dark(#53195d, #f4d4f4);
+  --plum-contrast: #fff;
+
+  --purple-1: light-dark(#fefcfe, #18111b);
+  --purple-2: light-dark(#fbf7fe, #1e1523);
+  --purple-3: light-dark(#f7edfd, #2f1c3b);
+  --purple-4: light-dark(#f2e2fc, #3d224e);
+  --purple-5: light-dark(#ead5f9, #48295c);
+  --purple-6: light-dark(#e0c4f4, #54346b);
+  --purple-7: light-dark(#d1afec, #664282);
+  --purple-8: light-dark(#be93e4, #8357aa);
+  --purple-9: light-dark(#8e4ec6, #8e4ec6);
+  --purple-10: light-dark(#8347b9, #9a5cd0);
+  --purple-11: light-dark(#8145b5, #d59cff);
+  --purple-12: light-dark(#402060, #ecd9fa);
+  --purple-contrast: #fff;
+
+  --violet-1: light-dark(#fdfcfe, #14121f);
+  --violet-2: light-dark(#faf8ff, #1b1525);
+  --violet-3: light-dark(#f4f0fe, #291f44);
+  --violet-4: light-dark(#ebe5ff, #33255b);
+  --violet-5: light-dark(#e1d9ff, #3c2e69);
+  --violet-6: light-dark(#d4cafe, #473876);
+  --violet-7: light-dark(#c2b5f5, #56468b);
+  --violet-8: light-dark(#aa99ec, #6858ad);
+  --violet-9: light-dark(#6e56cf, #6e56cf);
+  --violet-10: light-dark(#654dc4, #7d66d9);
+  --violet-11: light-dark(#6550b9, #bba5ff);
+  --violet-12: light-dark(#2f265f, #e2ddfe);
+  --violet-contrast: #fff;
+
+  --iris-1: light-dark(#fdfdff, #13131e);
+  --iris-2: light-dark(#f8f8ff, #171625);
+  --iris-3: light-dark(#f0f1fe, #202248);
+  --iris-4: light-dark(#e6e7ff, #262a65);
+  --iris-5: light-dark(#dadcff, #303374);
+  --iris-6: light-dark(#cbcdff, #3d3d82);
+  --iris-7: light-dark(#b8b9f8, #4a4a95);
+  --iris-8: light-dark(#9b9ef0, #5a58b1);
+  --iris-9: light-dark(#5b5bd6, #5b5bd6);
+  --iris-10: light-dark(#5151cd, #6e6ade);
+  --iris-11: light-dark(#5753c6, #b0a9ff);
+  --iris-12: light-dark(#272962, #e0dffe);
+  --iris-contrast: #fff;
+
+  --indigo-1: light-dark(#fdfdfe, #11131f);
+  --indigo-2: light-dark(#f7f9ff, #141726);
+  --indigo-3: light-dark(#edf2fe, #182449);
+  --indigo-4: light-dark(#e0e9ff, #1d2e61);
+  --indigo-5: light-dark(#d2deff, #253974);
+  --indigo-6: light-dark(#c1d0ff, #304384);
+  --indigo-7: light-dark(#abbdf9, #3a4f97);
+  --indigo-8: light-dark(#8da4ef, #435db2);
+  --indigo-9: light-dark(#3e63dd, #3e63dd);
+  --indigo-10: light-dark(#3358d4, #5472e4);
+  --indigo-11: light-dark(#3a5bc7, #9db1ff);
+  --indigo-12: light-dark(#1f2d5c, #d6e1ff);
+  --indigo-contrast: #fff;
+
+  --blue-1: light-dark(#fbfdff, #0d1520);
+  --blue-2: light-dark(#f4faff, #111927);
+  --blue-3: light-dark(#e6f4fe, #0d2847);
+  --blue-4: light-dark(#d5eeff, #003362);
+  --blue-5: light-dark(#c2e5ff, #004074);
+  --blue-6: light-dark(#acd8fc, #104d87);
+  --blue-7: light-dark(#8ec8f6, #205d9e);
+  --blue-8: light-dark(#5eb1ef, #2870bd);
+  --blue-9: light-dark(#0190ff, #0190ff);
+  --blue-10: light-dark(#0687f0, #3b9eff);
+  --blue-11: light-dark(#0072de, #6abaff);
+  --blue-12: light-dark(#113264, #c2e6ff);
+  --blue-contrast: #fff;
+
+  --cyan-1: light-dark(#fafdfe, #0b1619);
+  --cyan-2: light-dark(#f2fafb, #101b20);
+  --cyan-3: light-dark(#def7f9, #082c36);
+  --cyan-4: light-dark(#caf1f6, #003848);
+  --cyan-5: light-dark(#b5e9f0, #004558);
+  --cyan-6: light-dark(#9ddee7, #045468);
+  --cyan-7: light-dark(#7dcedc, #12677e);
+  --cyan-8: light-dark(#3db9ce, #11809c);
+  --cyan-9: light-dark(#01a2c7, #01a2c7);
+  --cyan-10: light-dark(#0797b9, #23afd0);
+  --cyan-11: light-dark(#007da5, #4ccce5);
+  --cyan-12: light-dark(#0d3c48, #b6ecf7);
+  --cyan-contrast: #fff;
+
+  --teal-1: light-dark(#fafefd, #0d1514);
+  --teal-2: light-dark(#f3fbf9, #111c1b);
+  --teal-3: light-dark(#e0f8f3, #0d2d2a);
+  --teal-4: light-dark(#ccf3ea, #023b37);
+  --teal-5: light-dark(#b8ebe0, #084843);
+  --teal-6: light-dark(#a1ded2, #145750);
+  --teal-7: light-dark(#83cdc1, #1c6961);
+  --teal-8: light-dark(#53b9ab, #1f7f74);
+  --teal-9: light-dark(#12a594, #12a594);
+  --teal-10: light-dark(#0d9b8a, #0db39e);
+  --teal-11: light-dark(#00826d, #0ad8b6);
+  --teal-12: light-dark(#0d3d38, #adf0dd);
+  --teal-contrast: #fff;
+
+  --jade-1: light-dark(#fbfefd, #0d1512);
+  --jade-2: light-dark(#f4fbf7, #121c18);
+  --jade-3: light-dark(#e5f7ed, #0f2e23);
+  --jade-4: light-dark(#d6f1e3, #0a3b2c);
+  --jade-5: light-dark(#c3e9d7, #104837);
+  --jade-6: light-dark(#acdec9, #1b5645);
+  --jade-7: light-dark(#8bceb6, #246854);
+  --jade-8: light-dark(#55ba9f, #2a7e68);
+  --jade-9: light-dark(#29a383, #29a383);
+  --jade-10: light-dark(#26997b, #27b08b);
+  --jade-11: light-dark(#00825c, #1ed8a4);
+  --jade-12: light-dark(#1d3b31, #adf0d4);
+  --jade-contrast: #fff;
+
+  --green-1: light-dark(#fbfefc, #0e1512);
+  --green-2: light-dark(#f4fbf6, #121b17);
+  --green-3: light-dark(#e6f6eb, #132d21);
+  --green-4: light-dark(#d6f1df, #113b29);
+  --green-5: light-dark(#c4e8d1, #174933);
+  --green-6: light-dark(#adddc0, #1f573e);
+  --green-7: light-dark(#8eceaa, #28684a);
+  --green-8: light-dark(#5bb88b, #2f7c57);
+  --green-9: light-dark(#30a46c, #30a46c);
+  --green-10: light-dark(#2b9a66, #33b074);
+  --green-11: light-dark(#00824d, #3dd68c);
+  --green-12: light-dark(#193b2d, #b1f1cb);
+  --green-contrast: #fff;
+
+  --grass-1: light-dark(#fbfefb, #0e1511);
+  --grass-2: light-dark(#f5fbf5, #141a15);
+  --grass-3: light-dark(#e9f7e9, #1b2a1e);
+  --grass-4: light-dark(#daf0db, #1d3a24);
+  --grass-5: light-dark(#c9e9ca, #25482d);
+  --grass-6: light-dark(#b2deb5, #2d5736);
+  --grass-7: light-dark(#94ce9a, #366740);
+  --grass-8: light-dark(#65ba74, #3e7949);
+  --grass-9: light-dark(#46a758, #46a758);
+  --grass-10: light-dark(#3e9a4f, #53b365);
+  --grass-11: light-dark(#2a7e3b, #71d083);
+  --grass-12: light-dark(#203c25, #c2f0c2);
+  --grass-contrast: #fff;
+
+  --brown-1: light-dark(#fefdfc, #12110f);
+  --brown-2: light-dark(#fcf9f5, #1c1816);
+  --brown-3: light-dark(#f6eee7, #28211d);
+  --brown-4: light-dark(#f0e4d9, #322922);
+  --brown-5: light-dark(#ebdaca, #3e3128);
+  --brown-6: light-dark(#e4cdb8, #4d3c2f);
+  --brown-7: light-dark(#dcbc9f, #614a39);
+  --brown-8: light-dark(#cea37e, #7c5f46);
+  --brown-9: light-dark(#ad7f58, #ad7f58);
+  --brown-10: light-dark(#a07553, #b98c67);
+  --brown-11: light-dark(#815e46, #dbb594);
+  --brown-12: light-dark(#3e332e, #f2e1ca);
+  --brown-contrast: #fff;
+
+  --bronze-1: light-dark(#fdfcfc, #141110);
+  --bronze-2: light-dark(#fdf7f5, #1c1918);
+  --bronze-3: light-dark(#f6edea, #262120);
+  --bronze-4: light-dark(#efe4df, #302a27);
+  --bronze-5: light-dark(#e7d9d3, #3b3330);
+  --bronze-6: light-dark(#dfcdc5, #493e3a);
+  --bronze-7: light-dark(#d3bcb3, #5a4d47);
+  --bronze-8: light-dark(#c2a499, #6f5f57);
+  --bronze-9: light-dark(#a18072, #a18072);
+  --bronze-10: light-dark(#957468, #ae8d7e);
+  --bronze-11: light-dark(#7d5e54, #d4b3a5);
+  --bronze-12: light-dark(#43302b, #ede0d9);
+  --bronze-contrast: #fff;
+
+  --gold-1: light-dark(#fdfdfc, #121211);
+  --gold-2: light-dark(#faf9f2, #1b1a17);
+  --gold-3: light-dark(#f2f0e7, #24231f);
+  --gold-4: light-dark(#eae6dc, #2e2b26);
+  --gold-5: light-dark(#e1dccf, #38352f);
+  --gold-6: light-dark(#d7d0bf, #444039);
+  --gold-7: light-dark(#cbc0aa, #544f46);
+  --gold-8: light-dark(#b9a88d, #696256);
+  --gold-9: light-dark(#978365, #978365);
+  --gold-10: light-dark(#8c795e, #a39073);
+  --gold-11: light-dark(#71624b, #cbb99f);
+  --gold-12: light-dark(#3b352b, #e8e2d9);
+  --gold-contrast: #fff;
+
+  --sky-1: light-dark(#f9feff, #0d141e);
+  --sky-2: light-dark(#f1fafd, #111a27);
+  --sky-3: light-dark(#e1f6fd, #112840);
+  --sky-4: light-dark(#d1f0fb, #113655);
+  --sky-5: light-dark(#bee7f5, #154467);
+  --sky-6: light-dark(#a9daed, #1b537b);
+  --sky-7: light-dark(#8dcae3, #1f6692);
+  --sky-8: light-dark(#60b3d7, #197cae);
+  --sky-9: light-dark(#7ce2fe, #7ce2fe);
+  --sky-10: light-dark(#74daf8, #a8eeff);
+  --sky-11: light-dark(#00749e, #75c7f0);
+  --sky-12: light-dark(#1d3e56, #c2f3ff);
+  --sky-contrast: #1c2024;
+
+  --mint-1: light-dark(#f9fefd, #0d1515);
+  --mint-2: light-dark(#f2fbf9, #0f1b1b);
+  --mint-3: light-dark(#ddf9f2, #092c2b);
+  --mint-4: light-dark(#c8f4e9, #003a39);
+  --mint-5: light-dark(#b3ecde, #004744);
+  --mint-6: light-dark(#9ce0d0, #0f5650);
+  --mint-7: light-dark(#7ecfbd, #1e685f);
+  --mint-8: light-dark(#4cbba5, #277f70);
+  --mint-9: light-dark(#86ead4, #86ead4);
+  --mint-10: light-dark(#7de1cb, #a8f5e5);
+  --mint-11: light-dark(#037864, #58d5ba);
+  --mint-12: light-dark(#16433c, #c4f5e1);
+  --mint-contrast: #1a211e;
+
+  --lime-1: light-dark(#fcfdfa, #11130c);
+  --lime-2: light-dark(#f8faf3, #151a10);
+  --lime-3: light-dark(#eef6d6, #1f2917);
+  --lime-4: light-dark(#e2f0bd, #29371d);
+  --lime-5: light-dark(#d3e7a6, #334423);
+  --lime-6: light-dark(#c2da91, #3d522a);
+  --lime-7: light-dark(#abc978, #496231);
+  --lime-8: light-dark(#8db554, #577538);
+  --lime-9: light-dark(#bdee63, #bdee63);
+  --lime-10: light-dark(#b0e64c, #d4ff70);
+  --lime-11: light-dark(#5c7c2f, #bde56b);
+  --lime-12: light-dark(#37401c, #e3f7ba);
+  --lime-contrast: #1d211c;
+
+  --yellow-1: light-dark(#fdfdf9, #14110b);
+  --yellow-2: light-dark(#fefce9, #1b180f);
+  --yellow-3: light-dark(#fffab8, #2c2305);
+  --yellow-4: light-dark(#fff394, #372b00);
+  --yellow-5: light-dark(#ffe770, #433500);
+  --yellow-6: light-dark(#f3d768, #524202);
+  --yellow-7: light-dark(#e4c767, #665417);
+  --yellow-8: light-dark(#d5ae39, #836a20);
+  --yellow-9: light-dark(#ffea00, #ffea00);
+  --yellow-10: light-dark(#ffdc00, #ffff57);
+  --yellow-11: light-dark(#a06e00, #f5e147);
+  --yellow-12: light-dark(#473b1f, #f6eeb4);
+  --yellow-contrast: #21201c;
+
+  --amber-1: light-dark(#fefdfb, #16120c);
+  --amber-2: light-dark(#fefbe9, #1d180f);
+  --amber-3: light-dark(#fff7c2, #302008);
+  --amber-4: light-dark(#ffee9c, #412700);
+  --amber-5: light-dark(#fbe577, #4e3000);
+  --amber-6: light-dark(#f4d673, #5c3d05);
+  --amber-7: light-dark(#e9c163, #714f1a);
+  --amber-8: light-dark(#e2a336, #8f6424);
+  --amber-9: light-dark(#ffc100, #ffc100);
+  --amber-10: light-dark(#ffba18, #ffdc00);
+  --amber-11: light-dark(#ad6200, #ffc916);
+  --amber-12: light-dark(#4f3422, #ffe7b3);
+  --amber-contrast: #21201c;
+
+  --orange-1: light-dark(#fefcfb, #17120e);
+  --orange-2: light-dark(#fff7ed, #1e160f);
+  --orange-3: light-dark(#ffefd6, #331e0b);
+  --orange-4: light-dark(#ffdda9, #481f00);
+  --orange-5: light-dark(#ffcf8b, #562800);
+  --orange-6: light-dark(#ffc182, #66350c);
+  --orange-7: light-dark(#f5ae73, #7e451d);
+  --orange-8: light-dark(#ec9455, #a35829);
+  --orange-9: light-dark(#f76a15, #f76a15);
+  --orange-10: light-dark(#ef5f00, #ff791b);
+  --orange-11: light-dark(#d14e00, #ff9b52);
+  --orange-12: light-dark(#582d1d, #ffe0c2);
+  --orange-contrast: #fff;
+}
+
+
+/* /app/styles/tokens/decorations.css */
+:where(html) {
+  --shadow-color: 220 3% 15%;
+  --shadow-strength: 1%;
+
+  --inner-shadow-highlight: inset 0 -0.5px 0 0 #fff, inset 0 0.5px 0 0 rgba(0, 0, 0, 0.067);
+
+  --shadow-1: 0 1px 2px -1px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 9%));
+  --shadow-2:
+    0 3px 5px -2px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 3%)),
+    0 7px 14px -5px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 5%));
+  --shadow-3:
+    0 -1px 3px 0 hsl(var(--shadow-color) / calc(var(--shadow-strength) + 2%)),
+    0 1px 2px -5px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 2%)),
+    0 2px 5px -5px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 4%)),
+    0 4px 12px -5px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 5%)),
+    0 12px 15px -5px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 7%));
+  --shadow-4:
+    0 -2px 5px 0 hsl(var(--shadow-color) / calc(var(--shadow-strength) + 2%)),
+    0 1px 1px -2px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 3%)),
+    0 2px 2px -2px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 3%)),
+    0 5px 5px -2px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 4%)),
+    0 9px 9px -2px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 5%)),
+    0 16px 16px -2px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 6%));
+
+  --inner-shadow-0: inset 0 0 0 1px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 9%));
+  --inner-shadow-1:
+    inset 0 1px 2px 0 hsl(var(--shadow-color) / calc(var(--shadow-strength) + 9%)), var(--inner-shadow-highlight);
+  --inner-shadow-2:
+    inset 0 1px 4px 0 hsl(var(--shadow-color) / calc(var(--shadow-strength) + 9%)), var(--inner-shadow-highlight);
+  --inner-shadow-3:
+    inset 0 2px 8px 0 hsl(var(--shadow-color) / calc(var(--shadow-strength) + 9%)), var(--inner-shadow-highlight);
+  --inner-shadow-4:
+    inset 0 2px 14px 0 hsl(var(--shadow-color) / calc(var(--shadow-strength) + 9%)), var(--inner-shadow-highlight);
+
+  --border-size-1: 1px;
+  --border-size-2: 2px;
+  --border-size-3: 5px;
+  --border-size-4: 10px;
+  --border-size-5: 25px;
+
+  --radius-1: 2px;
+  --radius-2: 3px;
+  --radius-3: 4px;
+  --radius-4: 6px;
+  --radius-5: 8px;
+  --radius-6: 12px;
+
+  --radius-round: 1e5px;
+
+  :where(html.dark-theme) {
+    --shadow-color: 220 40% 2%;
+    --shadow-strength: 25%;
+    --inner-shadow-highlight: inset 0 -0.5px 0 0 hsla(0, 0%, 100%, 0.067), inset 0 0.5px 0 0 rgba(0, 0, 0, 0.467);
+  }
+}
+
+
+/* /app/styles/tokens/spacings.css */
+:where(html) {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 40px;
+  --space-8: 48px;
+  --space-9: 64px;
+}
+
+
+/* /app/styles/tokens/typography.css */
+:where(html) {
+  --font-system-ui: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  --font-transitional: Charter, Bitstream Charter, Sitka Text, Cambria, serif;
+  --font-old-style: Iowan Old Style, Palatino Linotype, URW Palladio L, P052, serif;
+  --font-humanist: Seravek, Gill Sans Nova, Ubuntu, Calibri, DejaVu Sans, source-sans-pro, sans-serif;
+  --font-geometric-humanist: Avenir, Montserrat, Corbel, URW Gothic, source-sans-pro, sans-serif;
+  --font-classical-humanist: Optima, Candara, Noto Sans, source-sans-pro, sans-serif;
+  --font-neo-grotesque: Inter, Roboto, Helvetica Neue, Arial Nova, Nimbus Sans, Arial, sans-serif;
+  --font-monospace-slab-serif: Nimbus Mono PS, Courier New, monospace;
+  --font-monospace-code:
+    Dank Mono, Operator Mono, Inconsolata, Fira Mono, ui-monospace, SF Mono, Monaco, Droid Sans Mono, Source Code Pro,
+    Cascadia Code, Menlo, Consolas, DejaVu Sans Mono, monospace;
+  --font-industrial:
+    Bahnschrift, DIN Alternate, Franklin Gothic Medium, Nimbus Sans Narrow, sans-serif-condensed, sans-serif;
+  --font-rounded-sans:
+    ui-rounded, Hiragino Maru Gothic ProN, Quicksand, Comfortaa, Manjari, Arial Rounded MT, Arial Rounded MT Bold,
+    Calibri, source-sans-pro, sans-serif;
+  --font-slab-serif: Rockwell, Rockwell Nova, Roboto Slab, DejaVu Serif, Sitka Small, serif;
+  --font-antique: Superclarendon, Bookman Old Style, URW Bookman, URW Bookman L, Georgia Pro, Georgia, serif;
+  --font-didone: Didot, Bodoni MT, Noto Serif Display, URW Palladio L, P052, Sylfaen, serif;
+  --font-handwritten: Segoe Print, Bradley Hand, Chilanka, TSCu_Comic, casual, cursive;
+  --font-sans: var(--font-system-ui);
+  --font-serif: ui-serif, serif;
+  --font-mono: var(--font-monospace-code);
+
+  --font-lineheight-00: 0.95;
+  --font-lineheight-0: 1.1;
+  --font-lineheight-1: 1.25;
+  --font-lineheight-2: 1.375;
+  --font-lineheight-3: 1.5;
+  --font-lineheight-4: 1.75;
+  --font-lineheight-5: 2;
+
+  --font-letterspacing-0: -0.05em;
+  --font-letterspacing-1: 0.025em;
+  --font-letterspacing-2: 0.05em;
+  --font-letterspacing-3: 0.075em;
+  --font-letterspacing-4: 0.15em;
+  --font-letterspacing-5: 0.5em;
+  --font-letterspacing-6: 0.75em;
+  --font-letterspacing-7: 1em;
+
+  --font-size-00: 0.5rem;
+  --font-size-0: 0.75rem;
+  --font-size-1: 1rem;
+  --font-size-2: 1.1rem;
+  --font-size-3: 1.25rem;
+  --font-size-4: 1.5rem;
+  --font-size-5: 2rem;
+  --font-size-6: 2.5rem;
+  --font-size-7: 3rem;
+  --font-size-8: 3.5rem;
+
+  --font-size-fluid-0: max(0.75rem, min(2vw, 1rem));
+  --font-size-fluid-1: max(1rem, min(4vw, 1.5rem));
+  --font-size-fluid-2: max(1.5rem, min(6vw, 2.5rem));
+  --font-size-fluid-3: max(2rem, min(9vw, 3.5rem));
+}
+
+
+/* /app/styles/theme.css */
+/* Typography */
+html {
+  --font-display: 700 var(--font-size-fluid-3) var(--font-system-ui);
+  --font-heading: 600 var(--font-size-fluid-2) var(--font-system-ui);
+  --font-subheading: 500 var(--font-size-fluid-1) var(--font-system-ui);
+  --font-body: var(--font-size-fluid-0) var(--font-system-ui);
+  --font-caption: var(--font-size-0) var(--font-system-ui);
+  --font-code: var(--font-size-fluid-0) var(--font-monospace-code);
+}
+
+html {
+  /* Neutral colors - Dark slate for technical feel */
+  --color-neutral-1: var(--slate-1);
+  --color-neutral-2: var(--slate-2);
+  --color-neutral-3: var(--slate-3);
+  --color-neutral-4: var(--slate-4);
+  --color-neutral-5: var(--slate-5);
+  --color-neutral-6: var(--slate-6);
+  --color-neutral-7: var(--slate-7);
+  --color-neutral-8: var(--slate-8);
+  --color-neutral-9: var(--slate-9);
+  --color-neutral-10: var(--slate-10);
+  --color-neutral-11: var(--slate-11);
+  --color-neutral-12: var(--slate-12);
+  --color-neutral-contrast: var(--slate-contrast);
+
+  /* Accent colors - Electric blue for primary actions */
+  --color-accent-1: var(--blue-1);
+  --color-accent-2: var(--blue-2);
+  --color-accent-3: var(--blue-3);
+  --color-accent-4: var(--blue-4);
+  --color-accent-5: var(--blue-5);
+  --color-accent-6: var(--blue-6);
+  --color-accent-7: var(--blue-7);
+  --color-accent-8: var(--blue-8);
+  --color-accent-9: var(--blue-9);
+  --color-accent-10: var(--blue-10);
+  --color-accent-11: var(--blue-11);
+  --color-accent-12: var(--blue-12);
+  --color-accent-contrast: var(--blue-contrast);
+
+  /* Error colors - Warm amber for warnings */
+  --color-error-1: var(--amber-1);
+  --color-error-2: var(--amber-2);
+  --color-error-3: var(--amber-3);
+  --color-error-4: var(--amber-4);
+  --color-error-5: var(--amber-5);
+  --color-error-6: var(--amber-6);
+  --color-error-7: var(--amber-7);
+  --color-error-8: var(--amber-8);
+  --color-error-9: var(--amber-9);
+  --color-error-10: var(--amber-10);
+  --color-error-11: var(--amber-11);
+  --color-error-12: var(--amber-12);
+  --color-error-contrast: var(--amber-contrast);
+
+  /* Success colors - Vibrant green for confirmations */
+  --color-success-1: var(--green-1);
+  --color-success-2: var(--green-2);
+  --color-success-3: var(--green-3);
+  --color-success-4: var(--green-4);
+  --color-success-5: var(--green-5);
+  --color-success-6: var(--green-6);
+  --color-success-7: var(--green-7);
+  --color-success-8: var(--green-8);
+  --color-success-9: var(--green-9);
+  --color-success-10: var(--green-10);
+  --color-success-11: var(--green-11);
+  --color-success-12: var(--green-12);
+  --color-success-contrast: var(--green-contrast);
+}
+
+
+/* /app/components/ui/toaster/toaster.module.css */
+._container_1pblw_1 {
+  display: grid;
+  gap: var(--space-2);
+}
+
+
+/* /app/components/ui/toast/toast.module.css */
+._viewport_15mn9_1 {
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  top: auto;
+  flex-direction: column;
+  z-index: 100;
+  display: flex;
+  max-height: 100vh;
+  width: 100%;
+  flex-direction: column-reverse;
+  padding: var(--space-6);
+  max-width: 420px;
+}
+
+._toast_15mn9_16 {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  overflow: hidden;
+  border-radius: var(--radius-2);
+  border: var(--border-size-1) solid var(--color-neutral-6);
+  background: var(--color-neutral-3);
+  color: var(--color-neutral-11);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-4);
+  transition: all 150ms var(--ease);
+}
+
+._toast_15mn9_16[data-state="open"] {
+  animation: _slideIn_15mn9_1 150ms var(--ease);
+}
+
+._toast_15mn9_16[data-state="closed"] {
+  animation: _fadeOut_15mn9_1 100ms var(--ease);
+}
+
+._toast_15mn9_16[data-swipe="move"] {
+  transform: translateX(var(--radix-toast-swipe-move-x));
+  transition: none;
+}
+
+._toast_15mn9_16[data-swipe="cancel"] {
+  transform: translateX(0);
+}
+
+._toast_15mn9_16[data-swipe="end"] {
+  animation: _swipeOut_15mn9_1 100ms var(--ease);
+}
+
+._destructive_15mn9_53 {
+  background: var(--color-error-9);
+  color: var(--color-error-contrast);
+}
+
+._close_15mn9_58 {
+  position: absolute;
+  right: var(--space-4);
+  top: var(--space-4);
+  aspect-ratio: 1;
+  width: 32px;
+  border-radius: var(--radius-2);
+  color: var(--color-neutral-11);
+  opacity: 0;
+  transition: opacity 150ms var(--ease);
+  background-color: transparent;
+}
+
+._close_15mn9_58:hover {
+  color: var(--color-neutral-12);
+}
+
+._close_15mn9_58:focus {
+  opacity: 1;
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-neutral-6);
+}
+
+._toast_15mn9_16:hover ._close_15mn9_58 {
+  opacity: 1;
+}
+
+._destructiveClose_15mn9_85 {
+  border: var(--border-size-1) solid var(--color-neutral-6);
+}
+
+._destructiveClose_15mn9_85:focus {
+  box-shadow: 0 0 0 2px var(--color-error-9);
+}
+
+._title_15mn9_93 {
+  font-size: var(--font-size-2);
+  font-weight: 600;
+}
+
+._description_15mn9_98 {
+}
+
+._icon_15mn9_101 {
+}
+
+@keyframes _slideIn_15mn9_1 {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes _fadeOut_15mn9_1 {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes _swipeOut_15mn9_1 {
+  from {
+    transform: translateX(var(--radix-toast-swipe-end-x));
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+
+/* /app/routes/workbench.module.css */
+/* Tabbed navigation styles */
+._tabs_q53am_2 {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--color-neutral-6);
+  margin-bottom: var(--space-4);
+}
+
+._tab_q53am_2 {
+  background: var(--color-neutral-2);
+  color: var(--color-neutral-10);
+  border: 1px solid var(--color-neutral-6);
+  border-bottom: none;
+  border-radius: var(--radius-4) var(--radius-4) 0 0;
+  padding: 10px 24px;
+  font: var(--font-heading);
+  font-size: var(--font-size-2);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  margin-right: 2px;
+  outline: none;
+}
+
+._tab_q53am_2:not(:last-child) {
+  margin-right: 2px;
+}
+
+._tab_q53am_2:hover {
+  background: var(--color-neutral-3);
+  color: var(--color-neutral-12);
+}
+
+._activeTab_q53am_33 {
+  background: var(--color-neutral-1);
+  color: var(--color-primary-10);
+  border: 2px solid var(--color-primary-7);
+  border-bottom: none;
+  border-radius: var(--radius-4) var(--radius-4) 0 0;
+  padding: 12px 26px;
+  font: var(--font-heading);
+  font-size: var(--font-size-2);
+  cursor: pointer;
+  z-index: 2;
+  position: relative;
+}
+
+._tabPanel_q53am_47 {
+  background: var(--color-neutral-2);
+  border-radius: 0 0 var(--radius-4) var(--radius-4);
+  border: 1px solid var(--color-neutral-6);
+  border-top: none;
+  padding: var(--space-5);
+}
+._container_q53am_54 {
+  min-height: 100vh;
+  background: var(--color-neutral-1);
+  padding: var(--space-6);
+}
+
+._header_q53am_60 {
+  margin-bottom: var(--space-6);
+}
+
+._title_q53am_64 {
+  font: calc(0.3 * var(--font-display));
+  color: var(--color-neutral-12);
+  margin: 0 0 var(--space-2) 0;
+  letter-spacing: -0.02em;
+}
+
+._subtitle_q53am_71 {
+  font: var(--font-body);
+  color: var(--color-neutral-11);
+  margin: 0;
+}
+
+._workspace_q53am_77 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+  height: calc(100vh - 200px);
+}
+
+._panel_q53am_86 {
+  background: var(--color-neutral-2);
+  border-radius: var(--radius-4);
+  padding: var(--space-5);
+  border: 1px solid var(--color-neutral-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 600px;
+}
+
+._panelHeader_q53am_97 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-neutral-6);
+}
+
+._panelTitle_q53am_105 {
+  font: var(--font-heading);
+  color: var(--color-neutral-12);
+  margin: 0;
+  font-size: var(--font-size-3);
+}
+
+._inputControls_q53am_112 {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+._urlInputGroup_q53am_118 {
+  display: flex;
+  gap: var(--space-2);
+}
+
+._urlInput_q53am_118 {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-neutral-1);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-3);
+  color: var(--color-neutral-12);
+  font: var(--font-body);
+  font-size: var(--font-size-1);
+  transition: border-color 0.2s var(--ease);
+}
+
+._urlInput_q53am_118:focus {
+  outline: none;
+  border-color: var(--color-accent-9);
+  box-shadow: 0 0 0 3px var(--color-accent-3);
+}
+
+._urlInput_q53am_118::placeholder {
+  color: var(--color-neutral-9);
+}
+
+._controlButton_q53am_145 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-neutral-1);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-3);
+  color: var(--color-neutral-11);
+  font: var(--font-body);
+  font-size: var(--font-size-1);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+  white-space: nowrap;
+}
+
+._controlButton_q53am_145:hover:not(:disabled) {
+  background: var(--color-neutral-3);
+  border-color: var(--color-neutral-7);
+  color: var(--color-neutral-12);
+}
+
+._controlButton_q53am_145:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+._controlButton_q53am_145:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+._jsonInput_q53am_177 {
+  flex: 1;
+  padding: var(--space-4);
+  background: var(--color-neutral-1);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-3);
+  color: var(--color-neutral-12);
+  font: var(--font-code);
+  resize: none;
+  transition: border-color 0.2s var(--ease);
+}
+
+._jsonInput_q53am_177:focus {
+  outline: none;
+  border-color: var(--color-accent-9);
+  box-shadow: 0 0 0 3px var(--color-accent-3);
+}
+
+._jsonInput_q53am_177._error_q53am_195 {
+  border-color: var(--color-error-9);
+}
+
+._generateButton_q53am_199 {
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-accent-9);
+  border: none;
+  border-radius: var(--radius-3);
+  color: var(--color-accent-contrast);
+  font: var(--font-body);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+._generateButton_q53am_199:hover {
+  background: var(--color-accent-10);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-3);
+}
+
+._generateButton_q53am_199:active {
+  transform: translateY(0);
+}
+
+._generateButton_q53am_199:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+._errorMessage_q53am_230 {
+  padding: var(--space-3);
+  background: var(--color-error-3);
+  border: 1px solid var(--color-error-7);
+  border-radius: var(--radius-2);
+  color: var(--color-error-11);
+  font: var(--font-body);
+  font-size: var(--font-size-0);
+}
+
+._editorContainer_q53am_240 {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: var(--space-2);
+}
+
+._editorContainer_q53am_240::-webkit-scrollbar {
+  width: 8px;
+}
+
+._editorContainer_q53am_240::-webkit-scrollbar-track {
+  background: var(--color-neutral-3);
+  border-radius: var(--radius-2);
+}
+
+._editorContainer_q53am_240::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-7);
+  border-radius: var(--radius-2);
+}
+
+._editorContainer_q53am_240::-webkit-scrollbar-thumb:hover {
+  background: var(--color-neutral-8);
+}
+
+._schemaOutput_q53am_264 {
+  flex: 1;
+  padding: var(--space-4);
+  background: var(--color-neutral-1);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-3);
+  color: var(--color-neutral-12);
+  font: var(--font-code);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+._schemaOutput_q53am_264::-webkit-scrollbar {
+  width: 8px;
+}
+
+._schemaOutput_q53am_264::-webkit-scrollbar-track {
+  background: var(--color-neutral-3);
+  border-radius: var(--radius-2);
+}
+
+._schemaOutput_q53am_264::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-7);
+  border-radius: var(--radius-2);
+}
+
+._schemaOutput_q53am_264::-webkit-scrollbar-thumb:hover {
+  background: var(--color-neutral-8);
+}
+
+._headerActions_q53am_295 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+._actionButton_q53am_301 {
+  padding: var(--space-2) var(--space-4);
+  background: transparent;
+  border: 1px solid var(--color-accent-7);
+  border-radius: var(--radius-3);
+  color: var(--color-accent-11);
+  font: var(--font-body);
+  font-size: var(--font-size-1);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+._actionButton_q53am_301:hover {
+  background: var(--color-accent-3);
+  border-color: var(--color-accent-9);
+}
+
+._actionButton_q53am_301._copied_q53am_322 {
+  background: var(--color-success-3);
+  border-color: var(--color-success-9);
+  color: var(--color-success-11);
+}
+
+._closeButton_q53am_328 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2);
+  background: transparent;
+  color: var(--color-neutral-11);
+  border: none;
+  border-radius: var(--radius-2);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+._closeButton_q53am_328:hover {
+  background: var(--color-neutral-4);
+  color: var(--color-neutral-12);
+}
+
+._schemaOutputPanel_q53am_346 {
+  position: fixed;
+  top: 140px;
+  right: 0;
+  bottom: 0;
+  width: 50%;
+  z-index: 100;
+  transform: translateX(100%);
+  transition: transform 0.3s ease;
+  box-shadow: var(--shadow-3);
+}
+
+._schemaOutputPanel_q53am_346._visible_q53am_358 {
+  transform: translateX(0);
+}
+
+._schemaControls_q53am_362 {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+._emptyState_q53am_368 {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-neutral-9);
+  font: var(--font-body);
+  text-align: center;
+}
+
+@media (max-width: 1200px) {
+  ._workspace_q53am_77 {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    height: auto;
+  }
+
+  ._panel_q53am_86 {
+    min-height: 400px;
+  }
+
+  ._urlInputGroup_q53am_118 {
+    flex-direction: column;
+  }
+
+  ._controlButton_q53am_145 {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+
+/* /app/components/schema-editor-form.module.css */
+._container_h97nr_1 {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+._viewSourceButton_h97nr_7 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  background: var(--color-accent-3);
+  color: var(--color-accent-11);
+  border: 1px solid var(--color-accent-6);
+  border-radius: var(--radius-2);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  align-self: flex-start;
+}
+
+._viewSourceButton_h97nr_7:hover {
+  background: var(--color-accent-4);
+  border-color: var(--color-accent-7);
+}
+
+._fieldGroup_h97nr_29 {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-neutral-2);
+  border-radius: var(--radius-3);
+  border: 1px solid var(--color-neutral-6);
+}
+
+._fieldRow_h97nr_39 {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+._label_h97nr_45 {
+  font: var(--font-caption);
+  font-weight: 500;
+  color: var(--color-neutral-11);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+._input_h97nr_53 {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-neutral-1);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-2);
+  color: var(--color-neutral-12);
+  font: var(--font-body);
+  transition: border-color 0.2s var(--ease);
+}
+
+._input_h97nr_53:focus {
+  outline: none;
+  border-color: var(--color-accent-9);
+  box-shadow: 0 0 0 3px var(--color-accent-3);
+}
+
+._select_h97nr_69 {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-neutral-1);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-2);
+  color: var(--color-neutral-12);
+  font: var(--font-body);
+  cursor: pointer;
+  transition: border-color 0.2s var(--ease);
+}
+
+._select_h97nr_69:focus {
+  outline: none;
+  border-color: var(--color-accent-9);
+  box-shadow: 0 0 0 3px var(--color-accent-3);
+}
+
+._textarea_h97nr_86 {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-neutral-1);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-2);
+  color: var(--color-neutral-12);
+  font: var(--font-body);
+  min-height: 80px;
+  resize: vertical;
+  transition: border-color 0.2s var(--ease);
+}
+
+._textarea_h97nr_86:focus {
+  outline: none;
+  border-color: var(--color-accent-9);
+  box-shadow: 0 0 0 3px var(--color-accent-3);
+}
+
+._nestedContainer_h97nr_104 {
+  margin-left: var(--space-4);
+  padding-left: var(--space-4);
+  border-left: 2px solid var(--color-neutral-6);
+}
+
+._propertyHeader_h97nr_110 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+._propertyTitle_h97nr_118 {
+  font: var(--font-subheading);
+  color: var(--color-accent-11);
+  font-weight: 600;
+}
+
+._removeButton_h97nr_124 {
+  padding: var(--space-1) var(--space-2);
+  background: transparent;
+  border: 1px solid var(--color-error-7);
+  border-radius: var(--radius-2);
+  color: var(--color-error-11);
+  font-size: var(--font-size-0);
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+}
+
+._removeButton_h97nr_124:hover {
+  background: var(--color-error-3);
+  border-color: var(--color-error-9);
+}
+
+._addButton_h97nr_140 {
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 1px solid var(--color-accent-7);
+  border-radius: var(--radius-2);
+  color: var(--color-accent-11);
+  font: var(--font-body);
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+  margin-top: var(--space-2);
+}
+
+._addButton_h97nr_140:hover {
+  background: var(--color-accent-3);
+  border-color: var(--color-accent-9);
+}
+
+._propertiesHeader_h97nr_157 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+
+._propertiesHeader_h97nr_157 ._addButton_h97nr_140 {
+  margin-top: 0;
+}
+
+._checkboxContainer_h97nr_168 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+._checkbox_h97nr_168 {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--color-accent-9);
+}
+
+._checkboxLabel_h97nr_181 {
+  font: var(--font-body);
+  color: var(--color-neutral-11);
+  cursor: pointer;
+}
+
+._enumContainer_h97nr_187 {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+._enumItem_h97nr_193 {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+._descriptionToggle_h97nr_199 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: transparent;
+  border: none;
+  color: var(--color-neutral-11);
+  font: var(--font-caption);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+  border-radius: var(--radius-2);
+  width: 100%;
+  text-align: left;
+}
+
+._descriptionToggle_h97nr_199:hover {
+  background: var(--color-neutral-3);
+  color: var(--color-neutral-12);
+}
+
+._descriptionPreview_h97nr_223 {
+  flex: 1;
+  margin-left: auto;
+  color: var(--color-neutral-10);
+  font: var(--font-body);
+  font-size: 0.875rem;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+/* /app/components/json-instance-form.module.css */
+._field_1lpxr_1 {
+  margin-bottom: var(--space-3);
+}
+
+._label_1lpxr_5 {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-neutral-12);
+  margin-bottom: var(--space-2);
+}
+
+._input_1lpxr_13,
+._select_1lpxr_14 {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-neutral-7);
+  border-radius: var(--radius-2);
+  background: var(--color-neutral-1);
+  color: var(--color-neutral-12);
+  font-size: 0.875rem;
+  font-family: var(--font-body);
+  transition: border-color 0.2s;
+}
+
+._input_1lpxr_13:focus,
+._select_1lpxr_14:focus {
+  outline: none;
+  border-color: var(--color-accent-8);
+}
+
+._checkboxContainer_1lpxr_32 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+._checkbox_1lpxr_32 {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+}
+
+._checkboxLabel_1lpxr_45 {
+  font-size: 0.875rem;
+  color: var(--color-neutral-12);
+  cursor: pointer;
+}
+
+._objectContainer_1lpxr_51 {
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-2);
+  padding: var(--space-4);
+  background: var(--color-neutral-2);
+}
+
+._propertyGroup_1lpxr_58 {
+  margin-bottom: var(--space-4);
+}
+
+._propertyGroup_1lpxr_58:last-child {
+  margin-bottom: 0;
+}
+
+._propertyHeader_1lpxr_66 {
+  margin-bottom: var(--space-2);
+}
+
+._propertyName_1lpxr_70 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-neutral-12);
+}
+
+._requiredMark_1lpxr_76 {
+  color: var(--color-error-9);
+  margin-left: 0.25rem;
+}
+
+._arrayContainer_1lpxr_81 {
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-2);
+  padding: var(--space-4);
+  background: var(--color-neutral-2);
+}
+
+._arrayItem_1lpxr_88 {
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-2);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  background: var(--color-neutral-1);
+}
+
+._arrayItemHeader_1lpxr_96 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+
+._arrayItemLabel_1lpxr_103 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-neutral-11);
+}
+
+._removeButton_1lpxr_109 {
+  padding: var(--space-1) var(--space-2);
+  background: transparent;
+  color: var(--color-error-9);
+  border: 1px solid var(--color-error-7);
+  border-radius: var(--radius-2);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+._removeButton_1lpxr_109:hover {
+  background: var(--color-error-3);
+  border-color: var(--color-error-8);
+}
+
+._removeButton_1lpxr_109:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+._addButton_1lpxr_130 {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-accent-9);
+  color: var(--color-accent-contrast);
+  border: none;
+  border-radius: var(--radius-2);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-top: var(--space-3);
+}
+
+._addButton_1lpxr_130:hover {
+  background: var(--color-accent-10);
+}
+
+._nullValue_1lpxr_147 {
+  font-size: 0.875rem;
+  color: var(--color-neutral-10);
+  font-style: italic;
+}
+
+
+/* /node_modules/reactflow/dist/style.css */
+/* this gets exported as style.css and can be used for the default theming */
+/* these are the necessary styles for React Flow, they get used by base.css and style.css */
+.react-flow {
+  direction: ltr;
+}
+.react-flow__container {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+}
+.react-flow__pane {
+  z-index: 1;
+  cursor: -webkit-grab;
+  cursor: grab;
+}
+.react-flow__pane.selection {
+    cursor: pointer;
+  }
+.react-flow__pane.dragging {
+    cursor: -webkit-grabbing;
+    cursor: grabbing;
+  }
+.react-flow__viewport {
+  transform-origin: 0 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.react-flow__renderer {
+  z-index: 4;
+}
+.react-flow__selection {
+  z-index: 6;
+}
+.react-flow__nodesselection-rect:focus,
+.react-flow__nodesselection-rect:focus-visible {
+  outline: none;
+}
+.react-flow .react-flow__edges {
+  pointer-events: none;
+  overflow: visible;
+}
+.react-flow__edge-path,
+.react-flow__connection-path {
+  stroke: #b1b1b7;
+  stroke-width: 1;
+  fill: none;
+}
+.react-flow__edge {
+  pointer-events: visibleStroke;
+  cursor: pointer;
+}
+.react-flow__edge.animated path {
+    stroke-dasharray: 5;
+    -webkit-animation: dashdraw 0.5s linear infinite;
+            animation: dashdraw 0.5s linear infinite;
+  }
+.react-flow__edge.animated path.react-flow__edge-interaction {
+    stroke-dasharray: none;
+    -webkit-animation: none;
+            animation: none;
+  }
+.react-flow__edge.inactive {
+    pointer-events: none;
+  }
+.react-flow__edge.selected,
+  .react-flow__edge:focus,
+  .react-flow__edge:focus-visible {
+    outline: none;
+  }
+.react-flow__edge.selected .react-flow__edge-path,
+  .react-flow__edge:focus .react-flow__edge-path,
+  .react-flow__edge:focus-visible .react-flow__edge-path {
+    stroke: #555;
+  }
+.react-flow__edge-textwrapper {
+    pointer-events: all;
+  }
+.react-flow__edge-textbg {
+    fill: white;
+  }
+.react-flow__edge .react-flow__edge-text {
+    pointer-events: none;
+    -webkit-user-select: none;
+       -moz-user-select: none;
+            user-select: none;
+  }
+.react-flow__connection {
+  pointer-events: none;
+}
+.react-flow__connection .animated {
+    stroke-dasharray: 5;
+    -webkit-animation: dashdraw 0.5s linear infinite;
+            animation: dashdraw 0.5s linear infinite;
+  }
+.react-flow__connectionline {
+  z-index: 1001;
+}
+.react-flow__nodes {
+  pointer-events: none;
+  transform-origin: 0 0;
+}
+.react-flow__node {
+  position: absolute;
+  -webkit-user-select: none;
+     -moz-user-select: none;
+          user-select: none;
+  pointer-events: all;
+  transform-origin: 0 0;
+  box-sizing: border-box;
+  cursor: -webkit-grab;
+  cursor: grab;
+}
+.react-flow__node.dragging {
+    cursor: -webkit-grabbing;
+    cursor: grabbing;
+  }
+.react-flow__nodesselection {
+  z-index: 3;
+  transform-origin: left top;
+  pointer-events: none;
+}
+.react-flow__nodesselection-rect {
+    position: absolute;
+    pointer-events: all;
+    cursor: -webkit-grab;
+    cursor: grab;
+  }
+.react-flow__handle {
+  position: absolute;
+  pointer-events: none;
+  min-width: 5px;
+  min-height: 5px;
+  width: 6px;
+  height: 6px;
+  background: #1a192b;
+  border: 1px solid white;
+  border-radius: 100%;
+}
+.react-flow__handle.connectionindicator {
+    pointer-events: all;
+    cursor: crosshair;
+  }
+.react-flow__handle-bottom {
+    top: auto;
+    left: 50%;
+    bottom: -4px;
+    transform: translate(-50%, 0);
+  }
+.react-flow__handle-top {
+    left: 50%;
+    top: -4px;
+    transform: translate(-50%, 0);
+  }
+.react-flow__handle-left {
+    top: 50%;
+    left: -4px;
+    transform: translate(0, -50%);
+  }
+.react-flow__handle-right {
+    right: -4px;
+    top: 50%;
+    transform: translate(0, -50%);
+  }
+.react-flow__edgeupdater {
+  cursor: move;
+  pointer-events: all;
+}
+.react-flow__panel {
+  position: absolute;
+  z-index: 5;
+  margin: 15px;
+}
+.react-flow__panel.top {
+    top: 0;
+  }
+.react-flow__panel.bottom {
+    bottom: 0;
+  }
+.react-flow__panel.left {
+    left: 0;
+  }
+.react-flow__panel.right {
+    right: 0;
+  }
+.react-flow__panel.center {
+    left: 50%;
+    transform: translateX(-50%);
+  }
+.react-flow__attribution {
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.5);
+  padding: 2px 3px;
+  margin: 0;
+}
+.react-flow__attribution a {
+    text-decoration: none;
+    color: #999;
+  }
+@-webkit-keyframes dashdraw {
+  from {
+    stroke-dashoffset: 10;
+  }
+}
+@keyframes dashdraw {
+  from {
+    stroke-dashoffset: 10;
+  }
+}
+.react-flow__edgelabel-renderer {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  -webkit-user-select: none;
+     -moz-user-select: none;
+          user-select: none;
+}
+.react-flow__edge.updating .react-flow__edge-path {
+      stroke: #777;
+    }
+.react-flow__edge-text {
+    font-size: 10px;
+  }
+.react-flow__node.selectable:focus,
+  .react-flow__node.selectable:focus-visible {
+    outline: none;
+  }
+.react-flow__node-default,
+.react-flow__node-input,
+.react-flow__node-output,
+.react-flow__node-group {
+  padding: 10px;
+  border-radius: 3px;
+  width: 150px;
+  font-size: 12px;
+  color: #222;
+  text-align: center;
+  border-width: 1px;
+  border-style: solid;
+  border-color: #1a192b;
+  background-color: white;
+}
+.react-flow__node-default.selectable:hover, .react-flow__node-input.selectable:hover, .react-flow__node-output.selectable:hover, .react-flow__node-group.selectable:hover {
+      box-shadow: 0 1px 4px 1px rgba(0, 0, 0, 0.08);
+    }
+.react-flow__node-default.selectable.selected,
+    .react-flow__node-default.selectable:focus,
+    .react-flow__node-default.selectable:focus-visible,
+    .react-flow__node-input.selectable.selected,
+    .react-flow__node-input.selectable:focus,
+    .react-flow__node-input.selectable:focus-visible,
+    .react-flow__node-output.selectable.selected,
+    .react-flow__node-output.selectable:focus,
+    .react-flow__node-output.selectable:focus-visible,
+    .react-flow__node-group.selectable.selected,
+    .react-flow__node-group.selectable:focus,
+    .react-flow__node-group.selectable:focus-visible {
+      box-shadow: 0 0 0 0.5px #1a192b;
+    }
+.react-flow__node-group {
+  background-color: rgba(240, 240, 240, 0.25);
+}
+.react-flow__nodesselection-rect,
+.react-flow__selection {
+  background: rgba(0, 89, 220, 0.08);
+  border: 1px dotted rgba(0, 89, 220, 0.8);
+}
+.react-flow__nodesselection-rect:focus,
+  .react-flow__nodesselection-rect:focus-visible,
+  .react-flow__selection:focus,
+  .react-flow__selection:focus-visible {
+    outline: none;
+  }
+.react-flow__controls {
+  box-shadow: 0 0 2px 1px rgba(0, 0, 0, 0.08);
+}
+.react-flow__controls-button {
+    border: none;
+    background: #fefefe;
+    border-bottom: 1px solid #eee;
+    box-sizing: content-box;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    -webkit-user-select: none;
+       -moz-user-select: none;
+            user-select: none;
+    padding: 5px;
+  }
+.react-flow__controls-button:hover {
+      background: #f4f4f4;
+    }
+.react-flow__controls-button svg {
+      width: 100%;
+      max-width: 12px;
+      max-height: 12px;
+    }
+.react-flow__controls-button:disabled {
+      pointer-events: none;
+    }
+.react-flow__controls-button:disabled svg {
+        fill-opacity: 0.4;
+      }
+.react-flow__minimap {
+  background-color: #fff;
+}
+.react-flow__minimap svg {
+  display: block;
+}
+.react-flow__resize-control {
+  position: absolute;
+}
+.react-flow__resize-control.left,
+.react-flow__resize-control.right {
+  cursor: ew-resize;
+}
+.react-flow__resize-control.top,
+.react-flow__resize-control.bottom {
+  cursor: ns-resize;
+}
+.react-flow__resize-control.top.left,
+.react-flow__resize-control.bottom.right {
+  cursor: nwse-resize;
+}
+.react-flow__resize-control.bottom.left,
+.react-flow__resize-control.top.right {
+  cursor: nesw-resize;
+}
+/* handle styles */
+.react-flow__resize-control.handle {
+  width: 4px;
+  height: 4px;
+  border: 1px solid #fff;
+  border-radius: 1px;
+  background-color: #3367d9;
+  transform: translate(-50%, -50%);
+}
+.react-flow__resize-control.handle.left {
+  left: 0;
+  top: 50%;
+}
+.react-flow__resize-control.handle.right {
+  left: 100%;
+  top: 50%;
+}
+.react-flow__resize-control.handle.top {
+  left: 50%;
+  top: 0;
+}
+.react-flow__resize-control.handle.bottom {
+  left: 50%;
+  top: 100%;
+}
+.react-flow__resize-control.handle.top.left {
+  left: 0;
+}
+.react-flow__resize-control.handle.bottom.left {
+  left: 0;
+}
+.react-flow__resize-control.handle.top.right {
+  left: 100%;
+}
+.react-flow__resize-control.handle.bottom.right {
+  left: 100%;
+}
+/* line styles */
+.react-flow__resize-control.line {
+  border-color: #3367d9;
+  border-width: 0;
+  border-style: solid;
+}
+.react-flow__resize-control.line.left,
+.react-flow__resize-control.line.right {
+  width: 1px;
+  transform: translate(-50%, 0);
+  top: 0;
+  height: 100%;
+}
+.react-flow__resize-control.line.left {
+  left: 0;
+  border-left-width: 1px;
+}
+.react-flow__resize-control.line.right {
+  left: 100%;
+  border-right-width: 1px;
+}
+.react-flow__resize-control.line.top,
+.react-flow__resize-control.line.bottom {
+  height: 1px;
+  transform: translate(0, -50%);
+  left: 0;
+  width: 100%;
+}
+.react-flow__resize-control.line.top {
+  top: 0;
+  border-top-width: 1px;
+}
+.react-flow__resize-control.line.bottom {
+  border-bottom-width: 1px;
+  top: 100%;
+}
+
+
+/* /app/components/graphical-schema-editor.module.css */
+._a1_12nt1_1 {
+  color: #b180d7;
+  font-weight: 600;
+}
+._a2_12nt1_9 {
+  color: #388e3c;
+  font-weight: 600;
+}
+._graphicalEditorContainer_12nt1_17 {
+  display: flex;
+  height: 600px;
+  background: var(--color-neutral-2);
+  border-radius: var(--radius-4);
+  border: 1px solid var(--color-neutral-6);
+  margin-top: var(--space-4);
+}
+
+._editorSidebar_12nt1_35 {
+  width: 320px;
+  min-width: 280px;
+  background: var(--color-neutral-1);
+  border-left: 1px solid var(--color-neutral-6);
+  padding: var(--space-4);
+  font-size: var(--font-size-1);
+  color: var(--color-neutral-10);
+}
+
+._removeControl_12nt1_55 {
+  background: none;
+  border: none;
+  color: #e53935;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 14px;
+}
+
+._smallInput_12nt1_75 {
+  flex: 0 0 120px;
+  width: 120px;
+  margin-top: 2px;
+  padding: 4px;
+  border-radius: 4px;
+  border: 1px solid var(--color-neutral-6);
+}
+
+._numberInput_12nt1_93 {
+  flex: 0 0 60px;
+  width: 60px;
+  margin-top: 2px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--color-neutral-6);
+}
+</style><link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/><link rel="icon" href="data:image/svg+xml,%3csvg%20width=&#x27;67&#x27;%20height=&#x27;64&#x27;%20viewBox=&#x27;0%200%2067%2064&#x27;%20fill=&#x27;none&#x27;%20xmlns=&#x27;http://www.w3.org/2000/svg&#x27;%3e%3crect%20width=&#x27;67&#x27;%20height=&#x27;64&#x27;%20rx=&#x27;6&#x27;%20fill=&#x27;black&#x27;/%3e%3cpath%20d=&#x27;M40.8654%2045.5435L55.156%2050.2105L56.9822%2044.7029L35.8859%2037.3822L32.876%2040.7316L38.519%2058.2769L45.2848%2058.5378L40.8654%2045.5435Z&#x27;%20fill=&#x27;white&#x27;%20fill-opacity=&#x27;0.8&#x27;/%3e%3cpath%20d=&#x27;M48.1871%2030.2451L57.0737%2018.1942L52.3623%2014.7684L38.8308%2032.4245L41.1082%2036.3009L59.6589%2036.3958L62%2030.087L48.1871%2030.2451Z&#x27;%20fill=&#x27;white&#x27;%20fill-opacity=&#x27;0.8&#x27;/%3e%3cpath%20d=&#x27;M35.5137%2018.2449L26.7148%206.12811L21.9769%209.51965L34.7095%2027.7528L39.1262%2026.7989L44.9497%209.31147L39.6305%205.15308L35.5137%2018.2449Z&#x27;%20fill=&#x27;white&#x27;%20fill-opacity=&#x27;0.8&#x27;/%3e%3cpath%20d=&#x27;M20.8157%2026.7131L6.49058%2031.2773L8.27426%2036.7981L29.6757%2030.4103L30.127%2025.9463L15.1754%2015.0443L9.54831%2018.7837L20.8184%2026.7184L20.8157%2026.7131Z&#x27;%20fill=&#x27;white&#x27;%20fill-opacity=&#x27;0.8&#x27;/%3e%3cpath%20d=&#x27;M23.9511%2043.3622L23.8954%2058.2987L29.7348%2058.3198L30.2285%2036.1391L26.0905%2034.3313L11.0274%2045.0804L12.8695%2051.5499L23.9511%2043.3622Z&#x27;%20fill=&#x27;white&#x27;%20fill-opacity=&#x27;0.8&#x27;/%3e%3c/svg%3e" type="image/svg+xml"/><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&amp;display=swap"/></head><body><div class="_container_q53am_54"><header class="_header_q53am_60"><div style="display:flex;align-items:center;gap:12px"><h4 class="_title_q53am_64">Schema Sculptor - JSON Schema Workbench</h4><div style="margin-left:8px"><small style="color:#999">Schema source:</small><div style="display:inline-block;margin-left:8px;padding:4px 8px;border-radius:12px;background:#1f2937;color:#fff;font-size:12px" data-testid="schema-source-badge">none</div></div></div><p class="_subtitle_q53am_71">Generate and modify JSON schemas with an intuitive form-based editor</p></header><div class="_tabs_q53am_2"><button class="_activeTab_q53am_33">JSON Input</button><button class="_tab_q53am_2">Instance Editor</button><button class="_tab_q53am_2">Schema Input</button><button class="_tab_q53am_2">Schema Editor</button></div><div class="_tabPanel_q53am_47"><div class="_panel_q53am_86"><div class="_panelHeader_q53am_97"><h2 class="_panelTitle_q53am_105">JSON Input</h2></div><div class="_inputControls_q53am_112"><input type="file" accept=".json,application/json" style="display:none"/><button class="_controlButton_q53am_145" title="Load JSON file"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-up" aria-hidden="true"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"></path><path d="M14 2v5a1 1 0 0 0 1 1h5"></path><path d="M12 12v6"></path><path d="m15 15-3-3-3 3"></path></svg>Load File</button><button class="_controlButton_q53am_145" title="Save JSON to file"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-download" aria-hidden="true"><path d="M12 15V3"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5 5 5-5"></path></svg>Save JSON</button><div class="_urlInputGroup_q53am_118"><input type="url" class="_urlInput_q53am_118" placeholder="Enter JSON URL..." value=""/><button class="_controlButton_q53am_145" title="Load JSON from URL"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-link" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>Load URL</button></div></div><textarea class="_jsonInput_q53am_177 " placeholder="Paste your JSON here..." spellcheck="false">{
+  &quot;user&quot;: {
+    &quot;id&quot;: 1,
+    &quot;name&quot;: &quot;John Doe&quot;,
+    &quot;email&quot;: &quot;john@example.com&quot;,
+    &quot;isActive&quot;: true,
+    &quot;roles&quot;: [&quot;admin&quot;, &quot;user&quot;],
+    &quot;profile&quot;: {
+      &quot;age&quot;: 30,
+      &quot;location&quot;: &quot;New York&quot;
+    }
+  }
+}</textarea><button class="_generateButton_q53am_199"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sparkles" aria-hidden="true"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"></path><path d="M20 2v4"></path><path d="M22 4h-4"></path><circle cx="4" cy="20" r="2"></circle></svg>Generate Schema</button></div></div></div><div role="region" aria-label="Notifications (F8)" tabindex="-1" style="pointer-events:none"><ol tabindex="-1" class="_viewport_15mn9_1"></ol></div><script>((storageKey2, restoreKey) => {
+    if (!window.history.state || !window.history.state.key) {
+      let key = Math.random().toString(32).slice(2);
+      window.history.replaceState({ key }, "");
+    }
+    try {
+      let positions = JSON.parse(sessionStorage.getItem(storageKey2) || "{}");
+      let storedY = positions[restoreKey || window.history.state.key];
+      if (typeof storedY === "number") {
+        window.scrollTo(0, storedY);
+      }
+    } catch (error) {
+      console.error(error);
+      sessionStorage.removeItem(storageKey2);
+    }
+  })("react-router-scroll-positions", null)</script><link rel="modulepreload" href="/node_modules/@react-router/dev/dist/config/defaults/entry.client.tsx"/><link rel="modulepreload" href="/app/root.tsx"/><link rel="modulepreload" href="/app/routes/workbench.tsx"/><script>window.__reactRouterContext = {"basename":"/","future":{"unstable_optimizeDeps":true,"unstable_subResourceIntegrity":false,"unstable_trailingSlashAwareDataRequests":false,"v8_middleware":false,"v8_splitRouteModules":false,"v8_viteEnvironmentApi":false},"routeDiscovery":{"mode":"lazy","manifestPath":"/__manifest"},"ssr":true,"isSpaMode":false,"criticalCss":"\n/* /app/styles/reset.css */\n/* Josh Comeau CSS Reset \n * Source: https://www.joshwcomeau.com/css/custom-css-reset/\n * Description: A modern CSS reset to improve consistency and control over default styles.\n */\n\n/* 1. Use a more-intuitive box-sizing model */\n*,\n*::before,\n*::after {\n  box-sizing: border-box;\n}\n/* 2. Remove default margin */\n* {\n  margin: 0;\n}\nbody {\n  /* 3. Add accessible line-height */\n  line-height: 1.5;\n  /* 4. Improve text rendering */\n  -webkit-font-smoothing: antialiased;\n}\n/* 5. Improve media defaults */\nimg,\npicture,\nvideo,\ncanvas,\nsvg {\n  display: block;\n  max-width: 100%;\n}\n/* 6. Inherit fonts for form controls */\ninput,\nbutton,\ntextarea,\nselect {\n  font: inherit;\n}\n/* 7. Avoid text overflows */\np,\nh1,\nh2,\nh3,\nh4,\nh5,\nh6 {\n  overflow-wrap: break-word;\n}\n/* 8. Improve line wrapping */\np {\n  text-wrap: pretty;\n}\nh1,\nh2,\nh3,\nh4,\nh5,\nh6 {\n  text-wrap: balance;\n}\n\n/* Custom additions to the original Josh Comeau reset by Dazl */\n\na {\n  text-decoration: none;\n  color: inherit;\n}\n\nbutton {\n  border: none;\n  cursor: pointer;\n}\n\n\n/* /app/styles/global.css */\nhtml {\n  font: var(--font-body);\n  color: var(--color-neutral-11);\n  background-color: var(--color-neutral-1);\n}\n\n.sr-only {\n  position: absolute;\n  width: 1px;\n  height: 1px;\n  padding: 0;\n  margin: -1px;\n  overflow: hidden;\n  clip: rect(0, 0, 0, 0);\n  white-space: nowrap;\n  border-width: 0;\n}\n\n\n/* /app/styles/tokens/keyframes.css */\n@keyframes fade-in {\n  to {\n    opacity: 1;\n  }\n}\n\n@keyframes fade-out {\n  to {\n    opacity: 0;\n  }\n}\n\n@keyframes scale-up {\n  to {\n    transform: scale(1.25);\n  }\n}\n\n@keyframes scale-down {\n  to {\n    transform: scale(0.75);\n  }\n}\n\n@keyframes spin {\n  to {\n    transform: rotate(1turn);\n  }\n}\n\n@keyframes blink {\n  0%,\n  to {\n    opacity: 1;\n  }\n  50% {\n    opacity: 0.5;\n  }\n}\n\n@keyframes bounce {\n  25% {\n    transform: translateY(-20%);\n  }\n  40% {\n    transform: translateY(-3%);\n  }\n  0%,\n  60%,\n  to {\n    transform: translateY(0);\n  }\n}\n\n\n/* /app/styles/tokens/animations.css */\n:where(html) {\n  --ease: cubic-bezier(0.25, 0, 0.3, 1);\n  --ease-in: cubic-bezier(0.7, 0, 1, 1);\n  --ease-out: cubic-bezier(0, 0, 0.3, 1);\n  --ease-in-out: cubic-bezier(0.5, 0, 0.5, 1);\n  --ease-bounce-out: cubic-bezier(0.5, 1.25, 0.75, 1.25);\n  --ease-bounce-in: cubic-bezier(0.5, -0.75, 0.75, 1);\n  --ease-bounce-in-out: cubic-bezier(0.5, -0.5, 0.1, 1.5);\n\n  --animation-fade-in: fade-in 0.5s var(--ease);\n  --animation-fade-out: fade-out 0.5s var(--ease);\n\n  --animation-scale-up: scale-up 0.5s var(--ease);\n  --animation-scale-down: scale-down 0.5s var(--ease);\n\n  --animation-spin: spin 2s linear infinite;\n  --animation-blink: blink 1s var(--ease-out) infinite;\n  --animation-bounce: bounce 2s var(--ease-bounce-in-out) infinite;\n}\n\n\n/* /app/styles/tokens/colors.css */\n:where(html) {\n  --gray-1: light-dark(#fcfcfc, #111111);\n  --gray-2: light-dark(#f9f9f9, #191919);\n  --gray-3: light-dark(#efefef, #222222);\n  --gray-4: light-dark(#e8e8e8, #2a2a2a);\n  --gray-5: light-dark(#e0e0e0, #313131);\n  --gray-6: light-dark(#d8d8d8, #3a3a3a);\n  --gray-7: light-dark(#cecece, #484848);\n  --gray-8: light-dark(#bbbbbb, #606060);\n  --gray-9: light-dark(#8d8d8d, #6e6e6e);\n  --gray-10: light-dark(#838383, #7b7b7b);\n  --gray-11: light-dark(#646464, #b4b4b4);\n  --gray-12: light-dark(#202020, #eeeeee);\n  --gray-contrast: #fff;\n\n  --mauve-1: light-dark(#fdfcfd, #121113);\n  --mauve-2: light-dark(#faf9fb, #1a191b);\n  --mauve-3: light-dark(#f2eff3, #232225);\n  --mauve-4: light-dark(#eae7ec, #2b292d);\n  --mauve-5: light-dark(#e2dfe6, #323035);\n  --mauve-6: light-dark(#dbd8e0, #3c393f);\n  --mauve-7: light-dark(#d0cdd7, #49474e);\n  --mauve-8: light-dark(#bcbac7, #625f69);\n  --mauve-9: light-dark(#8e8c99, #6f6d78);\n  --mauve-10: light-dark(#83818e, #7d7a85);\n  --mauve-11: light-dark(#65636d, #b5b2bc);\n  --mauve-12: light-dark(#211f26, #eeeef0);\n  --mauve-contrast: #fff;\n\n  --slate-1: light-dark(#fcfcfd, #111113);\n  --slate-2: light-dark(#f9f9fb, #18191b);\n  --slate-3: light-dark(#f0f0f3, #212225);\n  --slate-4: light-dark(#e7e8ec, #272a2d);\n  --slate-5: light-dark(#e0e1e6, #2e3135);\n  --slate-6: light-dark(#d9d9e0, #363a3f);\n  --slate-7: light-dark(#cdced6, #43484e);\n  --slate-8: light-dark(#b9bbc6, #5a6169);\n  --slate-9: light-dark(#8b8d98, #696e77);\n  --slate-10: light-dark(#80838d, #777b84);\n  --slate-11: light-dark(#60646c, #b0b4ba);\n  --slate-12: light-dark(#1c2024, #edeef0);\n  --slate-contrast: #fff;\n\n  --sage-1: light-dark(#fbfdfc, #101211);\n  --sage-2: light-dark(#f7f9f8, #171918);\n  --sage-3: light-dark(#eef1f0, #202221);\n  --sage-4: light-dark(#e6e9e8, #272a28);\n  --sage-5: light-dark(#dfe2e0, #2e3130);\n  --sage-6: light-dark(#d7dad8, #373b39);\n  --sage-7: light-dark(#cbcfcd, #444947);\n  --sage-8: light-dark(#b8bcbb, #5b625f);\n  --sage-9: light-dark(#868e8b, #63706b);\n  --sage-10: light-dark(#7c8481, #717d79);\n  --sage-11: light-dark(#5f6563, #adb5b2);\n  --sage-12: light-dark(#1a211e, #eceeed);\n  --sage-contrast: #fff;\n\n  --olive-1: light-dark(#fcfdfc, #111210);\n  --olive-2: light-dark(#f8faf8, #181917);\n  --olive-3: light-dark(#eff1ef, #212220);\n  --olive-4: light-dark(#e7e9e7, #282a27);\n  --olive-5: light-dark(#dfe2df, #2f312e);\n  --olive-6: light-dark(#d7dad7, #383a37);\n  --olive-7: light-dark(#cccfcc, #454943);\n  --olive-8: light-dark(#b9bcb8, #5c625b);\n  --olive-9: light-dark(#898e87, #687066);\n  --olive-10: light-dark(#7f837d, #767d74);\n  --olive-11: light-dark(#60655f, #afb5ad);\n  --olive-12: light-dark(#1d211c, #eceeec);\n  --olive-contrast: #fff;\n\n  --sand-1: light-dark(#fdfdfc, #111110);\n  --sand-2: light-dark(#f9f9f8, #191918);\n  --sand-3: light-dark(#f1f0ef, #222221);\n  --sand-4: light-dark(#e9e9e6, #2a2a28);\n  --sand-5: light-dark(#e2e1de, #31312e);\n  --sand-6: light-dark(#dad9d6, #3b3a37);\n  --sand-7: light-dark(#cfcfca, #494844);\n  --sand-8: light-dark(#bcbbb5, #62605a);\n  --sand-9: light-dark(#8d8d86, #6f6d66);\n  --sand-10: light-dark(#82827c, #7d7b74);\n  --sand-11: light-dark(#63635e, #b5b3ad);\n  --sand-12: light-dark(#21201c, #eeeeec);\n  --sand-contrast: #fff;\n\n  --tomato-1: light-dark(#fffcfc, #181111);\n  --tomato-2: light-dark(#fff8f7, #1f1513);\n  --tomato-3: light-dark(#ffebe7, #391714);\n  --tomato-4: light-dark(#ffdcd3, #4e1511);\n  --tomato-5: light-dark(#ffcdc2, #5e1c16);\n  --tomato-6: light-dark(#fdbdaf, #6e2920);\n  --tomato-7: light-dark(#f5a898, #863a2d);\n  --tomato-8: light-dark(#ec8e7b, #ac4d39);\n  --tomato-9: light-dark(#e54d2e, #e54d2e);\n  --tomato-10: light-dark(#dd4425, #ec6142);\n  --tomato-11: light-dark(#d13415, #ff8e6c);\n  --tomato-12: light-dark(#5c271f, #fbd3cb);\n  --tomato-contrast: #fff;\n\n  --red-1: light-dark(#fffcfc, #191111);\n  --red-2: light-dark(#fff7f7, #201314);\n  --red-3: light-dark(#feebec, #3b1219);\n  --red-4: light-dark(#ffdbdc, #500e1c);\n  --red-5: light-dark(#ffcdce, #611623);\n  --red-6: light-dark(#fdbdbe, #73232d);\n  --red-7: light-dark(#f4a9aa, #8c333a);\n  --red-8: light-dark(#eb8e90, #b54548);\n  --red-9: light-dark(#e5484d, #e5484d);\n  --red-10: light-dark(#dd3e42, #ec5e5e);\n  --red-11: light-dark(#ce2c31, #ff8a88);\n  --red-12: light-dark(#641723, #ffd1d9);\n  --red-contrast: #fff;\n\n  --ruby-1: light-dark(#fffcfd, #191113);\n  --ruby-2: light-dark(#fff7f8, #1e1517);\n  --ruby-3: light-dark(#feeaed, #3a141e);\n  --ruby-4: light-dark(#ffdce1, #4e1325);\n  --ruby-5: light-dark(#fecfd6, #5e1a2e);\n  --ruby-6: light-dark(#f8bfc8, #6f2539);\n  --ruby-7: light-dark(#efacb8, #883447);\n  --ruby-8: light-dark(#e592a3, #b3445a);\n  --ruby-9: light-dark(#e54666, #e54666);\n  --ruby-10: light-dark(#dc3b5d, #ec5a72);\n  --ruby-11: light-dark(#ca244d, #ff8a94);\n  --ruby-12: light-dark(#64172b, #fed2e1);\n  --ruby-contrast: #fff;\n\n  --crimson-1: light-dark(#fffcfd, #191114);\n  --crimson-2: light-dark(#fef7f9, #201318);\n  --crimson-3: light-dark(#ffe9f0, #381525);\n  --crimson-4: light-dark(#fedce7, #4d122f);\n  --crimson-5: light-dark(#facedd, #5c1839);\n  --crimson-6: light-dark(#f3bed1, #6d2445);\n  --crimson-7: light-dark(#eaacc3, #873357);\n  --crimson-8: light-dark(#e094b2, #b0436e);\n  --crimson-9: light-dark(#e93d82, #e93d82);\n  --crimson-10: light-dark(#df3478, #ee528a);\n  --crimson-11: light-dark(#cb1d63, #ff87a8);\n  --crimson-12: light-dark(#621639, #fdd3e8);\n  --crimson-contrast: #fff;\n\n  --pink-1: light-dark(#fffcfe, #191117);\n  --pink-2: light-dark(#fef7fb, #21121d);\n  --pink-3: light-dark(#fee9f6, #37172f);\n  --pink-4: light-dark(#fbdcef, #4b143d);\n  --pink-5: light-dark(#f6cee7, #591c47);\n  --pink-6: light-dark(#efbfdd, #692955);\n  --pink-7: light-dark(#e7acd1, #833869);\n  --pink-8: light-dark(#dd93c2, #a84885);\n  --pink-9: light-dark(#d6409f, #d6409f);\n  --pink-10: light-dark(#cf3897, #de51a8);\n  --pink-11: light-dark(#c2298a, #ff80ca);\n  --pink-12: light-dark(#651249, #fdd1ea);\n  --pink-contrast: #fff;\n\n  --plum-1: light-dark(#fefcff, #181118);\n  --plum-2: light-dark(#fdf7fd, #201320);\n  --plum-3: light-dark(#fbebfb, #351935);\n  --plum-4: light-dark(#f7def8, #451d47);\n  --plum-5: light-dark(#f1d1f3, #502454);\n  --plum-6: light-dark(#e9c2ec, #5e3062);\n  --plum-7: light-dark(#deade3, #734079);\n  --plum-8: light-dark(#cf91d8, #92549c);\n  --plum-9: light-dark(#ab4aba, #ab4aba);\n  --plum-10: light-dark(#a144af, #b658c4);\n  --plum-11: light-dark(#953ea3, #e796f3);\n  --plum-12: light-dark(#53195d, #f4d4f4);\n  --plum-contrast: #fff;\n\n  --purple-1: light-dark(#fefcfe, #18111b);\n  --purple-2: light-dark(#fbf7fe, #1e1523);\n  --purple-3: light-dark(#f7edfd, #2f1c3b);\n  --purple-4: light-dark(#f2e2fc, #3d224e);\n  --purple-5: light-dark(#ead5f9, #48295c);\n  --purple-6: light-dark(#e0c4f4, #54346b);\n  --purple-7: light-dark(#d1afec, #664282);\n  --purple-8: light-dark(#be93e4, #8357aa);\n  --purple-9: light-dark(#8e4ec6, #8e4ec6);\n  --purple-10: light-dark(#8347b9, #9a5cd0);\n  --purple-11: light-dark(#8145b5, #d59cff);\n  --purple-12: light-dark(#402060, #ecd9fa);\n  --purple-contrast: #fff;\n\n  --violet-1: light-dark(#fdfcfe, #14121f);\n  --violet-2: light-dark(#faf8ff, #1b1525);\n  --violet-3: light-dark(#f4f0fe, #291f44);\n  --violet-4: light-dark(#ebe5ff, #33255b);\n  --violet-5: light-dark(#e1d9ff, #3c2e69);\n  --violet-6: light-dark(#d4cafe, #473876);\n  --violet-7: light-dark(#c2b5f5, #56468b);\n  --violet-8: light-dark(#aa99ec, #6858ad);\n  --violet-9: light-dark(#6e56cf, #6e56cf);\n  --violet-10: light-dark(#654dc4, #7d66d9);\n  --violet-11: light-dark(#6550b9, #bba5ff);\n  --violet-12: light-dark(#2f265f, #e2ddfe);\n  --violet-contrast: #fff;\n\n  --iris-1: light-dark(#fdfdff, #13131e);\n  --iris-2: light-dark(#f8f8ff, #171625);\n  --iris-3: light-dark(#f0f1fe, #202248);\n  --iris-4: light-dark(#e6e7ff, #262a65);\n  --iris-5: light-dark(#dadcff, #303374);\n  --iris-6: light-dark(#cbcdff, #3d3d82);\n  --iris-7: light-dark(#b8b9f8, #4a4a95);\n  --iris-8: light-dark(#9b9ef0, #5a58b1);\n  --iris-9: light-dark(#5b5bd6, #5b5bd6);\n  --iris-10: light-dark(#5151cd, #6e6ade);\n  --iris-11: light-dark(#5753c6, #b0a9ff);\n  --iris-12: light-dark(#272962, #e0dffe);\n  --iris-contrast: #fff;\n\n  --indigo-1: light-dark(#fdfdfe, #11131f);\n  --indigo-2: light-dark(#f7f9ff, #141726);\n  --indigo-3: light-dark(#edf2fe, #182449);\n  --indigo-4: light-dark(#e0e9ff, #1d2e61);\n  --indigo-5: light-dark(#d2deff, #253974);\n  --indigo-6: light-dark(#c1d0ff, #304384);\n  --indigo-7: light-dark(#abbdf9, #3a4f97);\n  --indigo-8: light-dark(#8da4ef, #435db2);\n  --indigo-9: light-dark(#3e63dd, #3e63dd);\n  --indigo-10: light-dark(#3358d4, #5472e4);\n  --indigo-11: light-dark(#3a5bc7, #9db1ff);\n  --indigo-12: light-dark(#1f2d5c, #d6e1ff);\n  --indigo-contrast: #fff;\n\n  --blue-1: light-dark(#fbfdff, #0d1520);\n  --blue-2: light-dark(#f4faff, #111927);\n  --blue-3: light-dark(#e6f4fe, #0d2847);\n  --blue-4: light-dark(#d5eeff, #003362);\n  --blue-5: light-dark(#c2e5ff, #004074);\n  --blue-6: light-dark(#acd8fc, #104d87);\n  --blue-7: light-dark(#8ec8f6, #205d9e);\n  --blue-8: light-dark(#5eb1ef, #2870bd);\n  --blue-9: light-dark(#0190ff, #0190ff);\n  --blue-10: light-dark(#0687f0, #3b9eff);\n  --blue-11: light-dark(#0072de, #6abaff);\n  --blue-12: light-dark(#113264, #c2e6ff);\n  --blue-contrast: #fff;\n\n  --cyan-1: light-dark(#fafdfe, #0b1619);\n  --cyan-2: light-dark(#f2fafb, #101b20);\n  --cyan-3: light-dark(#def7f9, #082c36);\n  --cyan-4: light-dark(#caf1f6, #003848);\n  --cyan-5: light-dark(#b5e9f0, #004558);\n  --cyan-6: light-dark(#9ddee7, #045468);\n  --cyan-7: light-dark(#7dcedc, #12677e);\n  --cyan-8: light-dark(#3db9ce, #11809c);\n  --cyan-9: light-dark(#01a2c7, #01a2c7);\n  --cyan-10: light-dark(#0797b9, #23afd0);\n  --cyan-11: light-dark(#007da5, #4ccce5);\n  --cyan-12: light-dark(#0d3c48, #b6ecf7);\n  --cyan-contrast: #fff;\n\n  --teal-1: light-dark(#fafefd, #0d1514);\n  --teal-2: light-dark(#f3fbf9, #111c1b);\n  --teal-3: light-dark(#e0f8f3, #0d2d2a);\n  --teal-4: light-dark(#ccf3ea, #023b37);\n  --teal-5: light-dark(#b8ebe0, #084843);\n  --teal-6: light-dark(#a1ded2, #145750);\n  --teal-7: light-dark(#83cdc1, #1c6961);\n  --teal-8: light-dark(#53b9ab, #1f7f74);\n  --teal-9: light-dark(#12a594, #12a594);\n  --teal-10: light-dark(#0d9b8a, #0db39e);\n  --teal-11: light-dark(#00826d, #0ad8b6);\n  --teal-12: light-dark(#0d3d38, #adf0dd);\n  --teal-contrast: #fff;\n\n  --jade-1: light-dark(#fbfefd, #0d1512);\n  --jade-2: light-dark(#f4fbf7, #121c18);\n  --jade-3: light-dark(#e5f7ed, #0f2e23);\n  --jade-4: light-dark(#d6f1e3, #0a3b2c);\n  --jade-5: light-dark(#c3e9d7, #104837);\n  --jade-6: light-dark(#acdec9, #1b5645);\n  --jade-7: light-dark(#8bceb6, #246854);\n  --jade-8: light-dark(#55ba9f, #2a7e68);\n  --jade-9: light-dark(#29a383, #29a383);\n  --jade-10: light-dark(#26997b, #27b08b);\n  --jade-11: light-dark(#00825c, #1ed8a4);\n  --jade-12: light-dark(#1d3b31, #adf0d4);\n  --jade-contrast: #fff;\n\n  --green-1: light-dark(#fbfefc, #0e1512);\n  --green-2: light-dark(#f4fbf6, #121b17);\n  --green-3: light-dark(#e6f6eb, #132d21);\n  --green-4: light-dark(#d6f1df, #113b29);\n  --green-5: light-dark(#c4e8d1, #174933);\n  --green-6: light-dark(#adddc0, #1f573e);\n  --green-7: light-dark(#8eceaa, #28684a);\n  --green-8: light-dark(#5bb88b, #2f7c57);\n  --green-9: light-dark(#30a46c, #30a46c);\n  --green-10: light-dark(#2b9a66, #33b074);\n  --green-11: light-dark(#00824d, #3dd68c);\n  --green-12: light-dark(#193b2d, #b1f1cb);\n  --green-contrast: #fff;\n\n  --grass-1: light-dark(#fbfefb, #0e1511);\n  --grass-2: light-dark(#f5fbf5, #141a15);\n  --grass-3: light-dark(#e9f7e9, #1b2a1e);\n  --grass-4: light-dark(#daf0db, #1d3a24);\n  --grass-5: light-dark(#c9e9ca, #25482d);\n  --grass-6: light-dark(#b2deb5, #2d5736);\n  --grass-7: light-dark(#94ce9a, #366740);\n  --grass-8: light-dark(#65ba74, #3e7949);\n  --grass-9: light-dark(#46a758, #46a758);\n  --grass-10: light-dark(#3e9a4f, #53b365);\n  --grass-11: light-dark(#2a7e3b, #71d083);\n  --grass-12: light-dark(#203c25, #c2f0c2);\n  --grass-contrast: #fff;\n\n  --brown-1: light-dark(#fefdfc, #12110f);\n  --brown-2: light-dark(#fcf9f5, #1c1816);\n  --brown-3: light-dark(#f6eee7, #28211d);\n  --brown-4: light-dark(#f0e4d9, #322922);\n  --brown-5: light-dark(#ebdaca, #3e3128);\n  --brown-6: light-dark(#e4cdb8, #4d3c2f);\n  --brown-7: light-dark(#dcbc9f, #614a39);\n  --brown-8: light-dark(#cea37e, #7c5f46);\n  --brown-9: light-dark(#ad7f58, #ad7f58);\n  --brown-10: light-dark(#a07553, #b98c67);\n  --brown-11: light-dark(#815e46, #dbb594);\n  --brown-12: light-dark(#3e332e, #f2e1ca);\n  --brown-contrast: #fff;\n\n  --bronze-1: light-dark(#fdfcfc, #141110);\n  --bronze-2: light-dark(#fdf7f5, #1c1918);\n  --bronze-3: light-dark(#f6edea, #262120);\n  --bronze-4: light-dark(#efe4df, #302a27);\n  --bronze-5: light-dark(#e7d9d3, #3b3330);\n  --bronze-6: light-dark(#dfcdc5, #493e3a);\n  --bronze-7: light-dark(#d3bcb3, #5a4d47);\n  --bronze-8: light-dark(#c2a499, #6f5f57);\n  --bronze-9: light-dark(#a18072, #a18072);\n  --bronze-10: light-dark(#957468, #ae8d7e);\n  --bronze-11: light-dark(#7d5e54, #d4b3a5);\n  --bronze-12: light-dark(#43302b, #ede0d9);\n  --bronze-contrast: #fff;\n\n  --gold-1: light-dark(#fdfdfc, #121211);\n  --gold-2: light-dark(#faf9f2, #1b1a17);\n  --gold-3: light-dark(#f2f0e7, #24231f);\n  --gold-4: light-dark(#eae6dc, #2e2b26);\n  --gold-5: light-dark(#e1dccf, #38352f);\n  --gold-6: light-dark(#d7d0bf, #444039);\n  --gold-7: light-dark(#cbc0aa, #544f46);\n  --gold-8: light-dark(#b9a88d, #696256);\n  --gold-9: light-dark(#978365, #978365);\n  --gold-10: light-dark(#8c795e, #a39073);\n  --gold-11: light-dark(#71624b, #cbb99f);\n  --gold-12: light-dark(#3b352b, #e8e2d9);\n  --gold-contrast: #fff;\n\n  --sky-1: light-dark(#f9feff, #0d141e);\n  --sky-2: light-dark(#f1fafd, #111a27);\n  --sky-3: light-dark(#e1f6fd, #112840);\n  --sky-4: light-dark(#d1f0fb, #113655);\n  --sky-5: light-dark(#bee7f5, #154467);\n  --sky-6: light-dark(#a9daed, #1b537b);\n  --sky-7: light-dark(#8dcae3, #1f6692);\n  --sky-8: light-dark(#60b3d7, #197cae);\n  --sky-9: light-dark(#7ce2fe, #7ce2fe);\n  --sky-10: light-dark(#74daf8, #a8eeff);\n  --sky-11: light-dark(#00749e, #75c7f0);\n  --sky-12: light-dark(#1d3e56, #c2f3ff);\n  --sky-contrast: #1c2024;\n\n  --mint-1: light-dark(#f9fefd, #0d1515);\n  --mint-2: light-dark(#f2fbf9, #0f1b1b);\n  --mint-3: light-dark(#ddf9f2, #092c2b);\n  --mint-4: light-dark(#c8f4e9, #003a39);\n  --mint-5: light-dark(#b3ecde, #004744);\n  --mint-6: light-dark(#9ce0d0, #0f5650);\n  --mint-7: light-dark(#7ecfbd, #1e685f);\n  --mint-8: light-dark(#4cbba5, #277f70);\n  --mint-9: light-dark(#86ead4, #86ead4);\n  --mint-10: light-dark(#7de1cb, #a8f5e5);\n  --mint-11: light-dark(#037864, #58d5ba);\n  --mint-12: light-dark(#16433c, #c4f5e1);\n  --mint-contrast: #1a211e;\n\n  --lime-1: light-dark(#fcfdfa, #11130c);\n  --lime-2: light-dark(#f8faf3, #151a10);\n  --lime-3: light-dark(#eef6d6, #1f2917);\n  --lime-4: light-dark(#e2f0bd, #29371d);\n  --lime-5: light-dark(#d3e7a6, #334423);\n  --lime-6: light-dark(#c2da91, #3d522a);\n  --lime-7: light-dark(#abc978, #496231);\n  --lime-8: light-dark(#8db554, #577538);\n  --lime-9: light-dark(#bdee63, #bdee63);\n  --lime-10: light-dark(#b0e64c, #d4ff70);\n  --lime-11: light-dark(#5c7c2f, #bde56b);\n  --lime-12: light-dark(#37401c, #e3f7ba);\n  --lime-contrast: #1d211c;\n\n  --yellow-1: light-dark(#fdfdf9, #14110b);\n  --yellow-2: light-dark(#fefce9, #1b180f);\n  --yellow-3: light-dark(#fffab8, #2c2305);\n  --yellow-4: light-dark(#fff394, #372b00);\n  --yellow-5: light-dark(#ffe770, #433500);\n  --yellow-6: light-dark(#f3d768, #524202);\n  --yellow-7: light-dark(#e4c767, #665417);\n  --yellow-8: light-dark(#d5ae39, #836a20);\n  --yellow-9: light-dark(#ffea00, #ffea00);\n  --yellow-10: light-dark(#ffdc00, #ffff57);\n  --yellow-11: light-dark(#a06e00, #f5e147);\n  --yellow-12: light-dark(#473b1f, #f6eeb4);\n  --yellow-contrast: #21201c;\n\n  --amber-1: light-dark(#fefdfb, #16120c);\n  --amber-2: light-dark(#fefbe9, #1d180f);\n  --amber-3: light-dark(#fff7c2, #302008);\n  --amber-4: light-dark(#ffee9c, #412700);\n  --amber-5: light-dark(#fbe577, #4e3000);\n  --amber-6: light-dark(#f4d673, #5c3d05);\n  --amber-7: light-dark(#e9c163, #714f1a);\n  --amber-8: light-dark(#e2a336, #8f6424);\n  --amber-9: light-dark(#ffc100, #ffc100);\n  --amber-10: light-dark(#ffba18, #ffdc00);\n  --amber-11: light-dark(#ad6200, #ffc916);\n  --amber-12: light-dark(#4f3422, #ffe7b3);\n  --amber-contrast: #21201c;\n\n  --orange-1: light-dark(#fefcfb, #17120e);\n  --orange-2: light-dark(#fff7ed, #1e160f);\n  --orange-3: light-dark(#ffefd6, #331e0b);\n  --orange-4: light-dark(#ffdda9, #481f00);\n  --orange-5: light-dark(#ffcf8b, #562800);\n  --orange-6: light-dark(#ffc182, #66350c);\n  --orange-7: light-dark(#f5ae73, #7e451d);\n  --orange-8: light-dark(#ec9455, #a35829);\n  --orange-9: light-dark(#f76a15, #f76a15);\n  --orange-10: light-dark(#ef5f00, #ff791b);\n  --orange-11: light-dark(#d14e00, #ff9b52);\n  --orange-12: light-dark(#582d1d, #ffe0c2);\n  --orange-contrast: #fff;\n}\n\n\n/* /app/styles/tokens/decorations.css */\n:where(html) {\n  --shadow-color: 220 3% 15%;\n  --shadow-strength: 1%;\n\n  --inner-shadow-highlight: inset 0 -0.5px 0 0 #fff, inset 0 0.5px 0 0 rgba(0, 0, 0, 0.067);\n\n  --shadow-1: 0 1px 2px -1px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 9%));\n  --shadow-2:\n    0 3px 5px -2px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 3%)),\n    0 7px 14px -5px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 5%));\n  --shadow-3:\n    0 -1px 3px 0 hsl(var(--shadow-color) / calc(var(--shadow-strength) + 2%)),\n    0 1px 2px -5px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 2%)),\n    0 2px 5px -5px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 4%)),\n    0 4px 12px -5px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 5%)),\n    0 12px 15px -5px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 7%));\n  --shadow-4:\n    0 -2px 5px 0 hsl(var(--shadow-color) / calc(var(--shadow-strength) + 2%)),\n    0 1px 1px -2px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 3%)),\n    0 2px 2px -2px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 3%)),\n    0 5px 5px -2px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 4%)),\n    0 9px 9px -2px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 5%)),\n    0 16px 16px -2px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 6%));\n\n  --inner-shadow-0: inset 0 0 0 1px hsl(var(--shadow-color) / calc(var(--shadow-strength) + 9%));\n  --inner-shadow-1:\n    inset 0 1px 2px 0 hsl(var(--shadow-color) / calc(var(--shadow-strength) + 9%)), var(--inner-shadow-highlight);\n  --inner-shadow-2:\n    inset 0 1px 4px 0 hsl(var(--shadow-color) / calc(var(--shadow-strength) + 9%)), var(--inner-shadow-highlight);\n  --inner-shadow-3:\n    inset 0 2px 8px 0 hsl(var(--shadow-color) / calc(var(--shadow-strength) + 9%)), var(--inner-shadow-highlight);\n  --inner-shadow-4:\n    inset 0 2px 14px 0 hsl(var(--shadow-color) / calc(var(--shadow-strength) + 9%)), var(--inner-shadow-highlight);\n\n  --border-size-1: 1px;\n  --border-size-2: 2px;\n  --border-size-3: 5px;\n  --border-size-4: 10px;\n  --border-size-5: 25px;\n\n  --radius-1: 2px;\n  --radius-2: 3px;\n  --radius-3: 4px;\n  --radius-4: 6px;\n  --radius-5: 8px;\n  --radius-6: 12px;\n\n  --radius-round: 1e5px;\n\n  :where(html.dark-theme) {\n    --shadow-color: 220 40% 2%;\n    --shadow-strength: 25%;\n    --inner-shadow-highlight: inset 0 -0.5px 0 0 hsla(0, 0%, 100%, 0.067), inset 0 0.5px 0 0 rgba(0, 0, 0, 0.467);\n  }\n}\n\n\n/* /app/styles/tokens/spacings.css */\n:where(html) {\n  --space-1: 4px;\n  --space-2: 8px;\n  --space-3: 12px;\n  --space-4: 16px;\n  --space-5: 24px;\n  --space-6: 32px;\n  --space-7: 40px;\n  --space-8: 48px;\n  --space-9: 64px;\n}\n\n\n/* /app/styles/tokens/typography.css */\n:where(html) {\n  --font-system-ui: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;\n  --font-transitional: Charter, Bitstream Charter, Sitka Text, Cambria, serif;\n  --font-old-style: Iowan Old Style, Palatino Linotype, URW Palladio L, P052, serif;\n  --font-humanist: Seravek, Gill Sans Nova, Ubuntu, Calibri, DejaVu Sans, source-sans-pro, sans-serif;\n  --font-geometric-humanist: Avenir, Montserrat, Corbel, URW Gothic, source-sans-pro, sans-serif;\n  --font-classical-humanist: Optima, Candara, Noto Sans, source-sans-pro, sans-serif;\n  --font-neo-grotesque: Inter, Roboto, Helvetica Neue, Arial Nova, Nimbus Sans, Arial, sans-serif;\n  --font-monospace-slab-serif: Nimbus Mono PS, Courier New, monospace;\n  --font-monospace-code:\n    Dank Mono, Operator Mono, Inconsolata, Fira Mono, ui-monospace, SF Mono, Monaco, Droid Sans Mono, Source Code Pro,\n    Cascadia Code, Menlo, Consolas, DejaVu Sans Mono, monospace;\n  --font-industrial:\n    Bahnschrift, DIN Alternate, Franklin Gothic Medium, Nimbus Sans Narrow, sans-serif-condensed, sans-serif;\n  --font-rounded-sans:\n    ui-rounded, Hiragino Maru Gothic ProN, Quicksand, Comfortaa, Manjari, Arial Rounded MT, Arial Rounded MT Bold,\n    Calibri, source-sans-pro, sans-serif;\n  --font-slab-serif: Rockwell, Rockwell Nova, Roboto Slab, DejaVu Serif, Sitka Small, serif;\n  --font-antique: Superclarendon, Bookman Old Style, URW Bookman, URW Bookman L, Georgia Pro, Georgia, serif;\n  --font-didone: Didot, Bodoni MT, Noto Serif Display, URW Palladio L, P052, Sylfaen, serif;\n  --font-handwritten: Segoe Print, Bradley Hand, Chilanka, TSCu_Comic, casual, cursive;\n  --font-sans: var(--font-system-ui);\n  --font-serif: ui-serif, serif;\n  --font-mono: var(--font-monospace-code);\n\n  --font-lineheight-00: 0.95;\n  --font-lineheight-0: 1.1;\n  --font-lineheight-1: 1.25;\n  --font-lineheight-2: 1.375;\n  --font-lineheight-3: 1.5;\n  --font-lineheight-4: 1.75;\n  --font-lineheight-5: 2;\n\n  --font-letterspacing-0: -0.05em;\n  --font-letterspacing-1: 0.025em;\n  --font-letterspacing-2: 0.05em;\n  --font-letterspacing-3: 0.075em;\n  --font-letterspacing-4: 0.15em;\n  --font-letterspacing-5: 0.5em;\n  --font-letterspacing-6: 0.75em;\n  --font-letterspacing-7: 1em;\n\n  --font-size-00: 0.5rem;\n  --font-size-0: 0.75rem;\n  --font-size-1: 1rem;\n  --font-size-2: 1.1rem;\n  --font-size-3: 1.25rem;\n  --font-size-4: 1.5rem;\n  --font-size-5: 2rem;\n  --font-size-6: 2.5rem;\n  --font-size-7: 3rem;\n  --font-size-8: 3.5rem;\n\n  --font-size-fluid-0: max(0.75rem, min(2vw, 1rem));\n  --font-size-fluid-1: max(1rem, min(4vw, 1.5rem));\n  --font-size-fluid-2: max(1.5rem, min(6vw, 2.5rem));\n  --font-size-fluid-3: max(2rem, min(9vw, 3.5rem));\n}\n\n\n/* /app/styles/theme.css */\n/* Typography */\nhtml {\n  --font-display: 700 var(--font-size-fluid-3) var(--font-system-ui);\n  --font-heading: 600 var(--font-size-fluid-2) var(--font-system-ui);\n  --font-subheading: 500 var(--font-size-fluid-1) var(--font-system-ui);\n  --font-body: var(--font-size-fluid-0) var(--font-system-ui);\n  --font-caption: var(--font-size-0) var(--font-system-ui);\n  --font-code: var(--font-size-fluid-0) var(--font-monospace-code);\n}\n\nhtml {\n  /* Neutral colors - Dark slate for technical feel */\n  --color-neutral-1: var(--slate-1);\n  --color-neutral-2: var(--slate-2);\n  --color-neutral-3: var(--slate-3);\n  --color-neutral-4: var(--slate-4);\n  --color-neutral-5: var(--slate-5);\n  --color-neutral-6: var(--slate-6);\n  --color-neutral-7: var(--slate-7);\n  --color-neutral-8: var(--slate-8);\n  --color-neutral-9: var(--slate-9);\n  --color-neutral-10: var(--slate-10);\n  --color-neutral-11: var(--slate-11);\n  --color-neutral-12: var(--slate-12);\n  --color-neutral-contrast: var(--slate-contrast);\n\n  /* Accent colors - Electric blue for primary actions */\n  --color-accent-1: var(--blue-1);\n  --color-accent-2: var(--blue-2);\n  --color-accent-3: var(--blue-3);\n  --color-accent-4: var(--blue-4);\n  --color-accent-5: var(--blue-5);\n  --color-accent-6: var(--blue-6);\n  --color-accent-7: var(--blue-7);\n  --color-accent-8: var(--blue-8);\n  --color-accent-9: var(--blue-9);\n  --color-accent-10: var(--blue-10);\n  --color-accent-11: var(--blue-11);\n  --color-accent-12: var(--blue-12);\n  --color-accent-contrast: var(--blue-contrast);\n\n  /* Error colors - Warm amber for warnings */\n  --color-error-1: var(--amber-1);\n  --color-error-2: var(--amber-2);\n  --color-error-3: var(--amber-3);\n  --color-error-4: var(--amber-4);\n  --color-error-5: var(--amber-5);\n  --color-error-6: var(--amber-6);\n  --color-error-7: var(--amber-7);\n  --color-error-8: var(--amber-8);\n  --color-error-9: var(--amber-9);\n  --color-error-10: var(--amber-10);\n  --color-error-11: var(--amber-11);\n  --color-error-12: var(--amber-12);\n  --color-error-contrast: var(--amber-contrast);\n\n  /* Success colors - Vibrant green for confirmations */\n  --color-success-1: var(--green-1);\n  --color-success-2: var(--green-2);\n  --color-success-3: var(--green-3);\n  --color-success-4: var(--green-4);\n  --color-success-5: var(--green-5);\n  --color-success-6: var(--green-6);\n  --color-success-7: var(--green-7);\n  --color-success-8: var(--green-8);\n  --color-success-9: var(--green-9);\n  --color-success-10: var(--green-10);\n  --color-success-11: var(--green-11);\n  --color-success-12: var(--green-12);\n  --color-success-contrast: var(--green-contrast);\n}\n\n\n/* /app/components/ui/toaster/toaster.module.css */\n._container_1pblw_1 {\n  display: grid;\n  gap: var(--space-2);\n}\n\n\n/* /app/components/ui/toast/toast.module.css */\n._viewport_15mn9_1 {\n  position: fixed;\n  bottom: 0;\n  right: 0;\n  top: auto;\n  flex-direction: column;\n  z-index: 100;\n  display: flex;\n  max-height: 100vh;\n  width: 100%;\n  flex-direction: column-reverse;\n  padding: var(--space-6);\n  max-width: 420px;\n}\n\n._toast_15mn9_16 {\n  position: relative;\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: var(--space-4);\n  overflow: hidden;\n  border-radius: var(--radius-2);\n  border: var(--border-size-1) solid var(--color-neutral-6);\n  background: var(--color-neutral-3);\n  color: var(--color-neutral-11);\n  padding: var(--space-4);\n  box-shadow: var(--shadow-4);\n  transition: all 150ms var(--ease);\n}\n\n._toast_15mn9_16[data-state=\"open\"] {\n  animation: _slideIn_15mn9_1 150ms var(--ease);\n}\n\n._toast_15mn9_16[data-state=\"closed\"] {\n  animation: _fadeOut_15mn9_1 100ms var(--ease);\n}\n\n._toast_15mn9_16[data-swipe=\"move\"] {\n  transform: translateX(var(--radix-toast-swipe-move-x));\n  transition: none;\n}\n\n._toast_15mn9_16[data-swipe=\"cancel\"] {\n  transform: translateX(0);\n}\n\n._toast_15mn9_16[data-swipe=\"end\"] {\n  animation: _swipeOut_15mn9_1 100ms var(--ease);\n}\n\n._destructive_15mn9_53 {\n  background: var(--color-error-9);\n  color: var(--color-error-contrast);\n}\n\n._close_15mn9_58 {\n  position: absolute;\n  right: var(--space-4);\n  top: var(--space-4);\n  aspect-ratio: 1;\n  width: 32px;\n  border-radius: var(--radius-2);\n  color: var(--color-neutral-11);\n  opacity: 0;\n  transition: opacity 150ms var(--ease);\n  background-color: transparent;\n}\n\n._close_15mn9_58:hover {\n  color: var(--color-neutral-12);\n}\n\n._close_15mn9_58:focus {\n  opacity: 1;\n  outline: none;\n  box-shadow: 0 0 0 2px var(--color-neutral-6);\n}\n\n._toast_15mn9_16:hover ._close_15mn9_58 {\n  opacity: 1;\n}\n\n._destructiveClose_15mn9_85 {\n  border: var(--border-size-1) solid var(--color-neutral-6);\n}\n\n._destructiveClose_15mn9_85:focus {\n  box-shadow: 0 0 0 2px var(--color-error-9);\n}\n\n._title_15mn9_93 {\n  font-size: var(--font-size-2);\n  font-weight: 600;\n}\n\n._description_15mn9_98 {\n}\n\n._icon_15mn9_101 {\n}\n\n@keyframes _slideIn_15mn9_1 {\n  from {\n    transform: translateY(100%);\n    opacity: 0;\n  }\n  to {\n    transform: translateY(0);\n    opacity: 1;\n  }\n}\n\n@keyframes _fadeOut_15mn9_1 {\n  from {\n    opacity: 1;\n  }\n  to {\n    opacity: 0;\n  }\n}\n\n@keyframes _swipeOut_15mn9_1 {\n  from {\n    transform: translateX(var(--radix-toast-swipe-end-x));\n  }\n  to {\n    transform: translateX(100%);\n  }\n}\n\n\n/* /app/routes/workbench.module.css */\n/* Tabbed navigation styles */\n._tabs_q53am_2 {\n  display: flex;\n  gap: 0;\n  border-bottom: 2px solid var(--color-neutral-6);\n  margin-bottom: var(--space-4);\n}\n\n._tab_q53am_2 {\n  background: var(--color-neutral-2);\n  color: var(--color-neutral-10);\n  border: 1px solid var(--color-neutral-6);\n  border-bottom: none;\n  border-radius: var(--radius-4) var(--radius-4) 0 0;\n  padding: 10px 24px;\n  font: var(--font-heading);\n  font-size: var(--font-size-2);\n  cursor: pointer;\n  transition: background 0.2s, color 0.2s;\n  margin-right: 2px;\n  outline: none;\n}\n\n._tab_q53am_2:not(:last-child) {\n  margin-right: 2px;\n}\n\n._tab_q53am_2:hover {\n  background: var(--color-neutral-3);\n  color: var(--color-neutral-12);\n}\n\n._activeTab_q53am_33 {\n  background: var(--color-neutral-1);\n  color: var(--color-primary-10);\n  border: 2px solid var(--color-primary-7);\n  border-bottom: none;\n  border-radius: var(--radius-4) var(--radius-4) 0 0;\n  padding: 12px 26px;\n  font: var(--font-heading);\n  font-size: var(--font-size-2);\n  cursor: pointer;\n  z-index: 2;\n  position: relative;\n}\n\n._tabPanel_q53am_47 {\n  background: var(--color-neutral-2);\n  border-radius: 0 0 var(--radius-4) var(--radius-4);\n  border: 1px solid var(--color-neutral-6);\n  border-top: none;\n  padding: var(--space-5);\n}\n._container_q53am_54 {\n  min-height: 100vh;\n  background: var(--color-neutral-1);\n  padding: var(--space-6);\n}\n\n._header_q53am_60 {\n  margin-bottom: var(--space-6);\n}\n\n._title_q53am_64 {\n  font: calc(0.3 * var(--font-display));\n  color: var(--color-neutral-12);\n  margin: 0 0 var(--space-2) 0;\n  letter-spacing: -0.02em;\n}\n\n._subtitle_q53am_71 {\n  font: var(--font-body);\n  color: var(--color-neutral-11);\n  margin: 0;\n}\n\n._workspace_q53am_77 {\n  display: grid;\n  grid-template-columns: repeat(2, 1fr);\n  grid-template-rows: repeat(2, 1fr);\n  gap: var(--space-5);\n  align-items: start;\n  height: calc(100vh - 200px);\n}\n\n._panel_q53am_86 {\n  background: var(--color-neutral-2);\n  border-radius: var(--radius-4);\n  padding: var(--space-5);\n  border: 1px solid var(--color-neutral-5);\n  display: flex;\n  flex-direction: column;\n  gap: var(--space-4);\n  min-height: 600px;\n}\n\n._panelHeader_q53am_97 {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  padding-bottom: var(--space-3);\n  border-bottom: 1px solid var(--color-neutral-6);\n}\n\n._panelTitle_q53am_105 {\n  font: var(--font-heading);\n  color: var(--color-neutral-12);\n  margin: 0;\n  font-size: var(--font-size-3);\n}\n\n._inputControls_q53am_112 {\n  display: flex;\n  flex-direction: column;\n  gap: var(--space-3);\n}\n\n._urlInputGroup_q53am_118 {\n  display: flex;\n  gap: var(--space-2);\n}\n\n._urlInput_q53am_118 {\n  flex: 1;\n  padding: var(--space-2) var(--space-3);\n  background: var(--color-neutral-1);\n  border: 1px solid var(--color-neutral-6);\n  border-radius: var(--radius-3);\n  color: var(--color-neutral-12);\n  font: var(--font-body);\n  font-size: var(--font-size-1);\n  transition: border-color 0.2s var(--ease);\n}\n\n._urlInput_q53am_118:focus {\n  outline: none;\n  border-color: var(--color-accent-9);\n  box-shadow: 0 0 0 3px var(--color-accent-3);\n}\n\n._urlInput_q53am_118::placeholder {\n  color: var(--color-neutral-9);\n}\n\n._controlButton_q53am_145 {\n  display: flex;\n  align-items: center;\n  gap: var(--space-2);\n  padding: var(--space-2) var(--space-4);\n  background: var(--color-neutral-1);\n  border: 1px solid var(--color-neutral-6);\n  border-radius: var(--radius-3);\n  color: var(--color-neutral-11);\n  font: var(--font-body);\n  font-size: var(--font-size-1);\n  font-weight: 500;\n  cursor: pointer;\n  transition: all 0.2s var(--ease);\n  white-space: nowrap;\n}\n\n._controlButton_q53am_145:hover:not(:disabled) {\n  background: var(--color-neutral-3);\n  border-color: var(--color-neutral-7);\n  color: var(--color-neutral-12);\n}\n\n._controlButton_q53am_145:active:not(:disabled) {\n  transform: translateY(1px);\n}\n\n._controlButton_q53am_145:disabled {\n  opacity: 0.5;\n  cursor: not-allowed;\n}\n\n._jsonInput_q53am_177 {\n  flex: 1;\n  padding: var(--space-4);\n  background: var(--color-neutral-1);\n  border: 1px solid var(--color-neutral-6);\n  border-radius: var(--radius-3);\n  color: var(--color-neutral-12);\n  font: var(--font-code);\n  resize: none;\n  transition: border-color 0.2s var(--ease);\n}\n\n._jsonInput_q53am_177:focus {\n  outline: none;\n  border-color: var(--color-accent-9);\n  box-shadow: 0 0 0 3px var(--color-accent-3);\n}\n\n._jsonInput_q53am_177._error_q53am_195 {\n  border-color: var(--color-error-9);\n}\n\n._generateButton_q53am_199 {\n  padding: var(--space-3) var(--space-5);\n  background: var(--color-accent-9);\n  border: none;\n  border-radius: var(--radius-3);\n  color: var(--color-accent-contrast);\n  font: var(--font-body);\n  font-weight: 600;\n  cursor: pointer;\n  transition: all 0.2s var(--ease);\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  gap: var(--space-2);\n}\n\n._generateButton_q53am_199:hover {\n  background: var(--color-accent-10);\n  transform: translateY(-1px);\n  box-shadow: var(--shadow-3);\n}\n\n._generateButton_q53am_199:active {\n  transform: translateY(0);\n}\n\n._generateButton_q53am_199:disabled {\n  opacity: 0.5;\n  cursor: not-allowed;\n}\n\n._errorMessage_q53am_230 {\n  padding: var(--space-3);\n  background: var(--color-error-3);\n  border: 1px solid var(--color-error-7);\n  border-radius: var(--radius-2);\n  color: var(--color-error-11);\n  font: var(--font-body);\n  font-size: var(--font-size-0);\n}\n\n._editorContainer_q53am_240 {\n  flex: 1;\n  overflow-y: auto;\n  padding-right: var(--space-2);\n}\n\n._editorContainer_q53am_240::-webkit-scrollbar {\n  width: 8px;\n}\n\n._editorContainer_q53am_240::-webkit-scrollbar-track {\n  background: var(--color-neutral-3);\n  border-radius: var(--radius-2);\n}\n\n._editorContainer_q53am_240::-webkit-scrollbar-thumb {\n  background: var(--color-neutral-7);\n  border-radius: var(--radius-2);\n}\n\n._editorContainer_q53am_240::-webkit-scrollbar-thumb:hover {\n  background: var(--color-neutral-8);\n}\n\n._schemaOutput_q53am_264 {\n  flex: 1;\n  padding: var(--space-4);\n  background: var(--color-neutral-1);\n  border: 1px solid var(--color-neutral-6);\n  border-radius: var(--radius-3);\n  color: var(--color-neutral-12);\n  font: var(--font-code);\n  overflow-y: auto;\n  white-space: pre-wrap;\n  word-break: break-word;\n}\n\n._schemaOutput_q53am_264::-webkit-scrollbar {\n  width: 8px;\n}\n\n._schemaOutput_q53am_264::-webkit-scrollbar-track {\n  background: var(--color-neutral-3);\n  border-radius: var(--radius-2);\n}\n\n._schemaOutput_q53am_264::-webkit-scrollbar-thumb {\n  background: var(--color-neutral-7);\n  border-radius: var(--radius-2);\n}\n\n._schemaOutput_q53am_264::-webkit-scrollbar-thumb:hover {\n  background: var(--color-neutral-8);\n}\n\n._headerActions_q53am_295 {\n  display: flex;\n  align-items: center;\n  gap: var(--space-2);\n}\n\n._actionButton_q53am_301 {\n  padding: var(--space-2) var(--space-4);\n  background: transparent;\n  border: 1px solid var(--color-accent-7);\n  border-radius: var(--radius-3);\n  color: var(--color-accent-11);\n  font: var(--font-body);\n  font-size: var(--font-size-1);\n  font-weight: 500;\n  cursor: pointer;\n  transition: all 0.2s var(--ease);\n  display: flex;\n  align-items: center;\n  gap: var(--space-2);\n}\n\n._actionButton_q53am_301:hover {\n  background: var(--color-accent-3);\n  border-color: var(--color-accent-9);\n}\n\n._actionButton_q53am_301._copied_q53am_322 {\n  background: var(--color-success-3);\n  border-color: var(--color-success-9);\n  color: var(--color-success-11);\n}\n\n._closeButton_q53am_328 {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  padding: var(--space-2);\n  background: transparent;\n  color: var(--color-neutral-11);\n  border: none;\n  border-radius: var(--radius-2);\n  cursor: pointer;\n  transition: all 0.2s ease;\n}\n\n._closeButton_q53am_328:hover {\n  background: var(--color-neutral-4);\n  color: var(--color-neutral-12);\n}\n\n._schemaOutputPanel_q53am_346 {\n  position: fixed;\n  top: 140px;\n  right: 0;\n  bottom: 0;\n  width: 50%;\n  z-index: 100;\n  transform: translateX(100%);\n  transition: transform 0.3s ease;\n  box-shadow: var(--shadow-3);\n}\n\n._schemaOutputPanel_q53am_346._visible_q53am_358 {\n  transform: translateX(0);\n}\n\n._schemaControls_q53am_362 {\n  display: flex;\n  flex-direction: column;\n  gap: var(--space-3);\n}\n\n._emptyState_q53am_368 {\n  flex: 1;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  color: var(--color-neutral-9);\n  font: var(--font-body);\n  text-align: center;\n}\n\n@media (max-width: 1200px) {\n  ._workspace_q53am_77 {\n    grid-template-columns: 1fr;\n    grid-template-rows: auto;\n    height: auto;\n  }\n\n  ._panel_q53am_86 {\n    min-height: 400px;\n  }\n\n  ._urlInputGroup_q53am_118 {\n    flex-direction: column;\n  }\n\n  ._controlButton_q53am_145 {\n    width: 100%;\n    justify-content: center;\n  }\n}\n\n\n/* /app/components/schema-editor-form.module.css */\n._container_h97nr_1 {\n  display: flex;\n  flex-direction: column;\n  gap: var(--space-4);\n}\n\n._viewSourceButton_h97nr_7 {\n  display: flex;\n  align-items: center;\n  gap: var(--space-2);\n  padding: var(--space-2) var(--space-3);\n  margin-bottom: var(--space-3);\n  background: var(--color-accent-3);\n  color: var(--color-accent-11);\n  border: 1px solid var(--color-accent-6);\n  border-radius: var(--radius-2);\n  font-size: 0.875rem;\n  font-weight: 500;\n  cursor: pointer;\n  transition: all 0.2s ease;\n  align-self: flex-start;\n}\n\n._viewSourceButton_h97nr_7:hover {\n  background: var(--color-accent-4);\n  border-color: var(--color-accent-7);\n}\n\n._fieldGroup_h97nr_29 {\n  display: flex;\n  flex-direction: column;\n  gap: var(--space-3);\n  padding: var(--space-4);\n  background: var(--color-neutral-2);\n  border-radius: var(--radius-3);\n  border: 1px solid var(--color-neutral-6);\n}\n\n._fieldRow_h97nr_39 {\n  display: flex;\n  flex-direction: column;\n  gap: var(--space-2);\n}\n\n._label_h97nr_45 {\n  font: var(--font-caption);\n  font-weight: 500;\n  color: var(--color-neutral-11);\n  text-transform: uppercase;\n  letter-spacing: 0.05em;\n}\n\n._input_h97nr_53 {\n  padding: var(--space-2) var(--space-3);\n  background: var(--color-neutral-1);\n  border: 1px solid var(--color-neutral-6);\n  border-radius: var(--radius-2);\n  color: var(--color-neutral-12);\n  font: var(--font-body);\n  transition: border-color 0.2s var(--ease);\n}\n\n._input_h97nr_53:focus {\n  outline: none;\n  border-color: var(--color-accent-9);\n  box-shadow: 0 0 0 3px var(--color-accent-3);\n}\n\n._select_h97nr_69 {\n  padding: var(--space-2) var(--space-3);\n  background: var(--color-neutral-1);\n  border: 1px solid var(--color-neutral-6);\n  border-radius: var(--radius-2);\n  color: var(--color-neutral-12);\n  font: var(--font-body);\n  cursor: pointer;\n  transition: border-color 0.2s var(--ease);\n}\n\n._select_h97nr_69:focus {\n  outline: none;\n  border-color: var(--color-accent-9);\n  box-shadow: 0 0 0 3px var(--color-accent-3);\n}\n\n._textarea_h97nr_86 {\n  padding: var(--space-2) var(--space-3);\n  background: var(--color-neutral-1);\n  border: 1px solid var(--color-neutral-6);\n  border-radius: var(--radius-2);\n  color: var(--color-neutral-12);\n  font: var(--font-body);\n  min-height: 80px;\n  resize: vertical;\n  transition: border-color 0.2s var(--ease);\n}\n\n._textarea_h97nr_86:focus {\n  outline: none;\n  border-color: var(--color-accent-9);\n  box-shadow: 0 0 0 3px var(--color-accent-3);\n}\n\n._nestedContainer_h97nr_104 {\n  margin-left: var(--space-4);\n  padding-left: var(--space-4);\n  border-left: 2px solid var(--color-neutral-6);\n}\n\n._propertyHeader_h97nr_110 {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: var(--space-3);\n  margin-bottom: var(--space-3);\n}\n\n._propertyTitle_h97nr_118 {\n  font: var(--font-subheading);\n  color: var(--color-accent-11);\n  font-weight: 600;\n}\n\n._removeButton_h97nr_124 {\n  padding: var(--space-1) var(--space-2);\n  background: transparent;\n  border: 1px solid var(--color-error-7);\n  border-radius: var(--radius-2);\n  color: var(--color-error-11);\n  font-size: var(--font-size-0);\n  cursor: pointer;\n  transition: all 0.2s var(--ease);\n}\n\n._removeButton_h97nr_124:hover {\n  background: var(--color-error-3);\n  border-color: var(--color-error-9);\n}\n\n._addButton_h97nr_140 {\n  padding: var(--space-2) var(--space-3);\n  background: transparent;\n  border: 1px solid var(--color-accent-7);\n  border-radius: var(--radius-2);\n  color: var(--color-accent-11);\n  font: var(--font-body);\n  cursor: pointer;\n  transition: all 0.2s var(--ease);\n  margin-top: var(--space-2);\n}\n\n._addButton_h97nr_140:hover {\n  background: var(--color-accent-3);\n  border-color: var(--color-accent-9);\n}\n\n._propertiesHeader_h97nr_157 {\n  display: flex;\n  justify-content: space-between;\n  align-items: center;\n  margin-bottom: var(--space-3);\n}\n\n._propertiesHeader_h97nr_157 ._addButton_h97nr_140 {\n  margin-top: 0;\n}\n\n._checkboxContainer_h97nr_168 {\n  display: flex;\n  align-items: center;\n  gap: var(--space-2);\n}\n\n._checkbox_h97nr_168 {\n  width: 18px;\n  height: 18px;\n  cursor: pointer;\n  accent-color: var(--color-accent-9);\n}\n\n._checkboxLabel_h97nr_181 {\n  font: var(--font-body);\n  color: var(--color-neutral-11);\n  cursor: pointer;\n}\n\n._enumContainer_h97nr_187 {\n  display: flex;\n  flex-direction: column;\n  gap: var(--space-3);\n}\n\n._enumItem_h97nr_193 {\n  display: flex;\n  gap: var(--space-3);\n  align-items: center;\n}\n\n._descriptionToggle_h97nr_199 {\n  display: flex;\n  align-items: center;\n  gap: var(--space-2);\n  padding: var(--space-2);\n  background: transparent;\n  border: none;\n  color: var(--color-neutral-11);\n  font: var(--font-caption);\n  font-weight: 500;\n  text-transform: uppercase;\n  letter-spacing: 0.05em;\n  cursor: pointer;\n  transition: all 0.2s var(--ease);\n  border-radius: var(--radius-2);\n  width: 100%;\n  text-align: left;\n}\n\n._descriptionToggle_h97nr_199:hover {\n  background: var(--color-neutral-3);\n  color: var(--color-neutral-12);\n}\n\n._descriptionPreview_h97nr_223 {\n  flex: 1;\n  margin-left: auto;\n  color: var(--color-neutral-10);\n  font: var(--font-body);\n  font-size: 0.875rem;\n  text-transform: none;\n  letter-spacing: normal;\n  font-weight: 400;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n\n/* /app/components/json-instance-form.module.css */\n._field_1lpxr_1 {\n  margin-bottom: var(--space-3);\n}\n\n._label_1lpxr_5 {\n  display: block;\n  font-size: 0.875rem;\n  font-weight: 500;\n  color: var(--color-neutral-12);\n  margin-bottom: var(--space-2);\n}\n\n._input_1lpxr_13,\n._select_1lpxr_14 {\n  width: 100%;\n  padding: var(--space-2) var(--space-3);\n  border: 1px solid var(--color-neutral-7);\n  border-radius: var(--radius-2);\n  background: var(--color-neutral-1);\n  color: var(--color-neutral-12);\n  font-size: 0.875rem;\n  font-family: var(--font-body);\n  transition: border-color 0.2s;\n}\n\n._input_1lpxr_13:focus,\n._select_1lpxr_14:focus {\n  outline: none;\n  border-color: var(--color-accent-8);\n}\n\n._checkboxContainer_1lpxr_32 {\n  display: flex;\n  align-items: center;\n  gap: var(--space-2);\n  margin-bottom: var(--space-3);\n}\n\n._checkbox_1lpxr_32 {\n  width: 1rem;\n  height: 1rem;\n  cursor: pointer;\n}\n\n._checkboxLabel_1lpxr_45 {\n  font-size: 0.875rem;\n  color: var(--color-neutral-12);\n  cursor: pointer;\n}\n\n._objectContainer_1lpxr_51 {\n  border: 1px solid var(--color-neutral-6);\n  border-radius: var(--radius-2);\n  padding: var(--space-4);\n  background: var(--color-neutral-2);\n}\n\n._propertyGroup_1lpxr_58 {\n  margin-bottom: var(--space-4);\n}\n\n._propertyGroup_1lpxr_58:last-child {\n  margin-bottom: 0;\n}\n\n._propertyHeader_1lpxr_66 {\n  margin-bottom: var(--space-2);\n}\n\n._propertyName_1lpxr_70 {\n  font-size: 0.875rem;\n  font-weight: 600;\n  color: var(--color-neutral-12);\n}\n\n._requiredMark_1lpxr_76 {\n  color: var(--color-error-9);\n  margin-left: 0.25rem;\n}\n\n._arrayContainer_1lpxr_81 {\n  border: 1px solid var(--color-neutral-6);\n  border-radius: var(--radius-2);\n  padding: var(--space-4);\n  background: var(--color-neutral-2);\n}\n\n._arrayItem_1lpxr_88 {\n  border: 1px solid var(--color-neutral-6);\n  border-radius: var(--radius-2);\n  padding: var(--space-3);\n  margin-bottom: var(--space-3);\n  background: var(--color-neutral-1);\n}\n\n._arrayItemHeader_1lpxr_96 {\n  display: flex;\n  justify-content: space-between;\n  align-items: center;\n  margin-bottom: var(--space-3);\n}\n\n._arrayItemLabel_1lpxr_103 {\n  font-size: 0.875rem;\n  font-weight: 600;\n  color: var(--color-neutral-11);\n}\n\n._removeButton_1lpxr_109 {\n  padding: var(--space-1) var(--space-2);\n  background: transparent;\n  color: var(--color-error-9);\n  border: 1px solid var(--color-error-7);\n  border-radius: var(--radius-2);\n  font-size: 0.75rem;\n  cursor: pointer;\n  transition: all 0.2s;\n}\n\n._removeButton_1lpxr_109:hover {\n  background: var(--color-error-3);\n  border-color: var(--color-error-8);\n}\n\n._removeButton_1lpxr_109:disabled {\n  opacity: 0.5;\n  cursor: not-allowed;\n}\n\n._addButton_1lpxr_130 {\n  padding: var(--space-2) var(--space-3);\n  background: var(--color-accent-9);\n  color: var(--color-accent-contrast);\n  border: none;\n  border-radius: var(--radius-2);\n  font-size: 0.875rem;\n  font-weight: 500;\n  cursor: pointer;\n  transition: background 0.2s;\n  margin-top: var(--space-3);\n}\n\n._addButton_1lpxr_130:hover {\n  background: var(--color-accent-10);\n}\n\n._nullValue_1lpxr_147 {\n  font-size: 0.875rem;\n  color: var(--color-neutral-10);\n  font-style: italic;\n}\n\n\n/* /node_modules/reactflow/dist/style.css */\n/* this gets exported as style.css and can be used for the default theming */\n/* these are the necessary styles for React Flow, they get used by base.css and style.css */\n.react-flow {\n  direction: ltr;\n}\n.react-flow__container {\n  position: absolute;\n  width: 100%;\n  height: 100%;\n  top: 0;\n  left: 0;\n}\n.react-flow__pane {\n  z-index: 1;\n  cursor: -webkit-grab;\n  cursor: grab;\n}\n.react-flow__pane.selection {\n    cursor: pointer;\n  }\n.react-flow__pane.dragging {\n    cursor: -webkit-grabbing;\n    cursor: grabbing;\n  }\n.react-flow__viewport {\n  transform-origin: 0 0;\n  z-index: 2;\n  pointer-events: none;\n}\n.react-flow__renderer {\n  z-index: 4;\n}\n.react-flow__selection {\n  z-index: 6;\n}\n.react-flow__nodesselection-rect:focus,\n.react-flow__nodesselection-rect:focus-visible {\n  outline: none;\n}\n.react-flow .react-flow__edges {\n  pointer-events: none;\n  overflow: visible;\n}\n.react-flow__edge-path,\n.react-flow__connection-path {\n  stroke: #b1b1b7;\n  stroke-width: 1;\n  fill: none;\n}\n.react-flow__edge {\n  pointer-events: visibleStroke;\n  cursor: pointer;\n}\n.react-flow__edge.animated path {\n    stroke-dasharray: 5;\n    -webkit-animation: dashdraw 0.5s linear infinite;\n            animation: dashdraw 0.5s linear infinite;\n  }\n.react-flow__edge.animated path.react-flow__edge-interaction {\n    stroke-dasharray: none;\n    -webkit-animation: none;\n            animation: none;\n  }\n.react-flow__edge.inactive {\n    pointer-events: none;\n  }\n.react-flow__edge.selected,\n  .react-flow__edge:focus,\n  .react-flow__edge:focus-visible {\n    outline: none;\n  }\n.react-flow__edge.selected .react-flow__edge-path,\n  .react-flow__edge:focus .react-flow__edge-path,\n  .react-flow__edge:focus-visible .react-flow__edge-path {\n    stroke: #555;\n  }\n.react-flow__edge-textwrapper {\n    pointer-events: all;\n  }\n.react-flow__edge-textbg {\n    fill: white;\n  }\n.react-flow__edge .react-flow__edge-text {\n    pointer-events: none;\n    -webkit-user-select: none;\n       -moz-user-select: none;\n            user-select: none;\n  }\n.react-flow__connection {\n  pointer-events: none;\n}\n.react-flow__connection .animated {\n    stroke-dasharray: 5;\n    -webkit-animation: dashdraw 0.5s linear infinite;\n            animation: dashdraw 0.5s linear infinite;\n  }\n.react-flow__connectionline {\n  z-index: 1001;\n}\n.react-flow__nodes {\n  pointer-events: none;\n  transform-origin: 0 0;\n}\n.react-flow__node {\n  position: absolute;\n  -webkit-user-select: none;\n     -moz-user-select: none;\n          user-select: none;\n  pointer-events: all;\n  transform-origin: 0 0;\n  box-sizing: border-box;\n  cursor: -webkit-grab;\n  cursor: grab;\n}\n.react-flow__node.dragging {\n    cursor: -webkit-grabbing;\n    cursor: grabbing;\n  }\n.react-flow__nodesselection {\n  z-index: 3;\n  transform-origin: left top;\n  pointer-events: none;\n}\n.react-flow__nodesselection-rect {\n    position: absolute;\n    pointer-events: all;\n    cursor: -webkit-grab;\n    cursor: grab;\n  }\n.react-flow__handle {\n  position: absolute;\n  pointer-events: none;\n  min-width: 5px;\n  min-height: 5px;\n  width: 6px;\n  height: 6px;\n  background: #1a192b;\n  border: 1px solid white;\n  border-radius: 100%;\n}\n.react-flow__handle.connectionindicator {\n    pointer-events: all;\n    cursor: crosshair;\n  }\n.react-flow__handle-bottom {\n    top: auto;\n    left: 50%;\n    bottom: -4px;\n    transform: translate(-50%, 0);\n  }\n.react-flow__handle-top {\n    left: 50%;\n    top: -4px;\n    transform: translate(-50%, 0);\n  }\n.react-flow__handle-left {\n    top: 50%;\n    left: -4px;\n    transform: translate(0, -50%);\n  }\n.react-flow__handle-right {\n    right: -4px;\n    top: 50%;\n    transform: translate(0, -50%);\n  }\n.react-flow__edgeupdater {\n  cursor: move;\n  pointer-events: all;\n}\n.react-flow__panel {\n  position: absolute;\n  z-index: 5;\n  margin: 15px;\n}\n.react-flow__panel.top {\n    top: 0;\n  }\n.react-flow__panel.bottom {\n    bottom: 0;\n  }\n.react-flow__panel.left {\n    left: 0;\n  }\n.react-flow__panel.right {\n    right: 0;\n  }\n.react-flow__panel.center {\n    left: 50%;\n    transform: translateX(-50%);\n  }\n.react-flow__attribution {\n  font-size: 10px;\n  background: rgba(255, 255, 255, 0.5);\n  padding: 2px 3px;\n  margin: 0;\n}\n.react-flow__attribution a {\n    text-decoration: none;\n    color: #999;\n  }\n@-webkit-keyframes dashdraw {\n  from {\n    stroke-dashoffset: 10;\n  }\n}\n@keyframes dashdraw {\n  from {\n    stroke-dashoffset: 10;\n  }\n}\n.react-flow__edgelabel-renderer {\n  position: absolute;\n  width: 100%;\n  height: 100%;\n  pointer-events: none;\n  -webkit-user-select: none;\n     -moz-user-select: none;\n          user-select: none;\n}\n.react-flow__edge.updating .react-flow__edge-path {\n      stroke: #777;\n    }\n.react-flow__edge-text {\n    font-size: 10px;\n  }\n.react-flow__node.selectable:focus,\n  .react-flow__node.selectable:focus-visible {\n    outline: none;\n  }\n.react-flow__node-default,\n.react-flow__node-input,\n.react-flow__node-output,\n.react-flow__node-group {\n  padding: 10px;\n  border-radius: 3px;\n  width: 150px;\n  font-size: 12px;\n  color: #222;\n  text-align: center;\n  border-width: 1px;\n  border-style: solid;\n  border-color: #1a192b;\n  background-color: white;\n}\n.react-flow__node-default.selectable:hover, .react-flow__node-input.selectable:hover, .react-flow__node-output.selectable:hover, .react-flow__node-group.selectable:hover {\n      box-shadow: 0 1px 4px 1px rgba(0, 0, 0, 0.08);\n    }\n.react-flow__node-default.selectable.selected,\n    .react-flow__node-default.selectable:focus,\n    .react-flow__node-default.selectable:focus-visible,\n    .react-flow__node-input.selectable.selected,\n    .react-flow__node-input.selectable:focus,\n    .react-flow__node-input.selectable:focus-visible,\n    .react-flow__node-output.selectable.selected,\n    .react-flow__node-output.selectable:focus,\n    .react-flow__node-output.selectable:focus-visible,\n    .react-flow__node-group.selectable.selected,\n    .react-flow__node-group.selectable:focus,\n    .react-flow__node-group.selectable:focus-visible {\n      box-shadow: 0 0 0 0.5px #1a192b;\n    }\n.react-flow__node-group {\n  background-color: rgba(240, 240, 240, 0.25);\n}\n.react-flow__nodesselection-rect,\n.react-flow__selection {\n  background: rgba(0, 89, 220, 0.08);\n  border: 1px dotted rgba(0, 89, 220, 0.8);\n}\n.react-flow__nodesselection-rect:focus,\n  .react-flow__nodesselection-rect:focus-visible,\n  .react-flow__selection:focus,\n  .react-flow__selection:focus-visible {\n    outline: none;\n  }\n.react-flow__controls {\n  box-shadow: 0 0 2px 1px rgba(0, 0, 0, 0.08);\n}\n.react-flow__controls-button {\n    border: none;\n    background: #fefefe;\n    border-bottom: 1px solid #eee;\n    box-sizing: content-box;\n    display: flex;\n    justify-content: center;\n    align-items: center;\n    width: 16px;\n    height: 16px;\n    cursor: pointer;\n    -webkit-user-select: none;\n       -moz-user-select: none;\n            user-select: none;\n    padding: 5px;\n  }\n.react-flow__controls-button:hover {\n      background: #f4f4f4;\n    }\n.react-flow__controls-button svg {\n      width: 100%;\n      max-width: 12px;\n      max-height: 12px;\n    }\n.react-flow__controls-button:disabled {\n      pointer-events: none;\n    }\n.react-flow__controls-button:disabled svg {\n        fill-opacity: 0.4;\n      }\n.react-flow__minimap {\n  background-color: #fff;\n}\n.react-flow__minimap svg {\n  display: block;\n}\n.react-flow__resize-control {\n  position: absolute;\n}\n.react-flow__resize-control.left,\n.react-flow__resize-control.right {\n  cursor: ew-resize;\n}\n.react-flow__resize-control.top,\n.react-flow__resize-control.bottom {\n  cursor: ns-resize;\n}\n.react-flow__resize-control.top.left,\n.react-flow__resize-control.bottom.right {\n  cursor: nwse-resize;\n}\n.react-flow__resize-control.bottom.left,\n.react-flow__resize-control.top.right {\n  cursor: nesw-resize;\n}\n/* handle styles */\n.react-flow__resize-control.handle {\n  width: 4px;\n  height: 4px;\n  border: 1px solid #fff;\n  border-radius: 1px;\n  background-color: #3367d9;\n  transform: translate(-50%, -50%);\n}\n.react-flow__resize-control.handle.left {\n  left: 0;\n  top: 50%;\n}\n.react-flow__resize-control.handle.right {\n  left: 100%;\n  top: 50%;\n}\n.react-flow__resize-control.handle.top {\n  left: 50%;\n  top: 0;\n}\n.react-flow__resize-control.handle.bottom {\n  left: 50%;\n  top: 100%;\n}\n.react-flow__resize-control.handle.top.left {\n  left: 0;\n}\n.react-flow__resize-control.handle.bottom.left {\n  left: 0;\n}\n.react-flow__resize-control.handle.top.right {\n  left: 100%;\n}\n.react-flow__resize-control.handle.bottom.right {\n  left: 100%;\n}\n/* line styles */\n.react-flow__resize-control.line {\n  border-color: #3367d9;\n  border-width: 0;\n  border-style: solid;\n}\n.react-flow__resize-control.line.left,\n.react-flow__resize-control.line.right {\n  width: 1px;\n  transform: translate(-50%, 0);\n  top: 0;\n  height: 100%;\n}\n.react-flow__resize-control.line.left {\n  left: 0;\n  border-left-width: 1px;\n}\n.react-flow__resize-control.line.right {\n  left: 100%;\n  border-right-width: 1px;\n}\n.react-flow__resize-control.line.top,\n.react-flow__resize-control.line.bottom {\n  height: 1px;\n  transform: translate(0, -50%);\n  left: 0;\n  width: 100%;\n}\n.react-flow__resize-control.line.top {\n  top: 0;\n  border-top-width: 1px;\n}\n.react-flow__resize-control.line.bottom {\n  border-bottom-width: 1px;\n  top: 100%;\n}\n\n\n/* /app/components/graphical-schema-editor.module.css */\n._a1_12nt1_1 {\r\n  color: #b180d7;\r\n  font-weight: 600;\r\n}\r\n._a2_12nt1_9 {\r\n  color: #388e3c;\r\n  font-weight: 600;\r\n}\r\n._graphicalEditorContainer_12nt1_17 {\r\n  display: flex;\r\n  height: 600px;\r\n  background: var(--color-neutral-2);\r\n  border-radius: var(--radius-4);\r\n  border: 1px solid var(--color-neutral-6);\r\n  margin-top: var(--space-4);\r\n}\r\n\r\n._editorSidebar_12nt1_35 {\r\n  width: 320px;\r\n  min-width: 280px;\r\n  background: var(--color-neutral-1);\r\n  border-left: 1px solid var(--color-neutral-6);\r\n  padding: var(--space-4);\r\n  font-size: var(--font-size-1);\r\n  color: var(--color-neutral-10);\r\n}\r\n\r\n._removeControl_12nt1_55 {\r\n  background: none;\r\n  border: none;\r\n  color: #e53935;\r\n  font-weight: 700;\r\n  cursor: pointer;\r\n  padding: 0 2px;\r\n  font-size: 14px;\r\n}\r\n\r\n._smallInput_12nt1_75 {\r\n  flex: 0 0 120px;\r\n  width: 120px;\r\n  margin-top: 2px;\r\n  padding: 4px;\r\n  border-radius: 4px;\r\n  border: 1px solid var(--color-neutral-6);\r\n}\r\n\r\n._numberInput_12nt1_93 {\r\n  flex: 0 0 60px;\r\n  width: 60px;\r\n  margin-top: 2px;\r\n  padding: 4px 6px;\r\n  border-radius: 4px;\r\n  border: 1px solid var(--color-neutral-6);\r\n}\r\n"};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">import "/@id/__x00__virtual:react-router/inject-hmr-runtime";;
+import * as route0 from "/app/root.tsx";
+import * as route1 from "/app/routes/workbench.tsx";
+  window.__reactRouterManifest = {
+  "version": "0.6327796402171593",
+  "url": "/@id/__x00__virtual:react-router/browser-manifest",
+  "hmr": {
+    "runtime": "/@id/__x00__virtual:react-router/inject-hmr-runtime"
+  },
+  "entry": {
+    "module": "/node_modules/@react-router/dev/dist/config/defaults/entry.client.tsx",
+    "imports": []
+  },
+  "routes": {
+    "root": {
+      "id": "root",
+      "path": "",
+      "module": "/app/root.tsx",
+      "hasAction": false,
+      "hasLoader": false,
+      "hasClientAction": false,
+      "hasClientLoader": false,
+      "hasClientMiddleware": false,
+      "hasErrorBoundary": true,
+      "imports": []
+    },
+    "routes/workbench": {
+      "id": "routes/workbench",
+      "parentId": "root",
+      "index": true,
+      "module": "/app/routes/workbench.tsx",
+      "hasAction": false,
+      "hasLoader": false,
+      "hasClientAction": false,
+      "hasClientLoader": false,
+      "hasClientMiddleware": false,
+      "hasErrorBoundary": false,
+      "imports": []
+    }
+  }
+};
+  window.__reactRouterRouteModules = {"root":route0,"routes/workbench":route1};
+
+import("/node_modules/@react-router/dev/dist/config/defaults/entry.client.tsx");</script></body></html><!--$?--><template id="B:0"></template><!--/$--><div hidden id="S:0"><script>window.__reactRouterContext.streamController.enqueue("[{\"_1\":2,\"_3\":-5,\"_4\":-5},\"loaderData\",{},\"actionData\",\"errors\"]\n");</script><!--$?--><template id="B:1"></template><!--/$--></div><script>function $RC(a,b){a=document.getElementById(a);b=document.getElementById(b);b.parentNode.removeChild(b);if(a){a=a.previousSibling;var f=a.parentNode,c=a.nextSibling,e=0;do{if(c&&8===c.nodeType){var d=c.data;if("/$"===d)if(0===e)break;else e--;else"$"!==d&&"$?"!==d&&"$!"!==d||e++}d=c.nextSibling;f.removeChild(c);c=d}while(c);for(;b.firstChild;)f.insertBefore(b.firstChild,c);a.data="$";a._reactRetry&&a._reactRetry()}};$RC("B:0","S:0")</script><div hidden id="S:1"><script>window.__reactRouterContext.streamController.close();</script></div><script>$RC("B:1","S:1")</script>

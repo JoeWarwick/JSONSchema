@@ -348,6 +348,14 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
                     className={styles.input}
                     type="number"
                     value={schema.minimum === undefined ? '' : String(schema.minimum)}
+                    onWheel={(e) => {
+                      e.preventDefault();
+                      const dir = (e.deltaY > 0) ? -1 : 1;
+                      const mult = e.shiftKey ? 10 : 1;
+                      const cur = typeof schema.minimum === 'number' ? (schema.minimum as number) : 0;
+                      const newVal = cur + dir * 1 * mult;
+                      updateSchema({ minimum: newVal });
+                    }}
                     onChange={(e) => {
                       const raw = e.target.value;
                       if (raw === '') {
@@ -373,6 +381,14 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
                     className={styles.input}
                     type="number"
                     value={schema.maximum === undefined ? '' : String(schema.maximum)}
+                    onWheel={(e) => {
+                      e.preventDefault();
+                      const dir = (e.deltaY > 0) ? -1 : 1;
+                      const mult = e.shiftKey ? 10 : 1;
+                      const cur = typeof schema.maximum === 'number' ? (schema.maximum as number) : 0;
+                      const newVal = cur + dir * 1 * mult;
+                      updateSchema({ maximum: newVal });
+                    }}
                     onChange={(e) => {
                       const raw = e.target.value;
                       if (raw === '') {
@@ -399,6 +415,14 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
                     type="number"
                     step="any"
                     value={schema.multipleOf === undefined ? '' : String(schema.multipleOf)}
+                    onWheel={(e) => {
+                      e.preventDefault();
+                      const dir = (e.deltaY > 0) ? -1 : 1;
+                      const mult = e.shiftKey ? 10 : 1;
+                      const cur = typeof schema.multipleOf === 'number' ? (schema.multipleOf as number) : 1;
+                      const newVal = parseFloat((cur + dir * 1 * mult).toString());
+                      updateSchema({ multipleOf: newVal });
+                    }}
                     onChange={(e) => {
                       const raw = e.target.value;
                       if (raw === '') {
@@ -462,6 +486,14 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
                     className={styles.input}
                     type="number"
                     value={schema.minItems === undefined ? '' : String(schema.minItems)}
+                    onWheel={(e) => {
+                      e.preventDefault();
+                      const dir = (e.deltaY > 0) ? -1 : 1;
+                      const mult = e.shiftKey ? 10 : 1;
+                      const cur = typeof schema.minItems === 'number' ? (schema.minItems as number) : 0;
+                      const newVal = Math.max(0, cur + dir * 1 * mult);
+                      updateSchema({ minItems: newVal });
+                    }}
                     onChange={(e) => {
                       const raw = e.target.value;
                       if (raw === '') {
@@ -487,6 +519,14 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
                     className={styles.input}
                     type="number"
                     value={schema.maxItems === undefined ? '' : String(schema.maxItems)}
+                    onWheel={(e) => {
+                      e.preventDefault();
+                      const dir = (e.deltaY > 0) ? -1 : 1;
+                      const mult = e.shiftKey ? 10 : 1;
+                      const cur = typeof schema.maxItems === 'number' ? (schema.maxItems as number) : 0;
+                      const newVal = Math.max(0, cur + dir * 1 * mult);
+                      updateSchema({ maxItems: newVal });
+                    }}
                     onChange={(e) => {
                       const raw = e.target.value;
                       if (raw === '') {

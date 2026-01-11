@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useReducer } from "react";
 import { Sparkles, Copy, Check, X, Upload, Link as LinkIcon, Download, FileUp } from "lucide-react";
 import styles from "./workbench.module.css";
 import { generateSchema, isValidJSON } from "~/utils/schema-generator";
-import schemaReducer, { initialSchemaState, LOAD_SOURCE_SCHEMA, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, SET_RESOLVED_CACHE, SET_DEREF_IN_PROGRESS, ensureResolved, getPersistableSource } from "~/state/schemaReducer";
+import schemaReducer, { initialSchemaState, LOAD_SOURCE_SCHEMA, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, SET_RESOLVED_CACHE, SET_DEREF_IN_PROGRESS, ensureResolved, getPersistableSource, getEditorSchema } from "~/state/schemaReducer";
 
 // Utility to rename a property in an object (shallow)
 function renamePropertyInObject(obj: any, oldName: string, newName: string) {
@@ -157,25 +157,7 @@ export default function Workbench() {
     return () => { cancelled = true; };
   }, [state.source]);
 
-  // Runtime assertion / debug: record which schema is being passed to editors
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const used = state.resolvedCache ? 'resolvedCache' : (state.source ? 'source' : 'none');
-    // Lightweight console debug and attach to window for inspection in browser
-    try {
-      (window as any).__lastSchemaLoad = {
-        used,
-        timestamp: Date.now(),
-        source: state.source,
-        resolvedCache: state.resolvedCache,
-      };
-      // Log resolved schema to console when available so developers can inspect it
-      if (state.resolvedCache) {
-        // eslint-disable-next-line no-console
-        console.info('[Workbench] Resolved schema passed to editors:', state.resolvedCache);
-      }
-    } catch (e) {}
-  }, [state.resolvedCache, state.source]);
+  // (debug hooks removed)
 
   // Auto-save instance data to localStorage whenever it changes
   useEffect(() => {
@@ -278,8 +260,9 @@ export default function Workbench() {
       try {
         const parsedSchema = JSON.parse(content);
         dispatch({ type: APPLY_SOURCE_UPDATE, payload: parsedSchema });
-        // Always regenerate instance data for new schema
-        setInstanceData(generateDefaultInstance(parsedSchema));
+        // Only generate a default instance when none is present — preserve user-loaded instance
+        setInstanceData((prev: any) => (prev == null ? generateDefaultInstance(parsedSchema) : prev));
+         
         setError(null);
       } catch (err) {
         setError("Invalid schema file. Please upload a valid JSON schema.");
@@ -307,8 +290,8 @@ export default function Workbench() {
       }
       const data = await response.json();
       dispatch({ type: APPLY_SOURCE_UPDATE, payload: data });
-      // Always regenerate instance data for new schema
-      setInstanceData(generateDefaultInstance(data));
+      // Only generate a default instance when none is present — preserve user-loaded instance
+      setInstanceData((prev: any) => (prev == null ? generateDefaultInstance(data) : prev));
       setSchemaUrl("");
     } catch (err) {
       setError(`Failed to load schema from URL: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -349,6 +332,45 @@ export default function Workbench() {
   // Tabbed UI state
   const [activeTab, setActiveTab] = useState<'json' | 'schema' | 'instance' | 'output' | 'graph'>('json');
 
+  // Debug: record tab changes and resolved/source swap events for E2E/manual debugging
+  useEffect(() => {
+    try {
+      const w = window as any;
+      if (!w.__tabDebug) w.__tabDebug = [];
+      w.__tabDebug.push({ type: 'init', activeTab, timestamp: Date.now() });
+    } catch (e) {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      const w = window as any;
+      if (!w.__tabDebug) w.__tabDebug = [];
+      w.__tabDebug.push({ type: 'tab-change', activeTab, timestamp: Date.now() });
+    } catch (e) {}
+  }, [activeTab]);
+
+  useEffect(() => {
+    try {
+      const w = window as any;
+      if (!w.__tabDebug) w.__tabDebug = [];
+      w.__tabDebug.push({ type: 'schema-load', used: state.resolvedCache ? 'resolved' : state.source ? 'source' : 'none', timestamp: Date.now(), hasSource: !!state.source, hasResolved: !!state.resolvedCache });
+    } catch (e) {}
+  }, [state.resolvedCache, state.source]);
+
+  // Only expose editor schema once reducer has produced a resolved cache.
+  const editorSchema = state.resolvedCache ? getEditorSchema(state) : null;
+
+  // Log the actual schema being provided to editors for debugging/testing.
+  // (editor debug snapshot removed)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!editorSchema) return;
+    try {
+      // eslint-disable-next-line no-console
+      console.info('[Workbench] Schema passed to editors:', editorSchema);
+    } catch (_) {}
+  }, [editorSchema]);
+
   return (
     <div className={styles.container}>
       <header className={styles.header}>
@@ -379,9 +401,9 @@ export default function Workbench() {
               <h2 className={styles.panelTitle}>Graphical Schema Editor</h2>
             </div>
             <div className={styles.editorContainer}>
-              {state.resolvedCache ? (
+              {editorSchema ? (
                 <GraphicalSchemaEditor
-                  schema={state.resolvedCache}
+                  schema={editorSchema as any}
                   onChange={(newSchema) => {
                     // Editor emits edits to the resolved view; reducer will rehydrate into source
                     dispatch({ type: APPLY_RESOLVED_EDIT, payload: newSchema });
@@ -414,7 +436,7 @@ export default function Workbench() {
                 <FileUp size={16} />
                 Load File
               </button>
-              {state.source && (
+              {state.resolvedCache && (
                 <button 
                   className={styles.controlButton}
                   onClick={handleSaveSchema}
@@ -446,12 +468,12 @@ export default function Workbench() {
             </div>
             <div className={styles.panel}>
               <div className={styles.panelHeader}>
-                <h2 className={styles.panelTitle}>Schema Editor</h2>
+                <h2 className={styles.panelTitle}>Schema Input</h2>
               </div>
               <div className={styles.editorContainer}>
-                {state.resolvedCache ? (
+                {editorSchema ? (
                   <SchemaEditorForm
-                    schema={state.resolvedCache}
+                    schema={editorSchema as any}
                     onChange={(newSchema) => {
                       // Editor edits resolved view; reducer will rehydrate and update source
                       dispatch({ type: APPLY_RESOLVED_EDIT, payload: newSchema });
@@ -570,10 +592,10 @@ export default function Workbench() {
             <div className={styles.panelHeader}>
               <h2 className={styles.panelTitle}>Instance Editor</h2>
             </div>
-            {state.resolvedCache && instanceData !== null ? (
+            {editorSchema && instanceData !== null ? (
               <div className={styles.editorContainer}>
                 <JsonInstanceForm
-                  schema={state.resolvedCache}
+                  schema={editorSchema as any}
                   value={instanceData}
                   onChange={(newData) => {
                     setInstanceData(newData);

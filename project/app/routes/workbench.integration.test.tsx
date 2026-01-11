@@ -37,11 +37,17 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(unresolved));
     render(<Workbench />);
 
+    // Wait for reducer to produce a resolved schema before interacting with the UI
+    await waitFor(() => {
+      const badge = screen.getByTestId('schema-source-badge');
+      expect(badge).toHaveTextContent(/resolved/i);
+    });
+
     // Open the Schema Input tab
     const schemaTab = screen.getByRole('button', { name: /Schema Input/i });
     fireEvent.click(schemaTab);
 
-    // Wait for the reducer to load and resolve the schema, then assert the Type select is 'object'
+    // Now the SchemaEditorForm should be rendered with root type 'object'
     await waitFor(() => {
       const typeLabels = screen.getAllByText('Type');
       expect(typeLabels.length).toBeGreaterThan(0);
@@ -54,7 +60,8 @@ describe('Workbench integration - load unresolved $defs schema', () => {
 
   it('updates UI when uploading a schema file', async () => {
     render(<Workbench />);
-    // Open Schema Input tab
+
+    // Open Schema Input tab first, then upload the file
     const schemaTab = screen.getByRole('button', { name: /Schema Input/i });
     fireEvent.click(schemaTab);
 
@@ -62,10 +69,15 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement | null;
     expect(fileInput).toBeTruthy();
     const file = new File([JSON.stringify(unresolved)], 'schema.json', { type: 'application/json' });
-    // fire change event
+    // fire change event to load schema into reducer
     fireEvent.change(fileInput!, { target: { files: [file] } });
 
-    // Wait for reducer to process and SchemaEditorForm to render object type
+    // Wait for reducer to produce a resolved schema and for SchemaEditorForm to render
+    await waitFor(() => {
+      const badge = screen.getByTestId('schema-source-badge');
+      expect(badge).toHaveTextContent(/resolved/i);
+    });
+
     await waitFor(() => {
       const typeLabels = screen.getAllByText('Type');
       expect(typeLabels.length).toBeGreaterThan(0);

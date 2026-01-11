@@ -458,11 +458,11 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
         )}
         {type === 'number' && !isEnum && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {minimum === undefined ? (
+                {minimum === undefined ? (
               <button type="button" onClick={() => { setMinimum(0); onChange(buildPatchWithAnnotations({ minimum: 0 })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Minimum</button>
             ) : (
               <label style={{ width: 120, display: 'flex', alignItems: 'center', gap: 8 }}>Min
-                <input className={styles.numberInput} type="number" value={minimum as any} onChange={e => setMinimum(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => onChange(buildPatchWithAnnotations({ minimum }))} />
+                <input className={styles.numberInput} type="number" value={minimum as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof minimum === 'number' ? (minimum as number) : 0; const newVal = cur + dir * 1 * mult; setMinimum(newVal); onChange(buildPatchWithAnnotations({ minimum: newVal })); }} onChange={e => setMinimum(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => onChange(buildPatchWithAnnotations({ minimum }))} />
                 <button type="button" onClick={() => { setMinimum(undefined); onChange(buildPatchWithAnnotations({ minimum: undefined })); }} className={styles.removeControl} title="Remove minimum">×</button>
               </label>
             )}
@@ -470,7 +470,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
               <button type="button" onClick={() => { setMaximum(0); onChange(buildPatchWithAnnotations({ maximum: 0 })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Maximum</button>
             ) : (
               <label style={{ width: 120, display: 'flex', alignItems: 'center', gap: 8 }}>Max
-                <input className={styles.numberInput} type="number" value={maximum as any} onChange={e => setMaximum(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => onChange(buildPatchWithAnnotations({ maximum }))} />
+                <input className={styles.numberInput} type="number" value={maximum as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof maximum === 'number' ? (maximum as number) : 0; const newVal = cur + dir * 1 * mult; setMaximum(newVal); onChange(buildPatchWithAnnotations({ maximum: newVal })); }} onChange={e => setMaximum(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => onChange(buildPatchWithAnnotations({ maximum }))} />
                 <button type="button" onClick={() => { setMaximum(undefined); onChange(buildPatchWithAnnotations({ maximum: undefined })); }} className={styles.removeControl} title="Remove maximum">×</button>
               </label>
             )}
@@ -484,7 +484,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
                 <button type="button" onClick={() => { setMinLength(0); onChange(buildPatchWithAnnotations({ minLength: 0 })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Min Length</button>
               ) : (
                 <div style={{ width: 140, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input className={styles.numberInput} placeholder="Min Length" aria-label="Min Length" type="number" value={minLength as any} onChange={e => setMinLength(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
+                  <input className={styles.numberInput} placeholder="Min Length" aria-label="Min Length" type="number" value={minLength as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof minLength === 'number' ? (minLength as number) : 0; const newVal = Math.max(0, cur + dir * 1 * mult); setMinLength(newVal); onChange(buildPatchWithAnnotations({ minLength: newVal })); }} onChange={e => setMinLength(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
                     // validate
                     if (minLength !== undefined && minLength < 0) {
                       setMinMaxLengthError('minLength must be >= 0');
@@ -503,7 +503,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
                 <button type="button" onClick={() => { setMaxLength(0); onChange(buildPatchWithAnnotations({ maxLength: 0 })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Max Length</button>
               ) : (
                 <div style={{ width: 140, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input className={styles.numberInput} placeholder="Max Length" aria-label="Max Length" type="number" value={maxLength as any} onChange={e => setMaxLength(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
+                  <input className={styles.numberInput} placeholder="Max Length" aria-label="Max Length" type="number" value={maxLength as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof maxLength === 'number' ? (maxLength as number) : 0; const newVal = Math.max(0, cur + dir * 1 * mult); setMaxLength(newVal); onChange(buildPatchWithAnnotations({ maxLength: newVal })); }} onChange={e => setMaxLength(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
                     if (maxLength !== undefined && maxLength < 0) {
                       setMinMaxLengthError('maxLength must be >= 0');
                     } else if (minLength !== undefined && maxLength !== undefined && maxLength < minLength) {
@@ -545,7 +545,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
             </div>
           ) : (
             <div style={{ width: 160, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input className={styles.numberInput} placeholder="multipleOf" aria-label="multipleOf" type="number" step="any" value={multipleOf as any} onChange={e => setMultipleOf(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
+              <input className={styles.numberInput} placeholder="multipleOf" aria-label="multipleOf" type="number" step="any" value={multipleOf as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof multipleOf === 'number' ? (multipleOf as number) : 1; const newVal = parseFloat((cur + dir * 1 * mult).toString()); setMultipleOf(newVal); onChange(buildPatchWithAnnotations({ multipleOf: newVal })); }} onChange={e => setMultipleOf(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
                 if (multipleOf !== undefined && !(multipleOf > 0)) {
                   setMultipleOfError('multipleOf must be > 0');
                 } else {
@@ -592,7 +592,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
                     <button type="button" onClick={() => { setMinItems(0); onChange(buildPatchWithAnnotations({ minItems: 0 })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Min Items</button>
                   ) : (
                     <label style={{ width: 140, display: 'flex', alignItems: 'center', gap: 8 }}> 
-                      <input className={styles.numberInput} placeholder="Min Items" aria-label="Min Items" type="number" value={minItems as any} onChange={e => setMinItems(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
+                      <input className={styles.numberInput} placeholder="Min Items" aria-label="Min Items" type="number" value={minItems as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof minItems === 'number' ? (minItems as number) : 0; const newVal = Math.max(0, cur + dir * 1 * mult); setMinItems(newVal); onChange(buildPatchWithAnnotations({ minItems: newVal })); }} onChange={e => setMinItems(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
                         if (minItems !== undefined && minItems < 0) setMinMaxItemsError('minItems must be >= 0');
                         else if (maxItems !== undefined && minItems !== undefined && maxItems < minItems) setMinMaxItemsError('maxItems must be >= minItems');
                         else { setMinMaxItemsError(null); onChange(buildPatchWithAnnotations({ minItems })); }
@@ -605,7 +605,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
                     <button type="button" onClick={() => { setMaxItems(0); onChange(buildPatchWithAnnotations({ maxItems: 0 })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Max Items</button>
                   ) : (
                     <label style={{ width: 140, display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input className={styles.numberInput} placeholder="Max Items" aria-label="Max Items" type="number" value={maxItems as any} onChange={e => setMaxItems(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
+                      <input className={styles.numberInput} placeholder="Max Items" aria-label="Max Items" type="number" value={maxItems as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof maxItems === 'number' ? (maxItems as number) : 0; const newVal = Math.max(0, cur + dir * 1 * mult); setMaxItems(newVal); onChange(buildPatchWithAnnotations({ maxItems: newVal })); }} onChange={e => setMaxItems(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
                         if (maxItems !== undefined && maxItems < 0) setMinMaxItemsError('maxItems must be >= 0');
                         else if (minItems !== undefined && maxItems !== undefined && maxItems < minItems) setMinMaxItemsError('maxItems must be >= minItems');
                         else { setMinMaxItemsError(null); onChange(buildPatchWithAnnotations({ maxItems })); }
@@ -903,7 +903,6 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
 
     function walkSchema(obj: any, parentId?: string, label?: string, x = 0, y = 0, parentRequired?: string[]): string {
       const id = makeId(parentId, label);
-      obj.id = id; // Assign the generated node id to the schema property
       let type = obj.type || 'object';
       let ofType = undefined;
       let nodeType = 'property';

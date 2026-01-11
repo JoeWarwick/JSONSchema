@@ -27,6 +27,7 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
   const writeOnlyAttr = !!schema.writeOnly;
   const constValue = schema.const as unknown | undefined;
 
+  const numberInputRef = useRef<HTMLInputElement | null>(null);
   // Handle primitive types
   if (type === "string") {
     if (schema.enum && Array.isArray(schema.enum)) {
@@ -121,6 +122,40 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
     }
   }, [storageKey]);
 
+  // Attach a non-passive native wheel listener to the number input so we can call
+  // preventDefault without the browser passive-listener warning.
+  useEffect(() => {
+    const el = numberInputRef.current;
+    if (!el) return;
+    const handler = (ee: WheelEvent) => {
+      ee.preventDefault();
+      const e = ee as WheelEvent & { shiftKey?: boolean };
+      const dir = e.deltaY > 0 ? -1 : 1;
+      const multiplier = e.shiftKey ? 10 : 1;
+      const inc = (schema.multipleOf as number | undefined) ?? (step as number) ?? 1;
+      const countDecimals = (n: number) => {
+        const s = String(n);
+        if (s.indexOf('e-') >= 0) {
+          const m = /e-(\d+)$/.exec(s);
+          if (m) return parseInt(m[1], 10);
+        }
+        if (s.indexOf('.') >= 0) return s.split('.')[1].length;
+        return 0;
+      };
+      const cur = typeof value === 'number' ? (value as number) : (el.value === '' ? 0 : parseFloat(el.value));
+      const precision = Math.max(countDecimals(inc), countDecimals(cur));
+      const factor = Math.pow(10, precision);
+      const stepInt = Math.round(inc * factor) * multiplier;
+      const curInt = Math.round(cur * factor);
+      const newVal = (curInt + dir * stepInt) / factor;
+      const err = validateValueAgainstSchema(newVal, schema);
+      setInputError(err);
+      if (!err) onChange(newVal);
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler as EventListener);
+  }, [numberInputRef, schema, step, value, onChange]);
+
   if (type === "number") {
     if (schema.enum && Array.isArray(schema.enum)) {
       return (
@@ -147,6 +182,7 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
         <label className={styles.label}>{(schema.description as string) || "Enter number"}</label>
         <>
           <input
+            ref={numberInputRef}
             className={styles.input}
             type="number"
             value={(value as number) || ""}

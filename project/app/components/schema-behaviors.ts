@@ -48,7 +48,7 @@ export function schemaNodeDataToSchema(node: SchemaNodeData): Record<string, unk
   if (node.type === "object" && node.properties && typeof node.properties === "object") {
     const serializedProps: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(node.properties)) {
-      // Skip internal markers (like __from) which are not real property names
+      // Skip internal markers which are not real property names
       if (key.startsWith('__')) continue;
       if (value && typeof value === 'object') {
         // Recursively serialize each property node
