@@ -10,7 +10,8 @@ interface JsonInstanceFormProps {
 }
 
 export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormProps) {
-  const type = schema.type as string;
+  const explicitType = schema.type as string | undefined;
+  const type = explicitType ?? (Array.isArray(value) ? 'array' : (value && typeof value === 'object' ? 'object' : 'string'));
   const storageKey = 'json-instance:' + (schema && typeof (schema.title as any) === 'string' ? schema.title : JSON.stringify(schema));
   const [inputError, setInputError] = useState<string | null>(null);
   
@@ -212,9 +213,9 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
       });
     };
 
-    // Find non-required properties not present in objectValue
+    // Find non-required properties not present in objectValue (skip internal markers)
     const addableProperties = Object.keys(properties).filter(
-      (key) => !required.includes(key) && !(key in objectValue)
+      (key) => !key.startsWith('__') && !required.includes(key) && !(key in objectValue)
     );
 
     const handleAddProperty = (key: string) => {
@@ -226,7 +227,7 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
 
     return (
       <div className={styles.objectContainer}>
-        {Object.entries(properties).map(([key, propSchema]) => {
+        {Object.entries(properties).filter(([k]) => !k.startsWith('__')).map(([key, propSchema]) => {
           const isRequired = required.includes(key);
           // Show if required OR if instance data exists for it
           if (!isRequired && !(key in objectValue)) return null;

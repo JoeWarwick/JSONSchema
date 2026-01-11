@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useReducer } from "react";
 import { Sparkles, Copy, Check, X, Upload, Link as LinkIcon, Download, FileUp } from "lucide-react";
 import styles from "./workbench.module.css";
 import { generateSchema, isValidJSON } from "~/utils/schema-generator";
-import { resolveSchema, resolveSchemaSync } from "~/utils/schema-resolver";
+import schemaReducer, { initialSchemaState, LOAD_SOURCE_SCHEMA, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, SET_RESOLVED_CACHE, SET_DEREF_IN_PROGRESS, ensureResolved, getPersistableSource } from "~/state/schemaReducer";
 
 // Utility to rename a property in an object (shallow)
 function renamePropertyInObject(obj: any, oldName: string, newName: string) {
@@ -83,20 +83,22 @@ const generateDefaultInstance = (schema: Record<string, unknown>): unknown => {
 };
 
 export default function Workbench() {
-  const [schema, setSchema] = useState<Record<string, unknown> | null>(() => {
-    // Load schema from localStorage on initial render
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (err) {
-          console.error('Failed to parse saved schema:', err);
-        }
+  // Initialize reducer with no source; load persisted schema via reducer on mount
+  const [state, dispatch] = useReducer(schemaReducer, initialSchemaState(null));
+
+  // On mount, load persisted canonical source via reducer so reducer remains source-of-truth
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        dispatch({ type: LOAD_SOURCE_SCHEMA, payload: parsed });
       }
+    } catch (err) {
+      console.error('Failed to load persisted schema into reducer:', err);
     }
-    return null;
-  });
+  }, []);
   
   const [instanceData, setInstanceData] = useState<unknown>(() => {
     // Load instance data from localStorage on initial render
@@ -131,7 +133,7 @@ export default function Workbench() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showSchemaSource, setShowSchemaSource] = useState(false);
-  const [resolvedSchema, setResolvedSchema] = useState<Record<string, unknown> | null>(null);
+  // resolved view is available via state.resolvedCache
   const [jsonUrl, setJsonUrl] = useState("");
   const [isLoadingUrl, setIsLoadingUrl] = useState(false);
   const [schemaUrl, setSchemaUrl] = useState("");
@@ -139,42 +141,41 @@ export default function Workbench() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const schemaFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-save schema to localStorage whenever it changes
+  // Persist canonical source and compute resolved cache (sync fast + async full)
   useEffect(() => {
-    // First try a cheap synchronous hoist/resolve so editors can get a stable resolved schema
-    try {
-      const syncResolved = resolveSchemaSync(schema);
-      if (syncResolved && syncResolved !== schema) {
-        setResolvedSchema(syncResolved);
-        console.log('Schema updated (resolved sync):', syncResolved);
-        // still run async resolver in background to fully dereference remote/complex refs
-        (async () => {
-          try {
-            const asyncResolved = await resolveSchema(schema);
-            setResolvedSchema(asyncResolved);
-            console.log('Schema updated (resolved async):', asyncResolved);
-          } catch (e) {
-            // ignore async errors
-          }
-        })();
-        // save original schema to storage immediately
-        if (schema) localStorage.setItem(STORAGE_KEY, JSON.stringify(schema)); else localStorage.removeItem(STORAGE_KEY);
-        return;
-      }
-    } catch (_) {
-      // fall through to async resolver
-    }
+    // Persist a rehydrated, persistable form of the schema (may merge resolved edits into $defs/$ref)
+    const toSave = getPersistableSource(state);
+    if (toSave) localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave)); else localStorage.removeItem(STORAGE_KEY);
+    let cancelled = false;
+    // Delegate sync+async resolution to reducer module helper to keep resolver usage encapsulated
     (async () => {
-      const resolved = await resolveSchema(schema);
-      setResolvedSchema(resolved);
-      console.log('Schema updated (resolved async):', resolved);
+      if (cancelled) return;
+      try {
+        await ensureResolved(dispatch, state.source);
+      } catch (_) {}
     })();
-    if (schema) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(schema));
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  }, [schema]);
+    return () => { cancelled = true; };
+  }, [state.source]);
+
+  // Runtime assertion / debug: record which schema is being passed to editors
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const used = state.resolvedCache ? 'resolvedCache' : (state.source ? 'source' : 'none');
+    // Lightweight console debug and attach to window for inspection in browser
+    try {
+      (window as any).__lastSchemaLoad = {
+        used,
+        timestamp: Date.now(),
+        source: state.source,
+        resolvedCache: state.resolvedCache,
+      };
+      // Log resolved schema to console when available so developers can inspect it
+      if (state.resolvedCache) {
+        // eslint-disable-next-line no-console
+        console.info('[Workbench] Resolved schema passed to editors:', state.resolvedCache);
+      }
+    } catch (e) {}
+  }, [state.resolvedCache, state.source]);
 
   // Auto-save instance data to localStorage whenever it changes
   useEffect(() => {
@@ -201,7 +202,7 @@ export default function Workbench() {
     try {
       const parsed = JSON.parse(jsonInput);
       const generatedSchema = generateSchema(parsed);
-      setSchema(generatedSchema);
+      dispatch({ type: APPLY_SOURCE_UPDATE, payload: generatedSchema });
       setInstanceData(parsed);
     } catch (err) {
       setError("Failed to generate schema. Please check your JSON.");
@@ -209,10 +210,11 @@ export default function Workbench() {
   };
 
   const handleCopy = async () => {
-    if (!schema) return;
+    const toSave = getPersistableSource(state);
+    if (!toSave) return;
 
     try {
-      await navigator.clipboard.writeText(JSON.stringify(schema, null, 2));
+      await navigator.clipboard.writeText(JSON.stringify(toSave, null, 2));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
@@ -275,7 +277,7 @@ export default function Workbench() {
       const content = e.target?.result as string;
       try {
         const parsedSchema = JSON.parse(content);
-        setSchema(parsedSchema);
+        dispatch({ type: APPLY_SOURCE_UPDATE, payload: parsedSchema });
         // Always regenerate instance data for new schema
         setInstanceData(generateDefaultInstance(parsedSchema));
         setError(null);
@@ -304,7 +306,7 @@ export default function Workbench() {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.json();
-      setSchema(data);
+      dispatch({ type: APPLY_SOURCE_UPDATE, payload: data });
       // Always regenerate instance data for new schema
       setInstanceData(generateDefaultInstance(data));
       setSchemaUrl("");
@@ -316,9 +318,10 @@ export default function Workbench() {
   };
 
   const handleSaveSchema = () => {
-    if (!schema) return;
+    const toSave = getPersistableSource(state);
+    if (!toSave) return;
 
-    const blob = new Blob([JSON.stringify(schema, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(toSave, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -349,7 +352,16 @@ export default function Workbench() {
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <h4 className={styles.title}>Schema Sculptor - JSON Schema Workbench</h4>
+        <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
+          <h4 className={styles.title}>Schema Sculptor - JSON Schema Workbench</h4>
+          {/* Debug badge: shows whether resolvedCache or source is used */}
+          <div style={{marginLeft: 8}}>
+            <small style={{color: '#999'}}>Schema source:</small>
+            <div style={{display: 'inline-block', marginLeft: 8, padding: '4px 8px', borderRadius: 12, background: '#1f2937', color: '#fff', fontSize: 12}} data-testid="schema-source-badge">
+              {state.resolvedCache ? 'resolved' : (state.source ? 'source' : 'none')}
+            </div>
+          </div>
+        </div>
         <p className={styles.subtitle}>Generate and modify JSON schemas with an intuitive form-based editor</p>
       </header>
 
@@ -367,28 +379,20 @@ export default function Workbench() {
               <h2 className={styles.panelTitle}>Graphical Schema Editor</h2>
             </div>
             <div className={styles.editorContainer}>
-              <GraphicalSchemaEditor
-                schema={resolvedSchema ?? schema ?? {}}
-                onChange={(newSchema) => {
-                  // Always persist the unresolved schema as the canonical source of truth
-                  setSchema(newSchema);
-                  // Provide an immediate sync-resolved view for editors to avoid flashing
-                  try {
-                    const fast = resolveSchemaSync(newSchema);
-                    setResolvedSchema(fast ?? newSchema);
-                  } catch (_) {
-                    setResolvedSchema(newSchema);
-                  }
-                  // Finish with a full async resolution in background
-                  (async () => {
-                    try {
-                      const asyncResolved = await resolveSchema(newSchema);
-                      setResolvedSchema(asyncResolved);
-                    } catch (_) {}
-                  })();
-                  setInstanceData((prev: unknown) => prev == null ? generateDefaultInstance(newSchema) : prev);
-                }}
-              />
+              {state.resolvedCache ? (
+                <GraphicalSchemaEditor
+                  schema={state.resolvedCache}
+                  onChange={(newSchema) => {
+                    // Editor emits edits to the resolved view; reducer will rehydrate into source
+                    dispatch({ type: APPLY_RESOLVED_EDIT, payload: newSchema });
+                    setInstanceData((prev: unknown) => prev == null ? generateDefaultInstance(newSchema) : prev);
+                  }}
+                />
+              ) : state.source ? (
+                <div className={styles.emptyState}>Resolving schema&hellip;</div>
+              ) : (
+                <div className={styles.emptyState}>Load or generate a schema to begin editing</div>
+              )}
             </div>
           </div>
         )}
@@ -410,7 +414,7 @@ export default function Workbench() {
                 <FileUp size={16} />
                 Load File
               </button>
-              {schema && (
+              {state.source && (
                 <button 
                   className={styles.controlButton}
                   onClick={handleSaveSchema}
@@ -445,28 +449,15 @@ export default function Workbench() {
                 <h2 className={styles.panelTitle}>Schema Editor</h2>
               </div>
               <div className={styles.editorContainer}>
-                <SchemaEditorForm 
-                  schema={resolvedSchema ?? schema ?? {}} 
-                  onChange={(newSchema) => {
-                    // Persist unresolved schema as canonical
-                    setSchema(newSchema);
-                    // Provide immediate sync-resolved for UI
-                    try {
-                      const fast = resolveSchemaSync(newSchema);
-                      setResolvedSchema(fast ?? newSchema);
-                    } catch (_) {
-                      setResolvedSchema(newSchema);
-                    }
-                    // Background async resolve
-                    (async () => {
-                      try {
-                        const asyncResolved = await resolveSchema(newSchema);
-                        setResolvedSchema(asyncResolved);
-                      } catch (_) {}
-                    })();
-                  }} 
-                  onViewSource={() => setShowSchemaSource(true)}
-                  onPropertyRename={(oldName, newName, path = []) => {
+                {state.resolvedCache ? (
+                  <SchemaEditorForm
+                    schema={state.resolvedCache}
+                    onChange={(newSchema) => {
+                      // Editor edits resolved view; reducer will rehydrate and update source
+                      dispatch({ type: APPLY_RESOLVED_EDIT, payload: newSchema });
+                    }}
+                    onViewSource={() => setShowSchemaSource(true)}
+                    onPropertyRename={(oldName, newName, path = []) => {
                     if (!instanceData) return;
                     if (path.length > 0) {
                       // Nested: traverse path in instanceData
@@ -491,6 +482,11 @@ export default function Workbench() {
                     }
                   }}
                 />
+                ) : state.source ? (
+                  <div className={styles.emptyState}>Resolving schema&hellip;</div>
+                ) : (
+                  <div className={styles.emptyState}>Load or generate a schema to begin editing</div>
+                )}
               </div>
             </div>
           </>
@@ -574,17 +570,19 @@ export default function Workbench() {
             <div className={styles.panelHeader}>
               <h2 className={styles.panelTitle}>Instance Editor</h2>
             </div>
-            {(resolvedSchema ?? schema) && instanceData !== null ? (
+            {state.resolvedCache && instanceData !== null ? (
               <div className={styles.editorContainer}>
-                <JsonInstanceForm 
-                  schema={resolvedSchema ?? schema ?? {}} 
-                  value={instanceData} 
+                <JsonInstanceForm
+                  schema={state.resolvedCache}
+                  value={instanceData}
                   onChange={(newData) => {
                     setInstanceData(newData);
                     setJsonInput(JSON.stringify(newData, null, 2));
-                  }} 
+                  }}
                 />
               </div>
+            ) : state.source ? (
+              <div className={styles.emptyState}>Resolving schema&hellip;</div>
             ) : (
               <div className={styles.emptyState}>Generate a schema to edit instance data</div>
             )}
@@ -595,7 +593,7 @@ export default function Workbench() {
             <div className={styles.panelHeader}>
               <h2 className={styles.panelTitle}>Schema Output</h2>
               <div className={styles.headerActions}>
-                {schema && (
+                {state.source && (
                   <>
                     <button className={styles.actionButton} onClick={handleSaveSchema} title="Save schema">
                       <Download size={16} />
@@ -625,8 +623,8 @@ export default function Workbench() {
                 </button>
               </div>
             </div>
-            {schema ? (
-              <pre className={styles.schemaOutput}>{JSON.stringify(schema, null, 2)}</pre>
+                {state.source ? (
+              <pre className={styles.schemaOutput}>{JSON.stringify(state.source, null, 2)}</pre>
             ) : (
               <div className={styles.emptyState}>Your generated schema will appear here</div>
             )}

@@ -48,6 +48,8 @@ export function schemaNodeDataToSchema(node: SchemaNodeData): Record<string, unk
   if (node.type === "object" && node.properties && typeof node.properties === "object") {
     const serializedProps: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(node.properties)) {
+      // Skip internal markers (like __from) which are not real property names
+      if (key.startsWith('__')) continue;
       if (value && typeof value === 'object') {
         // Recursively serialize each property node
         serializedProps[key] = schemaNodeDataToSchema(value as SchemaNodeData);
@@ -64,7 +66,9 @@ export function schemaNodeDataToSchema(node: SchemaNodeData): Record<string, unk
  */
 export function addPropertyToSchema(schema: Record<string, unknown>): Record<string, unknown> {
   const properties = (schema.properties as Record<string, unknown>) || {};
-  const newPropertyName = `newProperty${Object.keys(properties).length + 1}`;
+  // Count only visible properties (ignore internal markers)
+  const visibleCount = Object.keys(properties).filter(k => !k.startsWith('__')).length;
+  const newPropertyName = `newProperty${visibleCount + 1}`;
   return {
     ...schema,
     properties: {

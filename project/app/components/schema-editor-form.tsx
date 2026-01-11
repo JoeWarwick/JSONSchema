@@ -98,6 +98,15 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
       if (def && def.type) return def.type as string;
       if (def && def.properties) return 'object';
     }
+    // If schema only contains $defs (no top-level $ref/type/properties), hoist the first def for display
+    if (!schema.type && !schema.properties && schema.$defs && typeof schema.$defs === 'object') {
+      const keys = Object.keys(schema.$defs as Record<string, unknown>);
+      if (keys.length > 0) {
+        const def = (schema.$defs as any)[keys[0]];
+        if (def && def.type) return def.type as string;
+        if (def && def.properties) return 'object';
+      }
+    }
     return 'string';
   })();
   const renderType = (schema.type as string) ?? inferredRootType;
@@ -507,8 +516,9 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
                 Add Property
               </button>
             </div>
-            {Object.entries((schema.properties as Record<string, unknown>) || {}).map(
-              ([propertyName, propertySchema]) => (
+            {Object.entries((schema.properties as Record<string, unknown>) || {})
+              .filter(([propertyName]) => !propertyName.startsWith('__'))
+              .map(([propertyName, propertySchema]) => (
                 <PropertyEditor
                   key={propertyName}
                   propertyName={propertyName}
