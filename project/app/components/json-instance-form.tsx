@@ -11,6 +11,7 @@ interface JsonInstanceFormProps {
 
 export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormProps) {
   const type = schema.type as string;
+  const storageKey = 'json-instance:' + (schema && typeof (schema.title as any) === 'string' ? schema.title : JSON.stringify(schema));
   const [inputError, setInputError] = useState<string | null>(null);
   
   const min = (schema.minimum as number | undefined) ?? undefined;
@@ -88,6 +89,36 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
         </div>
       );
   }
+  
+  // Persist instance value to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      if (value === undefined) {
+        localStorage.removeItem(storageKey);
+      } else {
+        localStorage.setItem(storageKey, JSON.stringify(value));
+      }
+    } catch (e) {
+      // ignore storage errors
+    }
+  }, [value, storageKey]);
+
+  // Load instance when storageKey (schema) changes: prefer stored value, else default when no value provided
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (JSON.stringify(parsed) !== JSON.stringify(value)) {
+          onChange(parsed);
+        }
+      } else if (value === undefined) {
+        onChange(getDefaultValue(schema as Record<string, unknown>));
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [storageKey]);
 
   if (type === "number") {
     if (schema.enum && Array.isArray(schema.enum)) {

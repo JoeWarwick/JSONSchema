@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Sparkles, Copy, Check, X, Upload, Link as LinkIcon, Download, FileUp } from "lucide-react";
 import styles from "./workbench.module.css";
 import { generateSchema, isValidJSON } from "~/utils/schema-generator";
+import { resolveSchema, resolveSchemaSync } from "~/utils/schema-resolver";
 
 // Utility to rename a property in an object (shallow)
 function renamePropertyInObject(obj: any, oldName: string, newName: string) {
@@ -130,6 +131,7 @@ export default function Workbench() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showSchemaSource, setShowSchemaSource] = useState(false);
+  const [resolvedSchema, setResolvedSchema] = useState<Record<string, unknown> | null>(null);
   const [jsonUrl, setJsonUrl] = useState("");
   const [isLoadingUrl, setIsLoadingUrl] = useState(false);
   const [schemaUrl, setSchemaUrl] = useState("");
@@ -139,7 +141,34 @@ export default function Workbench() {
 
   // Auto-save schema to localStorage whenever it changes
   useEffect(() => {
-    console.log('Schema updated:', schema);
+    // First try a cheap synchronous hoist/resolve so editors can get a stable resolved schema
+    try {
+      const syncResolved = resolveSchemaSync(schema);
+      if (syncResolved && syncResolved !== schema) {
+        setResolvedSchema(syncResolved);
+        console.log('Schema updated (resolved sync):', syncResolved);
+        // still run async resolver in background to fully dereference remote/complex refs
+        (async () => {
+          try {
+            const asyncResolved = await resolveSchema(schema);
+            setResolvedSchema(asyncResolved);
+            console.log('Schema updated (resolved async):', asyncResolved);
+          } catch (e) {
+            // ignore async errors
+          }
+        })();
+        // save original schema to storage immediately
+        if (schema) localStorage.setItem(STORAGE_KEY, JSON.stringify(schema)); else localStorage.removeItem(STORAGE_KEY);
+        return;
+      }
+    } catch (_) {
+      // fall through to async resolver
+    }
+    (async () => {
+      const resolved = await resolveSchema(schema);
+      setResolvedSchema(resolved);
+      console.log('Schema updated (resolved async):', resolved);
+    })();
     if (schema) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(schema));
     } else {
@@ -339,9 +368,24 @@ export default function Workbench() {
             </div>
             <div className={styles.editorContainer}>
               <GraphicalSchemaEditor
-                schema={schema ?? {}}
+                schema={resolvedSchema ?? schema ?? {}}
                 onChange={(newSchema) => {
+                  // Always persist the unresolved schema as the canonical source of truth
                   setSchema(newSchema);
+                  // Provide an immediate sync-resolved view for editors to avoid flashing
+                  try {
+                    const fast = resolveSchemaSync(newSchema);
+                    setResolvedSchema(fast ?? newSchema);
+                  } catch (_) {
+                    setResolvedSchema(newSchema);
+                  }
+                  // Finish with a full async resolution in background
+                  (async () => {
+                    try {
+                      const asyncResolved = await resolveSchema(newSchema);
+                      setResolvedSchema(asyncResolved);
+                    } catch (_) {}
+                  })();
                   setInstanceData((prev: unknown) => prev == null ? generateDefaultInstance(newSchema) : prev);
                 }}
               />
@@ -402,8 +446,25 @@ export default function Workbench() {
               </div>
               <div className={styles.editorContainer}>
                 <SchemaEditorForm 
-                  schema={schema ?? {}} 
-                  onChange={setSchema} 
+                  schema={resolvedSchema ?? schema ?? {}} 
+                  onChange={(newSchema) => {
+                    // Persist unresolved schema as canonical
+                    setSchema(newSchema);
+                    // Provide immediate sync-resolved for UI
+                    try {
+                      const fast = resolveSchemaSync(newSchema);
+                      setResolvedSchema(fast ?? newSchema);
+                    } catch (_) {
+                      setResolvedSchema(newSchema);
+                    }
+                    // Background async resolve
+                    (async () => {
+                      try {
+                        const asyncResolved = await resolveSchema(newSchema);
+                        setResolvedSchema(asyncResolved);
+                      } catch (_) {}
+                    })();
+                  }} 
                   onViewSource={() => setShowSchemaSource(true)}
                   onPropertyRename={(oldName, newName, path = []) => {
                     if (!instanceData) return;
@@ -513,10 +574,10 @@ export default function Workbench() {
             <div className={styles.panelHeader}>
               <h2 className={styles.panelTitle}>Instance Editor</h2>
             </div>
-            {schema && instanceData !== null ? (
+            {(resolvedSchema ?? schema) && instanceData !== null ? (
               <div className={styles.editorContainer}>
                 <JsonInstanceForm 
-                  schema={schema} 
+                  schema={resolvedSchema ?? schema ?? {}} 
                   value={instanceData} 
                   onChange={(newData) => {
                     setInstanceData(newData);

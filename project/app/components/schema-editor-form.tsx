@@ -1,7 +1,3 @@
-// Type guard for schema.items with enum
-function isSchemaWithEnum(obj: unknown): obj is { enum: Array<string | number>; type?: string } {
-  return !!obj && typeof obj === 'object' && Array.isArray((obj as any).enum);
-}
 import { useState, useEffect } from "react";
 import { validateValueAgainstSchema } from "../utils/validation";
 import {
@@ -92,6 +88,20 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
     updateSchema(nextSchema as any);
   };
 
+  // Infer root type for display when loading schemas that use $ref/$defs
+  const inferredRootType = (() => {
+    if (schema.type) return schema.type as string;
+    if (schema.properties) return 'object';
+    if (schema.$ref && schema.$defs && typeof schema.$ref === 'string' && schema.$ref.startsWith('#/$defs/')) {
+      const key = (schema.$ref as string).replace('#/$defs/', '');
+      const def = (schema.$defs as any)[key];
+      if (def && def.type) return def.type as string;
+      if (def && def.properties) return 'object';
+    }
+    return 'string';
+  })();
+  const renderType = (schema.type as string) ?? inferredRootType;
+
   const removeProperty = (propertyName: string) => {
     const nextSchema = removePropertyFromSchema(schema, propertyName);
     updateSchema(nextSchema as any);
@@ -145,7 +155,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
             <label className={styles.label}>Type</label>
             <select
               className={styles.select}
-              value={(schema.type as string) || "string"}
+              value={renderType}
               onChange={(e) => updateSchema({ type: e.target.value })}
             >
               <option value="string">String</option>
@@ -158,10 +168,10 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
           </div>
 
           {/* Facet controls: hide for boolean/object/null and when enum is present */}
-          {!(schema.type === "boolean" || schema.type === "object" || schema.type === "null" || !!schema.enum) && (
+          {!(renderType === "boolean" || renderType === "object" || renderType === "null" || !!schema.enum) && (
             <>
             {/* Addable string-specific properties: format / pattern / default */}
-            {(schema.type === "string" || !schema.type) && (
+            {(renderType === "string") && (
             <div className={styles.inlineAdd}>
               {!('format' in schema) ? (
                 <button
@@ -270,7 +280,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
                     onChange={(e) => setEditingDefault(e.target.value)}
                     onBlur={() => {
                       const raw = editingDefault;
-                      const parsed = (schema.type === 'number') ? (raw === '' ? '' : parseFloat(raw)) : raw;
+                      const parsed = (String(renderType) === 'number') ? (raw === '' ? '' : parseFloat(raw)) : raw;
                       const error = validateValueAgainstSchema(parsed, schema);
                       if (error) {
                         setDefaultError(error);
@@ -302,7 +312,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
             )}
 
             {/* Show enum checkbox for string and number types */}
-            {(schema.type === "string" || schema.type === "number" || !schema.type) && (
+            {(renderType === "string" || renderType === "number" || !schema.type) && (
               <div className={styles.checkboxContainer}>
               <input
                 type="checkbox"
@@ -318,7 +328,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
             )}
 
           {/* Number-specific facets: minimum / maximum / multipleOf / examples */}
-          {schema.type === "number" && (
+          {renderType === "number" && (
             <div className={styles.inlineAdd}>
               {!('minimum' in schema) ? (
                 <button type="button" className={styles.addSmall} onClick={() => updateSchema({ minimum: 0 })}>+ minimum</button>
@@ -397,7 +407,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
               )}
 
               {!('examples' in schema) ? (
-                <button type="button" className={styles.addSmall} onClick={() => { const example = schema.type === 'number' ? [0] : ['example']; updateSchema({ examples: example }); }}>+ examples</button>
+                <button type="button" className={styles.addSmall} onClick={() => { const example = renderType === 'number' ? [0] : ['example']; updateSchema({ examples: example }); }}>+ examples</button>
               ) : (
                 <div className={styles.fieldRow}>
                   <label className={styles.label}>Examples</label>
@@ -406,7 +416,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
                     value={Array.isArray(schema.examples) ? (schema.examples as any[]).join(', ') : ''}
                     onChange={(e) => {
                       const raw = e.target.value;
-                      const arr = raw.split(',').map(s => s.trim()).filter(Boolean).map(v => schema.type === 'number' ? parseFloat(v) : v);
+                      const arr = raw.split(',').map(s => s.trim()).filter(Boolean).map(v => renderType === 'number' ? parseFloat(v) : v);
                       updateSchema({ examples: arr });
                     }}
                     placeholder="Comma-separated examples"
@@ -418,7 +428,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
           )}
 
           {/* Array-specific facets: uniqueItems / minItems / maxItems */}
-          {schema.type === "array" && (
+          {renderType === "array" && (
             <div className={styles.inlineAdd}>
               {!('uniqueItems' in schema) ? (
                 <button type="button" className={styles.addSmall} onClick={() => updateSchema({ uniqueItems: true })}>+ uniqueItems</button>
@@ -489,7 +499,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
           )}
         </div>
 
-        {schema.type === "object" && (
+        {renderType === "object" && (
           <div className={styles.nestedContainer}>
             <div className={styles.propertiesHeader}>
               <h3 className={styles.propertyTitle}>Properties</h3>
@@ -514,7 +524,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
           </div>
         )}
 
-        {schema.type === "array" && (() => {
+        {renderType === "array" && (() => {
           const itemsSchema = (schema.items && typeof schema.items === "object" && !Array.isArray(schema.items))
             ? (schema.items as Record<string, unknown>)
             : { type: "string" };
@@ -531,13 +541,13 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
         })()}
 
         {/* Only show EnumEditor for root if not array type */}
-        {!!schema.enum && Array.isArray(schema.enum) && schema.type !== "array" && (
+        {!!schema.enum && Array.isArray(schema.enum) && renderType !== "array" && (
           <div className={styles.nestedContainer}>
             <h3 className={styles.propertyTitle}>Allowed Values</h3>
             <EnumEditor
               values={(schema.enum as Array<string | number>) || []}
               onChange={(newEnum) => updateSchema({ enum: newEnum })}
-              type={(schema.type as string) || "string"}
+              type={(renderType as string) || "string"}
             />
           </div>
         )}

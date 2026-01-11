@@ -889,6 +889,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
   // Load schema from localStorage if not provided
   const STORAGE_KEY = 'schema-sculptor-schema';
   const [loadedSchema, setLoadedSchema] = React.useState<Record<string, unknown> | null>(null);
+  const [resolvedSchema, setResolvedSchema] = React.useState<Record<string, unknown> | null>(null);
+  const [derefInProgress, setDerefInProgress] = React.useState<boolean>(false);
+  const emittedResolvedRef = React.useRef<boolean>(false);
   const initialLoadRef = React.useRef(true);
   React.useEffect(() => {
     if (!schema && !useTestData) {
@@ -1158,9 +1161,50 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       return;
     }
     if (useTestData) return;
-    const activeSchema = schema || loadedSchema;
+    // If deref is in progress for a schema that contains $ref/$defs, wait
+    const containsRefs = (s: any): boolean => {
+      if (!s || typeof s !== 'object') return false;
+      if (s.$ref !== undefined) return true;
+      if (s.$defs !== undefined) return true;
+      for (const v of Object.values(s)) {
+        if (containsRefs(v)) return true;
+      }
+      return false;
+    };
+    if (derefInProgress && containsRefs(schema || loadedSchema)) return;
+    const activeSchema = resolvedSchema || schema || loadedSchema;
     if (!activeSchema) return;
-    const { nodes, edges } = schemaToGraph(activeSchema);
+    // Normalize schema for graph: if top-level is a $ref into $defs, hoist that definition
+    const normalizeForGraph = (root: any) => {
+      if (!root || typeof root !== 'object') return root;
+      try {
+        if (root.$ref && typeof root.$ref === 'string' && root.$defs && root.$ref.startsWith('#/$defs/')) {
+          const key = root.$ref.replace('#/$defs/', '');
+          const def = (root.$defs || {})[key];
+          if (def) {
+            // shallow clone and replace internal anchor refs using $defs anchors
+            const anchorMap: Record<string, any> = {};
+            for (const [k, v] of Object.entries(root.$defs || {})) {
+              if ((v as any).$anchor) anchorMap[`#${(v as any).$anchor}`] = v;
+            }
+            const replaceRefs = (obj: any): any => {
+              if (!obj || typeof obj !== 'object') return obj;
+              if (Array.isArray(obj)) return obj.map(replaceRefs);
+              if (obj.$ref && typeof obj.$ref === 'string' && anchorMap[obj.$ref]) return anchorMap[obj.$ref];
+              const out: any = {};
+              for (const [kk, vv] of Object.entries(obj)) out[kk] = replaceRefs(vv);
+              return out;
+            };
+            return replaceRefs(JSON.parse(JSON.stringify(def)));
+          }
+        }
+      } catch (e) {
+        // ignore and return root
+      }
+      return root;
+    };
+    const schemaForGraph = normalizeForGraph(activeSchema);
+    const { nodes, edges } = schemaToGraph(schemaForGraph);
     // Only rebuild nodes/edges if the count changes (structural change)
     // Store label of selected node before graph rebuild
     setNodes(prevNodes => {
@@ -1198,7 +1242,93 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       setEdges(edges);
     }
     // Otherwise, do not reset selection (preserve selection and form)
-  }, [schema, loadedSchema, setNodes, setEdges, useTestData, schemaToGraph]);
+  }, [schema, loadedSchema, resolvedSchema, setNodes, setEdges, useTestData, schemaToGraph]);
+
+  // Resolve $ref/$defs asynchronously (uses dynamic import to avoid hard failure in tests)
+  React.useEffect(() => {
+    let cancelled = false;
+    const active = schema || loadedSchema;
+    if (!active) {
+      setResolvedSchema(null);
+      setDerefInProgress(false);
+      return;
+    }
+    (async () => {
+      setDerefInProgress(true);
+      try {
+        const parser = await import('json-schema-ref-parser');
+        const deref = await (parser as any).default.dereference(active);
+        if (!cancelled) setResolvedSchema(deref as Record<string, unknown>);
+      } catch (e) {
+        // If import or dereference fails, attempt a lightweight local dereference
+        if (!cancelled) {
+          try {
+            const root: any = active;
+            // If top-level $ref points into $defs, hoist that definition
+            if (typeof root.$ref === 'string' && root.$defs && root.$ref.startsWith('#/$defs/')) {
+              const key = root.$ref.replace('#/$defs/', '');
+              let candidate = (root.$defs && (root.$defs as any)[key]) || null;
+              if (candidate) {
+                // Build anchor map from $defs
+                const anchorMap: Record<string, any> = {};
+                for (const [k, v] of Object.entries(root.$defs || {})) {
+                  if ((v as any).$anchor) anchorMap[`#${(v as any).$anchor}`] = v;
+                }
+                // Replace any inner $ref that is a local anchor
+                const replaceRefs = (obj: any): any => {
+                  if (!obj || typeof obj !== 'object') return obj;
+                  if (Array.isArray(obj)) return obj.map(replaceRefs);
+                  const out: any = {};
+                  for (const [kk, vv] of Object.entries(obj)) {
+                    if (kk === '$ref' && typeof vv === 'string' && anchorMap[vv]) {
+                      return anchorMap[vv];
+                    }
+                    out[kk] = replaceRefs(vv);
+                  }
+                  return out;
+                };
+                candidate = JSON.parse(JSON.stringify(candidate));
+                const resolved = replaceRefs(candidate);
+                setResolvedSchema(resolved as Record<string, unknown>);
+              } else {
+                setResolvedSchema(active as Record<string, unknown>);
+              }
+            } else {
+              setResolvedSchema(active as Record<string, unknown>);
+            }
+          } catch (_err) {
+            setResolvedSchema(active as Record<string, unknown>);
+          }
+        }
+      } finally {
+        if (!cancelled) setDerefInProgress(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [schema, loadedSchema]);
+
+  // When we produce a resolved schema from dereferencing, emit it to parent
+  // so consuming editors receive a concrete (non-$ref) schema to render.
+  React.useEffect(() => {
+    if (!resolvedSchema) return;
+    // Only emit once per resolved result
+    if (emittedResolvedRef.current) return;
+    const hasRefs = (s: any): boolean => {
+      if (!s || typeof s !== 'object') return false;
+      if (s.$ref !== undefined) return true;
+      if (s.$defs !== undefined) return true;
+      for (const v of Object.values(s)) {
+        if (hasRefs(v)) return true;
+      }
+      return false;
+    };
+    // Only override when the original provided schema had refs (avoid clobbering user schema)
+    if (schema && hasRefs(schema)) {
+      emittedResolvedRef.current = true;
+      skipSchemaSyncRef.current = true;
+      onChange(resolvedSchema);
+    }
+  }, [resolvedSchema, schema, onChange]);
 
   // Two-way sync: only trigger graphToSchema when nodes/edges are changed by user actions
   const [isUserEdit, setIsUserEdit] = React.useState(false);

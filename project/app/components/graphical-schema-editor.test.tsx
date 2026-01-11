@@ -6,6 +6,39 @@ import { waitFor } from '@testing-library/react';
 
 describe('GraphicalSchemaEditor - Enum Editing', () => {
 
+  it('resolves $defs and $ref and renders referenced properties', async () => {
+    const testSchema = {
+      $id: 'https://example.com/ecommerce.schema.json',
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+      $ref: '#/$defs/order',
+      $defs: {
+        product: {
+          $anchor: 'ProductSchema',
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            price: { type: 'number', minimum: 0 }
+          }
+        },
+        order: {
+          $anchor: 'OrderSchema',
+          type: 'object',
+          properties: {
+            orderId: { type: 'string' },
+            items: { type: 'array', items: { $ref: '#ProductSchema' } }
+          }
+        }
+      }
+    } as any;
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => {}} />);
+
+    // After dereferencing, the referenced properties should appear in the graph
+    const orderIdNode = await screen.findByText('orderId');
+    expect(orderIdNode).toBeInTheDocument();
+    const nameNode = await screen.findByText('name');
+    expect(nameNode).toBeInTheDocument();
+  });
+
   it('can add a property via context menu and it appears in the schema', async () => {
     const testSchema = {
       type: 'object',
