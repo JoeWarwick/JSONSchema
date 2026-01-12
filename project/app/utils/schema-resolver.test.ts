@@ -1,7 +1,7 @@
-import { resolveSchemaSync } from "~/utils/schema-resolver";
+import { resolveSchema } from "~/utils/schema-resolver";
 
 describe('schema-resolver fallback behavior', () => {
-  test('resolveSchemaSync hoists and inlines $defs into properties', () => {
+  test('resolveSchema hoists and inlines $defs into properties', async () => {
     const unresolved = {
       $id: 'https://example.com/ecommerce.schema.json',
       $schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -25,7 +25,7 @@ describe('schema-resolver fallback behavior', () => {
       }
     } as any;
 
-    const resolved = resolveSchemaSync(unresolved as any) as any;
+    const resolved = await resolveSchema(unresolved as any) as any;
     // debug output for CI/local runs
     // eslint-disable-next-line no-console
     // debug log removed

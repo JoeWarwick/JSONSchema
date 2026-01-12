@@ -728,11 +728,12 @@ function PropertyEditor({
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
   return (
-    <div className={styles.fieldGroup}>
+    <div className={styles.fieldGroup} data-testid={`prop-${propertyName}`}>
       <div className={styles.propertyHeader}>
         <input
           className={styles.input}
           value={editingName}
+          data-testid={`prop-${propertyName}-name`}
           onChange={(e) => setEditingName(e.target.value)}
           onBlur={() => onRename(editingName)}
           onKeyDown={(e) => {

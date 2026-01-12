@@ -3,7 +3,7 @@ import schemaReducer, {
   APPLY_RESOLVED_EDIT,
   getPersistableSource,
 } from "./schemaReducer";
-import { resolveSchemaSync } from "~/utils/schema-resolver";
+import { resolveSchema } from "~/utils/schema-resolver";
 
 describe("schemaReducer rehydrate behavior", () => {
   const sourceWithDefs = {
@@ -89,7 +89,7 @@ describe("schemaReducer rehydrate behavior", () => {
     expect(keys).toEqual(expect.arrayContaining(["order"]));
   });
 
-  test("rehydration of the provided ecommerce schema preserves $defs and converts inlined copies to $ref", () => {
+  test("rehydration of the provided ecommerce schema preserves $defs and converts inlined copies to $ref", async () => {
     const messySchema = {
       "$id": "https://example.com/ecommerce.schema.json",
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -139,7 +139,7 @@ describe("schemaReducer rehydrate behavior", () => {
 
     const state0 = initialSchemaState(messySchema) as any;
     // Produce the editor/resolved view the reducer expects
-    const resolved = resolveSchemaSync(messySchema) as any;
+      const resolved = await resolveSchema(messySchema) as any;
 
     const state1 = schemaReducer(state0, { type: APPLY_RESOLVED_EDIT, payload: resolved });
     const persistable = getPersistableSource(state1) as any;
@@ -237,7 +237,7 @@ describe("schemaReducer rehydrate behavior", () => {
     }
   });
 
-  test("idempotence: repeated resolve -> APPLY_RESOLVED_EDIT cycles stabilize persisted source", () => {
+  test("idempotence: repeated resolve -> APPLY_RESOLVED_EDIT cycles stabilize persisted source", async () => {
     const schema4 = {
       "$id": "https://example.com/ecommerce.schema.json",
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -281,7 +281,7 @@ describe("schemaReducer rehydrate behavior", () => {
     const rounds = 8;
     for (let i = 0; i < rounds; i++) {
       const state0 = initialSchemaState(current) as any;
-      const resolved = resolveSchemaSync(current) as any;
+      const resolved = await resolveSchema(current) as any;
       const state1 = schemaReducer(state0, { type: APPLY_RESOLVED_EDIT, payload: resolved });
       const persistable = getPersistableSource(state1) as any;
       // Each cycle should preserve $defs and the canonical def keys
@@ -294,7 +294,7 @@ describe("schemaReducer rehydrate behavior", () => {
     }
   });
 
-  test("strict idempotence: canonical persisted source is byte-equal across cycles", () => {
+  test("strict idempotence: canonical persisted source is byte-equal across cycles", async () => {
     const schema4 = {
       "$id": "https://example.com/ecommerce.schema.json",
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -351,7 +351,7 @@ describe("schemaReducer rehydrate behavior", () => {
     const rounds = 8;
     for (let i = 0; i < rounds; i++) {
       const state0 = initialSchemaState(current) as any;
-      const resolved = resolveSchemaSync(current) as any;
+      const resolved = await resolveSchema(current) as any;
       const state1 = schemaReducer(state0, { type: APPLY_RESOLVED_EDIT, payload: resolved });
       const persistable = getPersistableSource(state1) as any;
       const canon = canonicalize(persistable);
@@ -368,7 +368,7 @@ describe("schemaReducer rehydrate behavior", () => {
     throw new Error('Canonical persisted source did not stabilize within rounds');
   });
 
-  test("resolvedCache never contains top-level $defs", () => {
+  test("resolvedCache never contains top-level $defs", async () => {
     // Check several source shapes to ensure resolvedCache is always an object-root without $defs
     const cases = [sourceWithDefs, /* messySchema */ {
       $defs: {
@@ -385,7 +385,7 @@ describe("schemaReducer rehydrate behavior", () => {
       expect((s0.resolvedCache as any).$defs).toBeUndefined();
 
       // Simulate async resolver result being applied by reducer
-      const resolved = resolveSchemaSync(src as any) as any;
+      const resolved = await resolveSchema(src as any) as any;
       const s1 = schemaReducer(s0, { type: APPLY_RESOLVED_EDIT, payload: resolved });
       expect(s1.resolvedCache).toBeTruthy();
       expect((s1.resolvedCache as any).$defs).toBeUndefined();

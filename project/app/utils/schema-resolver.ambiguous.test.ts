@@ -1,4 +1,4 @@
-import { rehydrateToRefs } from "~/utils/schema-resolver";
+import { rehydrateSchema } from "~/utils/schema-resolver";
 
 describe('schema-resolver ambiguous mapping heuristics', () => {
   test('tie-breaker picks alphabetical def when overlap scores equal', () => {
@@ -31,7 +31,7 @@ describe('schema-resolver ambiguous mapping heuristics', () => {
       }
     } as any;
 
-    const out = rehydrateToRefs(original as any, resolved as any) as any;
+    const out = rehydrateSchema(original as any, resolved as any) as any;
 
     // Tie-breaker should pick 'apple' (alphabetical) and merge `common.maxLength` into it
     expect(out.$defs).toBeTruthy();

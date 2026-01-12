@@ -4,9 +4,13 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "dev": "vite",
+    "dev": "vite --port 5173",
     "preview": "vite preview",
     "e2e": "npx playwright test",
+    "e2e:ci": "BASE_URL=http://localhost:5173 npx playwright test --project=chromium --reporter=list,html --trace=on",
+    "prepare": "husky install",
+    "lint": "eslint --ext .ts,.tsx .",
+    "lint:fix": "eslint --ext .ts,.tsx . --fix",
     "typecheck": "tsc --noEmit",
     "test": "jest"
   },
@@ -58,10 +62,12 @@
     "jest-environment-jsdom": "^30.2.0"
     ,
     "playwright": "^1.36.0",
-    "@playwright/test": "^1.36.0"
-  },
-  "prettier": {
-    "printWidth": 120,
-    "endOfLine": "auto"
+    "@playwright/test": "^1.36.0",
+    "eslint": "^8.46.0",
+    "@typescript-eslint/parser": "^6.7.0",
+    "@typescript-eslint/eslint-plugin": "^6.7.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^14.3.0",
+    "prettier": "^2.8.8"
   }
 }

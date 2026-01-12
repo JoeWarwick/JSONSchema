@@ -1,4 +1,4 @@
-import { resolveSchemaSync, rehydrateToRefs, resolveSchema } from "~/utils/schema-resolver";
+import { rehydrateSchema, resolveSchema } from "~/utils/schema-resolver";
 
 export const LOAD_SOURCE_SCHEMA = "LOAD_SOURCE_SCHEMA";
 export const APPLY_SOURCE_UPDATE = "APPLY_SOURCE_UPDATE";
@@ -38,6 +38,47 @@ function isObjectSchema(s: Schema): boolean {
   return false;
 }
 
+function rewriteExampleComRefs(schema: Schema): Schema {
+  if (!schema || typeof schema !== 'object') return schema;
+  try {
+    if (typeof window === 'undefined') return schema;
+    const clone = JSON.parse(JSON.stringify(schema));
+    const walk = (node: any) => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) return node.forEach(walk);
+        if (node.$ref && typeof node.$ref === 'string') {
+          try {
+            // Rewrite example.com dev refs to local /schemas/ files
+            if (node.$ref.startsWith('https://example.com/')) {
+              const parts = node.$ref.split('/');
+              const name = parts[parts.length - 1] || 'schema.json';
+              node.$ref = `${window.location.origin}/schemas/${name}`;
+            }
+            // Also rewrite refs that point to a local schema server on a different port
+            // (e.g. http://localhost:5174/schemas/*.json) to the current dev server origin
+            else {
+              try {
+                const url = new URL(node.$ref);
+                if (url.hostname === 'localhost' && (url.port === '5174' || url.port === '5173')) {
+                  const parts = url.pathname.split('/');
+                  const name = parts[parts.length - 1] || 'schema.json';
+                  node.$ref = `${window.location.origin}/schemas/${name}`;
+                }
+              } catch (_) {
+                // ignore invalid URLs
+              }
+            }
+          } catch (_) {}
+        }
+      for (const v of Object.values(node)) walk(v);
+    };
+    walk(clone);
+    return clone;
+  } catch (_) {
+    return schema;
+  }
+}
+
 export function initialSchemaState(initialSource: Schema): SchemaState {
   const isObj = isObjectSchema(initialSource);
   return {
@@ -52,8 +93,9 @@ export default function schemaReducer(state: SchemaState, action: SchemaAction):
   switch (action.type) {
     case LOAD_SOURCE_SCHEMA:
     case APPLY_SOURCE_UPDATE: {
-      const src = action.payload;
-      const srcIsObject = isObjectSchema(src);
+        const raw = action.payload;
+        const src = rewriteExampleComRefs(raw as Schema) as Schema;
+        const srcIsObject = isObjectSchema(src);
       return {
         ...state,
         source: src,
@@ -74,9 +116,11 @@ export default function schemaReducer(state: SchemaState, action: SchemaAction):
       // processed schema.
       let newSource: Schema;
       if (state.source && typeof state.source === 'object') {
-        const srcObj = state.source as Record<string, any>;
+        const rawSrc = state.source as Schema;
+        const src = rewriteExampleComRefs(rawSrc) as Schema;
+        const srcObj = src as Record<string, any>;
         if (srcObj.$defs || typeof srcObj.$ref === 'string') {
-          newSource = rehydrateToRefs(state.source as Record<string, unknown>, resolved as Record<string, unknown>);
+          newSource = rehydrateSchema(src as Record<string, any>, resolved as Record<string, any>);
         } else {
           newSource = resolved;
         }
@@ -125,22 +169,57 @@ export function getEditorSchema(state: SchemaState): Schema {
 // Helper to encapsulate sync+async resolution and dispatch updates.
 export async function ensureResolved(dispatch: (a: SchemaAction) => void, source: Schema) {
   dispatch({ type: SET_DEREF_IN_PROGRESS, payload: true });
+  // Clear any runtime deref completion signals before starting
   try {
+    if (typeof window !== 'undefined') {
+      try { document.documentElement.removeAttribute('data-deref-complete'); } catch (_) {}
+      try { localStorage.removeItem('schema-sculptor-deref-complete'); } catch (_) {}
+      try { (window as any).__schemaSculptorDerefComplete = false; } catch (_) {}
+    }
+  } catch (_) {}
+  try {
+    // Rewrite any example.com or localhost dev-port refs to current origin
+    // before attempting async resolution so the resolver fetches same-origin
+    // static files (served from `/schemas/`) when running in the browser.
+    try {
+      if (typeof window !== 'undefined' && source && typeof source === 'object') {
+        source = rewriteExampleComRefs(source as Schema) as Schema;
+      }
+    } catch (_) {}
     // Prefer the full async resolver so remote $ref can be fetched before
     // updating the resolved cache. If the async resolver fails, fall back
     // to the synchronous fast resolver to avoid leaving the UI without a view.
     try {
       const asyncResolved = await resolveSchema(source);
-      if (asyncResolved) dispatch({ type: SET_RESOLVED_CACHE, payload: asyncResolved });
-      else {
-        const fast = resolveSchemaSync(source);
-        if (fast) dispatch({ type: SET_RESOLVED_CACHE, payload: fast });
+      if (asyncResolved) {
+        dispatch({ type: SET_RESOLVED_CACHE, payload: asyncResolved });
+        try {
+          if (typeof window !== 'undefined') {
+            try { localStorage.setItem('schema-sculptor-deref-complete', JSON.stringify({ ts: Date.now(), id: (asyncResolved as any)?.$id || null })); } catch (_) {}
+            try { (window as any).__schemaSculptorDerefComplete = true; } catch (_) {}
+            try { document.documentElement.setAttribute('data-deref-complete', '1'); } catch (_) {}
+          }
+        } catch (_) {}
+      } else {
+        // No resolved schema returned from async resolver — treat as failure
+        if (typeof window !== 'undefined') {
+          try { document.documentElement.setAttribute('data-deref-error', '1'); } catch (_) {}
+        }
       }
-    } catch (e) {
+    } catch (e: Error | any) {
+      // Log deref errors to console and localStorage to aid e2e trace debugging
       try {
-        const fast = resolveSchemaSync(source);
-        if (fast) dispatch({ type: SET_RESOLVED_CACHE, payload: fast });
+        // eslint-disable-next-line no-console
+        console.error('[schemaReducer] async resolveSchema failed:', e && (e.message || e));
       } catch (_) {}
+      try {
+        if (typeof window !== 'undefined') {
+          try { localStorage.setItem('schema-sculptor-deref-error', JSON.stringify({ message: (e && e.message) || String(e), stack: (e && e.stack) || null, ts: Date.now() })); } catch (_) {}
+          try { document.documentElement.setAttribute('data-deref-error', '1'); } catch (_) {}
+        }
+      } catch (_) {}
+      // Do not fall back to a synchronous resolver; async failure is a fail.
+      // Ensure UI is notified via data attributes/localStorage in catch above.
     }
   } catch (e) {
     // ensure we clear in-progress flag
@@ -172,7 +251,7 @@ function normalizeResolved(s: Schema): Schema {
         const cleaned: Record<string, any> = {};
         for (const pk of Object.keys(props)) {
           const pv = props[pk];
-          // remove if still exposing $anchor
+          // If a top-level property carried $anchor metadata, do not expose it to the editor
           if (pv && typeof pv === 'object' && ('$anchor' in pv)) {
             continue;
           }
@@ -205,22 +284,30 @@ function normalizeResolved(s: Schema): Schema {
           for (const v of Object.values(obj)) collectFroms(v, false);
         };
         for (const [k, v] of Object.entries(propsClone)) collectFroms(v, true);
+
+        // Build helper sets from nestedFroms: referenced defs by key and by anchor name
+        const referencedKeys = new Set<string>();
+        const referencedAnchors = new Set<string>();
+        for (const r of nestedFroms) {
+          if (typeof r !== 'string') continue;
+          if (r.startsWith('#/$defs/')) referencedKeys.add(r.replace('#/$defs/', ''));
+          else if (r.startsWith('#/')) {
+            // try extract trailing segment
+            const parts = r.split('/');
+            const last = parts[parts.length - 1] || '';
+            if (last) referencedKeys.add(last);
+          } else if (r.startsWith('#')) {
+            referencedAnchors.add(r.replace(/^#/, ''));
+          }
+        }
+
         for (const pk of Object.keys(propsClone)) {
           const pv = propsClone[pk];
-          if (pv && typeof pv === 'object' && ('$anchor' in pv)) {
+          // If this def is referenced by other defs, prune it from the editor view
+          const anchorName = pv && pv.$anchor ? String(pv.$anchor) : null;
+          if (referencedKeys.has(pk) || (anchorName && referencedAnchors.has(anchorName))) {
             delete propsClone[pk];
             continue;
-          }
-          if (pv && typeof pv === 'object') {
-            // If this prop still has $anchor metadata, remove it from the view
-            // (anchors are transient and shouldn't be surfaced to editors).
-            if ('$anchor' in pv) { delete propsClone[pk]; continue; }
-            // If there are nested $ref usages that include this key by
-            // path (e.g. '#/$defs/<key>') then prefer not to expose the
-            // duplicated inline copy to editors.
-            for (const r of nestedFroms) {
-              if (typeof r === 'string' && r.includes(pk)) { delete propsClone[pk]; break; }
-            }
           }
         }
         return { type: 'object', properties: propsClone };
@@ -234,105 +321,72 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
   // Use the boolean discriminator `sourceIsObject` (set on schema load)
   // to decide whether to normalize the resolved view for editors.
   try {
+    // In browser dev, rewrite refs that point to other local dev ports
+    // (for example `http://localhost:5174/...`) to the current origin so
+    // the app uses same-origin static files under `/schemas/` and avoids
+    // CORS or cross-origin fetch issues. This is safe to run repeatedly
+    // and is skipped when `window` is not available (tests/Node).
+    try {
+      if (typeof window !== 'undefined' && source && typeof source === 'object') {
+        const rewrite = (node: any) => {
+          if (!node || typeof node !== 'object') return;
+          if (Array.isArray(node)) return node.forEach(rewrite);
+          if (typeof node.$ref === 'string') {
+            try {
+              const ref = node.$ref as string;
+              const url = new URL(ref, window.location.origin);
+              if (url.hostname === 'localhost' && (url.port === '5174' || url.port === '5173')) {
+                const parts = url.pathname.split('/');
+                const name = parts[parts.length - 1] || 'schema.json';
+                node.$ref = `${window.location.origin}/schemas/${name}`;
+              }
+            } catch (_) {}
+          }
+          for (const v of Object.values(node)) rewrite(v);
+        };
+        try { const cloned = JSON.parse(JSON.stringify(source)); rewrite(cloned); source = cloned; } catch (_) {}
+      }
+    } catch (_) {}
+    // If an async `resolved` payload was provided and it already appears
+    // to contain concrete inlined properties (not just $ref placeholders),
+    // prefer normalizing and returning it directly. This ensures that
+    // dereferenced remote schemas (e.g. emergencyContact inlined from
+    // https://example.com/user-profile.schema.json) are presented fully
+    // to the editors instead of deriving a view from the original `source`.
+    try {
+      if (resolved && typeof resolved === 'object' && (resolved as any).properties && typeof (resolved as any).properties === 'object') {
+        const props = (resolved as any).properties as Record<string, any>;
+        let hasConcrete = false;
+        for (const v of Object.values(props)) {
+          if (v && typeof v === 'object') {
+            if ('properties' in v || 'type' in v) { hasConcrete = true; break; }
+            // If the property has more than a single `$ref` key, treat as concrete
+            if (Object.keys(v).length > 1) { hasConcrete = true; break; }
+          }
+        }
+        if (hasConcrete) {
+          if ((resolved as any).$defs) delete (resolved as any).$defs;
+          return normalizeResolved(resolved);
+        }
+      }
+    } catch (_) {}
+    // If async resolved is not available but the source is an object-rooted
+    // schema (for example when `resolved` is null during async deref),
+    // build the editor view directly from the `source` so editors still
+    // see the $ref placeholders or inlined properties.
+    try {
+      if ((!resolved || resolved === null) && sourceIsObject && source && typeof source === 'object') {
+        const fromSource = (source as any).properties && typeof (source as any).properties === 'object' ? { type: 'object', properties: (source as any).properties } : { type: 'object', properties: source };
+        return normalizeResolved(fromSource as Schema);
+      }
+    } catch (_) {}
     // Prefer to derive a normalized resolved view from the authoritative
     // `source` when available. This keeps schema-conversion logic inside
     // the reducer so UI layers never need to call resolver utilities.
     if (source && typeof source === 'object') {
       const srcObj = source as Record<string, any>;
       try {
-        const fast = resolveSchemaSync(source);
-        // (debug logs removed)
-        if (fast) {
-          // If the original source provided $defs, detect defs that are
-          // only referenced within other defs and remove them from the
-          // top-level properties presented to editors. This mirrors the
-          // prior behavior that avoided exposing referenced top-level defs.
-          try {
-            const defs = srcObj.$defs as Record<string, any> | undefined;
-            if (defs && fast && typeof fast === 'object' && (fast as any).properties && typeof (fast as any).properties === 'object') {
-              const referenced = new Set<string>();
-              const collectRefs = (obj: any) => {
-                if (!obj || typeof obj !== 'object') return;
-                if (Array.isArray(obj)) return obj.forEach(collectRefs);
-                if (typeof obj.$ref === 'string') {
-                  const r = obj.$ref as string;
-                  if (r.startsWith('#/$defs/')) referenced.add(r.replace('#/$defs/', ''));
-                  else if (r.startsWith('#')) {
-                    const anchor = r.slice(1);
-                    for (const k of Object.keys(defs)) {
-                      if ((defs[k] as any).$anchor === anchor) referenced.add(k);
-                    }
-                  }
-                }
-                for (const v of Object.values(obj)) collectRefs(v);
-              };
-              for (const v of Object.values(defs)) collectRefs(v);
-
-              // Start with the properties from the fast resolver
-              const fastProps = ((fast as any).properties as Record<string, any>) || {};
-              // Preserve original source property ordering when possible
-              let cleaned: Record<string, any> = {};
-              try {
-                const srcProps = srcObj && srcObj.properties && typeof srcObj.properties === 'object' ? srcObj.properties as Record<string, any> : null;
-                if (srcProps) {
-                  for (const k of Object.keys(srcProps)) {
-                    if (Object.prototype.hasOwnProperty.call(fastProps, k)) cleaned[k] = fastProps[k];
-                  }
-                  for (const k of Object.keys(fastProps)) if (!Object.prototype.hasOwnProperty.call(cleaned, k)) cleaned[k] = fastProps[k];
-                } else {
-                  cleaned = { ...fastProps };
-                }
-              } catch (_) { cleaned = { ...fastProps }; }
-              // If some defs are only referenced by other defs, remove those top-level properties
-              for (const k of Object.keys(cleaned)) {
-                if (referenced.has(k)) delete cleaned[k];
-              }
-
-              // Inline any remaining $ref entries in properties using the canonical defs
-              const defsMap: Record<string, any> = (fast as any).$defs || srcObj.$defs || {};
-              const replaceRefs = (obj: any): any => {
-                if (!obj || typeof obj !== 'object') return obj;
-                if (Array.isArray(obj)) return obj.map(replaceRefs);
-                if (obj.$ref && typeof obj.$ref === 'string') {
-                  const ref = obj.$ref as string;
-                  if (ref.startsWith('#/$defs/')) {
-                    const key = ref.replace('#/$defs/', '');
-                    const target = defsMap && defsMap[key] ? JSON.parse(JSON.stringify(defsMap[key])) : null;
-                    if (target) {
-                      if ((target as any).$anchor) delete (target as any).$anchor;
-                      return replaceRefs(target);
-                    }
-                  }
-                  return obj;
-                }
-                const out: any = {};
-                for (const [kk, vv] of Object.entries(obj)) out[kk] = replaceRefs(vv);
-                return out;
-              };
-              for (const pk of Object.keys(cleaned)) {
-                try { cleaned[pk] = replaceRefs(cleaned[pk]); } catch (_) {}
-              }
-
-              const cleanedResolved = { ...(fast as any), properties: cleaned } as Schema;
-              // Ensure we never expose top-level $defs on the normalized view
-              if ((cleanedResolved as any).$defs) delete (cleanedResolved as any).$defs;
-              // (debug logs removed)
-              return normalizeResolved(cleanedResolved);
-            }
-          } catch (_) {}
-          // (debug logs removed)
-          return normalizeResolved(fast);
-        }
-        // If the fast resolver did not produce a resolved view, but the
-        // authoritative source exposes a top-level `$defs`, convert that
-        // defs map into a normalized root-object view for editors. This
-        // avoids returning the raw `source` object (which may contain
-        // `$defs`) when resolution utilities are unavailable in the
-        // test/runtime environment.
         if (srcObj.$defs && typeof srcObj.$defs === 'object') {
-          // eslint-disable-next-line no-console
-          console.warn('[schemaReducer] fast resolver did not produce a resolved view; normalizing source.$defs as fallback');
-          // (debug logs removed)
           return normalizeResolved(srcObj.$defs as Schema);
         }
       } catch (_) {}
@@ -407,7 +461,7 @@ export function getPersistableSource(state: SchemaState): Schema {
     const resolved = state.resolvedCache;
     if (src && resolved) {
       // rehydrate edits from resolved view into the original source structure
-      const rehydrated = rehydrateToRefs(src, resolved);
+      const rehydrated = rehydrateSchema(src as Record<string, any>, resolved as Record<string, any>);
       return canonicalizeForPersist(rehydrated);
     }
     return src;

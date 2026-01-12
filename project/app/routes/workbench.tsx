@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useReducer } from "react";
+import useAsyncMemo from "~/hooks/useAsyncMemo";
 import { Sparkles, Copy, Check, X, Upload, Link as LinkIcon, Download, FileUp } from "lucide-react";
 import styles from "./workbench.module.css";
 import { generateSchema, isValidJSON } from "~/utils/schema-generator";
@@ -84,22 +85,18 @@ const generateDefaultInstance = (schema: Record<string, unknown>): unknown => {
 };
 
 export default function Workbench() {
-  // Initialize reducer with no source; load persisted schema via reducer on mount
-  const [state, dispatch] = useReducer(schemaReducer, initialSchemaState(null));
-
-  // On mount, load persisted canonical source via reducer so reducer remains source-of-truth
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
+  // Initialize reducer with persisted canonical source when available so
+  // editors receive the saved schema on first render (avoids e2e timing flakiness).
+  let initialPersisted: Record<string, unknown> | null = null;
+  if (typeof window !== 'undefined') {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Record<string, unknown>;
-        dispatch({ type: LOAD_SOURCE_SCHEMA, payload: parsed });
-      }
-    } catch (err) {
-      console.error('Failed to load persisted schema into reducer:', err);
+      if (raw) initialPersisted = JSON.parse(raw) as Record<string, unknown>;
+    } catch (_) {
+      // ignore
     }
-  }, []);
+  }
+  const [state, dispatch] = useReducer(schemaReducer, initialSchemaState(initialPersisted));
   
   const [instanceData, setInstanceData] = useState<unknown>(() => {
     // Load instance data from localStorage on initial render
@@ -142,13 +139,11 @@ export default function Workbench() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const schemaFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Persist canonical source and compute resolved cache (sync fast + async full)
+  // Compute resolved cache asynchronously when `state.source` changes.
+  // Do NOT persist to localStorage until dereferencing has completed —
+  // this avoids saving a source that still contains unresolved $ref URLs.
   useEffect(() => {
-    // Persist a rehydrated, persistable form of the schema (may merge resolved edits into $defs/$ref)
-    const toSave = getPersistableSource(state);
-    if (toSave) localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave)); else localStorage.removeItem(STORAGE_KEY);
     let cancelled = false;
-    // Delegate sync+async resolution to reducer module helper to keep resolver usage encapsulated
     (async () => {
       if (cancelled) return;
       try {
@@ -157,6 +152,21 @@ export default function Workbench() {
     })();
     return () => { cancelled = true; };
   }, [state.source]);
+
+  // Persist canonical source only after dereferencing completes so saved
+  // state does not contain unresolved $ref entries.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      // Only persist when no deref is in progress; this ensures any async
+      // fetches have finished and `resolvedCache` is authoritative.
+      if (state.derefInProgress) return;
+      const toSave = getPersistableSource(state);
+      if (toSave) localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave)); else localStorage.removeItem(STORAGE_KEY);
+    } catch (err) {
+      // ignore
+    }
+  }, [state.resolvedCache, state.derefInProgress]);
 
   // (debug hooks removed)
 
@@ -354,12 +364,20 @@ export default function Workbench() {
     try {
       const w = window as any;
       if (!w.__tabDebug) w.__tabDebug = [];
-      w.__tabDebug.push({ type: 'schema-load', used: state.resolvedCache ? 'resolved' : state.source ? 'source' : 'none', timestamp: Date.now(), hasSource: !!state.source, hasResolved: !!state.resolvedCache });
+      const entry = { type: 'schema-load', used: state.resolvedCache ? 'resolved' : state.source ? 'source' : 'none', timestamp: Date.now(), hasSource: !!state.source, hasResolved: !!state.resolvedCache };
+      w.__tabDebug.push(entry);
+      try { w.__lastSchemaLoad = { ...entry, resolvedCache: state.resolvedCache || null, source: state.source || null }; } catch (_) {}
     } catch (e) {}
   }, [state.resolvedCache, state.source]);
 
-  // Only expose editor schema once reducer has produced a resolved cache.
-  const editorSchema = state.resolvedCache ? getEditorSchema(state) : null;
+  // Compute editor schema asynchronously and memoize it so expensive
+  // normalization does not block UI interactions (e.g. tab clicks).
+  const editorSchema = useAsyncMemo(async () => {
+    if (!state.resolvedCache) return null;
+    // Yield once to ensure this runs after paint
+    await Promise.resolve();
+    return getEditorSchema(state) as Record<string, unknown> | null;
+  }, [state.resolvedCache, state.sourceIsObject, state.source], null);
 
   // Log the actual schema being provided to editors for debugging/testing.
   // (editor debug snapshot removed)
@@ -379,11 +397,11 @@ export default function Workbench() {
           <h4 className={styles.title}>Schema Sculptor - JSON Schema Workbench</h4>
           
           {/* Debug badge: shows whether resolvedCache or source is used */}
-          <div style={{marginLeft: 8}}>
+            <div style={{marginLeft: 8}}>
             <small style={{color: '#999'}}>Schema source:</small>
-            <div style={{display: 'inline-block', marginLeft: 8, padding: '4px 8px', borderRadius: 12, background: '#1f2937', color: '#fff', fontSize: 12}} data-testid="schema-source-badge">
-              {state.resolvedCache ? 'resolved' : (state.source ? 'source' : 'none')}
-            </div>
+              <div suppressHydrationWarning style={{display: 'inline-block', marginLeft: 8, padding: '4px 8px', borderRadius: 12, background: '#1f2937', color: '#fff', fontSize: 12}} data-testid="schema-source-badge">
+                {state.resolvedCache ? 'resolved' : (state.source ? 'source' : 'none')}
+              </div>
           </div>
         </div>
         <p className={styles.subtitle}>Generate and modify JSON schemas with an intuitive form-based editor</p>

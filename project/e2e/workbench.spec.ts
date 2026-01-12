@@ -20,7 +20,7 @@ const resolvedSchema = {
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 test.describe('Workbench E2E', () => {
-  test('loading unresolved $defs schema from localStorage renders object root', async ({ page }) => {
+  test('loading unresolved defs schema from localStorage renders object root', async ({ page }) => {
     await page.goto(BASE);
 
     // Write resolved root-object schema into localStorage and reload (avoids async deref)

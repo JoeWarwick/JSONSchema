@@ -1,7 +1,7 @@
-import { resolveSchemaSync, rehydrateToRefs } from "~/utils/schema-resolver";
+import { resolveSchema, rehydrateSchema } from "~/utils/schema-resolver";
 
 describe('schema-resolver roundtrip (resolve -> edit -> rehydrate)', () => {
-  test('inlined defs are rehydrated into $defs on save', () => {
+  test('inlined defs are rehydrated into $defs on save', async () => {
     const original = {
       $id: 'https://example.com/ecommerce.schema.json',
       $schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -25,7 +25,7 @@ describe('schema-resolver roundtrip (resolve -> edit -> rehydrate)', () => {
       }
     } as any;
 
-    const resolved = resolveSchemaSync(original as any) as any;
+    const resolved = await resolveSchema(original as any) as any;
     expect(resolved).toBeTruthy();
     expect(resolved.type).toBe('object');
     // product should be inlined
@@ -38,7 +38,7 @@ describe('schema-resolver roundtrip (resolve -> edit -> rehydrate)', () => {
     const edited = JSON.parse(JSON.stringify(resolved));
     edited.properties.product.properties.price.minimum = 5;
 
-    const rehydrated = rehydrateToRefs(original as any, edited as any) as any;
+    const rehydrated = rehydrateSchema(original as any, edited as any) as any;
     // Ensure it wrote back into root.$defs.product
     expect(rehydrated.$defs).toBeTruthy();
     expect(rehydrated.$defs.product).toBeTruthy();

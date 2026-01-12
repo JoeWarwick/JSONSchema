@@ -1,527 +1,313 @@
 // Lightweight resolver utility used across components.
-// Tries to use `json-schema-ref-parser` dynamically, with a local fallback
-// that can handle hoisting top-level $ref -> $defs and $anchor -> $ref mapping.
+// Async-only: no sync fallback. Exports:
+// - `resolveSchema(schema)` async dereference (uses json-schema-ref-parser when available)
+// - `rehydrateToRefs(original, edited)` writes edits back into original $defs
+// - `deepMerge(a,b)` deep-merge helper
+
 export async function resolveSchema(schema: Record<string, unknown> | null): Promise<Record<string, unknown> | null> {
   if (!schema || typeof schema !== 'object') return schema;
-  
+  const debug = typeof process !== 'undefined' && !!(process as any).env && !!(process as any).env.SCHEMA_RESOLVER_DEBUG;
 
-  try {
-    const parser = await import('json-schema-ref-parser');
-    const parserModule = (parser as any).default || parser;
-    
-    // Provide a lightweight HTTP resolver using global `fetch` so remote
-    // https:// refs can be resolved in browser or Node (when fetch is available).
-    const httpResolver = {
-      order: 1,
-      canRead: (file: any) => typeof file.url === 'string' && /^https?:\/\//i.test(file.url),
-      read: async (file: any) => {
-        if (typeof fetch !== 'function') {
-          // Let parser fall back if no fetch available in this environment
-          throw new Error('fetch is not available to resolve remote $ref');
-        }
-        let target = file.url as string;
-        try {
-          // Development convenience: if a ref points to example.com, prefer
-          // a local copy served from the dev server under `/schemas/` so
-          // developers don't need an external host. Only rewrite in browser.
-          if (typeof window !== 'undefined' && typeof target === 'string' && target.startsWith('https://example.com/')) {
-            const parts = target.split('/');
-            const name = parts[parts.length - 1] || 'schema.json';
-            target = `${window.location.origin}/schemas/${name}`;
-          }
-        } catch (_) {}
-        const res = await fetch(target);
-        if (!res.ok) throw new Error(`Failed to fetch ${file.url}: ${res.status}`);
-        const ct = res.headers.get?.('content-type') || '';
-        if (ct.includes('application/json') || ct.includes('application/ld+json')) return res.json();
-        // Some schemas may be returned as text/yaml; return raw text for the parser to handle
-        return res.text();
-      }
+  // Inline external https refs by fetching and replacing $ref nodes.
+  const inlineExternalRefs = async (input: any) => {
+    if (!input || typeof input !== 'object') return input;
+    const remoteCache = new Map<string, any>();
+    const fetchUrl = async (url: string) => {
+      if (remoteCache.has(url)) return remoteCache.get(url);
+      if (typeof fetch !== 'function') throw new Error('fetch not available');
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
+      const ct = res.headers.get?.('content-type') || '';
+      const body = ct.includes('application/json') || ct.includes('application/ld+json') ? await res.json() : await res.text();
+      remoteCache.set(url, body);
+      return body;
     };
 
-    const deref = await parserModule.dereference(schema, { resolve: { http: httpResolver } });
-
-    // If the parser left any external http(s) $ref nodes unresolved (some
-    // environments or parser configs may choose to leave externals), try a
-    // best-effort post-pass that fetches those remote schemas and inlines them.
-    try {
-      const remoteCache = new Map<string, any>();
-      const fetchRemote = async (url: string) => {
-        if (remoteCache.has(url)) return remoteCache.get(url);
-        if (typeof fetch !== 'function') throw new Error('fetch not available for remote $ref inlining');
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
-        const ct = res.headers.get?.('content-type') || '';
-        const body = ct.includes('application/json') || ct.includes('application/ld+json') ? await res.json() : await res.text();
-        remoteCache.set(url, body);
-        return body;
-      };
-
-      const replaceRemoteRefs = async (node: any, parent: any, key?: string) => {
-        if (!node || typeof node !== 'object') return;
-        if (Array.isArray(node)) {
-          for (let i = 0; i < node.length; i++) await replaceRemoteRefs(node[i], node, i);
+    const cloned = JSON.parse(JSON.stringify(input));
+    const walk = async (node: any, parent: any, key?: string) => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) {
+        for (let i = 0; i < node.length; i++) await walk(node[i], node, i.toString());
+        return;
+      }
+      if (node.$ref && typeof node.$ref === 'string' && /^https?:\/\//i.test(node.$ref)) {
+        try {
+          const remote = await fetchUrl(node.$ref);
+          let clone = typeof remote === 'string' ? JSON.parse(remote) : JSON.parse(JSON.stringify(remote));
+          if (clone && typeof clone === 'object') {
+            delete clone.$id;
+            delete clone.$schema;
+            try {
+              const keys = Object.keys(clone || {});
+              const looksLikeDefs = keys.length > 0 && keys.every(k => {
+                const v = (clone as any)[k];
+                return v && typeof v === 'object' && !Array.isArray(v);
+              });
+              if (looksLikeDefs && !('properties' in clone) && !('type' in clone)) {
+                clone = { type: 'object', properties: clone };
+              }
+            } catch (_) {}
+          }
+          if (parent && typeof key !== 'undefined') parent[key] = clone;
+          await walk(clone, parent, key);
+          return;
+        } catch (_) {
           return;
         }
-        if (node.$ref && typeof node.$ref === 'string' && /^https?:\/\//i.test(node.$ref)) {
-          try {
-            const remote = await fetchRemote(node.$ref);
-            const clone = typeof remote === 'string' ? JSON.parse(remote) : JSON.parse(JSON.stringify(remote));
-            if (parent && typeof key !== 'undefined') parent[key] = clone;
-            // continue walking the inlined clone
-            await replaceRemoteRefs(clone, parent, key);
-            return;
-          } catch (e) {
-            return; // leave as-is on failure
-          }
-        }
-        for (const k of Object.keys(node)) await replaceRemoteRefs(node[k], node, k);
-      };
-
-      await replaceRemoteRefs(deref, null);
-    } catch (_) {}
-    // Normalize parser output: if it still contains $defs or appears to be
-    // a defs map, hoist/inline into a root object with `properties` so editors
-    // always receive a concrete root-object schema.
-    try {
-      const root: any = deref;
-      if (root && typeof root === 'object') {
-        if (root.$defs && typeof root.$defs === 'object') {
-          const defs = JSON.parse(JSON.stringify(root.$defs));
-          const anchorMap: Record<string, any> = {};
-          for (const [k, v] of Object.entries(defs)) {
-            if ((v as any).$anchor) anchorMap[`#${(v as any).$anchor}`] = v;
-            anchorMap[`#/$defs/${k}`] = v;
-          }
-          // Build properties by inlining each def and tagging with a non-standard marker
-          const props: Record<string, any> = {};
-          const replaceRefs = (obj: any): any => {
-            if (!obj || typeof obj !== 'object') return obj;
-            if (Array.isArray(obj)) return obj.map(replaceRefs);
-            if (obj.$ref && typeof obj.$ref === 'string') {
-              const ref = obj.$ref as string;
-              if (anchorMap[ref]) return replaceRefs(anchorMap[ref]);
-              if (ref.startsWith('#/$defs/')) {
-                const key = ref.replace('#/$defs/', '');
-                if (defs[key]) return replaceRefs(defs[key]);
-              }
-              return obj;
-            }
-            const out: any = {};
-            for (const [kk, vv] of Object.entries(obj)) out[kk] = replaceRefs(vv);
-            return out;
-          };
-          for (const [k, v] of Object.entries(defs)) {
-            const clone = JSON.parse(JSON.stringify(v));
-            // attach marker indicating original def anchor/key
-            if ((clone as any).$anchor) {
-              delete clone.$anchor;
-            }
-            props[k] = replaceRefs(clone);
-          }
-          return { type: 'object', properties: props };
-        }
-        // If parser returned a plain object whose keys look like def names
-        // (each value is a schema object), treat it as properties.
-        const keys = Object.keys(root || {});
-        if (!('type' in root) && !('properties' in root) && keys.length > 0) {
-          let looksLikeDefs = true;
-          for (const k of keys) {
-            const v = (root as any)[k];
-            if (!v || typeof v !== 'object') { looksLikeDefs = false; break; }
-          }
-          if (looksLikeDefs) {
-            const propsClone = JSON.parse(JSON.stringify(root));
-            for (const pk of Object.keys(propsClone)) {
-              const pv = propsClone[pk];
-              if (pv && typeof pv === 'object' && ('$anchor' in pv)) {
-                delete propsClone[pk];
-              }
-            }
-            return { type: 'object', properties: propsClone };
-          }
-        }
       }
-    } catch (_) {}
-    return deref as Record<string, unknown>;
-  } catch (_e) {
-    // Fallback: attempt a lightweight local dereference
-    try {
-      const root: any = schema;
-      // If top-level $ref points into $defs, hoist that definition
-      if (typeof root.$ref === 'string' && root.$defs && root.$ref.startsWith('#/$defs/')) {
-        const key = root.$ref.replace('#/$defs/', '');
-        let candidate = (root.$defs && (root.$defs as any)[key]) || null;
-          if (candidate) {
-          // Build anchor map from $defs
-          const anchorMap: Record<string, any> = {};
-          for (const [k, v] of Object.entries(root.$defs || {})) {
-            if ((v as any).$anchor) anchorMap[`#${(v as any).$anchor}`] = v;
-          }
-          // Replace any inner $ref that is a local anchor
-          const replaceRefs = (obj: any): any => {
-            if (!obj || typeof obj !== 'object') return obj;
-            if (Array.isArray(obj)) return obj.map(replaceRefs);
-            if (obj.$ref && typeof obj.$ref === 'string' && anchorMap[obj.$ref]) {
-              const target = JSON.parse(JSON.stringify(anchorMap[obj.$ref]));
-              // remove anchor metadata and ensure no nested $ref remains
-              delete target.$anchor;
-              return replaceRefs(target);
-            }
-            const out: any = {};
-            for (const [kk, vv] of Object.entries(obj)) {
-              out[kk] = replaceRefs(vv);
-            }
-            return out;
-          };
-          candidate = JSON.parse(JSON.stringify(candidate));
-          const resolved = replaceRefs(candidate);
-          // Remove any transient anchor metadata from the hoisted candidate
-          if ((candidate as any).$anchor) {
-            delete (candidate as any).$anchor;
-          }
-          return resolved as Record<string, unknown>;
-        }
-      }
-    } catch (_) {
-      // fall through
-    }
-    // If we couldn't dereference, but schema contains $defs and no top-level properties/type,
-    // hoist $defs into a root `properties` object so editors receive a usable object root.
-    try {
-      const root: any = schema;
-      if (!root.type && !root.properties && root.$defs && typeof root.$defs === 'object') {
-        // Deep clone defs
-        const defs = JSON.parse(JSON.stringify(root.$defs));
-        // Build anchor and defs map for local ref replacement
-        const anchorMap: Record<string, any> = {};
-        for (const [k, v] of Object.entries(defs)) {
-          if ((v as any).$anchor) anchorMap[`#${(v as any).$anchor}`] = v;
-          // also map by defs path
-          anchorMap[`#/$defs/${k}`] = v;
-        }
-        const replaceRefs = (obj: any): any => {
-          if (!obj || typeof obj !== 'object') return obj;
-          if (Array.isArray(obj)) return obj.map(replaceRefs);
-          // If this is a $ref node, inline it where possible
-          if (obj.$ref && typeof obj.$ref === 'string') {
-            const ref = obj.$ref as string;
-            if (anchorMap[ref]) {
-              const target = JSON.parse(JSON.stringify(anchorMap[ref]));
-              // mark original anchor on the inlined copy
-              if ((target as any).$anchor) {
-                delete (target as any).$anchor;
-              }
-              return replaceRefs(target);
-            }
-            // support local #Anchor (without leading /$defs)
-            if (ref.startsWith('#') && anchorMap[ref]) {
-              const target = JSON.parse(JSON.stringify(anchorMap[ref]));
-              if ((target as any).$anchor) {
-                delete (target as any).$anchor;
-              }
-              return replaceRefs(target);
-            }
-            // support #/$defs/key
-            if (ref.startsWith('#/$defs/')) {
-              const key = ref.replace('#/$defs/', '');
-              if (defs[key]) {
-                const target = JSON.parse(JSON.stringify(defs[key]));
-                if ((target as any).$anchor) {
-                  delete (target as any).$anchor;
-                }
-                return replaceRefs(target);
-              }
-            }
-            // otherwise leave as-is
-            return obj;
-          }
-          const out: any = {};
-          for (const [kk, vv] of Object.entries(obj)) {
-            out[kk] = replaceRefs(vv);
-          }
-          return out;
-        };
-
-        const props: Record<string, any> = {};
-        for (const [k, v] of Object.entries(defs)) {
-          const clone = JSON.parse(JSON.stringify(v));
-          if ((clone as any).$anchor) {
-            delete clone.$anchor;
-          }
-          props[k] = replaceRefs(clone);
-        }
-        const out: any = { type: 'object', properties: props };
-        return out;
-      }
-    } catch (_) {}
-    return schema;
-  }
-}
-
-export function resolveSchemaSync(schema: Record<string, unknown> | null): Record<string, unknown> | null {
-  if (!schema || typeof schema !== 'object') return schema;
-  try {
-    const root: any = schema;
-    // Intentionally fall through to the unified hoist/inlining fallback below
-    // so that resolved output is consistently a root `object` with `properties`.
-  } catch (_) {}
-  // If there are only $defs and no explicit root, hoist defs into properties for a fast sync fallback
-  try {
-    const root: any = schema;
-    // If there is a top-level $defs and no meaningful root properties, hoist defs
-      if (!root.type && !root.properties && root.$defs && typeof root.$defs === 'object') {
-      const defs = JSON.parse(JSON.stringify(root.$defs));
-      const anchorMap: Record<string, any> = {};
-      for (const [k, v] of Object.entries(defs)) {
-        if ((v as any).$anchor) anchorMap[`#${(v as any).$anchor}`] = v;
-        anchorMap[`#/$defs/${k}`] = v;
-      }
-      const replaceRefs = (obj: any): any => {
-        if (!obj || typeof obj !== 'object') return obj;
-        if (Array.isArray(obj)) return obj.map(replaceRefs);
-        if (obj.$ref && typeof obj.$ref === 'string') {
-          const ref = obj.$ref as string;
-          if (anchorMap[ref]) {
-            const target = JSON.parse(JSON.stringify(anchorMap[ref]));
-            delete target.$anchor;
-            return replaceRefs(target);
-          }
-          if (ref.startsWith('#/$defs/')) {
-            const key = ref.replace('#/$defs/', '');
-            if (defs[key]) {
-              const target = JSON.parse(JSON.stringify(defs[key]));
-              delete target.$anchor;
-              return replaceRefs(target);
-            }
-          }
-          return obj;
-        }
-        const out: any = {};
-        for (const [kk, vv] of Object.entries(obj)) out[kk] = replaceRefs(vv);
-        return out;
-      };
-      const props: Record<string, any> = {};
-      for (const [k, v] of Object.entries(defs)) {
-        const clone = JSON.parse(JSON.stringify(v));
-        if ((clone as any).$anchor) {
-          delete clone.$anchor;
-        }
-        props[k] = replaceRefs(clone);
-      }
-      return { type: 'object', properties: props };
-    }
-  } catch (_) {}
-  return schema;
-}
-
-// Given the original (possibly $ref/$defs-based) schema and an edited resolved schema,
-// rehydrate attempts to place edits back into the original $defs/$ref structure.
-export function rehydrateToRefs(original: Record<string, unknown> | null, resolved: Record<string, unknown> | null): Record<string, unknown> | null {
-  if (!original || typeof original !== 'object') return resolved;
-  if (!resolved || typeof resolved !== 'object') return original;
-
-  try {
-    const root: any = JSON.parse(JSON.stringify(original));
-
-    // (debug logs removed)
-    // Helper: if a merged def accidentally contains its own `$defs`, absorb
-    // those entries into the top-level `root.$defs` to avoid creating
-    // nested `$defs` which break idempotence across rehydrate cycles.
-    const absorbNestedDefs = (rootObj: any, mergedObj: any) => {
-      if (!mergedObj || typeof mergedObj !== 'object') return;
-      if (!mergedObj.$defs || typeof mergedObj.$defs !== 'object') return;
-      if (!rootObj.$defs || typeof rootObj.$defs !== 'object') rootObj.$defs = {};
-      for (const [nk, nv] of Object.entries(mergedObj.$defs)) {
-        if (!Object.prototype.hasOwnProperty.call(rootObj.$defs, nk)) {
-          rootObj.$defs[nk] = nv;
-        } else {
-          try {
-            rootObj.$defs[nk] = deepMerge(rootObj.$defs[nk], nv);
-          } catch (_) {}
-        }
-      }
-      delete mergedObj.$defs;
+      for (const k of Object.keys(node)) await walk(node[k], node, k);
     };
+    await walk(cloned, null);
+    return cloned;
+  };
 
-    // If original had a top-level $ref pointing into $defs, map resolved back into that def
-    if (typeof root.$ref === 'string' && root.$defs && root.$ref.startsWith('#/$defs/')) {
-      const key = root.$ref.replace('#/$defs/', '');
-      // preserve original metadata in def (like $anchor) while applying edits from resolved
-      const baseDef = (root.$defs && (root.$defs as any)[key]) || {};
-      // Merge resolved onto baseDef (shallow merge for properties, deeper merge for `properties` and `items`)
-      let merged = deepMerge(baseDef, resolved);
-      // prevent nested $defs inside this merged def
-      absorbNestedDefs(root, merged);
-      // remove top-level metadata that shouldn't be copied into a def
-      if (merged && typeof merged === 'object') {
-        delete merged.$id;
-        delete merged.$schema;
+  const postInlineRemotes = async (root: any) => {
+    if (!root || typeof root !== 'object') return root;
+    const remoteCache = new Map<string, any>();
+    const fetchRemote = async (url: string) => {
+      if (remoteCache.has(url)) return remoteCache.get(url);
+      if (typeof fetch !== 'function') throw new Error('fetch not available');
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
+      const ct = res.headers.get?.('content-type') || '';
+      const body = ct.includes('application/json') || ct.includes('application/ld+json') ? await res.json() : await res.text();
+      remoteCache.set(url, body);
+      return body;
+    };
+    const replaceRemoteRefs = async (node: any, parent: any, key?: string) => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) {
+        for (let i = 0; i < node.length; i++) await replaceRemoteRefs(node[i], node, i.toString());
+        return;
       }
-      root.$defs = { ...(root.$defs || {}), [key]: merged };
-      return root;
-    }
-
-    // If original has $defs but no top-level $ref, try to find a matching def to update.
-    if (root.$defs && typeof root.$defs === 'object') {
-      const defs = root.$defs as Record<string, any>;
-      // If resolved contains inline copies, mapping rules below will try
-      // to move them back into `$defs` and replace with `$ref` where
-      // possible. This uses deterministic heuristics (single-key match,
-      // property-overlap scoring, alphabetical tie-breakers).
-        // First, if the resolved payload contains properties whose keys
-        // directly match def keys, merge those per-key into `$defs`.
+      if (node.$ref && typeof node.$ref === 'string' && /^https?:\/\//i.test(node.$ref)) {
         try {
-          const resolvedPropsMap = resolved && resolved.properties && typeof resolved.properties === 'object'
-            ? (resolved.properties as Record<string, any>)
-            : {};
-          let mutatedByName = false;
-          for (const pname of Object.keys(resolvedPropsMap)) {
-            if (Object.prototype.hasOwnProperty.call(defs, pname)) {
-              const pschema = resolvedPropsMap[pname];
-              const baseDef = defs[pname] || {};
-              const clone = JSON.parse(JSON.stringify(pschema));
-              if (clone && typeof clone === 'object') delete clone.__from;
-              let merged = deepMerge(baseDef, clone);
-              // (debug logs removed)
-              absorbNestedDefs(root, merged);
-              if (merged && typeof merged === 'object') {
-                delete merged.$id;
-                delete merged.$schema;
-              }
-              root.$defs = { ...(root.$defs || {}), [pname]: merged };
-              try { if (!root.properties) root.properties = {}; root.properties[pname] = { $ref: `#/$defs/${pname}` }; } catch (_) {}
-              mutatedByName = true;
-            }
-          }
-          if (mutatedByName) return root;
-        } catch (_) {}
-
-        // Deterministic mapping rules (in priority order):
-        // 1. If resolved has `properties` and it contains a single key that matches a def key, pick that def.
-        // 2. Otherwise, score defs by overlap between their `properties` keys and resolved.properties keys.
-        // 3. Tie-breaker: alphabetical order of def key.
-        const defKeys = Object.keys(defs);
-        const resolvedProps = resolved && typeof resolved === 'object' && resolved.properties && typeof resolved.properties === 'object'
-          ? Object.keys(resolved.properties as Record<string, any>)
-          : [];
-
-        // If resolved.properties contains keys that match def keys, prefer
-        // merging those resolved property bodies back into the corresponding
-        // `$defs` entries. This handles the common case where an editor
-        // inlines defs under their original names (e.g. `product`, `order`).
-        if (resolvedProps.length > 0) {
-          let handled = false;
-          for (const rp of resolvedProps) {
-            if (defKeys.includes(rp)) {
-              const key = rp;
-              const baseDef = defs[key] || {};
-              const resolvedBody = (resolved && resolved.properties && (resolved.properties as any)[key]) || resolved;
-              let merged = deepMerge(baseDef, resolvedBody);
-              absorbNestedDefs(root, merged);
-              if (merged && typeof merged === 'object') {
-                delete merged.$id;
-                delete merged.$schema;
-              }
-              root.$defs = { ...defs, [key]: merged };
-              try {
-                if (!root.properties) root.properties = {};
-                if (Object.prototype.hasOwnProperty.call(root.properties, key)) {
-                  root.properties[key] = { $ref: `#/$defs/${key}` };
-                }
-              } catch (_) {}
-              handled = true;
-            }
-          }
-          if (handled) return root;
-        }
-
-        if (resolvedProps.length === 1 && defKeys.includes(resolvedProps[0])) {
-          const key = resolvedProps[0];
-          const baseDef = defs[key] || {};
-          let merged = deepMerge(baseDef, resolved);
-          absorbNestedDefs(root, merged);
-          if (merged && typeof merged === 'object') {
-            delete merged.$id;
-            delete merged.$schema;
-          }
-          root.$defs = { ...defs, [key]: merged };
-          // Replace the inlined resolved property with a $ref to the defs entry
+          const remote = await fetchRemote(node.$ref);
+          let clone = typeof remote === 'string' ? JSON.parse(remote) : JSON.parse(JSON.stringify(remote));
           try {
-            if (!root.properties) root.properties = {};
-            if (Object.prototype.hasOwnProperty.call(root.properties, key)) {
-              root.properties[key] = { $ref: `#/$defs/${key}` };
+            const keys = Object.keys(clone || {});
+            const looksLikeDefs = keys.length > 0 && keys.every(k => {
+              const v = (clone as any)[k];
+              return v && typeof v === 'object' && !Array.isArray(v);
+            });
+            if (looksLikeDefs && !('properties' in clone) && !('type' in clone)) {
+              clone = { type: 'object', properties: clone };
             }
           } catch (_) {}
-          return root;
-        }
-
-        // Score by overlap of property names (if available)
-        let bestKey: string | null = null;
-        let bestScore = -1;
-        for (const k of defKeys.sort()) {
-          const v = defs[k];
-          if (!v || typeof v !== 'object') continue;
-          const defProps = v.properties && typeof v.properties === 'object' ? Object.keys(v.properties as Record<string, any>) : [];
-          let score = 0;
-          for (const p of resolvedProps) if (defProps.includes(p)) score++;
-          if (score > bestScore) {
-            bestScore = score;
-            bestKey = k;
-          }
-        }
-        if (bestKey) {
-          const baseDef = defs[bestKey] || {};
-          let merged = deepMerge(baseDef, resolved);
-          absorbNestedDefs(root, merged);
-          if (merged && typeof merged === 'object') {
-            delete merged.$id;
-            delete merged.$schema;
-          }
-          root.$defs = { ...defs, [bestKey]: merged };
-          // Ensure we don't keep an inlined copy of the merged def in properties
-          try {
-            if (!root.properties) root.properties = {};
-            if (Object.prototype.hasOwnProperty.call(root.properties, bestKey)) {
-              root.properties[bestKey] = { $ref: `#/$defs/${bestKey}` };
-            }
-          } catch (_) {}
-          return root;
-        }
-    }
-
-    // Fallback: if nothing to rehydrate into, try to preserve any original
-    // $defs that are still referenced by $ref in the resolved payload. This
-    // prevents losing canonical defs when edits produce $ref nodes but the
-    // heuristic couldn't pick a single def to merge into.
-    try {
-      if (root.$defs && typeof root.$defs === 'object') {
-        const referenced = new Set<string>();
-        const collectRefs = (obj: any) => {
-          if (!obj || typeof obj !== 'object') return;
-          if (Array.isArray(obj)) return obj.forEach(collectRefs);
-          if (typeof obj.$ref === 'string' && obj.$ref.startsWith('#/$defs/')) {
-            referenced.add(obj.$ref.replace('#/$defs/', ''));
-          }
-          for (const v of Object.values(obj)) collectRefs(v);
-        };
-        collectRefs(resolved);
-        if (referenced.size > 0) {
-          const out = JSON.parse(JSON.stringify(resolved));
-          out.$defs = out.$defs || {};
-          for (const k of Array.from(referenced)) {
-            if (root.$defs && Object.prototype.hasOwnProperty.call(root.$defs, k)) {
-              out.$defs[k] = JSON.parse(JSON.stringify(root.$defs[k]));
-            }
-          }
-          return out;
+          if (parent && typeof key !== 'undefined') parent[key] = clone;
+          await replaceRemoteRefs(clone, parent, key);
+          return;
+        } catch (_) {
+          return;
         }
       }
-    } catch (_) {}
-    return resolved;
-  } catch (_) {
-    return resolved;
+      for (const k of Object.keys(node)) await replaceRemoteRefs(node[k], node, k);
+    };
+    await replaceRemoteRefs(root, null);
+    return root;
+  };
+
+  let preparedForParser: any = null;
+  try {
+    preparedForParser = await inlineExternalRefs(schema);
+  } catch (e) {
+    if (debug) console.warn('[schema-resolver] pre-pass inline failed', e);
+    preparedForParser = null;
   }
+
+  const docForParser = preparedForParser || schema;
+
+  // Try to load parser dynamically; if not available, and we have prepared clone, return it; otherwise fail.
+  let parserModule: any = null;
+  try {
+    const parser = await import('json-schema-ref-parser');
+    parserModule = (parser as any).default || parser;
+  } catch (impErr) {
+    if (debug) console.warn('[schema-resolver] parser import failed', impErr);
+    if (preparedForParser) return preparedForParser;
+    throw impErr;
+  }
+
+  const httpResolver = {
+    order: 1,
+    canRead: (file: any) => typeof file.url === 'string' && /^https?:\/\//i.test(file.url),
+    read: async (file: any) => {
+      if (typeof fetch !== 'function') throw new Error('fetch not available to resolve remote $ref');
+      let target = file.url as string;
+      try {
+        if (typeof window !== 'undefined' && typeof target === 'string' && target.startsWith('https://example.com/')) {
+          const parts = target.split('/');
+          const name = parts[parts.length - 1] || 'schema.json';
+          target = `${window.location.origin}/schemas/${name}`;
+        }
+      } catch (_) {}
+      const res = await fetch(target);
+      if (!res.ok) throw new Error(`Failed to fetch ${file.url}: ${res.status}`);
+      const ct = res.headers.get?.('content-type') || '';
+      if (ct.includes('application/json') || ct.includes('application/ld+json')) return res.json();
+      return res.text();
+    }
+  };
+
+  try {
+    let deref = await parserModule.dereference(docForParser, { resolve: { http: httpResolver } });
+    // Normalize dereferenced output: hoist any top-level $defs into a root object
+    const normalize = (obj: any) => {
+      if (!obj || typeof obj !== 'object') return obj;
+      try {
+        if (obj.$defs && !obj.properties) {
+          const props = JSON.parse(JSON.stringify(obj.$defs));
+          const out: any = { type: 'object', properties: props };
+          // carry through any other non-$defs top-level keys except $id/$schema
+          for (const k of Object.keys(obj)) {
+            if (k === '$defs' || k === '$id' || k === '$schema') continue;
+            if (k === 'type' || k === 'properties') continue;
+            out[k] = obj[k];
+          }
+          obj = out;
+        } else if (obj.$defs && obj.properties) {
+          // merge defs into properties, prefer existing properties keys
+          obj.properties = { ...(obj.$defs || {}), ...(obj.properties || {}) };
+        }
+        if (obj.$defs) delete obj.$defs;
+      } catch (_) {}
+      return obj;
+    };
+    deref = normalize(deref);
+    // Inline local references that point to anchors or $defs in the original schema.
+    const inlineLocalRefsFromOriginal = (root: any, original: any) => {
+      if (!root || typeof root !== 'object' || !original || typeof original !== 'object') return;
+      try {
+        const defs = original.$defs && typeof original.$defs === 'object' ? original.$defs : null;
+        const anchorMap: Record<string, any> = {};
+        if (defs) {
+          for (const k of Object.keys(defs)) {
+            const v = defs[k];
+            if (v && typeof v === 'object') {
+              if (v.$anchor && typeof v.$anchor === 'string') {
+                // register anchor both with and without leading '#'
+                anchorMap[v.$anchor] = v;
+                anchorMap[`#${v.$anchor}`] = v;
+                anchorMap[`#/$defs/${v.$anchor}`] = v;
+              }
+              // register by def key forms
+              anchorMap[`#/$defs/${k}`] = v;
+              anchorMap[`#${k}`] = v;
+            }
+          }
+        }
+        const walk = (node: any, parent: any, key?: string | number) => {
+          if (!node || typeof node !== 'object') return;
+          if (Array.isArray(node)) return node.forEach((n, i) => walk(n, node, i));
+          if (node.$ref && typeof node.$ref === 'string' && node.$ref.startsWith('#')) {
+            const ref = node.$ref as string;
+            // try exact match against anchorMap keys
+            const target = anchorMap[ref] || anchorMap[ref.replace(/^#\/?/, '#/$defs/')] || null;
+            if (target) {
+              const clone = JSON.parse(JSON.stringify(target));
+              // remove transient metadata
+              if (clone && typeof clone === 'object') { delete clone.$anchor; delete clone.$id; delete clone.$schema; }
+              if (parent && typeof key !== 'undefined') parent[key as any] = clone;
+              // continue walking the inlined clone
+              walk(clone, parent, key);
+              return;
+            }
+          }
+          for (const k of Object.keys(node)) walk(node[k], node, k);
+        };
+        walk(root, null);
+      } catch (_) {}
+    };
+    try { inlineLocalRefsFromOriginal(deref, schema); } catch (_) {}
+    if (preparedForParser) {
+      const mergePrepared = (target: any, src: any) => {
+        if (!src || typeof src !== 'object') return;
+        if (!target || typeof target !== 'object') return;
+        for (const k of Object.keys(src)) {
+          const s = src[k];
+          const t = target[k];
+          if (s && typeof s === 'object' && (!t || (t && typeof t === 'object' && (t.$ref && typeof t.$ref === 'string')))) {
+            target[k] = JSON.parse(JSON.stringify(s));
+          } else if (s && typeof s === 'object' && t && typeof t === 'object') {
+            mergePrepared(t, s);
+          }
+        }
+      };
+      try { mergePrepared(deref, preparedForParser); } catch (_) {}
+    }
+
+    try { await postInlineRemotes(deref); } catch (e) { if (debug) console.warn('[schema-resolver] post-pass inline failed', e); }
+    // ensure normalization after post-inlines too
+    try { deref = (function(o){ if (!o) return o; try{ if (o.$defs) { const p = o.properties || {}; o.properties = { ...(o.$defs || {}), ...(p || {}) }; delete o.$defs; if (!o.type) o.type = 'object'; } return o;}catch(e){return o;} })(deref); } catch(_) {}
+    try { if (debug && typeof window !== 'undefined') (window as any).__schemaResolverDebug = { preparedForParser, deref, timestamp: Date.now() }; } catch (_) {}
+    return deref as Record<string, unknown>;
+  } catch (e) {
+    if (debug) console.warn('[schema-resolver] parser dereference failed', e);
+    if (preparedForParser) {
+      try { preparedForParser = (function(o){ if (!o) return o; try{ if (o.$defs && !o.properties) { const props = JSON.parse(JSON.stringify(o.$defs)); const out: any = { type: 'object', properties: props }; for (const k of Object.keys(o)) { if (k === '$defs' || k === '$id' || k === '$schema') continue; if (k === 'type' || k === 'properties') continue; out[k] = o[k]; } return out; } if (o.$defs && o.properties) { o.properties = { ...(o.$defs || {}), ...(o.properties || {}) }; } if (o.$defs) delete o.$defs; return o;}catch(_){return o;} })(preparedForParser); } catch(_) {}
+      return preparedForParser as Record<string, unknown>;
+    }
+    throw e;
+  }
+}
+
+export function rehydrateToRefs(original: Record<string, any>, edited: Record<string, any>): Record<string, any> {
+  // If original has $defs and edited hoisted defs into `properties`, write edits back into $defs.
+  if (!original || typeof original !== 'object') return edited;
+  if (!edited || typeof edited !== 'object') return original;
+  const out = JSON.parse(JSON.stringify(original));
+  try {
+    const defs = out.$defs && typeof out.$defs === 'object' ? out.$defs : null;
+    const props = edited.properties && typeof edited.properties === 'object' ? edited.properties : null;
+    if (defs && props) {
+      // First pass: direct name matches (edited prop name matches def key)
+      for (const [k, v] of Object.entries(props)) {
+        if (Object.prototype.hasOwnProperty.call(defs, k)) {
+          const existing = defs[k] || {};
+          const merged = deepMerge(existing, v as any);
+          if (existing && existing.$anchor) (merged as any).$anchor = existing.$anchor;
+          defs[k] = merged;
+        }
+      }
+      // Second pass: ambiguous mapping - map edited prop names into defs that contain those property names
+      for (const [propName, propVal] of Object.entries(props)) {
+        if (Object.prototype.hasOwnProperty.call(defs, propName)) continue; // already handled
+        // Score defs by whether they contain this property name under their properties
+        const scores: Array<{ key: string; score: number }> = [];
+        for (const dk of Object.keys(defs)) {
+          const defProps = defs[dk] && defs[dk].properties ? defs[dk].properties : {};
+          const score = Object.prototype.hasOwnProperty.call(defProps, propName) ? 1 : 0;
+          if (score > 0) scores.push({ key: dk, score });
+        }
+        if (scores.length === 0) continue;
+        // pick highest score, tie-breaker alphabetical
+        scores.sort((a, b) => b.score - a.score || a.key.localeCompare(b.key));
+        const winner = scores[0].key;
+        try {
+          const existing = defs[winner] || {};
+          if (!existing.properties) existing.properties = {};
+          const merged = deepMerge(existing.properties[propName], propVal as any);
+          existing.properties[propName] = merged;
+          defs[winner] = existing;
+        } catch (_) {}
+      }
+      out.$defs = defs;
+      return out;
+    }
+  } catch (_) {}
+  // Fallback: no $defs to rehydrate into — return edited merged onto original properties
+  try {
+    if (!out.properties) out.properties = {};
+    if (edited.properties && typeof edited.properties === 'object') {
+      out.properties = { ...(out.properties || {}), ...(edited.properties as Record<string, any>) };
+    }
+  } catch (_) {}
+  return out;
+}
+
+// Public name: clearer API for rehydration roundtrip
+export function rehydrateSchema(original: Record<string, any>, edited: Record<string, any>): Record<string, any> {
+  return rehydrateToRefs(original, edited);
 }
 
 function deepMerge(a: any, b: any): any {
