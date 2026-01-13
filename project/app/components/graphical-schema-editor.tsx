@@ -652,6 +652,7 @@ export interface GraphicalSchemaEditorProps {
   schema: Record<string, unknown>;
   onChange: (schema: Record<string, unknown>) => void;
   useTestData?: boolean;
+  isSchemaImported?: (schema: Record<string, unknown>, path?: string[]) => boolean;
 }
 
 // Group box for Properties/Items
@@ -702,6 +703,9 @@ const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boolean } })
       <Handle type="target" position={Position.Left} style={{ background: '#00e676', width: 10, height: 10, borderRadius: 5 }} />
       <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4, color: '#222' }}>
         {label}
+        {data.imported && (
+          <span title={typeof data.$ref === 'string' ? `Imported from ${data.$ref}` : 'Imported definition (create local override to change)'} style={{ color: '#d9822b', marginLeft: 8, fontSize: 14, verticalAlign: 'middle' }}>*</span>
+        )}
         {required && (
           <span style={{
             background: '#e53935',
@@ -816,7 +820,7 @@ const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boolean } })
 };
 
 // Simple SchemaCard component for displaying label and type
-const SchemaCard = ({ label, type }: { label: string; type: SchemaNodeType }) => (
+const SchemaCard = ({ label, type, imported }: { label: string; type: SchemaNodeType; imported?: boolean }) => (
   <div style={{
     background: '#f5f5f5',
     border: '1px solid #b3e6b3',
@@ -829,7 +833,9 @@ const SchemaCard = ({ label, type }: { label: string; type: SchemaNodeType }) =>
     color: '#2176c7',
     display: 'inline-block',
   }}>
-    {label} <span style={{ color: '#888', fontWeight: 400 }}>({type})</span>
+    {label}{imported && (
+      <span title="Imported definition (create local override to change)" style={{ color: '#d9822b', marginLeft: 6 }}>*</span>
+    )} <span style={{ color: '#888', fontWeight: 400 }}>({type})</span>
   </div>
 );
 
@@ -840,7 +846,7 @@ export const RootNode: React.FC<{ data: SchemaNodeData }> = ({ data }) => (
       className="root-node"
       style={{ pointerEvents: 'none', cursor: 'default' }}
     >
-      <SchemaCard label={data.label} type={data.type} />
+      <SchemaCard label={data.label} type={data.type} imported={data.imported} />
     </div>
   </GroupBox>
 );
@@ -853,7 +859,7 @@ const PropertiesGroupNode = ({ children }: { children?: React.ReactNode }) => (
 // Items group node type
 const ItemsGroupNode = ({ data }: { data: SchemaNodeData }) => (
   <GroupBox title="Items">
-    <SchemaCard label={data.label} type={data.type} />
+    <SchemaCard label={data.label} type={data.type} imported={data.imported} />
   </GroupBox>
 );
 
@@ -882,12 +888,13 @@ const initialEdges: Edge[] = [];
 
 // No longer needed: all property nodes use CustomNode
 
-export function GraphicalSchemaEditor({ schema, onChange, useTestData }: GraphicalSchemaEditorProps) {
+export function GraphicalSchemaEditor({ schema, onChange, useTestData, isSchemaImported }: GraphicalSchemaEditorProps) {
 
   // Ref to store label of selected node before graph rebuild
   const selectedNodeLabelRef = React.useRef<string | null>(null);
   const [resolvedSchema, setResolvedSchema] = React.useState<Record<string, unknown> | null>(null);
   const initialLoadRef = React.useRef(true);
+  const flowWrapperRef = React.useRef<HTMLDivElement | null>(null);
 
   // Helper to generate deterministic IDs based on path
   const makeId = (parentId?: string, label?: string) => {
@@ -913,6 +920,16 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       }
       // Include common annotations so editors stay in sync (default, format, pattern, description, enum)
       let nodeData: any = { id, label: label || obj.title || (parentId ? type : 'Root'), type, parent: parentId };
+      // Mark nodes that originate from a $ref or external provenance so the UI can show an indicator
+      try {
+        if (obj && typeof obj === 'object') {
+          if (typeof obj.$ref === 'string') nodeData.imported = true;
+          else if (Array.isArray(obj.allOf) && obj.allOf.some((e: any) => e && typeof e.$ref === 'string')) nodeData.imported = true;
+          else if ((obj as any).__from) nodeData.imported = true;
+        }
+      } catch (e) {
+        // ignore
+      }
       if (obj.default !== undefined) nodeData.default = obj.default;
       if (obj.format !== undefined) nodeData.format = obj.format;
       if (obj.pattern !== undefined) nodeData.pattern = obj.pattern;
@@ -935,13 +952,23 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       if (obj.deprecated !== undefined) nodeData.deprecated = obj.deprecated;
       if (obj.const !== undefined) nodeData.const = obj.const;
       if (obj.title !== undefined) nodeData.title = obj.title;
-      // If array, check if items is enum
+      // If array, check if items is enum and propagate imported provenance from items
       if (type === 'array' && obj.items) {
         ofType = obj.items.type || 'object';
         nodeData.ofType = ofType;
         if (Array.isArray(obj.items.enum)) {
           nodeType = 'enum';
           nodeData.enum = obj.items.enum;
+        }
+        try {
+          const items = obj.items as any;
+          if (items && typeof items === 'object') {
+            if (typeof items.$ref === 'string') nodeData.imported = true;
+            else if (Array.isArray(items.allOf) && items.allOf.some((e: any) => e && typeof e.$ref === 'string')) nodeData.imported = true;
+            else if (items.__from) nodeData.imported = true;
+          }
+        } catch (e) {
+          /* ignore */
         }
       }
       // If enum, use enum node type
@@ -981,6 +1008,215 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     }
     walkSchema(schema, undefined, 'Root', 0, 200);
     return { nodes, edges };
+  }, []);
+
+  // Relayout nodes into a vertical tree. Use `dagre` when available to compute
+  // positions using measured node widths from the DOM. If `dagre` is not
+  // available, fall back to a heuristic layout that estimates widths.
+  const relayoutNodes = React.useCallback((inputNodes: Node<SchemaNodeData>[], inputEdges: Edge[]) => {
+    if (!Array.isArray(inputNodes) || inputNodes.length === 0) return inputNodes;
+
+    const nodeMap = new Map<string, Node<SchemaNodeData>>();
+    for (const n of inputNodes) if (n && n.id) nodeMap.set(n.id, n);
+
+    // Build children map by parent id (prefer data.parent)
+    const children = new Map<string, string[]>();
+    for (const n of inputNodes) {
+      const pid = n.data && (n.data.parent as string | undefined);
+      if (pid) {
+        const arr = children.get(pid) || [];
+        arr.push(n.id);
+        children.set(pid, arr);
+      }
+    }
+
+    const NODE_HEIGHT = 84;
+    const V_SPACING = 20;
+    const START_Y = 60;
+
+    // Estimate widths as fallback
+    const CHAR_WIDTH = 8;
+    const MIN_WIDTH = 120;
+    const H_PADDING = 40;
+    const H_SPACING = 40;
+    const estimateWidth = (n: Node<SchemaNodeData>) => {
+      const lbl = (n.data && (n.data.label as string)) || '';
+      return Math.max(MIN_WIDTH, lbl.length * CHAR_WIDTH + H_PADDING);
+    };
+
+    // Try to load dagre dynamically (allow optional dependency)
+    let dagreLib: any = null;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // @ts-ignore
+      dagreLib = require('dagre');
+    } catch (e) {
+      // try window global (if loaded externally)
+      // @ts-ignore
+      if (typeof window !== 'undefined' && (window as any).dagre) dagreLib = (window as any).dagre;
+    }
+
+    if (dagreLib) {
+      try {
+        const g = new dagreLib.graphlib.Graph();
+        g.setGraph({ rankdir: 'LR', nodesep: 20, ranksep: 40 });
+        g.setDefaultEdgeLabel(() => ({}));
+
+        // Add nodes with measured or estimated sizes
+        for (const n of inputNodes) {
+          let w = estimateWidth(n);
+          let h = NODE_HEIGHT;
+          try {
+            // Try to measure DOM node if present
+            if (typeof document !== 'undefined') {
+              const el = document.querySelector(`.react-flow__node[data-id="${n.id}"]`) as HTMLElement | null
+                || document.querySelector(`[data-id="${n.id}"]`) as HTMLElement | null;
+              if (el) {
+                const r = el.getBoundingClientRect();
+                if (r.width > 0) w = Math.max(w, r.width);
+                if (r.height > 0) h = r.height;
+              }
+            }
+          } catch (m) {
+            // ignore measurement errors
+          }
+          g.setNode(n.id, { width: w, height: h });
+        }
+
+        // Add edges from inputEdges (use source->target)
+        for (const e of inputEdges || []) {
+          if (e && (e as any).source && (e as any).target) g.setEdge((e as any).source, (e as any).target);
+        }
+
+        dagreLib.layout(g);
+
+        const positions = new Map<string, { x: number; y: number }>();
+        g.nodes().forEach((id: string) => {
+          const n = g.node(id);
+          // dagre gives center x,y; convert to top-left for React Flow
+          positions.set(id, { x: n.x - n.width / 2, y: n.y - n.height / 2 });
+        });
+
+        // Ensure root is far left and leaves are far right: compute min/max x and
+        // scale so leaves reach container width from root.
+        const containerWidth = flowWrapperRef.current?.getBoundingClientRect().width || 1400;
+        const TARGET_WIDTH = containerWidth - 40; // leave some margin
+        const LEFT_MARGIN = 20;
+        const rootPos = positions.get('1');
+        const xs: number[] = [];
+        const leafIds: string[] = [];
+        for (const n of inputNodes) {
+          const pos = positions.get(n.id);
+          if (pos) xs.push(pos.x);
+          // leaf: has no children (or no outgoing edges)
+          const ch = children.get(n.id) || [];
+          if (!ch || ch.length === 0) leafIds.push(n.id);
+        }
+        if (!rootPos || xs.length === 0) {
+          return inputNodes.map(n => {
+            const pos = positions.get(n.id);
+            if (!pos) return n;
+            return { ...n, position: { x: pos.x, y: pos.y } };
+          });
+        }
+        const minX = Math.min(...xs);
+        const maxLeafX = Math.max(...leafIds.map(id => positions.get(id)?.x ?? minX));
+        const rootX = rootPos.x;
+        const span = maxLeafX - rootX || 1;
+        const scale = TARGET_WIDTH / span;
+
+        return inputNodes.map(n => {
+          const pos = positions.get(n.id);
+          if (!pos) return n;
+          const newX = LEFT_MARGIN + (pos.x - rootX) * scale;
+          return { ...n, position: { x: newX, y: pos.y } };
+        });
+      } catch (err) {
+        // fall through to heuristic if dagre fails
+      }
+    }
+
+    // Fallback heuristic layout (estimates widths and stacks children)
+    const widthMap = new Map<string, number>();
+    for (const n of inputNodes) widthMap.set(n.id, estimateWidth(n));
+
+    const heightMemo = new Map<string, number>();
+    const computeHeight = (id: string): number => {
+      if (heightMemo.has(id)) return heightMemo.get(id)!;
+      const ch = children.get(id) || [];
+      if (ch.length === 0) {
+        heightMemo.set(id, NODE_HEIGHT);
+        return NODE_HEIGHT;
+      }
+      let total = 0;
+      for (let i = 0; i < ch.length; i++) {
+        total += computeHeight(ch[i]);
+        if (i < ch.length - 1) total += V_SPACING;
+      }
+      heightMemo.set(id, total);
+      return total;
+    };
+
+    const positions = new Map<string, { x: number; y: number }>();
+    const assign = (id: string, centerX: number, yTop: number) => {
+      const ch = children.get(id) || [];
+      if (ch.length === 0) {
+        positions.set(id, { x: centerX, y: yTop + NODE_HEIGHT / 2 });
+        return computeHeight(id);
+      }
+      const heights = ch.map(cid => computeHeight(cid));
+      let curY = yTop;
+      const parentWidth = widthMap.get(id) || MIN_WIDTH;
+      for (let i = 0; i < ch.length; i++) {
+        const cid = ch[i];
+        const childWidth = widthMap.get(cid) || MIN_WIDTH;
+        const childCenterX = centerX + (parentWidth / 2) + H_SPACING + (childWidth / 2);
+        assign(cid, childCenterX, curY);
+        curY += heights[i] + V_SPACING;
+      }
+      const first = positions.get(ch[0])!;
+      const last = positions.get(ch[ch.length - 1])!;
+      const parentY = (first.y + last.y) / 2;
+      positions.set(id, { x: centerX, y: parentY });
+      return heights.reduce((s, h) => s + h, 0) + V_SPACING * (ch.length - 1);
+    };
+
+    const rootId = '1';
+    if (!nodeMap.has(rootId)) return inputNodes;
+    computeHeight(rootId);
+    assign(rootId, 0, START_Y);
+
+    // Normalize fallback layout similarly: scale so leaves are pushed right
+    const containerWidth = flowWrapperRef.current?.getBoundingClientRect().width || 1400;
+    const TARGET_WIDTH = containerWidth - 40;
+    const LEFT_MARGIN = 20;
+    const xs: number[] = [];
+    const leafIds: string[] = [];
+    for (const n of inputNodes) {
+      const p = positions.get(n.id);
+      if (p) xs.push(p.x);
+      const ch = children.get(n.id) || [];
+      if (!ch || ch.length === 0) leafIds.push(n.id);
+    }
+    const rootPos = positions.get('1');
+    if (!rootPos || xs.length === 0) {
+      return inputNodes.map(n => {
+        const pos = positions.get(n.id);
+        if (!pos) return n;
+        return { ...n, position: { x: pos.x, y: pos.y - NODE_HEIGHT / 2 } };
+      });
+    }
+    const rootX = rootPos.x;
+    const maxLeafX = Math.max(...leafIds.map(id => positions.get(id)?.x ?? rootX));
+    const span = maxLeafX - rootX || 1;
+    const scale = TARGET_WIDTH / span;
+
+    return inputNodes.map(n => {
+      const pos = positions.get(n.id);
+      if (!pos) return n;
+      const newX = LEFT_MARGIN + (pos.x - rootX) * scale;
+      return { ...n, position: { x: newX, y: pos.y - NODE_HEIGHT / 2 } };
+    });
   }, []);
 
   // Build a JSON Schema from the current nodes collection (authoritative)
@@ -1188,7 +1424,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       return root;
     };
     const schemaForGraph = normalizeForGraph(activeSchema);
-    const { nodes, edges } = schemaToGraph(schemaForGraph);
+    const rawGraph = schemaToGraph(schemaForGraph);
+    const nodes = relayoutNodes(rawGraph.nodes, rawGraph.edges);
+    const edges = rawGraph.edges;
     // Only rebuild nodes/edges if the count changes (structural change)
     // Store label of selected node before graph rebuild
     setNodes(prevNodes => {
@@ -1355,9 +1593,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     // authoritative schema after the rename via handleNodePropertyChange.
 
     // Rebuild graph from emitted schema
-    const { nodes: rebuiltNodes, edges: rebuiltEdges } = schemaToGraph(emittedSchema as Record<string, unknown>);
+    const rawRebuilt = schemaToGraph(emittedSchema as Record<string, unknown>);
+    const rebuiltNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges);
+    const rebuiltEdges = rawRebuilt.edges as Edge[];
     setNodes(rebuiltNodes);
-    setEdges(rebuiltEdges as Edge[]);
+    setEdges(rebuiltEdges);
 
     // Compute added key by diffing previous and new properties at the target location
     const prevProps = getSchemaAtPath(prevSchema, path)?.properties || ((prevSchema.properties as Record<string, unknown>) || {});
@@ -1368,6 +1608,130 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     const newId = makeId(parentNode.id, addedKey);
     const newNode = rebuiltNodes.find(n => n.id === newId || (n.data && n.data.label === addedKey));
     if (newNode) setSelectedNodeId(newNode.id);
+    setContextMenu(null);
+  };
+
+  // Create a local override for an imported/ref'd node by adding a `username` property
+  const handleCreateLocalOverride = () => {
+    const parentNode = nodes.find(n => n.id === contextMenu?.nodeId);
+    if (!parentNode) {
+      setContextMenu(null);
+      return;
+    }
+
+    // Build authoritative base schema from current graph
+    const baseSchema = buildSchemaFromNodes(nodes);
+
+    // Helper: collect labels from root -> target node
+    const collectPath = (n: Node<SchemaNodeData> | undefined) => {
+      const labels: string[] = [];
+      let cur = n;
+      while (cur && cur.id !== '1') {
+        if (cur.data && cur.data.label) labels.unshift(cur.data.label);
+        cur = nodes.find(x => x.id === cur?.data?.parent);
+      }
+      return labels;
+    };
+
+    const path = collectPath(parentNode);
+
+    const getSchemaAtPath = (schema: any, pathArr: string[]) => {
+      let cur: any = schema;
+      for (const lbl of pathArr) {
+        if (!cur) return null;
+        if (cur.type === 'object') {
+          cur = (cur.properties || {})[lbl];
+        } else if (cur.type === 'array') {
+          // if items is object, descend into its properties
+          if (cur.items && cur.items.type === 'object') cur = (cur.items.properties || {})[lbl];
+          else cur = null;
+        } else {
+          cur = null;
+        }
+      }
+      return cur;
+    };
+
+    const targetSchema = getSchemaAtPath(baseSchema, path);
+    if (!targetSchema) {
+      // nothing to override
+      setContextMenu(null);
+      return;
+    }
+
+    // If username already exists, just close
+    const existing = (targetSchema.properties || {})['username'];
+    if (existing) {
+      setContextMenu(null);
+      return;
+    }
+
+    // Determine original $ref from the source prop at this path so we can build an allOf override
+    const getSourceAtPath = (src: any, pathArr: string[]) => {
+      let cur = src;
+      for (const lbl of pathArr) {
+        if (!cur) return null;
+        if (cur.type === 'object') {
+          cur = (cur.properties || {})[lbl];
+        } else if (cur.type === 'array') {
+          if (cur.items && cur.items.type === 'object') cur = (cur.items.properties || {})[lbl];
+          else cur = null;
+        } else {
+          cur = null;
+        }
+      }
+      return cur;
+    };
+
+    const originalAtPath = getSourceAtPath(schema, path);
+    const refStr = originalAtPath && typeof originalAtPath === 'object' && typeof originalAtPath.$ref === 'string' ? originalAtPath.$ref : null;
+
+    // Build override: prefer allOf [$ref, { properties: { username: { type: 'string' } } }]
+    const overrideNode = refStr
+      ? { allOf: [{ $ref: refStr }, { type: 'object', properties: { username: { type: 'string' } } }] }
+      : { ...(targetSchema as Record<string, unknown>), properties: { ...(targetSchema.properties || {}), username: { type: 'string' } } } as Record<string, unknown>;
+
+    // Integrate overrideNode back into baseSchema at the correct location
+    if (path.length === 1) {
+      if (!baseSchema.properties) baseSchema.properties = {};
+      (baseSchema.properties as Record<string, unknown>)[path[0]] = overrideNode;
+    } else {
+      const parentPath = path.slice(0, -1);
+      const lastLabel = path[path.length - 1];
+      const parentContainer = getSchemaAtPath(baseSchema, parentPath);
+      if (parentContainer) {
+        if (parentContainer.type === 'object') {
+          if (!parentContainer.properties) parentContainer.properties = {};
+          (parentContainer.properties as Record<string, unknown>)[lastLabel] = overrideNode;
+        } else if (parentContainer.type === 'array') {
+          if (!parentContainer.items) parentContainer.items = { type: 'object', properties: {} } as any;
+          if ((parentContainer.items as any).type === 'object') {
+            if (!(parentContainer.items as any).properties) (parentContainer.items as any).properties = {};
+            (parentContainer.items as any).properties[lastLabel] = overrideNode;
+          }
+        }
+      } else {
+        // fallback: attach at root
+        if (!baseSchema.properties) baseSchema.properties = {};
+        (baseSchema.properties as Record<string, unknown>)[path[path.length - 1]] = overrideNode;
+      }
+    }
+
+    // Emit the edited resolved schema so reducer will rehydrate into source
+    skipSchemaSyncRef.current = true;
+    onChange(baseSchema);
+
+    // Rebuild graph from emitted schema and select the new node if present
+    const rawRebuilt = schemaToGraph(baseSchema as Record<string, unknown>);
+    const rebuiltNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges);
+    const rebuiltEdges = rawRebuilt.edges as Edge[];
+    setNodes(rebuiltNodes);
+    setEdges(rebuiltEdges);
+
+    const newId = makeId(parentNode.id, 'username');
+    const newNode = rebuiltNodes.find(n => n.id === newId || (n.data && n.data.label === 'username'));
+    if (newNode) setSelectedNodeId(newNode.id);
+
     setContextMenu(null);
   };
 
@@ -1416,27 +1780,42 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     setContextMenu(null);
   };
 
-  // Context menu items
-  const contextMenuItems = [
-    {
+  // Context menu items; only include override when node is imported
+  const contextMenuItems = (() => {
+    const items: any[] = [];
+    items.push({
       label: 'Add Property',
       onClick: handleAddProperty,
       disabled: (() => {
         const node = nodes.find(n => n.id === contextMenu?.nodeId);
         return !node || !(node.data.type === 'object' || (node.data.type === 'array' && node.data.ofType === 'object'));
       })(),
-    },
-    {
+    });
+
+    // Only show Create Local Override for imported nodes
+    const selNode = nodes.find(n => n.id === contextMenu?.nodeId);
+    const canShowOverride = !!selNode && !!selNode.data.imported && (selNode.data.type === 'object' || (selNode.data.type === 'array' && selNode.data.ofType === 'object'));
+    if (canShowOverride) {
+      items.push({
+        label: 'Create Local Override',
+        onClick: handleCreateLocalOverride,
+        disabled: false,
+      });
+    }
+
+    items.push({
       label: 'Delete Property',
       onClick: handleDeleteProperty,
       disabled: false,
-    },
-  ];
+    });
+    return items;
+  })();
 
   return (
     <div className={styles.graphicalEditorContainer}>
       <ReactFlowProvider>
-        <ReactFlow
+        <div ref={flowWrapperRef} style={{ width: '100%' }}>
+          <ReactFlow
           nodes={nodes}
           edges={edges.map(e => ({ ...e, style: { stroke: '#00e676', strokeWidth: 3 } }))}
           onNodesChange={handleNodesChange}
@@ -1450,7 +1829,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
           {/* <MiniMap /> */}
           <Controls />
           <Background />
-        </ReactFlow>
+          </ReactFlow>
+        </div>
       </ReactFlowProvider>
       <div className={styles.editorSidebar}>
         {/* Always show NodePropertyEditor for selected node, including enum node */}

@@ -23,7 +23,8 @@ describe('SchemaEditorForm UI', () => {
       }
     } as any;
     const handleChange = jest.fn();
-    render(<SchemaEditorForm schema={resolvedSchema} onChange={handleChange} />);
+    const isSchemaImportedStub = (n: any) => !!(n && (n.$ref || n.__from || (Array.isArray(n?.allOf) && n.allOf.some((e: any) => e.$ref))));
+    render(<SchemaEditorForm schema={resolvedSchema} onChange={handleChange} isSchemaImported={isSchemaImportedStub} />);
 
     const typeLabels = await screen.findAllByText('Type');
     const typeLabel = typeLabels[0];
@@ -73,7 +74,8 @@ describe('SchemaEditorForm UI', () => {
     }
 
     const handleChange = jest.fn();
-    render(<SchemaEditorForm schema={resolved} onChange={handleChange} />);
+    const isSchemaImportedStub = (n: any) => !!(n && (n.$ref || n.__from || (Array.isArray(n?.allOf) && n.allOf.some((e: any) => e.$ref))));
+    render(<SchemaEditorForm schema={resolved} onChange={handleChange} isSchemaImported={isSchemaImportedStub} />);
 
     const typeLabels = await screen.findAllByText('Type');
     const typeLabel = typeLabels[0];

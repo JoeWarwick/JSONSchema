@@ -1,6 +1,6 @@
 {
   "$id": "https://example.com/user-profile.schema.json",
-  "description": "User profile schema (dev copy)",
+  "description": "User profile schema",
   "type": "object",
   "properties": {
     "firstName": { "type": "string" },

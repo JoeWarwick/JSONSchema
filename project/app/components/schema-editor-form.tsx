@@ -12,12 +12,16 @@ import styles from "./schema-editor-form.module.css";
 interface SchemaEditorFormProps {
   schema: Record<string, unknown>;
   onChange: (schema: Record<string, unknown>) => void;
+  isSchemaImported?: (schema: Record<string, unknown>, path?: string[]) => boolean;
+  instanceData?: unknown;
   path?: string[];
   onViewSource?: () => void;
   onPropertyRename?: (oldName: string, newName: string, path?: string[]) => void;
 }
 
-export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, onPropertyRename }: SchemaEditorFormProps) {
+import { generateSchema } from "../utils/schema-generator";
+
+export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, onPropertyRename, isSchemaImported, instanceData }: SchemaEditorFormProps) {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [defaultError, setDefaultError] = useState<string | null>(null);
   const [editingDefault, setEditingDefault] = useState<string>(String(schema.default ?? ""));
@@ -110,6 +114,14 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
     return 'string';
   })();
   const renderType = (schema.type as string) ?? inferredRootType;
+  const defaultIsImported = (node: Record<string, unknown> | null | undefined) => {
+    try {
+      if (!node || typeof node !== 'object') return false;
+      return !!(node as any).__from;
+    } catch (_) { return false; }
+  };
+
+  const isImported = (isSchemaImported || defaultIsImported)(schema as Record<string, unknown>);
 
   const removeProperty = (propertyName: string) => {
     const nextSchema = removePropertyFromSchema(schema, propertyName);
@@ -159,13 +171,81 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
       )}
       <div className={styles.container}>
 
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>{(schema.title as string) || 'Schema'}</div>
+          {isImported && (
+              <button
+                type="button"
+                onClick={() => {
+                  // build a local allOf override referencing the original $ref when available
+                  let refStr: string | null = null;
+                  try {
+                    if (typeof (schema as any).$ref === 'string') refStr = (schema as any).$ref;
+                    else if (Array.isArray((schema as any).allOf)) {
+                      const m = ((schema as any).allOf as any[]).find((e: any) => e && typeof e.$ref === 'string');
+                      if (m) refStr = m.$ref;
+                    } else if ((schema as any).__from) refStr = (schema as any).__from;
+                  } catch (e) {
+                    // ignore
+                  }
+                  if (!refStr) return;
+
+                  // If instance data is available, attempt to use instance keys at the current path
+                  // to pre-populate property schemas so we don't add arbitrary fields like "username".
+                  let localProperties: Record<string, unknown> = {};
+                  try {
+                    if (instanceData && typeof instanceData === 'object') {
+                      // Traverse instanceData according to the editor path to find the relevant object
+                      let node: any = instanceData as any;
+                      for (const p of path) {
+                        if (!node || typeof node !== 'object') { node = null; break; }
+                        node = node[p];
+                      }
+                      if (node && typeof node === 'object' && !Array.isArray(node)) {
+                        for (const [k, v] of Object.entries(node)) {
+                          try {
+                            // generate a schema for the instance value to make the override valid
+                            const gen = generateSchema(v as any);
+                            localProperties[k] = gen;
+                          } catch (_) {
+                            // fallback: mark as string
+                            localProperties[k] = { type: 'string' };
+                          }
+                        }
+                      }
+                    }
+                  } catch (_) {}
+
+                  const overrideObj: Record<string, unknown> = { type: 'object', properties: localProperties };
+                  const next: Record<string, unknown> = { allOf: [{ $ref: refStr }, overrideObj] };
+                  if (schema.title) next.title = schema.title as string;
+                  onChange(next);
+                }}
+                className={styles.addSmall}
+                title="Create a local override that preserves the upstream $ref and allows local edits"
+              >
+                Override
+              </button>
+          )}
+        </div>
+
         <div className={styles.fieldGroup}>
           <div className={styles.fieldRow}>
-            <label className={styles.label}>Type</label>
+            <label className={styles.label}>Type{isImported && (
+              <span title={typeof (schema as any).$ref === 'string' ? `Imported from ${(schema as any).$ref}` : 'Imported definition (create local override to change)'} style={{ color: '#d9822b', marginLeft: 8 }}>*</span>
+            )}</label>
             <select
               className={styles.select}
               value={renderType}
-              onChange={(e) => updateSchema({ type: e.target.value })}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === 'image') {
+                  // Map 'image' to a string schema with image-specific metadata
+                  updateSchema({ type: 'string', format: 'data-url', contentMediaType: 'image/*' });
+                } else {
+                  updateSchema({ type: v });
+                }
+              }}
             >
               <option value="string">String</option>
               <option value="number">Number</option>
@@ -173,6 +253,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
               <option value="object">Object</option>
               <option value="array">Array</option>
               <option value="null">Null</option>
+              <option value="image">Image</option>
             </select>
           </div>
 
@@ -217,6 +298,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
                     <option value="ipv4">ipv4</option>
                     <option value="ipv6">ipv6</option>
                     <option value="uuid">uuid</option>
+                    <option value="data-url">data-url (binary/data URI)</option>
                   </select>
                   <button
                     type="button"

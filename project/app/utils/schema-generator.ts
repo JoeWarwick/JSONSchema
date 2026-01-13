@@ -64,6 +64,13 @@ export function generateSchema(json: unknown): Record<string, unknown> {
   }
 
   if (type === "string") {
+    const s = json as string;
+    // Detect data URLs or common image URLs/extensions
+    const dataImage = /^data:image\//i.test(s);
+    const urlImage = /\.(png|jpe?g|gif|webp|svg)$/i.test(s) || /^https?:\/\/.+\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(s);
+    if (dataImage || urlImage) {
+      return { type: "string", format: "data-url", contentMediaType: "image/*" };
+    }
     return { type: "string" };
   }
 

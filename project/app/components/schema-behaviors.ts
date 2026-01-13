@@ -7,6 +7,7 @@ export function schemaNodeDataToSchema(node: SchemaNodeData): Record<string, unk
     title: node.label,
   };
   if (node.format !== undefined) schema.format = node.format;
+  if (node.contentMediaType !== undefined) schema.contentMediaType = node.contentMediaType;
   if (node.pattern !== undefined) schema.pattern = node.pattern;
   if (node.description !== undefined) schema.description = node.description;
   if (node.minimum !== undefined) schema.minimum = node.minimum;
@@ -143,6 +144,9 @@ export interface SchemaNodeData {
   deprecated?: boolean;
   const?: any;
   examples?: unknown[];
+  imported?: boolean;
+  $ref?: string;
+  contentMediaType?: string;
 }
 
 export interface GraphicalSchemaEditorProps {

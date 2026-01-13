@@ -166,6 +166,63 @@ export function getEditorSchema(state: SchemaState): Schema {
   }
 }
 
+// Helper to detect whether a schema (or a nested path within it) originates
+// from an imported $ref. Exported so UI layers can reuse reducer's provenance logic.
+export function isSchemaImported(schemaOrState: Schema | SchemaState | null, path?: string[]): boolean {
+  try {
+    if (!schemaOrState) return false;
+    // If caller passed the reducer state, prefer the reducer-produced
+    // editor schema (rehydrated/normalized) so we can inspect object-shaped
+    // nodes for provenance markers like `__from` or inline `$ref` entries.
+    let root: any = schemaOrState as any;
+    if (root && typeof root === 'object' && ('source' in root)) {
+      // Prefer rehydrating back to a $ref/$defs-bearing shape so the
+      // matched node can be inspected for original $ref markers. Fall
+      // back to the editor-normalized schema if rehydration fails.
+      try {
+        const st = root as SchemaState;
+        if (st.source && st.resolvedCache) {
+          try {
+            root = rehydrateSchema(st.source as Record<string, any>, st.resolvedCache as Record<string, any>);
+          } catch (_) {
+            root = getEditorSchema(st);
+          }
+        } else {
+          root = getEditorSchema(st);
+        }
+      } catch (_) {
+        root = getEditorSchema(root as SchemaState);
+      }
+    }
+    if (!root || typeof root !== 'object') return false;
+
+    // walk to path inside the authoritative source when provided
+    let node: any = root;
+    if (Array.isArray(path) && path.length > 0) {
+      for (const p of path) {
+        if (!node || typeof node !== 'object') return false;
+        if (node.type === 'object' && node.properties && Object.prototype.hasOwnProperty.call(node.properties, p)) {
+          node = node.properties[p];
+        } else if (node.type === 'array' && node.items && node.items.type === 'object' && node.items.properties && Object.prototype.hasOwnProperty.call(node.items.properties, p)) {
+          node = node.items.properties[p];
+        } else {
+          // fall back: try direct property access
+          node = (node.properties && node.properties[p]) || (node.items && node.items.properties && node.items.properties[p]) || null;
+        }
+      }
+    }
+
+    // Only inspect the matched source node itself for direct provenance.
+    if (!node || typeof node !== 'object') return false;
+    if (typeof node.$ref === 'string') return true;
+    if (Array.isArray(node.allOf) && node.allOf.some((e: any) => e && typeof e.$ref === 'string')) return true;
+    if (node.__from) return true;
+    return false;
+  } catch (_) {
+    return false;
+  }
+}
+
 // Helper to encapsulate sync+async resolution and dispatch updates.
 export async function ensureResolved(dispatch: (a: SchemaAction) => void, source: Schema) {
   dispatch({ type: SET_DEREF_IN_PROGRESS, payload: true });
@@ -365,6 +422,46 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
           }
         }
         if (hasConcrete) {
+          // Annotate resolved inlined nodes with provenance (`__from`) when the
+          // authoritative `source` contained a $ref for that property. This ensures
+          // UI layers can reliably detect imported definitions even when remote
+          // or inlined by the resolver.
+          try {
+            const annotateFrom = (resNode: any, srcNode: any) => {
+              if (!resNode || typeof resNode !== 'object') return;
+              if (!srcNode || typeof srcNode !== 'object') return;
+              // If source has a $ref or allOf containing a $ref, mark resolved node
+              try {
+                if (typeof srcNode.$ref === 'string') {
+                  try { (resNode as any).__from = srcNode.$ref; } catch (_) {}
+                } else if (Array.isArray(srcNode.allOf) && srcNode.allOf.some((e: any) => e && typeof e.$ref === 'string')) {
+                  const m = srcNode.allOf.find((e: any) => e && typeof e.$ref === 'string');
+                  try { (resNode as any).__from = m && m.$ref ? m.$ref : undefined; } catch (_) {}
+                }
+              } catch (_) {}
+
+              // Recurse into properties
+              if (resNode.properties && typeof resNode.properties === 'object') {
+                const resProps = resNode.properties as Record<string, any>;
+                const srcProps = srcNode.properties && typeof srcNode.properties === 'object' ? srcNode.properties as Record<string, any> : null;
+                for (const k of Object.keys(resProps)) {
+                  try {
+                    const childRes = resProps[k];
+                    const childSrc = srcProps && Object.prototype.hasOwnProperty.call(srcProps, k) ? srcProps[k] : null;
+                    annotateFrom(childRes, childSrc || {});
+                  } catch (_) {}
+                }
+              }
+              // Recurse into items for arrays
+              if (resNode.items && typeof resNode.items === 'object') {
+                const resItems = resNode.items;
+                const srcItems = srcNode.items && typeof srcNode.items === 'object' ? srcNode.items : null;
+                annotateFrom(resItems, srcItems || {});
+              }
+            };
+            annotateFrom(resolved, source || {});
+          } catch (_) {}
+
           if ((resolved as any).$defs) delete (resolved as any).$defs;
           return normalizeResolved(resolved);
         }
@@ -411,6 +508,10 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
                   const target = defsMap && defsMap[key] ? JSON.parse(JSON.stringify(defsMap[key])) : null;
                   if (target) {
                     if ((target as any).$anchor) delete (target as any).$anchor;
+                    try {
+                      // Preserve provenance: mark the inlined object with the originating $ref
+                      (target as any).__from = ref;
+                    } catch (_) {}
                     return replaceRefs(target);
                   }
                 }

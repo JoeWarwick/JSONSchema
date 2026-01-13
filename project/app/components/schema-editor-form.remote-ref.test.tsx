@@ -42,7 +42,8 @@ describe('SchemaEditorForm with remote-ref resolved schema', () => {
 
     const resolved = await resolveSchema(unresolved as any);
     const handleChange = jest.fn();
-    render(<SchemaEditorForm schema={resolved as any} onChange={handleChange} />);
+    const isSchemaImportedStub = (n: any) => !!(n && (n.$ref || n.__from || (Array.isArray(n?.allOf) && n.allOf.some((e: any) => e.$ref))));
+    render(<SchemaEditorForm schema={resolved as any} onChange={handleChange} isSchemaImported={isSchemaImportedStub} />);
 
     // The editor renders property name inputs for nested properties
     const firstNameInput = await screen.findByDisplayValue('firstName');

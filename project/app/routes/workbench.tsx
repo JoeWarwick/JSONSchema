@@ -3,7 +3,7 @@ import useAsyncMemo from "~/hooks/useAsyncMemo";
 import { Sparkles, Copy, Check, X, Upload, Link as LinkIcon, Download, FileUp } from "lucide-react";
 import styles from "./workbench.module.css";
 import { generateSchema, isValidJSON } from "~/utils/schema-generator";
-import schemaReducer, { initialSchemaState, LOAD_SOURCE_SCHEMA, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, SET_RESOLVED_CACHE, SET_DEREF_IN_PROGRESS, ensureResolved, getPersistableSource, getEditorSchema } from "~/state/schemaReducer";
+import schemaReducer, { initialSchemaState, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, ensureResolved, getPersistableSource, getEditorSchema } from "~/state/schemaReducer";
 
 // Utility to rename a property in an object (shallow)
 function renamePropertyInObject(obj: any, oldName: string, newName: string) {
@@ -131,7 +131,6 @@ export default function Workbench() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showSchemaSource, setShowSchemaSource] = useState(false);
-  // resolved view is available via state.resolvedCache
   const [jsonUrl, setJsonUrl] = useState("");
   const [isLoadingUrl, setIsLoadingUrl] = useState(false);
   const [schemaUrl, setSchemaUrl] = useState("");
@@ -379,6 +378,17 @@ export default function Workbench() {
     return getEditorSchema(state) as Record<string, unknown> | null;
   }, [state.resolvedCache, state.sourceIsObject, state.source], null);
 
+  // Helper: determine whether a schema node should be treated as imported.
+  // Rely exclusively on the reducer-attached `__from` provenance marker.
+  const isSchemaImported = (schemaNode: Record<string, unknown> | null | undefined): boolean => {
+    try {
+      if (!schemaNode || typeof schemaNode !== 'object') return false;
+      return !!(schemaNode as any).__from;
+    } catch (_) {
+      return false;
+    }
+  };
+
   // Log the actual schema being provided to editors for debugging/testing.
   // (editor debug snapshot removed)
   useEffect(() => {
@@ -429,6 +439,7 @@ export default function Workbench() {
                     dispatch({ type: APPLY_RESOLVED_EDIT, payload: newSchema });
                     setInstanceData((prev: unknown) => prev == null ? generateDefaultInstance(newSchema) : prev);
                   }}
+                  isSchemaImported={isSchemaImported}
                 />
               ) : state.source ? (
                 <div className={styles.emptyState}>Resolving schema&hellip;</div>
@@ -498,6 +509,8 @@ export default function Workbench() {
                       // Editor edits resolved view; reducer will rehydrate and update source
                       dispatch({ type: APPLY_RESOLVED_EDIT, payload: newSchema });
                     }}
+                    isSchemaImported={isSchemaImported}
+                    instanceData={instanceData}
                     onViewSource={() => setShowSchemaSource(true)}
                     onPropertyRename={(oldName, newName, path = []) => {
                     if (!instanceData) return;
@@ -676,3 +689,4 @@ export default function Workbench() {
     </div>
   );
 }
+
