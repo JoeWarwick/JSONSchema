@@ -3,7 +3,10 @@ import { validateValueAgainstSchema } from "../utils/validation";
 import {
   addPropertyToSchema,
   removePropertyFromSchema,
-  updateNestedPropertyInSchema
+  updateNestedPropertyInSchema,
+  addPatternPropertyToSchema,
+  removePatternPropertyFromSchema,
+  updatePatternPropertyInSchema
 } from "./schema-behaviors";
 import { validateSchema } from "../utils/schema-generator";
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -114,6 +117,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
     return 'string';
   })();
   const renderType = (schema.type as string) ?? inferredRootType;
+  const contentMediaType = (schema.contentMediaType as string | undefined) ?? undefined;
   const defaultIsImported = (node: Record<string, unknown> | null | undefined) => {
     try {
       if (!node || typeof node !== 'object') return false;
@@ -365,37 +369,52 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
               ) : (
                 <div className={styles.fieldRow}>
                   <label className={styles.label}>Default</label>
-                  <input
-                    className={styles.input}
-                    value={editingDefault}
-                    onChange={(e) => setEditingDefault(e.target.value)}
-                    onBlur={() => {
-                      const raw = editingDefault;
-                      const parsed = (String(renderType) === 'number') ? (raw === '' ? '' : parseFloat(raw)) : raw;
-                      const error = validateValueAgainstSchema(parsed, schema);
-                      if (error) {
-                        setDefaultError(error);
-                      } else {
-                        setDefaultError(null);
-                        updateSchema({ default: parsed as any });
-                      }
-                    }}
-                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                    placeholder="Default value"
-                  />
-                  <button
-                    type="button"
-                    className={styles.removeSmall}
-                    onClick={() => {
-                      const next = { ...schema } as Record<string, unknown>;
-                      delete next.default;
-                      onChange(next);
-                      setDefaultError(null);
-                      setEditingDefault('');
-                    }}
-                  >
-                    Remove
-                  </button>
+                        <input
+                          className={styles.input}
+                          value={editingDefault}
+                          onChange={(e) => setEditingDefault(e.target.value)}
+                          onBlur={() => {
+                            const raw = editingDefault;
+                            const parsed = (String(renderType) === 'number') ? (raw === '' ? '' : parseFloat(raw)) : raw;
+                            const error = validateValueAgainstSchema(parsed, schema);
+                            if (error) {
+                              setDefaultError(error);
+                            } else {
+                              setDefaultError(null);
+                              updateSchema({ default: parsed as any });
+                            }
+                          }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                          placeholder="Default value"
+                        />
+                </div>
+              )}
+              //* Image preview + upload for data-url / image media types *//
+              {(schema.format === 'data-url' || (typeof schema.contentMediaType === 'string' && String(schema.contentMediaType).startsWith('image'))) && (
+                <div className={styles.fieldRow} style={{ alignItems: 'center', gap: 12 }}>
+                  <label className={styles.label}>Image</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {typeof schema.default === 'string' && /^data:image\//i.test(schema.default as string) && (
+                      <img src={schema.default as string} alt="preview" style={{ maxWidth: 240, maxHeight: 160, border: '1px solid #ddd', borderRadius: 6 }} />
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const f = e.target.files && e.target.files[0];
+                        if (!f) return;
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const result = reader.result as string | ArrayBuffer | null;
+                          if (typeof result === 'string') {
+                            updateSchema({ default: result });
+                          }
+                        };
+                        reader.readAsDataURL(f);
+                      }}
+                    />
+                    <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.default; onChange(next); }}>Remove image</button>
+                  </div>
                 </div>
               )}
               {defaultError && <div style={{ color: 'red', marginTop: 6 }}>{defaultError}</div>}
@@ -634,9 +653,64 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
           <div className={styles.nestedContainer}>
             <div className={styles.propertiesHeader}>
               <h3 className={styles.propertyTitle}>Properties</h3>
-              <button className={styles.addButton} onClick={addProperty}>
-                Add Property
-              </button>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button className={styles.addButton} onClick={addProperty}>
+                  Add Property
+                </button>
+                <button
+                  className={styles.addButton}
+                  onClick={() => {
+                    const next = addPatternPropertyToSchema(schema);
+                    updateSchema(next);
+                  }}
+                >
+                  + pattern property
+                </button>
+              </div>
+              {/* Pattern Properties list */}
+              {schema.patternProperties && typeof schema.patternProperties === 'object' && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Pattern properties</div>
+                  {Object.entries(schema.patternProperties as Record<string, unknown>).map(([pat, subschema]) => (
+                    <div key={pat} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
+                      <div style={{ minWidth: 200, paddingTop: 6 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }} title={pat}>{pat}</div>
+                        <div style={{ fontSize: 12, color: '#666' }}>{String((subschema as any).type || 'schema')}</div>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <textarea
+                          aria-label={`pattern-${pat}-editor`}
+                          style={{ width: '100%', minHeight: 80, fontFamily: 'monospace', fontSize: 12 }}
+                          value={JSON.stringify(subschema, null, 2)}
+                          onChange={(e) => {
+                            // Optimistic local edit - user can fix JSON inline
+                            const txt = e.target.value;
+                            try {
+                              const parsed = JSON.parse(txt);
+                              const updated = updatePatternPropertyInSchema(schema, pat, parsed);
+                              updateSchema(updated);
+                            } catch (_e) {
+                              // If invalid JSON, do nothing until it's valid; user can re-edit
+                            }
+                          }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <button
+                          type="button"
+                          className={styles.removeSmall}
+                          onClick={() => {
+                            const next = removePatternPropertyFromSchema(schema, pat);
+                            updateSchema(next);
+                          }}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             {Object.entries((schema.properties as Record<string, unknown>) || {})
               .filter(([propertyName]) => !propertyName.startsWith('__'))

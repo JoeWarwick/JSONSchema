@@ -1,10 +1,14 @@
 import React from 'react';
-import { render, fireEvent, screen } from '@testing-library/react';
+import { render, fireEvent, screen, act } from '@testing-library/react';
 import { JsonInstanceForm } from './json-instance-form';
 
 describe('JsonInstanceForm extras', () => {
   test('auto-deduplicates unique primitive arrays on blur', () => {
-    const schema = { type: 'array', items: { type: 'string' }, uniqueItems: true } as any;
+    const schema = {
+      type: 'array',
+      items: { type: 'string' },
+      uniqueItems: true,
+    };
     const onChange = jest.fn();
     const { container } = render(<JsonInstanceForm schema={schema} value={['a','b','a']} onChange={onChange} />);
     // find all text inputs
@@ -21,13 +25,13 @@ describe('JsonInstanceForm extras', () => {
 
   test('renders const value readonly and sets parent value', () => {
     jest.useFakeTimers();
-    const schema = { type: 'string', const: 'fixed' } as any;
+    const schema = { type: 'string', const: 'fixed' };
     const onChange = jest.fn();
     render(<JsonInstanceForm schema={schema} value={undefined} onChange={onChange} />);
     // const display should be present
     expect(screen.getByText('fixed')).toBeTruthy();
     // advance timers to allow setTimeout propagation
-    jest.runOnlyPendingTimers();
+    act(() => { jest.runOnlyPendingTimers(); });
     expect(onChange).toHaveBeenCalledWith('fixed');
     jest.useRealTimers();
   });
@@ -39,7 +43,7 @@ describe('JsonInstanceForm extras', () => {
         dietary: { type: 'array', items: { type: 'string', enum: ['Vegetarian', 'Lactose Intolerant'] }, uniqueItems: true }
       },
       required: ['dietary']
-    } as any;
+    };
     const onChange = jest.fn();
     const { container } = render(<JsonInstanceForm schema={schema} value={{ dietary: ['Vegetarian', 'Lactose Intolerant'] }} onChange={onChange} />);
     // there should be one select per existing enum item inside the array plus the parent property UI
@@ -48,7 +52,7 @@ describe('JsonInstanceForm extras', () => {
   });
 
   test('shows writeOnly badge in object property list and password input for field', () => {
-    const schema = { type: 'object', properties: { secret: { type: 'string', writeOnly: true } } } as any;
+    const schema: any = { type: 'object', properties: { secret: { type: 'string', writeOnly: true } } };
     const onChange = jest.fn();
     render(<JsonInstanceForm schema={schema} value={{ secret: '' }} onChange={onChange} />);
     // badge
@@ -56,5 +60,74 @@ describe('JsonInstanceForm extras', () => {
     // find input for secret and expect type=password
     const pwd = screen.getByPlaceholderText('Enter value...') as HTMLInputElement;
     expect(pwd.getAttribute('type')).toBe('password');
+  });
+
+  test('oneOf initial selection chooses matching variant', () => {
+    const schema: any = { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] };
+    const onChange = jest.fn();
+    render(<JsonInstanceForm schema={schema} value={5} onChange={onChange} />);
+    const numBtn = screen.getByRole('button', { name: /number/i });
+    expect(numBtn.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('switching replaces with default when incompatible', () => {
+    const schema: any = { oneOf: [{ type: 'string' }, { type: 'number' }] };
+    const onChange = jest.fn();
+    render(<JsonInstanceForm schema={schema} value={'abc'} onChange={onChange} />);
+    const numBtn = screen.getByRole('button', { name: /number/i });
+    numBtn.click();
+    expect(onChange).toHaveBeenCalled();
+    expect(onChange).toHaveBeenCalledWith(0);
+  });
+
+  test('switching preserves value when compatible', () => {
+    const schema: any = { oneOf: [{ type: 'number', title: 'A' }, { type: 'number', title: 'B' }] };
+    const onChange = jest.fn();
+    render(<JsonInstanceForm schema={schema} value={3} onChange={onChange} />);
+    const btnB = screen.getByRole('button', { name: /B/ });
+    btnB.click();
+    expect(onChange).toHaveBeenCalled();
+    expect(onChange).toHaveBeenCalledWith(3);
+  });
+
+  test('shows error when value matches none', () => {
+    const schema: any = { oneOf: [{ type: 'number' }, { type: 'boolean' }] };
+    const onChange = jest.fn();
+    render(<JsonInstanceForm schema={schema} value={'bad'} onChange={onChange} />);
+    expect(screen.getByText(/Value does not match any option/i)).toBeTruthy();
+  });
+
+  test('chip keyboard navigation replaces with default when incompatible', () => {
+    jest.useFakeTimers();
+    const schema: any = { oneOf: [{ type: 'string' }, { type: 'number' }] };
+    const onChange = jest.fn();
+    render(<JsonInstanceForm schema={schema} value={'abc'} onChange={onChange} />);
+    const strBtn = screen.getByRole('button', { name: /string/i });
+    strBtn.focus();
+    fireEvent.keyDown(strBtn, { key: 'ArrowRight' });
+    // onChange should be called with default number 0
+    expect(onChange).toHaveBeenCalledWith(0);
+    // advance timers to allow selection state to update
+    act(() => { jest.runOnlyPendingTimers(); });
+    const numBtn = screen.getByRole('button', { name: /number/i });
+    // focus should move to the newly-selected chip
+    expect(document.activeElement).toBe(numBtn);
+    jest.useRealTimers();
+  });
+
+  test('chip keyboard navigation preserves value when compatible', () => {
+    jest.useFakeTimers();
+    const schema: any = { oneOf: [{ type: 'number', title: 'A' }, { type: 'number', title: 'B' }] };
+    const onChange = jest.fn();
+    render(<JsonInstanceForm schema={schema} value={3} onChange={onChange} />);
+    const btnA = screen.getByRole('button', { name: /A/ });
+    btnA.focus();
+    fireEvent.keyDown(btnA, { key: 'ArrowRight' });
+    expect(onChange).toHaveBeenCalledWith(3);
+    act(() => { jest.runOnlyPendingTimers(); });
+    const btnB = screen.getByRole('button', { name: /B/ });
+    // focus should move to the newly-selected chip
+    expect(document.activeElement).toBe(btnB);
+    jest.useRealTimers();
   });
 });

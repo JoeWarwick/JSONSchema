@@ -24,10 +24,97 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
   const readOnlyAttr = !!schema.readOnly;
   const deprecatedFlag = !!schema.deprecated;
   const format = (schema.format as string | undefined) ?? undefined;
+  const contentMediaType = (schema.contentMediaType as string | undefined) ?? undefined;
   const writeOnlyAttr = !!schema.writeOnly;
   const constValue = schema.const as unknown | undefined;
 
   const numberInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Support choice-like schemas: custom `oneOnly` and standard `oneOf`
+  const variants = Array.isArray(schema.oneOnly)
+    ? (schema.oneOnly as Record<string, unknown>[])
+    : Array.isArray(schema.oneOf)
+    ? (schema.oneOf as Record<string, unknown>[])
+    : null;
+  const hasVariants = !!variants && variants.length > 0;
+  const [selectedVariantIndex, setSelectedVariantIndex] = useState<number>(() => {
+    if (!hasVariants) return 0;
+    const idx = variants!.findIndex((vs) => validateValueAgainstSchema(value, vs) === null);
+    return idx >= 0 ? idx : 0;
+  });
+
+  useEffect(() => {
+    if (!hasVariants) return;
+    const idx = variants!.findIndex((vs) => validateValueAgainstSchema(value, vs) === null);
+    if (idx >= 0 && idx !== selectedVariantIndex) setSelectedVariantIndex(idx);
+  }, [value, schema]);
+
+  // Refs for variant chips so keyboard navigation can focus them
+  const chipRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  const selectVariant = (idx: number) => {
+    if (!hasVariants) return;
+    const vs = variants![idx];
+    // Keep current value if it already validates; otherwise set default for selected variant
+    if (validateValueAgainstSchema(value, vs) === null) {
+      onChange(value);
+    } else {
+      onChange(getDefaultValue(vs));
+    }
+    // rely on the value-driven effect to update `selectedVariantIndex` after parent value changes
+  };
+
+  const handleChipKeyDown = (e: any, idx: number) => {
+    const key = e.key;
+    if (key !== 'ArrowRight' && key !== 'ArrowLeft' && key !== 'ArrowDown' && key !== 'ArrowUp') return;
+    e.preventDefault();
+    const len = variants ? variants.length : 0;
+    if (len === 0) return;
+    let next = idx;
+    if (key === 'ArrowRight' || key === 'ArrowDown') next = (idx + 1) % len;
+    if (key === 'ArrowLeft' || key === 'ArrowUp') next = (idx - 1 + len) % len;
+    selectVariant(next);
+    // move focus to the newly-selected chip (after selectVariant schedules the selection)
+    setTimeout(() => {
+      const el = chipRefs.current[next];
+      if (el && 'focus' in el) (el as HTMLButtonElement).focus();
+    }, 0);
+  };
+
+  if (hasVariants) {
+    const label = (schema.description as string) || "Choose an option";
+    const matchesAny = variants!.some((vs) => validateValueAgainstSchema(value, vs) === null);
+    return (
+      <div className={styles.field}>
+        <label className={styles.label}>{label}</label>
+        <div className={styles.variantChips}>
+          {variants!.map((vs, i) => {
+            const lbl = (vs.title as string) || (vs.description as string) || (vs.type as string) || `Option ${i + 1}`;
+            const selected = i === selectedVariantIndex;
+            return (
+              <button
+                key={i}
+                type="button"
+                ref={(el) => (chipRefs.current[i] = el)}
+                tabIndex={0}
+                onKeyDown={(e) => handleChipKeyDown(e, i)}
+                className={`${styles.variantChip} ${selected ? styles.variantChipSelected : styles.variantChipUnselected}`}
+                onClick={() => selectVariant(i)}
+                aria-pressed={selected}
+              >
+                {lbl}
+              </button>
+            );
+          })}
+        </div>
+        {!matchesAny && value !== undefined && <div style={{ color: 'red', marginTop: 6 }}>Value does not match any option</div>}
+        <div style={{ marginTop: 8 }}>
+          <JsonInstanceForm schema={variants![selectedVariantIndex]} value={value} onChange={onChange} />
+        </div>
+      </div>
+    );
+  }
+
   // Handle primitive types
   if (type === "string") {
     if (schema.enum && Array.isArray(schema.enum)) {
@@ -60,6 +147,39 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
           <div className={styles.field}>
             <label className={styles.label}>{(schema.description as string) || "Const value"}</label>
             <div style={{ padding: 8, background: '#fafafa', border: '1px solid #eee', borderRadius: 6 }}>{String(constValue)}</div>
+          </div>
+        );
+      }
+
+      // If schema indicates image/data-url, show an image upload + preview for instance form
+      if (format === 'data-url' || (contentMediaType && String(contentMediaType).startsWith('image'))) {
+        return (
+          <div className={styles.field}>
+            <label className={styles.label}>{(schema.description as string) || "Image"}</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {typeof value === 'string' && /^data:image\//i.test(value) && (
+                <img src={value as string} alt="preview" style={{ maxWidth: 240, maxHeight: 160, border: '1px solid #ddd', borderRadius: 6 }} />
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const f = e.target.files && e.target.files[0];
+                  if (!f) return;
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    const result = reader.result as string | ArrayBuffer | null;
+                    if (typeof result === 'string') {
+                      onChange(result);
+                    }
+                  };
+                  reader.readAsDataURL(f);
+                }}
+              />
+              {typeof value === 'string' && /^data:image\//i.test(value) && (
+                <button className={styles.removeButton} type="button" onClick={() => onChange('')}>Remove image</button>
+              )}
+            </div>
           </div>
         );
       }
@@ -482,6 +602,15 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
 
 function getDefaultValue(schema: Record<string, unknown>): unknown {
   if (schema.const !== undefined) return schema.const;
+
+  // Support defaulting for oneOnly / oneOf by delegating to first variant
+  if (schema.oneOnly && Array.isArray(schema.oneOnly) && schema.oneOnly.length > 0) {
+    return getDefaultValue(schema.oneOnly[0] as Record<string, unknown>);
+  }
+  if (schema.oneOf && Array.isArray(schema.oneOf) && schema.oneOf.length > 0) {
+    return getDefaultValue(schema.oneOf[0] as Record<string, unknown>);
+  }
+
   const type = schema.type as string;
 
   if (schema.enum && Array.isArray(schema.enum) && schema.enum.length > 0) {

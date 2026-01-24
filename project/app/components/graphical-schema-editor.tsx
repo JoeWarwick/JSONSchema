@@ -85,6 +85,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     { value: 'number', label: 'number' },
     { value: 'boolean', label: 'boolean' },
     { value: 'null', label: 'null' },
+    { value: 'image', label: 'image' },
   ];
   // Root node is always required
   const isRoot = node.id === '1';
@@ -95,6 +96,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
   const [defaultError, setDefaultError] = React.useState<string | null>(null);
   const [pattern, setPattern] = React.useState<string | undefined>(data.pattern);
   const [format, setFormat] = React.useState<string | undefined>(data.format);
+  const [contentMediaType, setContentMediaType] = React.useState<string | undefined>(data.contentMediaType);
   const [description, setDescription] = React.useState<string | undefined>(data.description);
   const [minimum, setMinimum] = React.useState<number | undefined>(data.minimum);
   const [maximum, setMaximum] = React.useState<number | undefined>(data.maximum);
@@ -132,6 +134,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     setMaxItems(data.maxItems);
     setReadOnlyFlag(data.readOnly);
     setDeprecatedFlag(data.deprecated);
+    setContentMediaType(data.contentMediaType);
     setMinMaxLengthError(null);
     setMinMaxItemsError(null);
     setMultipleOfError(null);
@@ -225,6 +228,9 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     // examples: accept comma-separated string
     if (override && Object.prototype.hasOwnProperty.call(override, 'examples')) base.examples = override.examples;
     else if (examples !== undefined) base.examples = examples ? examples.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+    // contentMediaType (for images/media)
+    if (override && Object.prototype.hasOwnProperty.call(override, 'contentMediaType')) base.contentMediaType = override.contentMediaType;
+    else base.contentMediaType = override?.contentMediaType ?? contentMediaType;
     // length constraints
     if (override && Object.prototype.hasOwnProperty.call(override, 'minLength')) base.minLength = override.minLength;
     else base.minLength = override?.minLength ?? minLength;
@@ -245,6 +251,11 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     else base.readOnly = override?.readOnly ?? readOnlyFlag;
     if (override && Object.prototype.hasOwnProperty.call(override, 'deprecated')) base.deprecated = override.deprecated;
     else base.deprecated = override?.deprecated ?? deprecatedFlag;
+    // If this node is the internal image type, ensure we include sensible defaults
+    if (base.type === 'image') {
+      if (!base.format) base.format = base.format ?? 'data-url';
+      if (!base.contentMediaType) base.contentMediaType = base.contentMediaType ?? 'image/*';
+    }
     return base;
   };
 
@@ -419,6 +430,14 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
         </div>
         {defaultError && <div style={{ color: '#e53935', fontSize: 12, marginTop: 6 }}>{defaultError}</div>}
       </div>
+      {/* Image preview only (no upload) for schema editor; instance form handles uploads */}
+      {((format === 'data-url') || (contentMediaType && String(contentMediaType).startsWith('image')) || type === 'image') && defaultValue && typeof defaultValue === 'string' && /^data:image\//i.test(defaultValue) && (
+        <div style={{ marginTop: 10, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <img src={defaultValue} alt="preview" style={{ maxWidth: 240, maxHeight: 160, border: '1px solid #ddd', borderRadius: 6 }} />
+          </div>
+        </div>
+      )}
       {!(type === 'boolean' || type === 'object' || type === 'null') && (
         <div style={{ borderTop: '1px dashed #eee', paddingTop: 10 }}>
         {type !== 'array' && !isEnum && (
@@ -646,7 +665,7 @@ import "reactflow/dist/style.css";
 import styles from "./graphical-schema-editor.module.css";
 
 // Node types: object, array, primitive
-export type SchemaNodeType = "object" | "array" | "string" | "number" | "boolean" | "null";
+export type SchemaNodeType = "object" | "array" | "string" | "number" | "boolean" | "null" | "image";
 
 export interface GraphicalSchemaEditorProps {
   schema: Record<string, unknown>;

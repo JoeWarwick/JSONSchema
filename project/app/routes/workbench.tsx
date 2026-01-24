@@ -137,6 +137,32 @@ export default function Workbench() {
   const [isLoadingSchemaUrl, setIsLoadingSchemaUrl] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const schemaFileInputRef = useRef<HTMLInputElement>(null);
+  const [compactJsonView, setCompactJsonView] = useState<boolean>(false);
+
+  const truncateString = (s: string, max = 120) => {
+    if (s.length <= max) return s;
+    const head = s.slice(0, 60);
+    const tail = s.slice(-60);
+    return `${head}…${tail}`;
+  };
+
+  const buildCompactJson = (text: string) => {
+    try {
+      const parsed = JSON.parse(text);
+      const seen = new WeakSet();
+      const compact = JSON.stringify(parsed, function (_k, v) {
+        if (typeof v === 'string') {
+          if (v.startsWith('data:') || v.length > 160) return truncateString(v, 160);
+          return v;
+        }
+        return v;
+      }, 2);
+      return compact;
+    } catch (_) {
+      // Fallback: replace data:... tokens heuristically
+      return String(text).replace(/(data:[^\s\"\'\)\]]{80,})/g, (m) => truncateString(m, 160));
+    }
+  };
 
   // Compute resolved cache asynchronously when `state.source` changes.
   // Do NOT persist to localStorage until dereferencing has completed —
@@ -597,21 +623,40 @@ export default function Workbench() {
                   </button>
                 </div>
               </div>
-              <textarea
-                className={`${styles.jsonInput} ${error ? styles.error : ""}`}
-                value={jsonInput}
-                onChange={(e) => {
-                  setJsonInput(e.target.value);
-                  setError(null);
-                  // Try to parse and update instance form if valid
-                  try {
-                    const parsed = JSON.parse(e.target.value);
-                    setInstanceData(parsed);
-                  } catch {}
-                }}
-                placeholder="Paste your JSON here..."
-                spellCheck={false}
-              />
+              <div style={{ marginTop: 12 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  <label style={{ fontSize: 13, color: '#666' }}>
+                    View:
+                  </label>
+                  <button className={styles.controlButton} onClick={() => setCompactJsonView(false)} disabled={!compactJsonView}>Full</button>
+                  <button className={styles.controlButton} onClick={() => setCompactJsonView(true)} disabled={compactJsonView}>Compact</button>
+                </div>
+                {compactJsonView ? (
+                  <div className={`${styles.jsonInput} ${error ? styles.error : ""}`} style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', padding: 12, borderRadius: 6, width: '100%', height: '100%', minHeight: 240, boxSizing: 'border-box', overflow: 'auto', color: 'inherit' }}>
+                    <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'inherit' }}>{buildCompactJson(jsonInput)}</pre>
+                    <div style={{ marginTop: 8 }}>
+                      <button className={styles.controlButton} onClick={() => setCompactJsonView(false)}>Edit full JSON</button>
+                    </div>
+                  </div>
+                ) : (
+                  <textarea
+                    className={`${styles.jsonInput} ${error ? styles.error : ""}`}
+                    value={jsonInput}
+                    onChange={(e) => {
+                      setJsonInput(e.target.value);
+                      setError(null);
+                      // Try to parse and update instance form if valid
+                      try {
+                        const parsed = JSON.parse(e.target.value);
+                        setInstanceData(parsed);
+                      } catch {}
+                    }}
+                    placeholder="Paste your JSON here..."
+                    spellCheck={false}
+                    style={{ width: '100%', height: '100%', minHeight: 240, boxSizing: 'border-box' }}
+                  />
+                )}
+              </div>
               {error && <div className={styles.errorMessage}>{error}</div>}
               <button className={styles.generateButton} onClick={handleGenerate}>
                 <Sparkles size={18} />

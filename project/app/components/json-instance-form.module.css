@@ -144,6 +144,44 @@
   background: var(--color-accent-10);
 }
 
+.variantChips {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.variantChip {
+  padding: 6px 10px;
+  border-radius: 16px;
+  border: none;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: transform 0.08s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.variantChipSelected {
+  background: var(--color-accent-9);
+  color: var(--color-accent-contrast);
+}
+
+.variantChipUnselected {
+  background: var(--color-neutral-5);
+  color: var(--color-neutral-10);
+  filter: grayscale(1);
+}
+
+/* Visible keyboard focus for accessibility */
+.variantChip:focus-visible {
+  outline: 2px solid var(--color-accent-8);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px var(--color-accent-3);
+  transform: translateY(-1px);
+}
+
+/* Keep default focus behavior subtle for mouse */
+.variantChip:focus { outline: none; }
+
 .nullValue {
   font-size: 0.875rem;
   color: var(--color-neutral-10);

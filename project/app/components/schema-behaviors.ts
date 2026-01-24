@@ -3,9 +3,14 @@
  */
 export function schemaNodeDataToSchema(node: SchemaNodeData): Record<string, unknown> {
   const schema: Record<string, unknown> = {
-    type: node.type,
+    type: node.type === 'image' ? 'string' : node.type,
     title: node.label,
   };
+  // Default annotations for internal `image` node type
+  if (node.type === 'image') {
+    if (node.format === undefined) schema.format = 'data-url';
+    if (node.contentMediaType === undefined) schema.contentMediaType = 'image/*';
+  }
   if (node.format !== undefined) schema.format = node.format;
   if (node.contentMediaType !== undefined) schema.contentMediaType = node.contentMediaType;
   if (node.pattern !== undefined) schema.pattern = node.pattern;
@@ -108,11 +113,60 @@ export function updateNestedPropertyInSchema(schema: Record<string, unknown>, pr
   };
 }
 
+/**
+ * Adds a patternProperties entry to an object schema. The key will be the provided regex
+ * (or an auto-generated one if none provided). Returns the updated schema.
+ */
+export function addPatternPropertyToSchema(schema: Record<string, unknown>, pattern?: string): Record<string, unknown> {
+  const patternProperties = (schema.patternProperties as Record<string, unknown>) || {};
+  // Choose a safe default pattern if none provided
+  let key = pattern || '^pattern$';
+  // Ensure uniqueness by appending a counter if required
+  if (patternProperties[key]) {
+    let i = 1;
+    while (patternProperties[`${key.replace(/\$$/, '')}_${i}$`]) i++;
+    key = `${key.replace(/\$$/, '')}_${i}$`;
+  }
+  return {
+    ...schema,
+    patternProperties: {
+      ...patternProperties,
+      [key]: { type: 'string' },
+    },
+  };
+}
+
+/**
+ * Removes a patternProperties entry by key and cleans up the parent if empty.
+ */
+export function removePatternPropertyFromSchema(schema: Record<string, unknown>, patternKey: string): Record<string, unknown> {
+  const patternProperties = { ...(schema.patternProperties as Record<string, unknown>) } || {};
+  delete patternProperties[patternKey];
+  return {
+    ...schema,
+    patternProperties: Object.keys(patternProperties).length > 0 ? patternProperties : undefined,
+  };
+}
+
+/**
+ * Updates (replaces) the subschema for a given patternProperties key.
+ */
+export function updatePatternPropertyInSchema(schema: Record<string, unknown>, patternKey: string, newSubschema: Record<string, unknown>): Record<string, unknown> {
+  const patternProperties = (schema.patternProperties as Record<string, unknown>) || {};
+  return {
+    ...schema,
+    patternProperties: {
+      ...patternProperties,
+      [patternKey]: newSubschema,
+    },
+  };
+}
+
 // schema-behaviors.ts
 // Centralized types and shared edit actions for schema-form and graphical-schema-editor
 
 // Node types: object, array, primitive
-export type SchemaNodeType = "object" | "array" | "string" | "number" | "boolean" | "null";
+export type SchemaNodeType = "object" | "array" | "string" | "number" | "boolean" | "null" | "image";
 
 export interface SchemaNodeData {
   id: string;
@@ -171,7 +225,7 @@ export function handleTypeChange(newType: SchemaNodeType, prevData: SchemaNodeDa
     patch.ofType = undefined;
     patch.enum = undefined;
     patch.default = undefined;
-  } else if (["string", "number", "boolean", "null"].includes(newType)) {
+  } else if (["string", "number", "boolean", "null", "image"].includes(newType)) {
     patch.ofType = undefined;
     // Keep enum and default for primitives
   }
