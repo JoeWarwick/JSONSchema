@@ -57,4 +57,26 @@ describe('GraphicalSchemaEditor - patternProperties support', () => {
       expect(Object.keys(jobProps.patternProperties)).not.toContain('^job_');
     });
   });
+
+  it('disables Add Property in context menu when additionalProperties is false and no patternProperties', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        jobs: {
+          type: 'object',
+          properties: {},
+          additionalProperties: false,
+        }
+      }
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => {}} />);
+
+    // Right-click the 'jobs' node to open context menu
+    const jobsNode = await screen.findByText('jobs');
+    fireEvent.contextMenu(jobsNode);
+
+    const addPropertyItem = await screen.findByRole('button', { name: 'Add Property' });
+    expect(addPropertyItem).toBeDisabled();
+  });
 });

@@ -1964,7 +1964,45 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, isSchemaI
       onClick: handleAddProperty,
       disabled: (() => {
         const node = nodes.find(n => n.id === contextMenu?.nodeId);
-        return !node || !(node.data.type === 'object' || (node.data.type === 'array' && node.data.ofType === 'object'));
+        if (!node) return true;
+        if (!(node.data.type === 'object' || (node.data.type === 'array' && node.data.ofType === 'object'))) return true;
+        // Inspect the provided `schema` prop (authoritative source) to find the target schema
+        try {
+          if (schema) {
+            const collectPath = (n: Node<SchemaNodeData> | undefined) => {
+              const labels: string[] = [];
+              let cur = n;
+              while (cur && cur.id !== '1') {
+                if (cur.data && cur.data.label) labels.unshift(cur.data.label);
+                cur = nodes.find(x => x.id === cur?.data?.parent);
+              }
+              return labels;
+            };
+            const path = collectPath(node);
+            const getSchemaAtPath = (rootSchema: any, pathArr: string[]) => {
+              let cur: any = rootSchema;
+              for (const lbl of pathArr) {
+                if (!cur) return null;
+                if (cur.type === 'object') {
+                  cur = (cur.properties || {})[lbl];
+                } else if (cur.type === 'array') {
+                  cur = (cur.items && cur.items.type === 'object') ? ((cur.items.properties || {})[lbl]) : undefined;
+                } else {
+                  cur = undefined;
+                }
+              }
+              return cur;
+            };
+            const target = getSchemaAtPath(schema, path);
+            if (target && target.additionalProperties === false) {
+              const pp = target.patternProperties || {};
+              if (!pp || Object.keys(pp).length === 0) return true; // block adding ad-hoc properties when additionalProperties:false and no patternProperties
+            }
+          }
+        } catch (e) {
+          // conservative fallback: allow add
+        }
+        return false;
       })(),
     });
 

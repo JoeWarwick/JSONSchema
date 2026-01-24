@@ -723,7 +723,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
             <div className={styles.propertiesHeader}>
               <h3 className={styles.propertyTitle}>Properties</h3>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button className={styles.addButton} onClick={addProperty}>
+                <button className={styles.addButton} onClick={addProperty} disabled={(schema.additionalProperties === false) && (!patternProperties || Object.keys(patternProperties).length === 0)}>
                   Add Property
                 </button>
                 <button
@@ -736,6 +736,9 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
                   + pattern property
                 </button>
               </div>
+              {(schema.additionalProperties === false) && (!patternProperties || Object.keys(patternProperties).length === 0) && (
+                <div style={{ color: '#b71c1c', marginTop: 8, fontSize: 13 }} data-testid="additional-properties-blocked">Cannot add properties here because <code>additionalProperties: false</code> and no <code>patternProperties</code> are defined.</div>
+              )}
               {/* Pattern Properties list */}
               {patternProperties && (
                 <div style={{ marginTop: 12 }}>
