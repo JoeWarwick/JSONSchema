@@ -6,7 +6,8 @@ import {
   updateNestedPropertyInSchema,
   addPatternPropertyToSchema,
   removePatternPropertyFromSchema,
-  updatePatternPropertyInSchema
+  updatePatternPropertyInSchema,
+  renamePatternPropertyInSchema
 } from "./schema-behaviors";
 import { validateSchema } from "../utils/schema-generator";
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -167,6 +168,74 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
       onPropertyRename(oldName, newName, path);
     }
   };
+
+  const patternProperties = schema.patternProperties as Record<string, unknown> | undefined;
+
+  function PatternPropertyRow({ patternKey, subschema }: { patternKey: string; subschema: Record<string, unknown> }) {
+    const [keyState, setKeyState] = useState<string>(patternKey);
+    const [keyError, setKeyError] = useState<string | null>(null);
+    const [subText, setSubText] = useState<string>(JSON.stringify(subschema, null, 2));
+
+    useEffect(() => setSubText(JSON.stringify(subschema, null, 2)), [subschema]);
+
+    const handleKeyBlur = () => {
+      const newKey = keyState;
+      // Validate regex
+      try {
+        // eslint-disable-next-line no-new
+        new RegExp(newKey);
+        setKeyError(null);
+      } catch (err) {
+        setKeyError('Invalid regular expression');
+        return;
+      }
+      if (newKey !== patternKey) {
+        const next = renamePatternPropertyInSchema(schema, patternKey, newKey);
+        updateSchema(next);
+      }
+    };
+
+    const handleSubBlur = () => {
+      try {
+        const parsed = JSON.parse(subText);
+        const updated = updatePatternPropertyInSchema(schema, patternKey, parsed);
+        updateSchema(updated);
+      } catch (_e) {
+        // ignore invalid JSON until user fixes
+      }
+    };
+
+    return (
+      <div key={patternKey} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
+        <div style={{ minWidth: 200, paddingTop: 6 }}>
+          <input aria-label={`pattern-key-${patternKey}`} value={keyState} onChange={(e) => setKeyState(e.target.value)} onBlur={handleKeyBlur} className={styles.input} />
+          <div style={{ fontSize: 12, color: '#666', marginTop: 6 }}>{String((subschema as any).type || 'schema')}</div>
+          {keyError && <div style={{ color: '#b71c1c', fontSize: 12, marginTop: 6 }}>{keyError}</div>}
+        </div>
+        <div style={{ flex: 1 }}>
+          <textarea
+            aria-label={`pattern-${patternKey}-editor`}
+            style={{ width: '100%', minHeight: 80, fontFamily: 'monospace', fontSize: 12 }}
+            value={subText}
+            onChange={(e) => setSubText(e.target.value)}
+            onBlur={handleSubBlur}
+          />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <button
+            type="button"
+            className={styles.removeSmall}
+            onClick={() => {
+              const next = removePatternPropertyFromSchema(schema, patternKey);
+              updateSchema(next);
+            }}
+          >
+            Remove
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -668,50 +737,16 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
                 </button>
               </div>
               {/* Pattern Properties list */}
-              {schema.patternProperties && typeof schema.patternProperties === 'object' && (
+              {patternProperties && (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Pattern properties</div>
-                  {Object.entries(schema.patternProperties as Record<string, unknown>).map(([pat, subschema]) => (
-                    <div key={pat} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
-                      <div style={{ minWidth: 200, paddingTop: 6 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600 }} title={pat}>{pat}</div>
-                        <div style={{ fontSize: 12, color: '#666' }}>{String((subschema as any).type || 'schema')}</div>
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <textarea
-                          aria-label={`pattern-${pat}-editor`}
-                          style={{ width: '100%', minHeight: 80, fontFamily: 'monospace', fontSize: 12 }}
-                          value={JSON.stringify(subschema, null, 2)}
-                          onChange={(e) => {
-                            // Optimistic local edit - user can fix JSON inline
-                            const txt = e.target.value;
-                            try {
-                              const parsed = JSON.parse(txt);
-                              const updated = updatePatternPropertyInSchema(schema, pat, parsed);
-                              updateSchema(updated);
-                            } catch (_e) {
-                              // If invalid JSON, do nothing until it's valid; user can re-edit
-                            }
-                          }}
-                        />
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <button
-                          type="button"
-                          className={styles.removeSmall}
-                          onClick={() => {
-                            const next = removePatternPropertyFromSchema(schema, pat);
-                            updateSchema(next);
-                          }}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
+                  {Object.entries(patternProperties).map(([pat, subschema]) => (
+                    <PatternPropertyRow key={pat} patternKey={pat} subschema={subschema as Record<string, unknown>} />
                   ))}
                 </div>
               )}
             </div>
+
             {Object.entries((schema.properties as Record<string, unknown>) || {})
               .filter(([propertyName]) => !propertyName.startsWith('__'))
               .map(([propertyName, propertySchema]) => (
@@ -725,12 +760,9 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
                   onToggleRequired={() => toggleRequired(propertyName)}
                   onRename={(newName) => updatePropertyName(propertyName, newName)}
                 />
-              ),
-            )}
+              ))}
           </div>
-        )}
-
-        {renderType === "array" && (() => {
+        )}        {renderType === "array" && (() => {
           const itemsSchema = (schema.items && typeof schema.items === "object" && !Array.isArray(schema.items))
             ? (schema.items as Record<string, unknown>)
             : { type: "string" };

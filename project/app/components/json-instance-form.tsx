@@ -95,7 +95,7 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
               <button
                 key={i}
                 type="button"
-                ref={(el) => (chipRefs.current[i] = el)}
+                ref={(el) => { chipRefs.current[i] = el; }}
                 tabIndex={0}
                 onKeyDown={(e) => handleChipKeyDown(e, i)}
                 className={`${styles.variantChip} ${selected ? styles.variantChipSelected : styles.variantChipUnselected}`}

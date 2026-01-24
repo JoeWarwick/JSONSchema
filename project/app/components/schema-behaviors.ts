@@ -118,7 +118,7 @@ export function updateNestedPropertyInSchema(schema: Record<string, unknown>, pr
  * (or an auto-generated one if none provided). Returns the updated schema.
  */
 export function addPatternPropertyToSchema(schema: Record<string, unknown>, pattern?: string): Record<string, unknown> {
-  const patternProperties = (schema.patternProperties as Record<string, unknown>) || {};
+  const patternProperties = schema.patternProperties ? { ...(schema.patternProperties as Record<string, unknown>) } : {};
   // Choose a safe default pattern if none provided
   let key = pattern || '^pattern$';
   // Ensure uniqueness by appending a counter if required
@@ -140,7 +140,7 @@ export function addPatternPropertyToSchema(schema: Record<string, unknown>, patt
  * Removes a patternProperties entry by key and cleans up the parent if empty.
  */
 export function removePatternPropertyFromSchema(schema: Record<string, unknown>, patternKey: string): Record<string, unknown> {
-  const patternProperties = { ...(schema.patternProperties as Record<string, unknown>) } || {};
+  const patternProperties = schema.patternProperties ? { ...(schema.patternProperties as Record<string, unknown>) } : {};
   delete patternProperties[patternKey];
   return {
     ...schema,
@@ -152,13 +152,35 @@ export function removePatternPropertyFromSchema(schema: Record<string, unknown>,
  * Updates (replaces) the subschema for a given patternProperties key.
  */
 export function updatePatternPropertyInSchema(schema: Record<string, unknown>, patternKey: string, newSubschema: Record<string, unknown>): Record<string, unknown> {
-  const patternProperties = (schema.patternProperties as Record<string, unknown>) || {};
+  const patternProperties = schema.patternProperties ? { ...(schema.patternProperties as Record<string, unknown>) } : {};
   return {
     ...schema,
     patternProperties: {
       ...patternProperties,
       [patternKey]: newSubschema,
     },
+  };
+}
+
+/**
+ * Rename a patternProperties key from `oldKey` to `newKey`.
+ * If `newKey` already exists, will append a suffix `_1`, `_2`, ... until unique.
+ */
+export function renamePatternPropertyInSchema(schema: Record<string, unknown>, oldKey: string, newKey: string): Record<string, unknown> {
+  const patternProperties = schema.patternProperties ? { ...(schema.patternProperties as Record<string, unknown>) } : {};
+  if (!Object.prototype.hasOwnProperty.call(patternProperties, oldKey)) return schema;
+  let key = newKey;
+  if (oldKey !== newKey && Object.prototype.hasOwnProperty.call(patternProperties, key)) {
+    let i = 1;
+    while (Object.prototype.hasOwnProperty.call(patternProperties, `${key}_${i}`)) i++;
+    key = `${key}_${i}`;
+  }
+  const value = patternProperties[oldKey];
+  delete patternProperties[oldKey];
+  patternProperties[key] = value;
+  return {
+    ...schema,
+    patternProperties: Object.keys(patternProperties).length > 0 ? patternProperties : undefined,
   };
 }
 

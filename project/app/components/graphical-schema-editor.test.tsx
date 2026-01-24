@@ -108,8 +108,8 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
 
     // And the emitted schema should include a patternProperties entry under jobs with the updated key
     await waitFor(() => {
-      expect(latestSchema.properties.jobs.patternProperties).toBeDefined();
-      expect(Object.keys(latestSchema.properties.jobs.patternProperties)).toContain('^jobX_');
+      expect((latestSchema.properties.jobs as any).patternProperties).toBeDefined();
+      expect(Object.keys((latestSchema.properties.jobs as any).patternProperties)).toContain('^jobX_');
     });
   });
 
