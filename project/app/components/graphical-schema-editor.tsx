@@ -46,6 +46,7 @@ import { validateValueAgainstSchema } from "../utils/validation";
 import { ContextMenu } from "./ContextMenu";
 import {
   addPropertyToSchema,
+  addPatternPropertyToSchema,
   removePropertyFromSchema,
   updateNestedPropertyInSchema,
   schemaNodeDataToSchema
@@ -1675,6 +1676,104 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, isSchemaI
     setContextMenu(null);
   };
 
+  // Add Pattern Property action
+  const handleAddPatternProperty = () => {
+    const parentNode = nodes.find(n => n.id === contextMenu?.nodeId);
+    if (!parentNode) {
+      setContextMenu(null);
+      return;
+    }
+
+    // Build authoritative base schema from current graph and keep a snapshot
+    const baseSchema = buildSchemaFromNodes(nodes);
+    const prevSchema = JSON.parse(JSON.stringify(baseSchema));
+
+    // Helper: collect labels from root -> target node
+    const collectPath = (n: Node<SchemaNodeData> | undefined) => {
+      const labels: string[] = [];
+      let cur = n;
+      while (cur && cur.id !== '1') {
+        if (cur.data && cur.data.label) labels.unshift(cur.data.label);
+        cur = nodes.find(x => x.id === cur?.data?.parent);
+      }
+      return labels;
+    };
+
+    const path = collectPath(parentNode);
+
+    const getSchemaAtPath = (schema: any, pathArr: string[]) => {
+      let cur: any = schema;
+      for (const lbl of pathArr) {
+        if (!cur) return null;
+        if (cur.type === 'object') {
+          cur = (cur.properties || {})[lbl];
+        } else if (cur.type === 'array') {
+          // dive into items
+          cur = (cur.items && cur.items.type === 'object') ? ((cur.items.properties || {})[lbl]) : undefined;
+        } else {
+          cur = undefined;
+        }
+      }
+      return cur;
+    };
+
+    // Find the target schema object where we'll add a patternProperty
+    const targetSchema = getSchemaAtPath(baseSchema, path);
+
+    let emittedSchema: Record<string, unknown> | null = null;
+
+    if (!targetSchema) {
+      // Fallback: add to root
+      emittedSchema = addPatternPropertyToSchema(baseSchema as Record<string, unknown>);
+    } else {
+      // Add a pattern property to the target schema object (object or items)
+      const updatedTarget = addPatternPropertyToSchema(targetSchema as Record<string, unknown>);
+      // Integrate updatedTarget back into baseSchema at the correct location
+      if (path.length === 1) {
+        // Direct child of root
+        if (!baseSchema.properties) baseSchema.properties = {};
+        (baseSchema.properties as Record<string, unknown>)[path[0]] = updatedTarget;
+      } else {
+        const parentPath = path.slice(0, -1);
+        const lastLabel = path[path.length - 1];
+        const parentContainer = getSchemaAtPath(baseSchema, parentPath);
+        if (parentContainer) {
+          if (parentContainer.type === 'object') {
+            if (!parentContainer.properties) parentContainer.properties = {};
+            parentContainer.properties[lastLabel] = updatedTarget;
+          } else if (parentContainer.type === 'array') {
+            parentContainer.items = parentContainer.items || { type: 'object', properties: {} } as any;
+            parentContainer.items.properties = parentContainer.items.properties || {};
+            parentContainer.items.properties[lastLabel] = updatedTarget;
+          }
+        } else {
+          // As a last resort, add to root
+          emittedSchema = addPatternPropertyToSchema(baseSchema as Record<string, unknown>);
+        }
+      }
+      if (!emittedSchema) emittedSchema = baseSchema;
+    }
+
+    // Rebuild graph from emitted schema
+    const rawRebuilt = schemaToGraph(emittedSchema as Record<string, unknown>);
+    const rebuiltNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges);
+    const rebuiltEdges = rawRebuilt.edges as Edge[];
+    setNodes(rebuiltNodes);
+    setEdges(rebuiltEdges);
+
+    // Compute added pattern key by diffing previous and new patternProperties at the target location
+    const prevPattern = getSchemaAtPath(prevSchema, path)?.patternProperties || {};
+    const newPattern = getSchemaAtPath(emittedSchema, path)?.patternProperties || {};
+    const addedKey = Object.keys(newPattern).find(k => !(k in prevPattern));
+    const addedLabel = addedKey ? `pattern: ${addedKey}` : undefined;
+
+    // Prefer selecting the deterministic id for the new node
+    const newId = addedLabel ? makeId(parentNode.id, addedLabel) : undefined;
+    const newNode = (newId && rebuiltNodes.find(n => n.id === newId)) || (addedLabel && rebuiltNodes.find(n => n.data && n.data.label === addedLabel));
+    if (newNode) setSelectedNodeId(newNode.id);
+    setContextMenu(null);
+  };
+
   // Create a local override for an imported/ref'd node by adding a `username` property
   const handleCreateLocalOverride = () => {
     const parentNode = nodes.find(n => n.id === contextMenu?.nodeId);
@@ -1866,6 +1965,15 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, isSchemaI
         disabled: false,
       });
     }
+
+    items.push({
+      label: 'Add Pattern Property',
+      onClick: handleAddPatternProperty,
+      disabled: (() => {
+        const node = nodes.find(n => n.id === contextMenu?.nodeId);
+        return !node || !(node.data.type === 'object' || (node.data.type === 'array' && node.data.ofType === 'object'));
+      })(),
+    });
 
     items.push({
       label: 'Delete Property',

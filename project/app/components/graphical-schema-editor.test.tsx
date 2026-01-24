@@ -69,6 +69,50 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     });
   });
 
+  it('can add a pattern property via context menu and it appears in the schema', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        jobs: {
+          type: 'object',
+          properties: {}
+        }
+      }
+    };
+    let latestSchema = testSchema;
+    const handleChange = (schema: any) => {
+      latestSchema = schema;
+    };
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={handleChange} />);
+
+    // Right-click the 'jobs' node to open context menu
+    const jobsNode = await screen.findByText('jobs');
+    fireEvent.contextMenu(jobsNode);
+
+    // Click "Add Pattern Property" in the context menu
+    const addPatternItem = await screen.findByText('Add Pattern Property');
+    fireEvent.click(addPatternItem);
+
+    // The new pattern node should appear
+    const patternNode = await screen.findByText((content) => /pattern:/i.test(content));
+    expect(patternNode).toBeInTheDocument();
+
+    // Selecting the pattern node should show the Pattern Key editor
+    fireEvent.click(patternNode);
+    const patternKeyInput = await screen.findByLabelText('Pattern Key');
+    expect(patternKeyInput).toBeInTheDocument();
+
+    // Update the pattern key to trigger schema emission
+    fireEvent.change(patternKeyInput, { target: { value: '^jobX_' } });
+    fireEvent.blur(patternKeyInput);
+
+    // And the emitted schema should include a patternProperties entry under jobs with the updated key
+    await waitFor(() => {
+      expect(latestSchema.properties.jobs.patternProperties).toBeDefined();
+      expect(Object.keys(latestSchema.properties.jobs.patternProperties)).toContain('^jobX_');
+    });
+  });
+
   it('adds a property to a nested object path (deep object)', async () => {
     const testSchema = {
       type: 'object',
