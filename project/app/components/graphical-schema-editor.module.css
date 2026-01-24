@@ -15,6 +15,28 @@
   margin-top: var(--space-4);
 }
 
+.patternNode {
+  background: linear-gradient(180deg, #eaf2ff 0%, #f7fbff 100%);
+  border: 2px solid #82aaff;
+}
+
+.patternBadge {
+  display: inline-block;
+  background: #e8f0ff;
+  color: #2b6cb0;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-weight: 700;
+  font-size: 12px;
+  margin-right: 8px;
+}
+
+.patternKeyError {
+  color: #b71c1c;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
 .editorSidebar {
   width: 320px;
   min-width: 280px;

@@ -38,15 +38,22 @@ describe('GraphicalSchemaEditor - patternProperties support', () => {
     const patternKeyInput = await screen.findByLabelText('Pattern Key');
     expect(patternKeyInput).toBeInTheDocument();
 
-    // Change the pattern key to a new value and blur
-    fireEvent.change(patternKeyInput, { target: { value: '^job2_' } });
+    // Change the pattern key to an invalid value and blur -> should show validation and NOT update schema
+    fireEvent.change(patternKeyInput, { target: { value: '(' } });
     fireEvent.blur(patternKeyInput);
+    const errorMsg = await screen.findByText('Invalid regular expression');
+    expect(errorMsg).toBeInTheDocument();
 
-    // Wait for the schema emitted by the editor to include the updated key
+    // Schema should still contain the original pattern key
+    expect(Object.keys(latestSchema.properties.jobs.patternProperties)).toContain('^job_');
+
+    // Now enter a valid value and blur - schema should update
+    fireEvent.change(patternKeyInput, { target: { value: '^jobX_' } });
+    fireEvent.blur(patternKeyInput);
     await waitFor(() => {
       const jobProps = latestSchema?.properties?.jobs || {};
       expect(jobProps.patternProperties).toBeDefined();
-      expect(Object.keys(jobProps.patternProperties)).toContain('^job2_');
+      expect(Object.keys(jobProps.patternProperties)).toContain('^jobX_');
       expect(Object.keys(jobProps.patternProperties)).not.toContain('^job_');
     });
   });

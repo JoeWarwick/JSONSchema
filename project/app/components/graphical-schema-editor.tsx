@@ -80,6 +80,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
   const [ofType, setOfType] = React.useState<string>(data.ofType || '');
   // patternKey is used for `patternProperties` nodes to store the actual regex key
   const [patternKeyState, setPatternKeyState] = React.useState<string | undefined>((data as any).patternKey);
+  const [patternKeyError, setPatternKeyError] = React.useState<string | null>(null);
   const typeSelectRef = React.useRef<HTMLSelectElement | null>(null);
   const jsonTypes = [
     { value: 'object', label: 'object' },
@@ -363,16 +364,26 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
             onChange={e => {
               const v = e.target.value;
               setPatternKeyState(v);
-              // Update both the internal patternKey and the display label so the node is understandable
-              onChange(buildPatchWithAnnotations({ patternKey: v, label: `pattern: ${v}` }));
+              // Validate as a JS RegExp. If valid, emit patternKey and label; if invalid, only update label so UI reflects editing
+              try {
+                // eslint-disable-next-line no-new
+                new RegExp(v);
+                setPatternKeyError(null);
+                onChange(buildPatchWithAnnotations({ patternKey: v, label: `pattern: ${v}` }));
+              } catch (err) {
+                setPatternKeyError('Invalid regular expression');
+                // still update the label so users see what they are typing, but do not set patternKey until valid
+                onChange(buildPatchWithAnnotations({ label: `pattern: ${v}` }));
+              }
             }}
             onBlur={() => {
-              // Nothing else to do - the patch above is sufficient
+              // Nothing else to do - onChange handles emission when valid
             }}
-            style={{ width: '100%', marginTop: 6, padding: 4, borderRadius: 4, border: '1px solid #ccc' }}
+            style={{ width: '100%', marginTop: 6, padding: 4, borderRadius: 4, border: patternKeyError ? '1px solid #b71c1c' : '1px solid #ccc' }}
             placeholder="Regex for matching property names"
             aria-label="Pattern Key"
           />
+          {patternKeyError && <div className={styles.patternKeyError}>{patternKeyError}</div>}
         </div>
       )}
       <div>
@@ -729,9 +740,10 @@ const GroupBox = ({ title, children }: { title: string; children: React.ReactNod
 // Custom node component that renders all data properties, with C# generic style for type if ofType is present, and required badge
 const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boolean } }) => {
   const { label, type, ofType, required } = data;
+  const isPattern = Boolean((data as any).patternKey);
   return (
-    <div style={{
-      background: '#fff',
+    <div className={isPattern ? styles.patternNode : undefined} style={{
+      background: isPattern ? undefined : '#fff',
       border: '2px solid #b3e6b3',
       borderRadius: 8,
       padding: '10px 18px',
@@ -744,6 +756,7 @@ const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boolean } })
       {/* Target handle for incoming edges */}
       <Handle type="target" position={Position.Left} style={{ background: '#00e676', width: 10, height: 10, borderRadius: 5 }} />
       <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4, color: '#222' }}>
+        { (data as any).patternKey ? <span className={styles.patternBadge}>pattern</span> : null }
         {label}
         {data.imported && (
           <span title={typeof data.$ref === 'string' ? `Imported from ${data.$ref}` : 'Imported definition (create local override to change)'} style={{ color: '#d9822b', marginLeft: 8, fontSize: 14, verticalAlign: 'middle' }}>*</span>
