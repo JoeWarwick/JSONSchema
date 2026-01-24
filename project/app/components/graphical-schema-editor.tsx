@@ -77,6 +77,8 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
   const nameInputRef = React.useRef<HTMLInputElement>(null);
   const [type, setType] = React.useState<string>(data.type || '');
   const [ofType, setOfType] = React.useState<string>(data.ofType || '');
+  // patternKey is used for `patternProperties` nodes to store the actual regex key
+  const [patternKeyState, setPatternKeyState] = React.useState<string | undefined>((data as any).patternKey);
   const typeSelectRef = React.useRef<HTMLSelectElement | null>(null);
   const jsonTypes = [
     { value: 'object', label: 'object' },
@@ -352,6 +354,26 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
           aria-label="Name"
         />
       </div>
+      { (data as any).patternKey && (
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, marginTop: 8 }}>Pattern Key</div>
+          <input
+            value={patternKeyState ?? ''}
+            onChange={e => {
+              const v = e.target.value;
+              setPatternKeyState(v);
+              // Update both the internal patternKey and the display label so the node is understandable
+              onChange(buildPatchWithAnnotations({ patternKey: v, label: `pattern: ${v}` }));
+            }}
+            onBlur={() => {
+              // Nothing else to do - the patch above is sufficient
+            }}
+            style={{ width: '100%', marginTop: 6, padding: 4, borderRadius: 4, border: '1px solid #ccc' }}
+            placeholder="Regex for matching property names"
+            aria-label="Pattern Key"
+          />
+        </div>
+      )}
       <div>
         <select ref={typeSelectRef} value={type} onChange={handleTypeChange} style={{ width: '100%', marginTop: 2, padding: 4, borderRadius: 4, border: '1px solid #ccc' }} aria-label="Type">
           <option value="">Select type</option>
@@ -1007,12 +1029,28 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, isSchemaI
       if (parentId) {
         edges.push({ id: `e${parentId}-${id}`, source: parentId, target: id, type: 'default' });
       }
-      // Properties
-      if (type === 'object' && obj.properties) {
+      // Properties and patternProperties for objects
+      if (type === 'object') {
         let propY = y - 80;
-        for (const [key, propSchema] of Object.entries(obj.properties).filter(([k]) => !k.startsWith('__'))) {
-          walkSchema(propSchema, id, key, x + 250, propY, obj.required || []);
-          propY += 140;
+        if (obj.properties) {
+          for (const [key, propSchema] of Object.entries(obj.properties).filter(([k]) => !k.startsWith('__'))) {
+            walkSchema(propSchema, id, key, x + 250, propY, obj.required || []);
+            propY += 140;
+          }
+        }
+        // Pattern properties (render as compact nodes labeled `pattern: <regex>`)
+        if (obj.patternProperties && typeof obj.patternProperties === 'object') {
+          for (const [pat, subschema] of Object.entries(obj.patternProperties)) {
+            const patLabel = `pattern: ${pat}`;
+            const createdId = walkSchema(subschema, id, patLabel, x + 250, propY, obj.required || []);
+            // Attach the raw pattern key to the node data so we can round-trip back to schema.patternProperties
+            const createdNode = nodes.find(n => n.id === createdId);
+            if (createdNode) {
+              createdNode.data.patternKey = pat;
+              createdNode.data.label = patLabel;
+            }
+            propY += 140;
+          }
         }
       }
       // If array of objects, walk into properties of items, but do not create a subnode for 'items'
@@ -1248,17 +1286,24 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, isSchemaI
       const base = schemaNodeDataToSchema(node.data as SchemaNodeData) as any;
       if (node.data.type === 'object') {
         const props: Record<string, unknown> = {};
+        const patternProps: Record<string, unknown> = {};
         const requiredList: string[] = [];
         allNodes.forEach(child => {
           if (child.data && child.data.parent === node.id) {
             const key = child.data.label;
-            if (key) props[key] = buildNodeSchema(child);
-            if (child.data && (child.data as any).required) {
-              if (key) requiredList.push(key);
+            const patternKey = (child.data as any).patternKey;
+            if (patternKey) {
+              patternProps[patternKey] = buildNodeSchema(child);
+            } else {
+              if (key) props[key] = buildNodeSchema(child);
+              if (child.data && (child.data as any).required) {
+                if (key) requiredList.push(key);
+              }
             }
           }
         });
         if (Object.keys(props).length > 0) base.properties = props;
+        if (Object.keys(patternProps).length > 0) base.patternProperties = patternProps;
         if (requiredList.length > 0) base.required = requiredList;
       }
       if (node.data.type === 'array') {
