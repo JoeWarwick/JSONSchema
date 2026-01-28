@@ -15,6 +15,8 @@ export function schemaNodeDataToSchema(node: SchemaNodeData): Record<string, unk
   if (node.contentMediaType !== undefined) schema.contentMediaType = node.contentMediaType;
   if (node.pattern !== undefined) schema.pattern = node.pattern;
   if (node.description !== undefined) schema.description = node.description;
+  // Support round-tripping of JSON Schema "$comment" into the editor node model
+  if ((node as any).$comment !== undefined) (schema as any).$comment = (node as any).$comment;
   if (node.minimum !== undefined) schema.minimum = node.minimum;
   if (node.maximum !== undefined) schema.maximum = node.maximum;
   if (node.exclusiveMinimum !== undefined) schema.exclusiveMinimum = node.exclusiveMinimum;
@@ -205,6 +207,10 @@ export interface SchemaNodeData {
   format?: string;
   pattern?: string;
   description?: string;
+  // Used for patternProperties nodes to store the regex key (UI-only)
+  patternKey?: string;
+  // Optional $comment annotation mapped from JSON Schema
+  $comment?: string;
   minimum?: number;
   maximum?: number;
   exclusiveMinimum?: boolean | number;

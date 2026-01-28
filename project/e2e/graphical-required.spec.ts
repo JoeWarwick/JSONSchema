@@ -76,10 +76,12 @@ test.describe('Graphical Editor - required toggle', () => {
     // Snapshot node labels and counts
     const before = await page.evaluate(() => {
       const nodeEls = Array.from(document.querySelectorAll('.react-flow__node'));
-      const labels = nodeEls.map((n: Element) => (n.textContent || '').trim().replace(/required/g, '').trim());
+      // Normalize label text: remove the literal word 'required' and any decorative asterisk (*) used for required markers
+      const labels = nodeEls.map((n: Element) => (n.textContent || '').trim().replace(/(\*|required)/g, '').trim());
       const edgeEls = Array.from(document.querySelectorAll('.react-flow__edge'));
       return { labels, nodeCount: nodeEls.length, edgeCount: edgeEls.length };
     });
+    console.log('before labels:', JSON.stringify(before.labels));
 
     // Select the orderId node by text
     await page.locator('text=orderId').first().click();
@@ -96,10 +98,12 @@ test.describe('Graphical Editor - required toggle', () => {
     // Snapshot again
     const after = await page.evaluate(() => {
       const nodeEls = Array.from(document.querySelectorAll('.react-flow__node'));
-      const labels = nodeEls.map((n: Element) => (n.textContent || '').trim().replace(/required/g, '').trim());
+      // Normalize label text: remove the literal word 'required' and any decorative asterisk (*) used for required markers
+      const labels = nodeEls.map((n: Element) => (n.textContent || '').trim().replace(/(\*|required)/g, '').trim());
       const edgeEls = Array.from(document.querySelectorAll('.react-flow__edge'));
       return { labels, nodeCount: nodeEls.length, edgeCount: edgeEls.length };
     });
+    console.log('after labels:', JSON.stringify(after.labels));
 
     // Assert structure unchanged
     expect(after.nodeCount).toBe(before.nodeCount);

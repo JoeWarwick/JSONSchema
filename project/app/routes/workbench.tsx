@@ -465,7 +465,6 @@ export default function Workbench() {
                     dispatch({ type: APPLY_RESOLVED_EDIT, payload: newSchema });
                     setInstanceData((prev: unknown) => prev == null ? generateDefaultInstance(newSchema) : prev);
                   }}
-                  isSchemaImported={isSchemaImported}
                 />
               ) : state.source ? (
                 <div className={styles.emptyState}>Resolving schema&hellip;</div>

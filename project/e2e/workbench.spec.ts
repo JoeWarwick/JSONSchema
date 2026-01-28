@@ -21,11 +21,10 @@ const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 test.describe('Workbench E2E', () => {
   test('loading unresolved defs schema from localStorage renders object root', async ({ page }) => {
+    // Inject the resolved schema into localStorage before the page loads to ensure
+    // the app's initial bootstrap sees a persisted schema (avoids race on initial load)
+    await page.context().addInitScript((s) => { try { localStorage.setItem('schema-sculptor-schema', s); } catch (_) {} }, JSON.stringify(resolvedSchema));
     await page.goto(BASE);
-
-    // Write resolved root-object schema into localStorage and reload (avoids async deref)
-    await page.evaluate((s) => localStorage.setItem('schema-sculptor-schema', s), JSON.stringify(resolvedSchema));
-    await page.reload();
 
     // Click the Schema Input tab
     await page.locator('role=button[name="Schema Input"]').click();

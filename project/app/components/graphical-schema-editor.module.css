@@ -8,7 +8,11 @@
 }
 .graphicalEditorContainer {
   display: flex;
-  height: 600px;
+  /* TEMPORARY: force explicit non-zero height to avoid React Flow mounting into a zero-size parent while we diagnose layout timing */
+  height: 700px !important;
+  min-height: 480px !important;
+  max-height: none !important;
+  overflow: auto;
   background: var(--color-neutral-2);
   border-radius: var(--radius-4);
   border: 1px solid var(--color-neutral-6);
@@ -36,6 +40,13 @@
   font-size: 12px;
   margin-top: 6px;
 }
+
+.patternKeyHelper {
+  color: #666;
+  font-size: 12px;
+  margin-top: 4px;
+  font-style: italic;
+} 
 
 .editorSidebar {
   width: 320px;
@@ -73,4 +84,168 @@
   padding: 4px 6px;
   border-radius: 4px;
   border: 1px solid var(--color-neutral-6);
+}
+
+/* Node header layout to keep pattern/title and icons from overlapping */
+.nodeHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  color: #222;
+}
+.nodeHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0; /* allow children to shrink for ellipsis */
+  flex: 1 1 auto; /* allow left group to shrink and give space to icons */
+}
+.nodeLabel {
+  font-weight: 800;
+  font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto; /* label takes remaining space but can shrink */
+}
+.patternBadge {
+  display: inline-block;
+  background: #e8f0ff;
+  color: #2b6cb0;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-weight: 700;
+  font-size: 12px;
+  margin-right: 8px;
+  flex: 0 0 auto; /* don't let badge shrink */
+}
+
+.requiredAsterisk {
+  display: inline-block;
+  background: transparent;
+  color: #e53935;
+  border: none;
+  padding: 0;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 0;
+  margin-right: 2px;
+  vertical-align: super;
+  transform: translateY(-2px);
+  cursor: default;
+  line-height: 1;
+  width: auto;
+  flex: 0 0 auto; /* keep asterisk compact */
+}
+
+.importedStar {
+  color: #d9822b;
+  margin-left: 8px;
+  font-size: 14px;
+  vertical-align: middle;
+  flex: 0 0 auto; /* keep imported star from shrinking */
+}
+
+/* Generic badge styling */
+.badge {
+  display: inline-block;
+  border-radius: 8px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  margin-right: 4px;
+  margin-bottom: 2px;
+}
+
+/* Variant styles */
+.badge_type {
+  background: #f5f5f5;
+  border: 1px solid #e0e0e0;
+  color: #2b6cb0;
+}
+.badge_enum {
+  background: #fffbe6;
+  border: 1px solid #ffe082;
+  color: #2b6cb0;
+}
+.badge_union {
+  background: #e8f0ff;
+  border: 1px solid #82aaff;
+  color: #2b6cb0;
+  font-weight: 700;
+}
+.badge_constraint {
+  background: #f7fbff;
+  border: 1px solid #dbeeff;
+  color: #2176c7;
+}
+.badge_format {
+  background: #fff7f0;
+  border: 1px solid #ffe6cc;
+  color: #fb8c00;
+  font-weight: 700;
+}
+.badge_imported {
+  background: #f3e8ff;
+  border: 1px solid #e1c9ff;
+  color: #7b4397;
+  font-weight: 700;
+}
+/* Icons rendered inside nodes for description and $comment - flow layout (not absolute) */
+.nodeIcons {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start; /* align icons above the title baseline */
+  margin-left: auto; /* push to the right */
+  transform: translateY(-11px); /* nudge icons up so they sit above the title line */
+  padding-right: 2px;
+  z-index: 1; /* ensure icons stay clickable */
+} 
+
+.nodeIcon {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--color-neutral-10);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.nodeIcon:hover {
+  background: rgba(0,0,0,0.04);
+  border-radius: 4px;
+}
+
+/* Small superscript red asterisk for required properties (no background). Tightened spacing to fit small nodes */
+.requiredAsterisk {
+  display: inline-block;
+  background: transparent;
+  color: #e53935;
+  border: none;
+  padding: 0;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 0;
+  margin-right: 2px;
+  vertical-align: super;
+  transform: translateY(-2px);
+  cursor: default;
+  line-height: 1;
+  width: auto;
+}
+
+.importedStar {
+  color: #d9822b;
+  margin-left: 8px;
+  font-size: 14px;
+  vertical-align: middle;
 }

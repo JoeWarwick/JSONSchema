@@ -1,5 +1,6 @@
 .content {
-  z-index: 5;
+  /* Ensure tooltips overlay graph nodes */
+  z-index: 9999;
   overflow: hidden;
   border-radius: var(--radius-2);
   border: var(--border-size-1) solid var(--color-neutral-6);
@@ -7,4 +8,9 @@
   padding: var(--space-2);
   color: var(--color-neutral-11);
   box-shadow: var(--shadow-3);
+  /* Constrain width and allow text to wrap neatly */
+  max-width: 36rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }

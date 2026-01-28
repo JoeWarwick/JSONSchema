@@ -382,17 +382,6 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
                   >
                     ⓘ
                   </button>
-                  <button
-                    type="button"
-                    className={styles.removeSmall}
-                    onClick={() => {
-                      const next = { ...schema } as Record<string, unknown>;
-                      delete next.format;
-                      onChange(next);
-                    }}
-                  >
-                    Remove
-                  </button>
                 </div>
               )}
 
@@ -933,9 +922,6 @@ function PropertyEditor({
             }
           }}
         />
-        <button className={styles.removeButton} onClick={onRemove}>
-          Remove
-        </button>
       </div>
 
       <div className={styles.checkboxContainer}>

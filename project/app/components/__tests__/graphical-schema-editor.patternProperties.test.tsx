@@ -27,9 +27,10 @@ describe('GraphicalSchemaEditor - patternProperties support', () => {
 
     render(<GraphicalSchemaEditor schema={testSchema} onChange={handleChange} />);
 
-    // The pattern node should appear with a label containing the regex (allow partial match)
-    const patternNode = await screen.findByText((content) => /pattern:/i.test(content));
-    expect(patternNode).toBeInTheDocument();
+    // The pattern node should appear with a concise label 'pattern'
+    const patternNodes = await screen.findAllByText((content) => typeof content === 'string' && content.trim().toLowerCase() === 'pattern');
+    expect(patternNodes.length).toBeGreaterThan(0);
+    const patternNode = patternNodes.find(n => n.closest('[data-testid^="rf__node-"]')) || patternNodes[0];
 
     // Select the pattern node to open the editor
     fireEvent.click(patternNode);
@@ -45,6 +46,18 @@ describe('GraphicalSchemaEditor - patternProperties support', () => {
     expect(errorMsg).toBeInTheDocument();
 
     // Schema should still contain the original pattern key
+    expect(Object.keys(latestSchema.properties.jobs.patternProperties)).toContain('^job_');
+
+    // Add an explicit test: invalid edit should NOT mutate the schema and should show helper text
+    // Change to an invalid pattern and blur
+    fireEvent.change(patternKeyInput, { target: { value: '(' } });
+    fireEvent.blur(patternKeyInput);
+
+    // The UI should show the validation error and helper text
+    expect(await screen.findByText('Invalid regular expression')).toBeInTheDocument();
+    expect(await screen.findByText('Pattern not saved until valid')).toBeInTheDocument();
+
+    // Schema should still contain the original pattern key (no mutation)
     expect(Object.keys(latestSchema.properties.jobs.patternProperties)).toContain('^job_');
 
     // Now enter a valid value and blur - schema should update

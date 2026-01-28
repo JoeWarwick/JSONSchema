@@ -1,7 +1,8 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { GraphicalSchemaEditor } from './graphical-schema-editor';
+import { TooltipProvider } from './ui/tooltip/tooltip';
 import { waitFor } from '@testing-library/react';
 
 describe('GraphicalSchemaEditor - Enum Editing', () => {
@@ -93,9 +94,11 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     const addPatternItem = await screen.findByText('Add Pattern Property');
     fireEvent.click(addPatternItem);
 
-    // The new pattern node should appear
-    const patternNode = await screen.findByText((content) => /pattern:/i.test(content));
-    expect(patternNode).toBeInTheDocument();
+    // The new pattern node should appear with a concise label 'pattern'
+    const patternNodes = await screen.findAllByText((content) => typeof content === 'string' && content.trim().toLowerCase() === 'pattern');
+    expect(patternNodes.length).toBeGreaterThan(0);
+    // Choose the one that is part of the react-flow node display (if present)
+    const patternNode = patternNodes.find(n => n.closest('[data-testid^="rf__node-"]')) || patternNodes[0];
 
     // Selecting the pattern node should show the Pattern Key editor
     fireEvent.click(patternNode);
@@ -619,5 +622,351 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     checkbox = await screen.findByTestId('enum-checkbox');
     fireEvent.click(checkbox);
     expect(screen.getByTestId('enum-values-label')).toBeInTheDocument();
+  });
+
+  it('shows description and $comment tooltips on nodes', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        bio: { type: 'string', description: 'Author biography' },
+        note: { type: 'string', $comment: 'Internal note for editors' }
+      }
+    };
+    render(
+      <TooltipProvider delayDuration={0}>
+        <GraphicalSchemaEditor schema={testSchema} onChange={() => { }} />
+      </TooltipProvider>
+    );
+
+    // The nodes should be present
+    const bioNode = await screen.findByText('bio');
+    expect(bioNode).toBeInTheDocument();
+    const noteNode = await screen.findByText('note');
+    expect(noteNode).toBeInTheDocument();
+
+    // There should be a description icon and a separate comment icon accessible by aria-label
+    const descTrigger = await screen.findByLabelText('Node description');
+    fireEvent.mouseEnter(descTrigger);
+    fireEvent.focus(descTrigger);
+    // Tooltip content should appear
+    const descContent = await screen.findAllByText('Author biography');
+    expect(descContent.length).toBeGreaterThan(0);
+
+    const commentTrigger = await screen.findByLabelText('Node comment');
+    fireEvent.mouseEnter(commentTrigger);
+    fireEvent.focus(commentTrigger);
+    const commentContent = await screen.findAllByText('Internal note for editors');
+    expect(commentContent.length).toBeGreaterThan(0);
+  });
+
+  it('renders $comment URL as link in tooltip', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        note: { type: 'string', $comment: 'https://example.com/foo' }
+      }
+    };
+    render(
+      <TooltipProvider delayDuration={0}>
+        <GraphicalSchemaEditor schema={testSchema} onChange={() => { }} />
+      </TooltipProvider>
+    );
+
+    const noteNode = await screen.findByText('note');
+    const commentTrigger = await screen.findByLabelText('Node comment');
+    fireEvent.mouseEnter(commentTrigger);
+    fireEvent.focus(commentTrigger);
+
+    // Tooltip content should render a link
+    // Find the URL text inside the tooltip and assert at least one visible tooltip instance is a link
+    const matches = await screen.findAllByText('https://example.com/foo');
+    const visible = matches.find(el => Boolean(el.closest('[data-state="instant-open"]') || el.parentElement?.getAttribute('data-state') === 'instant-open'));
+    expect(visible).toBeTruthy();
+    const anchor = visible!.closest('a');
+    expect(anchor).toBeTruthy();
+    expect(anchor).toHaveAttribute('href', 'https://example.com/foo');
+    expect(anchor).toHaveAttribute('target', '_blank');
+    expect(String(anchor!.getAttribute('rel'))).toMatch(/noreferrer/);
+  });
+
+  it('root node editor restricts type choices to object/array and hides enum/default and shows description/$comment', async () => {
+    const testSchema = { type: 'object', properties: {}, description: 'Root desc', $comment: 'Root note' };
+    const onChange = jest.fn();
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={onChange} />);
+
+    const rootNode = await screen.findByText('Root');
+    fireEvent.click(rootNode);
+
+    // Types control should only include object and array for root
+    expect(screen.queryByLabelText('Type: string')).toBeNull();
+    expect(screen.queryByLabelText('Type: number')).toBeNull();
+    expect(screen.getByLabelText('Type: object')).toBeInTheDocument();
+    expect(screen.getByLabelText('Type: array')).toBeInTheDocument();
+
+    // Enum checkbox and Default input should not be visible for root
+    expect(screen.queryByTestId('enum-checkbox')).toBeNull();
+    expect(screen.queryByLabelText('Default value')).toBeNull();
+
+    // Description and $comment fields should be present and prefilled
+    const desc = await screen.findByLabelText('Description');
+    expect((desc as HTMLTextAreaElement).value).toBe('Root desc');
+    const comment = await screen.findByLabelText('Comment ($comment)');
+    expect((comment as HTMLInputElement).value).toBe('Root note');
+
+    // Editing description should call onChange with updated schema
+    fireEvent.change(desc, { target: { value: 'New root description' } });
+    fireEvent.blur(desc);
+    expect(onChange).toHaveBeenCalled();
+    const nextSchema = onChange.mock.calls[0][0];
+    expect(nextSchema.description).toBe('New root description');
+
+    // Editing $comment should call onChange with updated schema
+    fireEvent.change(comment, { target: { value: 'Updated note' } });
+    fireEvent.blur(comment);
+    expect(onChange).toHaveBeenCalledTimes(2);
+    const nextSchema2 = onChange.mock.calls[1][0];
+    expect(nextSchema2.$comment).toBe('Updated note');
+  });
+
+  it('object node editor hides enum/default', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        obj: {
+          type: 'object',
+          properties: {}
+        }
+      }
+    };
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => { }} />);
+
+    const objNode = await screen.findByText('obj');
+    fireEvent.click(objNode);
+
+    expect(screen.queryByTestId('enum-checkbox')).toBeNull();
+    expect(screen.queryByLabelText('Default value')).toBeNull();
+  });
+
+  it('non-object node editor shows description and $comment and emits changes', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        note: { type: 'string', description: 'Note desc', $comment: 'Note comment' }
+      }
+    };
+    const onChange = jest.fn();
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={onChange} />);
+
+    const noteNode = await screen.findByText('note');
+    fireEvent.click(noteNode);
+
+    const desc = await screen.findByLabelText('Description');
+    expect((desc as HTMLTextAreaElement).value).toBe('Note desc');
+
+    const comment = await screen.findByLabelText('Comment ($comment)');
+    expect((comment as HTMLInputElement).value).toBe('Note comment');
+
+    // Edit description and assert onChange emitted updated schema
+    fireEvent.change(desc, { target: { value: 'Updated note desc' } });
+    fireEvent.blur(desc);
+    expect(onChange).toHaveBeenCalled();
+    const nextSchema = onChange.mock.calls[0][0];
+    expect((nextSchema.properties.note as any).description).toBe('Updated note desc');
+
+    // Edit $comment and assert emission
+    fireEvent.change(comment, { target: { value: 'Edited comment' } });
+    fireEvent.blur(comment);
+    expect(onChange).toHaveBeenCalledTimes(2);
+    const nextSchema2 = onChange.mock.calls[1][0];
+    expect((nextSchema2.properties.note as any)['$comment']).toBe('Edited comment');
+  });
+
+  it('multi-type editor shows union types and emits array type changes', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        cond: { type: ['boolean', 'number', 'string'] }
+      }
+    };
+    const onChange = jest.fn();
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={onChange} />);
+
+    const condNode = await screen.findByText('cond');
+    fireEvent.click(condNode);
+
+    const boolCheckbox = await screen.findByLabelText('Type: boolean');
+    const numCheckbox = await screen.findByLabelText('Type: number');
+    const strCheckbox = await screen.findByLabelText('Type: string');
+    expect(boolCheckbox).toBeChecked();
+    expect(numCheckbox).toBeChecked();
+    expect(strCheckbox).toBeChecked();
+
+    // Uncheck 'number'
+    fireEvent.click(numCheckbox);
+    expect(onChange).toHaveBeenCalled();
+    const nextSchema = onChange.mock.calls[0][0];
+    expect(Array.isArray((nextSchema.properties.cond as any).type)).toBeTruthy();
+    expect((nextSchema.properties.cond as any).type).toEqual(expect.arrayContaining(['boolean', 'string']));
+    expect((nextSchema.properties.cond as any).type).not.toContain('number');
+  });
+
+  it('renders constraint badges (min/max) on node', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        count: { type: 'number', minimum: 1, maximum: 5 }
+      }
+    };
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => { }} />);
+
+    const countNode = await screen.findByText('count');
+    const countContainer = countNode.closest('[data-testid^="rf__node-"]') as HTMLElement;
+    // Assert constraint badges by aria labels for exact badge elements
+    expect(within(countContainer).getByLabelText('Badge minimum')).toBeInTheDocument();
+    expect(within(countContainer).getByLabelText('Badge maximum')).toBeInTheDocument();
+  });
+
+  it('renders format and imported badges', async () => {
+    const testSchema = {
+      type: 'object',
+      definitions: {
+        refd: { type: 'string' }
+      },
+      properties: {
+        remote: { allOf: [{ $ref: '#/definitions/refd' }], format: 'date-time' }
+      }
+    };
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => { }} />);
+
+    const remoteNode = await screen.findByText('remote');
+    const remoteContainer = remoteNode.closest('[data-testid^="rf__node-"]') as HTMLElement;
+    // Assert badges using aria labels for exact matching
+    expect(within(remoteContainer).getByLabelText('Badge format')).toBeInTheDocument();
+    expect(within(remoteContainer).getByLabelText('Badge imported')).toBeInTheDocument();
+  });
+
+  it('supports editing union types (type: [..]) via the Types control', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        if: { type: ['boolean', 'number', 'string'] }
+      }
+    };
+    const onChange = jest.fn();
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={onChange} />);
+
+    const ifNode = await screen.findByText('if');
+    fireEvent.click(ifNode);
+
+    // The Types control should show checkboxes for boolean, number, string
+    const boolCheckbox = await screen.findByLabelText('Type: boolean') as HTMLInputElement;
+    const numCheckbox = await screen.findByLabelText('Type: number') as HTMLInputElement;
+    const strCheckbox = await screen.findByLabelText('Type: string') as HTMLInputElement;
+
+    expect(boolCheckbox.checked).toBe(true);
+    expect(numCheckbox.checked).toBe(true);
+    expect(strCheckbox.checked).toBe(true);
+
+    // Uncheck number and ensure an onChange is emitted with the updated type array
+    fireEvent.click(numCheckbox);
+    expect(onChange).toHaveBeenCalled();
+    const emitted = onChange.mock.calls[0][0];
+    expect((emitted.properties.if as any).type).toEqual(expect.arrayContaining(['boolean','string']));
+    expect((emitted.properties.if as any).type).not.toContain('number');
+  });
+
+  it('renders child nodes when property type is an array including object', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        maybe: {
+          type: ['object', 'null'],
+          properties: {
+            child: { type: 'string' }
+          }
+        }
+      }
+    };
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => { }} />);
+
+    // Child node should be rendered under the 'maybe' node
+    expect(await screen.findByText('child')).toBeInTheDocument();
+  });
+
+  it('renders child nodes when type omitted but properties present', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        anon: {
+          properties: {
+            inner: { type: 'number' }
+          }
+        }
+      }
+    };
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => { }} />);
+
+    expect(await screen.findByText('inner')).toBeInTheDocument();
+  });
+
+  it('loads a reduced Schemastore GitHub workflow fixture and maps object children/patternProperties', async () => {
+    // Use a reduced fixture resembling https://www.schemastore.org/github-workflow.json
+    const fixture = require('../test-fixtures/schemastore-workflow.json');
+    render(<GraphicalSchemaEditor schema={fixture as any} onChange={() => { }} />);
+
+    // Top-level 'jobs' should exist
+    const jobsNode = await screen.findByText('jobs');
+    expect(jobsNode).toBeInTheDocument();
+
+    // Pattern node for job keys should be present (rendered with concise 'pattern' label)
+    const patternNodes = await screen.findAllByText((c) => typeof c === 'string' && c.trim().toLowerCase() === 'pattern');
+    expect(patternNodes.length).toBeGreaterThan(0);
+    const patternNode = patternNodes.find(n => n.closest('[data-testid^="rf__node-"]')) || patternNodes[0];
+    expect(patternNode).toBeInTheDocument();
+
+    // Within a job, 'steps' should be present (text might be split), and step item property 'name' should be present (may have multiple occurrences)
+    expect(await screen.findByText((c) => typeof c === 'string' && c.includes('steps'))).toBeInTheDocument();
+    const nameMatches = await screen.findAllByText('name');
+    expect(nameMatches.length).toBeGreaterThan(0);
+
+    // Also check defaults -> run -> shell
+    const defaultsNodes = await screen.findAllByText('defaults');
+    expect(defaultsNodes.length).toBeGreaterThan(0);
+    const runMatches  = await screen.findAllByText('run');
+    expect(runMatches.length).toBeGreaterThan(0);
+    // Full Schemastore workflow uses 'shell' and 'working-directory' under defaults.run
+    const shellMatches = await screen.findAllByText('shell');
+    expect(shellMatches.length).toBeGreaterThan(0);
+
+    // Ensure the jobs patternProperties key appears: check node id/testid includes the regex and confirm via RHS editor when possible
+    const desiredRegex = '^[_a-zA-Z][a-zA-Z0-9_-]*$';
+    // First, assert there's a node element under jobs whose id starts with the deterministic prefix for pattern nodes (ids are deterministic)
+    const hasJobsPatternNode = !!document.querySelector('[data-testid*="rf__node-1.jobs.pattern"]');
+    expect(hasJobsPatternNode).toBe(true);
+
+    // Also try the Pattern Key editor approach and assert exact regex equality
+    const allPatternNodes = await screen.findAllByText((c) => typeof c === 'string' && c.trim().toLowerCase() === 'pattern');
+    expect(allPatternNodes.length).toBeGreaterThan(0);
+    let foundPatternExact = false;
+    for (const pnode of allPatternNodes) {
+      fireEvent.click(pnode);
+      const patternInput = await screen.findByLabelText('Pattern Key');
+      const val = (patternInput as HTMLInputElement).value || '';
+      // Now require exact match of the original regex
+      if (val === desiredRegex) { foundPatternExact = true; break; }
+    }
+    expect(foundPatternExact).toBe(true);
+
+    // Nodes with union types (type: [..]) should show a compact 'union' badge and the tooltip should show the full union
+    const ifNode = await screen.findByText('if');
+    expect(ifNode).toBeInTheDocument();
+    const ifNodeContainer = ifNode.closest('[data-testid^="rf__node-"]') as HTMLElement;
+    expect(within(ifNodeContainer).getByText('union')).toBeInTheDocument();
+    const unionBadge = within(ifNodeContainer).getByText('union');
+    fireEvent.mouseEnter(unionBadge);
+    fireEvent.focus(unionBadge);
+    const unionTooltipMatches = await screen.findAllByText('boolean | number | string');
+    const visibleUnion = unionTooltipMatches.find(el => Boolean(el.closest('[data-state="instant-open"]') || el.parentElement?.getAttribute('data-state') === 'instant-open'));
+    expect(visibleUnion).toBeTruthy();
   });
 });

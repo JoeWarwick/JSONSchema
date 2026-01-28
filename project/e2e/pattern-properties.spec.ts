@@ -83,8 +83,8 @@ test.describe('PatternProperties E2E', () => {
     const addPattern = await page.getByText('Add Pattern Property');
     await addPattern.click();
 
-    // Wait for a pattern node to appear
-    const patternNode = await page.locator('text=/pattern:/i').first();
+    // Wait for a pattern node to appear (concise 'pattern' label)
+    const patternNode = await page.locator('text=/^pattern$/i').first();
     await expect(patternNode).toBeVisible();
 
     // Select the pattern node and update its key
