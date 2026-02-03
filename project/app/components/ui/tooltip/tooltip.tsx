@@ -37,13 +37,19 @@ const Tooltip: React.FC<TooltipProps> = ({ children, onOpenChange, open: control
   }, []);
 
   const handleOpenChange = (v: boolean) => {
+    // Respect global disable flag (set by parent when inline descriptions are present)
+    if (v && typeof document !== 'undefined' && document.body.getAttribute('data-disable-tooltips') === 'true') {
+      if (controlledOpen === undefined) setOpen(false);
+      if (onOpenChange) onOpenChange(false);
+      return;
+    }
     if (controlledOpen === undefined) setOpen(v);
     if (v) window.dispatchEvent(new CustomEvent('open-tooltip', { detail: idRef.current }));
     if (onOpenChange) onOpenChange(v);
   };
 
   return (
-    <TooltipPrimitive.Root {...props} open={open} onOpenChange={handleOpenChange}>
+    <TooltipPrimitive.Root {...props} open={open} onOpenChange={handleOpenChange} delayDuration={100} disableHoverableContent={false}>
       {children}
     </TooltipPrimitive.Root>
   );
@@ -54,7 +60,11 @@ const TooltipContent: React.FC<React.ComponentProps<typeof TooltipPrimitive.Cont
   className,
   sideOffset = 4,
   ...props
-}) => <TooltipPrimitive.Content sideOffset={sideOffset} className={classNames(styles.content, className)} {...props} />;
+}) => (
+  <TooltipPortal>
+    <TooltipPrimitive.Content sideOffset={sideOffset} className={classNames(styles.content, className)} {...props} />
+  </TooltipPortal>
+);
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, TooltipPortal };

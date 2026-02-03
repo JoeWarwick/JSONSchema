@@ -1,6 +1,12 @@
 .content {
-  /* Ensure tooltips overlay graph nodes */
+  /* Ensure tooltips overlay graph nodes and do not affect layout */
+  position: absolute;
   z-index: 9999;
+  display: block;
+  opacity: 0;
+  pointer-events: none;
+  transform-origin: top center;
+  transition: opacity .12s ease, transform .12s ease;
   overflow: hidden;
   border-radius: var(--radius-2);
   border: var(--border-size-1) solid var(--color-neutral-6);
@@ -13,4 +19,10 @@
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
+}
+
+.content[data-state="open"] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
 }

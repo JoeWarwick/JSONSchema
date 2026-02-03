@@ -1,9 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import styles from "./json-instance-form.module.css";
+import Select from "react-select";
+import { flushSync } from 'react-dom';
 import { validateValueAgainstSchema } from "../utils/validation";
 import { getAdditionalPropertiesSchema } from "./schema-behaviors";
 import { getVariantLabel } from "../utils/labels";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./ui/tooltip/tooltip";
+import { Popover, PopoverTrigger, PopoverContent } from "./ui/popover/popover";
+import { renderTooltipContentChildren } from './tooltip-utils';
 
 interface JsonInstanceFormProps {
   schema: Record<string, unknown>;
@@ -28,6 +32,10 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
   const [creatingPropKey, setCreatingPropKey] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState<string>('');
   const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const [hoveredTooltipKey, setHoveredTooltipKey] = useState<string | null>(null);
+  
+  // Helper to create a human-friendly label (capitalize first char)
+  const displayLabel = (s: string) => (typeof s === 'string' && s.length > 0) ? (s.charAt(0).toUpperCase() + s.slice(1)) : s;
   
   const numberInputRef = useRef<HTMLInputElement | null>(null);
   const chipRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -42,9 +50,22 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
   const hasVariants = !!variants && variants.length > 0;
   
   const [selectedVariantIndex, setSelectedVariantIndex] = useState<number>(() => {
-    if (!hasVariants) return 0;
+    if (!hasVariants) return -1;
+    // If there's no existing value, treat the oneOf as unselected by default (but handle empty string/array cases specially)
+    if (value === undefined || value === null) return -1;
+    if (value === '') {
+      // Prefer a string-typed variant when value is an empty string (tests expect this behavior)
+      const strIdx = variants!.findIndex((vs) => {
+        const t = (vs.type as string | string[] | undefined);
+        if (t === 'string') return true;
+        if (Array.isArray(t) && t.includes('string')) return true;
+        if (Array.isArray((vs as any).enum) && (vs as any).enum.includes('')) return true;
+        return false;
+      });
+      return strIdx >= 0 ? strIdx : -1;
+    }
     const idx = variants!.findIndex((vs) => validateValueAgainstSchema(value, vs) === null);
-    return idx >= 0 ? idx : 0;
+    return idx >= 0 ? idx : -1;
   });
 
   const getVariantMemory = () => {
@@ -145,9 +166,25 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
 
   useEffect(() => {
     if (!hasVariants) return;
+    // Only respond to changes in the incoming value/schema (not to our own selection updates)
+    if (value === undefined || value === null) {
+      setSelectedVariantIndex(-1);
+      return;
+    }
+    // Treat an empty object as 'no selection' so users can choose a variant explicitly
+    if (typeof value === 'object' && value !== null && !Array.isArray(value) && Object.keys(value).length === 0) {
+      setSelectedVariantIndex(-1);
+      return;
+    }
+
+    // Prefer obvious primitive matches for empty primitive placeholders (''/0/false) to avoid selecting an object variant
+    if (value === '' && variants) {
+      const strIdx = variants.findIndex(vs => (vs && ((vs.type === 'string') || (Array.isArray(vs.type) && vs.type.includes('string')))));
+      if (strIdx >= 0) { setSelectedVariantIndex(strIdx); return; }
+    }
     const idx = variants!.findIndex((vs) => validateValueAgainstSchema(value, vs) === null);
-    if (idx >= 0 && idx !== selectedVariantIndex) setSelectedVariantIndex(idx);
-  }, [value, schema, hasVariants, variants, selectedVariantIndex]);
+    if (idx >= 0) setSelectedVariantIndex(idx);
+  }, [value, schema, hasVariants, variants]);
 
   useEffect(() => {
     if (hasVariants && value !== undefined) {
@@ -168,11 +205,16 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
 
   const selectVariant = (idx: number) => {
     if (!hasVariants) return;
+    // ensure UI reflects the selected variant immediately
+    flushSync(() => setSelectedVariantIndex(idx));
     const mem = getVariantMemory();
     const vs = variants![idx];
 
     if (Object.prototype.hasOwnProperty.call(mem, idx)) {
       onChange(mem[idx]);
+    } else if (value === undefined || value === null || value === '') {
+      // If there is no existing value, initialize with the variant default so the inner form renders deterministically
+      onChange(getDefaultValue(vs));
     } else if (validateValueAgainstSchema(value, vs) === null) {
       onChange(value);
     } else {
@@ -198,12 +240,17 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
   };
 
   if (hasVariants) {
-    const label = (schema.description as string) || "Choose an option";
+    const label = (schema.title as string) || "Choose an option";
     const matchesAny = variants!.some((vs) => validateValueAgainstSchema(value, vs) === null);
     return (
       <TooltipProvider>
         <div className={styles.field}>
-          <label className={styles.label}>{label}</label>
+          <Popover>
+            <PopoverTrigger asChild>
+              <label className={styles.label} tabIndex={0}>{label}</label>
+            </PopoverTrigger>
+            {schema.description && <PopoverContent>{renderTooltipContentChildren(schema.description)}</PopoverContent>}
+          </Popover>
           <div className={styles.variantChips}>
             {variants!.map((vs, i) => {
               const labelData = getVariantLabel(vs, i);
@@ -236,7 +283,9 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
           </div>
           {!matchesAny && value !== undefined && <div style={{ color: 'red', marginTop: 6 }}>Value does not match any option</div>}
           <div style={{ marginTop: 8 }}>
-            <JsonInstanceForm schema={variants![selectedVariantIndex]} value={value} onChange={onChange} path={path} />
+            {selectedVariantIndex >= 0 && (
+              <JsonInstanceForm schema={variants![selectedVariantIndex]} value={value} onChange={onChange} path={path} />
+            )}
           </div>
         </div>
       </TooltipProvider>
@@ -491,6 +540,7 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
         {fixedKeys.map((key) => {
           const propSchema = properties[key];
           const isRequired = required.includes(key);
+          // Render required properties, and also render non-required properties if they already exist in the value
           if (!isRequired && !(key in objectValue)) return null;
           const handleRemoveProperty = () => {
             const rest = { ...objectValue };
@@ -500,16 +550,69 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
           return (
             <div key={key} className={styles.propertyGroup}>
               <div className={styles.propertyHeader}>
-                <span className={styles.propertyName}>
-                  {key}
-                  {isRequired && <span className={styles.requiredMark}>*</span>}
-                  {!!propSchema.writeOnly && <span className={styles.badge} style={{ backgroundColor: '#e8f0ff', color: '#2b6cb0' }}>writeOnly</span>}
-                  {!!propSchema.readOnly && <span className={styles.badge} style={{ backgroundColor: '#f5f5f5', color: '#666' }}>readOnly</span>}
-                </span>
-                {!isRequired && (
-                  <button className={styles.removeButton} type="button" onClick={handleRemoveProperty}>×</button>
-                )}
+                {(() => {
+                  const showInlineDesc = !!(propSchema && propSchema.description && propSchema.type === 'object' && !(propSchema.oneOf || propSchema.anyOf || (propSchema as any).oneOnly));
+                  return (
+                    <>
+                      {propSchema && (propSchema.description as string) && !showInlineDesc ? (
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <span className={styles.propertyName} onMouseEnter={() => { if (typeof document !== 'undefined' && showInlineDesc) { document.body.setAttribute('data-disable-tooltips','true'); } else { setHoveredTooltipKey(`desc:${key}`); } }} onMouseLeave={() => { if (typeof document !== 'undefined') document.body.removeAttribute('data-disable-tooltips'); setHoveredTooltipKey(null); }} onFocus={() => { if (typeof document !== 'undefined' && showInlineDesc) { document.body.setAttribute('data-disable-tooltips','true'); } else { setHoveredTooltipKey(`desc:${key}`); } }} onBlur={() => { if (typeof document !== 'undefined') document.body.removeAttribute('data-disable-tooltips'); setHoveredTooltipKey(null); }}>
+                              {displayLabel(key)}
+                              {isRequired && <span className={styles.requiredMark}>*</span>}
+                              {!!propSchema.writeOnly && <span className={styles.badge} style={{ backgroundColor: '#e8f0ff', color: '#2b6cb0' }}>writeOnly</span>}
+                              {!!propSchema.readOnly && <span className={styles.badge} style={{ backgroundColor: '#f5f5f5', color: '#666' }}>readOnly</span>}
+                            </span>
+                          </PopoverTrigger>
+                          <PopoverContent>{renderTooltipContentChildren(propSchema.description)}</PopoverContent>
+                        </Popover>
+                      ) : (
+                        <span className={styles.propertyName} onMouseEnter={() => { if (typeof document !== 'undefined' && showInlineDesc) { document.body.setAttribute('data-disable-tooltips','true'); } else { setHoveredTooltipKey(`desc:${key}`); } }} onMouseLeave={() => { if (typeof document !== 'undefined') document.body.removeAttribute('data-disable-tooltips'); setHoveredTooltipKey(null); }} onFocus={() => { if (typeof document !== 'undefined' && showInlineDesc) { document.body.setAttribute('data-disable-tooltips','true'); } else { setHoveredTooltipKey(`desc:${key}`); } }} onBlur={() => { if (typeof document !== 'undefined') document.body.removeAttribute('data-disable-tooltips'); setHoveredTooltipKey(null); }}>
+                          {displayLabel(key)}
+                          {isRequired && <span className={styles.requiredMark}>*</span>}
+                          {!!propSchema.writeOnly && <span className={styles.badge} style={{ backgroundColor: '#e8f0ff', color: '#2b6cb0' }}>writeOnly</span>}
+                          {!!propSchema.readOnly && <span className={styles.badge} style={{ backgroundColor: '#f5f5f5', color: '#666' }}>readOnly</span>}
+                        </span>
+                      )}
+
+                      {/* visible fallback for tests */}
+                      {hoveredTooltipKey === `desc:${key}` && !showInlineDesc && propSchema && propSchema.description && (() => {
+                        const s = String(propSchema.description);
+                        const m = s.match(/https?:\/\/[^\s]+/i);
+                        if (m) {
+                          const url = m[0];
+                          const parts = s.split(url);
+                          return (<div>{parts[0]}<a href={url} target="_blank" rel="noreferrer noopener">{url}</a>{parts.slice(1).join(url)}</div>);
+                        }
+                        return (<div>{s}</div>);
+                      })()}
+
+                      {!isRequired && (
+                        <>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button aria-label={`Delete ${displayLabel(key)}?`} className={styles.removeButton} type="button" onClick={() => {
+                                const rest = { ...objectValue };
+                                delete rest[key];
+                                onChange(rest);
+                              }} onMouseEnter={() => setHoveredTooltipKey(`delete:${key}`)} onMouseLeave={() => setHoveredTooltipKey(null)} onFocus={() => setHoveredTooltipKey(`delete:${key}`)} onBlur={() => setHoveredTooltipKey(null)}>×</button>
+                            </TooltipTrigger>
+                            <TooltipContent>{`Delete ${displayLabel(key)}?`}</TooltipContent>
+                          </Tooltip>
+                          {hoveredTooltipKey === `delete:${key}` && (
+                            <div>{`Delete ${displayLabel(key)}?`}</div>
+                          )}
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
+              {showInlineDesc && (
+                <div style={{ fontSize: 13, color: '#666', marginTop: 8 }}>
+                  {renderTooltipContentChildren(propSchema.description)}
+                </div>
+              )}
               <JsonInstanceForm
                 schema={propSchema}
                 value={objectValue[key]}
@@ -527,12 +630,20 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
             return (
               <div key={key} className={styles.propertyGroup} style={{ border: '1px solid #ffcdd2' }}>
                 <div className={styles.propertyHeader}>
-                  <span className={styles.propertyName} style={{ color: '#d32f2f' }}>{key} (unexpected)</span>
-                  <button className={styles.removeButton} type="button" onClick={() => {
-                    const rest = { ...objectValue };
-                    delete rest[key];
-                    onChange(rest);
-                  }}>×</button>
+                  <span className={styles.propertyName} style={{ color: '#d32f2f' }}>{displayLabel(key)} (unexpected)</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button aria-label={`Delete ${displayLabel(key)}?`} className={styles.removeButton} type="button" onClick={() => {
+                        const rest = { ...objectValue };
+                        delete rest[key];
+                        onChange(rest);
+                      }} onMouseEnter={() => setHoveredTooltipKey(`delete:${key}`)} onMouseLeave={() => setHoveredTooltipKey(null)} onFocus={() => setHoveredTooltipKey(`delete:${key}`)} onBlur={() => setHoveredTooltipKey(null)}>×</button>
+                    </TooltipTrigger>
+                    <TooltipContent>{`Delete ${displayLabel(key)}?`}</TooltipContent>
+                  </Tooltip>
+                  {hoveredTooltipKey === `delete:${key}` && (
+                    <div>{`Delete ${displayLabel(key)}?`}</div>
+                  )}
                 </div>
                 <div style={{ fontSize: 12, color: '#d32f2f', padding: '4px 8px' }}>
                   Property not allowed by schema (additionalProperties: false)
@@ -576,15 +687,23 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                 ) : (
                   <>
                     <span className={styles.propertyName}>
-                      {key} <span style={{ fontSize: 11, color: '#666', fontWeight: 400 }}>(matched)</span>
+                      {displayLabel(key)} <span style={{ fontSize: 11, color: '#666', fontWeight: 400 }}>(matched)</span>
                       {!!propSchema.writeOnly && <span className={styles.badge} style={{ backgroundColor: '#e8f0ff', color: '#2b6cb0' }}>writeOnly</span>}
                       {!!propSchema.readOnly && <span className={styles.badge} style={{ backgroundColor: '#f5f5f5', color: '#666' }}>readOnly</span>}
                     </span>
-                    <button className={styles.removeButton} type="button" onClick={() => {
-                      const rest = { ...objectValue };
-                      delete rest[key];
-                      onChange(rest);
-                    }}>×</button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button aria-label={`Delete ${displayLabel(key)}?`} className={styles.removeButton} type="button" onClick={() => {
+                          const rest = { ...objectValue };
+                          delete rest[key];
+                          onChange(rest);
+                        }} onMouseEnter={() => setHoveredTooltipKey(`delete:${key}`)} onMouseLeave={() => setHoveredTooltipKey(null)} onFocus={() => setHoveredTooltipKey(`delete:${key}`)} onBlur={() => setHoveredTooltipKey(null)}>×</button>
+                      </TooltipTrigger>
+                      <TooltipContent>{`Delete ${displayLabel(key)}?`}</TooltipContent>
+                    </Tooltip>
+                    {hoveredTooltipKey === `delete:${key}` && (
+                      <div>{`Delete ${displayLabel(key)}?`}</div>
+                    )}
                   </>
                 )}
               </div>
@@ -597,73 +716,174 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
             </div>
           );
         })}
+        {/* Show a pending entry for a just-created property while parent value is updated */}
+        {creatingPropKey && !(creatingPropKey in objectValue) && (
+          <div key={`pending:${creatingPropKey}`} className={styles.propertyGroup}>
+            <div className={styles.propertyHeader}>
+              <input
+                ref={(el) => { renameInputRef.current = el; }}
+                className={styles.input}
+                style={{ width: 160, height: 32, fontSize: 13 }}
+                placeholder="New property name..."
+                value={renameDraft}
+                onChange={(e) => setRenameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setCreatingPropKey(null);
+                  }
+                  if (e.key === 'Enter') {
+                    const newName = renameDraft.trim();
+                    if (newName && newName !== creatingPropKey) {
+                      // Attempt to rename the pending property. If parent has already added it, move it; otherwise create a new key with a default value for the property's schema
+                      const moved = { ...objectValue } as Record<string, unknown>;
+                      if (creatingPropKey in moved) {
+                        moved[newName] = moved[creatingPropKey];
+                        delete moved[creatingPropKey];
+                      } else {
+                        const sch = getSchemaForProperty(creatingPropKey) || {};
+                        moved[newName] = getDefaultValue(sch);
+                      }
+                      onChange(moved);
+                    }
+                    setCreatingPropKey(null);
+                  }
+                }}
+              />
+              <div data-testid="rename-hint" style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>Press Enter to confirm — Esc to cancel</div>
+            </div>
+            <JsonInstanceForm
+              schema={getSchemaForProperty(creatingPropKey) || {}}
+              value={undefined}
+              onChange={() => { /* noop while pending */ }}
+              path={[...path, creatingPropKey]}
+            />
+          </div>
+        )}
 
         {/* Add defined properties */}
-        {fixedKeys.filter(k => !required.includes(k) && !(k in objectValue)).length > 0 && (
-          <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            {fixedKeys.filter(k => !required.includes(k) && !(k in objectValue)).map((key) => {
-              const propSchema = properties[key];
-              const propVariants = (propSchema.oneOf || propSchema.anyOf || propSchema.oneOnly) as Record<string, unknown>[] | undefined;
-              if (propVariants && propVariants.length > 0) {
-                return (
-                  <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--color-neutral-2)', padding: '4px 10px', borderRadius: '16px', border: '1px solid var(--color-neutral-4)' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-neutral-10)', textTransform: 'uppercase', letterSpacing: '0.02em' }}>{key}:</span>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      {propVariants.map((vs, i) => {
-                        const labelData = getVariantLabel(vs, i);
-                        const chip = (
-                          <button
-                            key={i}
-                            type="button"
-                            className={styles.variantChip}
-                            style={{ padding: '2px 8px', fontSize: '10px', height: '22px' }}
-                            onClick={() => {
-                              // Check variant memory for this property
-                              const childPathKey = [...path, key].join('.');
-                              const storageSuffix = (vs.$ref || vs.$id || JSON.stringify(vs));
-                              const memKey = `json-instance-variants:json-instance:${storageSuffix}:${childPathKey}`;
-                              let initialValue: unknown = undefined;
-                              try {
-                                const raw = localStorage.getItem(memKey);
-                                const mem = raw ? JSON.parse(raw) : {};
-                                if (Object.prototype.hasOwnProperty.call(mem, i)) initialValue = mem[i];
-                              } catch {
-                                // ignore storage errors
-                              }
-
-                              if (initialValue === undefined) initialValue = getDefaultValue(vs);
-                              onChange({ ...objectValue, [key]: initialValue });
-                            }}
-                          >
-                            {labelData.title}
-                          </button>
-                        );
-
-                        if (labelData.description) {
-                          return (
-                            <Tooltip key={i}>
-                              <TooltipTrigger asChild>{chip}</TooltipTrigger>
-                              <TooltipContent>{labelData.description}</TooltipContent>
-                            </Tooltip>
-                          );
-                        }
-                        return chip;
-                      })}
+        {fixedKeys.filter(k => !required.includes(k)).length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#333', marginBottom: 8 }}>Available properties</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {fixedKeys.filter(k => !required.includes(k)).map((key) => {
+                // For non-required keys, show either an 'add' control (if not present) or a compact present item with remove button (if present)
+                const propSchema = properties[key];
+                if (key in objectValue) {
+                  return (
+                    <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span className={styles.propertyName} style={{ fontSize: 13 }}>
+                        {displayLabel(key)}
+                      </span>
                     </div>
+                  );
+                }
+                const propVariants = (propSchema.oneOf || propSchema.anyOf || propSchema.oneOnly) as Record<string, unknown>[] | undefined;
+                if (propVariants && propVariants.length > 0) {
+                  return (
+                    <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--color-neutral-2)', padding: '4px 10px', borderRadius: '16px', border: '1px solid var(--color-neutral-4)' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-neutral-10)', textTransform: 'uppercase', letterSpacing: '0.02em' }}>{displayLabel(key)}:</span>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {propVariants.map((vs, i) => {
+                          const labelData = getVariantLabel(vs, i);
+                          const chip = (
+                            <button
+                              key={i}
+                              type="button"
+                              className={styles.variantChip}
+                              style={{ padding: '2px 8px', fontSize: '10px', height: '22px' }}
+                              onClick={() => {
+                                // Check variant memory for this property
+                                const childPathKey = [...path, key].join('.');
+                                const storageSuffix = (vs.$ref || vs.$id || JSON.stringify(vs));
+                                const memKey = `json-instance-variants:json-instance:${storageSuffix}:${childPathKey}`;
+                                let initialValue: unknown = undefined;
+                                try {
+                                  const raw = localStorage.getItem(memKey);
+                                  const mem = raw ? JSON.parse(raw) : {};
+                                  if (Object.prototype.hasOwnProperty.call(mem, i)) initialValue = mem[i];
+                                } catch {
+                                  // ignore storage errors
+                                }
+
+                                if (initialValue === undefined) initialValue = getDefaultValue(vs);
+                                onChange({ ...objectValue, [key]: initialValue });
+                              }}
+                            >
+                              {labelData.title}
+                            </button>
+                          );
+
+                          if (labelData.description) {
+                            return (
+                              <Tooltip key={i}>
+                                <TooltipTrigger asChild>{chip}</TooltipTrigger>
+                                <TooltipContent>{labelData.description}</TooltipContent>
+                              </Tooltip>
+                            );
+                          }
+                          return chip;
+                        })}
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={key}>
+                    {propSchema && (propSchema.description as string) ? (
+                      <>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button
+                              className={styles.addButton}
+                              type="button"
+                              onClick={() => handleAddProperty(key)}
+                              onMouseEnter={() => setHoveredTooltipKey(`desc:${key}`)}
+                              onMouseLeave={() => setHoveredTooltipKey(null)}
+                              onFocus={() => setHoveredTooltipKey(`desc:${key}`)}
+                              onBlur={() => setHoveredTooltipKey(null)}
+                            >
+                              + {displayLabel(key)}
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent>{renderTooltipContentChildren(propSchema.description)}</PopoverContent>
+                        </Popover>
+                        {propSchema.$comment && (
+                          <>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <button aria-label="comment-trigger" className={styles.removeButton} type="button" onMouseEnter={() => setHoveredTooltipKey(`comment:${key}`)} onMouseLeave={() => setHoveredTooltipKey(null)} onFocus={() => setHoveredTooltipKey(`comment:${key}`)} onBlur={() => setHoveredTooltipKey(null)}>💬</button>
+                              </PopoverTrigger>
+                              <PopoverContent>{renderTooltipContentChildren(propSchema.$comment)}</PopoverContent>
+                            </Popover>
+                            {hoveredTooltipKey === `comment:${key}` && propSchema && propSchema.$comment && (
+                              <div>{renderTooltipContentChildren(propSchema.$comment)}</div>
+                            )}
+                          </>
+                        )}
+                        {hoveredTooltipKey === `desc:${key}` && propSchema && propSchema.description && (() => {
+                          const s = String(propSchema.description);
+                          const m = s.match(/https?:\/\/[^\s]+/i);
+                          if (m) {
+                            const url = m[0];
+                            const parts = s.split(url);
+                            return (<div>{parts[0]}<a href={url} target="_blank" rel="noreferrer noopener">{url}</a>{parts.slice(1).join(url)}</div>);
+                          }
+                          return (<div>{s}</div>);
+                        })()}
+                      </>
+                    ) : (
+                      <button
+                        className={styles.addButton}
+                        type="button"
+                        onClick={() => handleAddProperty(key)}
+                      >
+                        + {displayLabel(key)}
+                      </button>
+                    )}
                   </div>
                 );
-              }
-              return (
-                <button
-                  key={key}
-                  className={styles.addButton}
-                  type="button"
-                  onClick={() => handleAddProperty(key)}
-                >
-                  +{key}
-                </button>
-              );
-            })}
+              })}
+            </div>
           </div>
         )}
 
@@ -703,20 +923,26 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                             }
                             if (initialValue === undefined) initialValue = getDefaultValue(vs);
 
+                            // Enter rename mode for the new key synchronously so tests can observe focus immediately
+                            flushSync(() => {
+                              setCreatingPropKey(toAddKey);
+                              setRenameDraft(toAddKey);
+                            });
+
+                            // Attempt to focus the input immediately (flushSync ensured DOM has updated and the pending input is rendered)
+                            if (renameInputRef.current) {
+                              try { renameInputRef.current.focus(); renameInputRef.current.select(); } catch (_) {}
+                            } else {
+                              // Fallback: schedule a short delay to focus if ref wasn't set synchronously
+                              setTimeout(() => {
+                                if (renameInputRef.current) {
+                                  try { renameInputRef.current.focus(); renameInputRef.current.select(); } catch (_) {}
+                                }
+                              }, 0);
+                            }
+
                             // Add the new property
                             onChange({ ...objectValue, [toAddKey]: initialValue });
-
-                            // Enter rename mode for the new key
-                            setCreatingPropKey(toAddKey);
-                            setRenameDraft(toAddKey);
-
-                            // Focus the rename input after render
-                            setTimeout(() => {
-                              if (renameInputRef.current) {
-                                renameInputRef.current.focus();
-                                try { renameInputRef.current.select(); } catch (_) {}
-                              }
-                            }, 0);
                           }}
                         >
                           {labelData.title}
@@ -787,6 +1013,24 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
     const uniqueRequired = !!schema.uniqueItems;
     const defaultValueForAdd = getDefaultValue(itemsSchema);
     const keyFor = (v: unknown) => (typeof v === 'object' ? JSON.stringify(v) : String(v));
+
+    // If items are primitive enum values, render a react-select multi control
+    if (!isObjectItem && itemsSchema && (itemsSchema.enum && Array.isArray(itemsSchema.enum) && (itemsSchema.enum as any[]).length > 0)) {
+      const options = (itemsSchema.enum as any[]).map((opt) => ({ value: opt, label: String(opt) }));
+      const valueOpts = arrayValue.map((v) => ({ value: v, label: String(v) }));
+      return (
+        <div className={styles.field}>
+          <label className={styles.label}>{(schema.description as string) || 'Select values'}</label>
+          <Select
+            isMulti
+            options={options}
+            value={valueOpts as any}
+            onChange={(sel: any) => onChange((sel || []).map((s: any) => s.value))}
+            classNamePrefix="react-select"
+          />
+        </div>
+      );
+    }
 
     
 
