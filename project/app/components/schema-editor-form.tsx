@@ -10,6 +10,7 @@ import {
 } from "./schema-behaviors";
 import { validateSchema } from "../utils/schema-generator";
 import styles from "./schema-editor-form.module.css";
+import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip/tooltip";
 
 interface SchemaEditorFormProps {
   schema: Record<string, unknown>;
@@ -429,7 +430,6 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                         />
                 </div>
               )}
-              //* Image preview + upload for data-url / image media types *//
               {(schema.format === 'data-url' || (typeof schema.contentMediaType === 'string' && String(schema.contentMediaType).startsWith('image'))) && (
                 <div className={styles.fieldRow} style={{ alignItems: 'center', gap: 12 }}>
                   <label className={styles.label}>Image</label>
@@ -693,7 +693,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
           <div className={styles.nestedContainer}>
             <div className={styles.propertiesHeader}>
               <h3 className={styles.propertyTitle}>Properties</h3>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#666', marginBottom: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#666', marginBottom: 16, paddingLeft: "1.5rem" }}>
                 <input
                   type="checkbox"
                   checked={schema.additionalProperties === false}
@@ -704,35 +704,45 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                     onChange(next);
                   }}
                 />
-                Strict mode (<code>additionalProperties: false</code>)
+                Strict mode
+                {(schema.additionalProperties === false) && (!patternProperties || Object.keys(patternProperties).length === 0) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span style={{ color: '#b71c1c', cursor: 'help', fontWeight: 'bold', marginLeft: 4 }} title="Blocked">ⓘ</span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Cannot add properties here because additionalProperties: false and no patternProperties are defined.
+                    </TooltipContent>
+                  </Tooltip>
+                )}
               </label>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button className={styles.addButton} onClick={addProperty} disabled={(schema.additionalProperties === false) && (!patternProperties || Object.keys(patternProperties).length === 0)}>
-                  Add Property
-                </button>
-                <button
-                  className={styles.addButton}
-                  onClick={() => {
-                    const next = addPatternPropertyToSchema(schema);
-                    updateSchema(next);
-                  }}
-                >
-                  + pattern property
-                </button>
-              </div>
-              {(schema.additionalProperties === false) && (!patternProperties || Object.keys(patternProperties).length === 0) && (
-                <div style={{ color: '#b71c1c', marginTop: 8, fontSize: 13 }} data-testid="additional-properties-blocked">Cannot add properties here because <code>additionalProperties: false</code> and no <code>patternProperties</code> are defined.</div>
-              )}
-              {/* Pattern Properties list */}
-              {patternProperties && (
-                <div style={{ marginTop: 12 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Pattern properties</div>
-                  {Object.entries(patternProperties).map(([pat, subschema]) => (
-                    <PatternPropertyRow key={pat} patternKey={pat} subschema={subschema as Record<string, unknown>} />
-                  ))}
+              {!(schema.additionalProperties === false) && (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button className={styles.addButton} onClick={addProperty}>
+                    Add Property
+                  </button>
+                  <button
+                    className={styles.addButton}
+                    onClick={() => {
+                      const next = addPatternPropertyToSchema(schema);
+                      updateSchema(next);
+                    }}
+                  >
+                    + pattern property
+                  </button>
                 </div>
               )}
             </div>
+
+            {/* Pattern Properties list */}
+            {patternProperties && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Pattern properties</div>
+                {Object.entries(patternProperties).map(([pat, subschema]) => (
+                  <PatternPropertyRow key={pat} patternKey={pat} subschema={subschema as Record<string, unknown>} />
+                ))}
+              </div>
+            )}
 
             {Object.entries((schema.properties as Record<string, unknown>) || {})
               .filter(([propertyName]) => !propertyName.startsWith('__'))
@@ -890,13 +900,13 @@ function PropertyEditor({
   onRename,
 }: PropertyEditorProps) {
   const [editingName, setEditingName] = useState(propertyName);
-  const [descriptionExpanded] = useState(false);
 
   return (
     <div className={styles.fieldGroup} data-testid={`prop-${propertyName}`}>
       <div className={styles.propertyHeader}>
         <input
           className={styles.input}
+          style={{ flex: 1 }}
           value={editingName}
           data-testid={`prop-${propertyName}-name`}
           onChange={(e) => setEditingName(e.target.value)}
@@ -907,27 +917,26 @@ function PropertyEditor({
             }
           }}
         />
+        <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--color-neutral-11)", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            className={styles.checkbox}
+            checked={isRequired}
+            onChange={onToggleRequired}
+          />
+          Required
+        </label>
       </div>
 
-      <div className={styles.checkboxContainer}>
-        <input
-          type="checkbox"
-          className={styles.checkbox}
-          id={`required-${propertyName}`}
-          checked={isRequired}
-          onChange={onToggleRequired}
+      <div className={styles.fieldRow}>
+        <label className={styles.label} style={{ fontSize: "11px", marginBottom: "4px" }}>Description</label>
+        <textarea
+          className={styles.textarea}
+          style={{ minHeight: "60px" }}
+          value={(propertySchema.description as string) || ""}
+          onChange={(e) => onUpdate({ ...propertySchema, description: e.target.value })}
+          placeholder="Add a description..."
         />
-        {!descriptionExpanded && typeof propertySchema.description === 'string' && propertySchema.description && (
-          <span className={styles.descriptionPreview}>{propertySchema.description}</span>
-        )}
-        {descriptionExpanded && (
-          <textarea
-            className={styles.textarea}
-            value={(propertySchema.description as string) || ""}
-            onChange={(e) => onUpdate({ ...propertySchema, description: e.target.value })}
-            placeholder="Add a description for this property..."
-          />
-        )}
       </div>
 
       <SchemaEditorForm schema={propertySchema} onChange={onUpdate} />
