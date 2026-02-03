@@ -1,7 +1,6 @@
-import type { Route } from "./+types/home";
 import styles from "./home.module.css";
 
-export function meta({}: Route.MetaArgs) {
+export function meta() {
   return [
     { title: "Empty Template" },
     {

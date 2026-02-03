@@ -9,7 +9,7 @@ export default defineConfig({
     command: 'npm run dev',
     port: 5173,
     timeout: 120000,
-    reuseExistingServer: !!process.env.CI ? false : true,
+    reuseExistingServer: process.env.CI ? false : true,
   },
   use: {
     baseURL: process.env.BASE_URL || 'http://localhost:5173',

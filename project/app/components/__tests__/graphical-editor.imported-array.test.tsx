@@ -1,7 +1,6 @@
 import React from 'react';
 import '@testing-library/jest-dom';
-import { render, screen, fireEvent } from '@testing-library/react';
-import ReactFlow from 'reactflow';
+import { render, screen } from '@testing-library/react';
 import { GraphicalSchemaEditor } from '../graphical-schema-editor';
 
 // Mock ReactFlow to render children without full DOM behaviour

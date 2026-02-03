@@ -16,7 +16,7 @@ export interface ContextMenuProps {
 
 export const ContextMenu: React.FC<ContextMenuProps> = ({ items, position, onClose }) => {
   React.useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
+    const handleClick = () => {
       onClose();
     };
     window.addEventListener("click", handleClick);

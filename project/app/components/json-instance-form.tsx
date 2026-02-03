@@ -8,14 +8,36 @@ interface JsonInstanceFormProps {
   schema: Record<string, unknown>;
   value: unknown;
   onChange: (value: unknown) => void;
+  path?: string[];
 }
 
-export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormProps) {
+export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonInstanceFormProps) {
   const explicitType = schema.type as string | undefined;
   const type = explicitType ?? (Array.isArray(value) ? 'array' : (value && typeof value === 'object' ? 'object' : 'string'));
-  const storageKey = 'json-instance:' + (schema && typeof (schema.title as any) === 'string' ? schema.title : JSON.stringify(schema));
+  const storageKey = 'json-instance:' + (schema && typeof (schema.title as any) === 'string' ? schema.title : (schema.$id ? schema.$id : JSON.stringify(schema)));
+  const pathKey = path.join('.');
   const [inputError, setInputError] = useState<string | null>(null);
-  
+
+  const variantMemoryKey = `json-instance-variants:${pathKey}`;
+  const getVariantMemory = () => {
+    if (typeof localStorage === 'undefined') return {};
+    try {
+      const raw = localStorage.getItem(variantMemoryKey);
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  };
+
+  const saveVariantMemory = (idx: number, val: unknown) => {
+    if (val === undefined || typeof localStorage === 'undefined') return;
+    try {
+      const mem = getVariantMemory();
+      mem[idx] = val;
+      localStorage.setItem(variantMemoryKey, JSON.stringify(mem));
+    } catch {
+      // Ignore storage errors
+    }
+  };
+
   const min = (schema.minimum as number | undefined) ?? undefined;
   const max = (schema.maximum as number | undefined) ?? undefined;
   const step = (schema.multipleOf as number | undefined) ?? undefined;
@@ -55,15 +77,26 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
 
   const selectVariant = (idx: number) => {
     if (!hasVariants) return;
+    const mem = getVariantMemory();
     const vs = variants![idx];
-    // Keep current value if it already validates; otherwise set default for selected variant
-    if (validateValueAgainstSchema(value, vs) === null) {
+
+    if (Object.prototype.hasOwnProperty.call(mem, idx)) {
+      onChange(mem[idx]);
+    } else if (validateValueAgainstSchema(value, vs) === null) {
       onChange(value);
     } else {
       onChange(getDefaultValue(vs));
     }
-    // rely on the value-driven effect to update `selectedVariantIndex` after parent value changes
   };
+
+  useEffect(() => {
+    if (hasVariants && value !== undefined) {
+      const vs = variants![selectedVariantIndex];
+      if (validateValueAgainstSchema(value, vs) === null) {
+        saveVariantMemory(selectedVariantIndex, value);
+      }
+    }
+  }, [value, selectedVariantIndex, hasVariants]);
 
   const handleChipKeyDown = (e: any, idx: number) => {
     const key = e.key;
@@ -110,7 +143,7 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
         </div>
         {!matchesAny && value !== undefined && <div style={{ color: 'red', marginTop: 6 }}>Value does not match any option</div>}
         <div style={{ marginTop: 8 }}>
-          <JsonInstanceForm schema={variants![selectedVariantIndex]} value={value} onChange={onChange} />
+          <JsonInstanceForm schema={variants![selectedVariantIndex]} value={value} onChange={onChange} path={path} />
         </div>
       </div>
     );
@@ -430,6 +463,7 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
                 schema={propSchema}
                 value={objectValue[key]}
                 onChange={(newValue) => updateProperty(key, newValue)}
+                path={[...path, key]}
               />
             </div>
           );
@@ -473,6 +507,7 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
                 schema={propSchema}
                 value={objectValue[key]}
                 onChange={(newValue) => updateProperty(key, newValue)}
+                path={[...path, key]}
               />
             </div>
           );
@@ -480,17 +515,59 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
 
         {/* Add defined properties */}
         {fixedKeys.filter(k => !required.includes(k) && !(k in objectValue)).length > 0 && (
-          <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {fixedKeys.filter(k => !required.includes(k) && !(k in objectValue)).map((key) => (
-              <button
-                key={key}
-                className={styles.addButton}
-                type="button"
-                onClick={() => handleAddProperty(key)}
-              >
-                +{key}
-              </button>
-            ))}
+          <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            {fixedKeys.filter(k => !required.includes(k) && !(k in objectValue)).map((key) => {
+              const propSchema = properties[key];
+              const propVariants = (propSchema.oneOf || propSchema.anyOf || propSchema.oneOnly) as Record<string, unknown>[] | undefined;
+              if (propVariants && propVariants.length > 0) {
+                return (
+                  <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--color-neutral-2)', padding: '4px 10px', borderRadius: '16px', border: '1px solid var(--color-neutral-4)' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-neutral-10)', textTransform: 'uppercase', letterSpacing: '0.02em' }}>{key}:</span>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {propVariants.map((vs, i) => {
+                        const lbl = (vs.title as string) || (vs.type as string) || `Variant ${i + 1}`;
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            className={styles.variantChip}
+                            style={{ padding: '2px 8px', fontSize: '10px', height: '22px' }}
+                            onClick={() => {
+                              // Check variant memory for this property
+                              const childPathKey = [...path, key].join('.');
+                              const memKey = `json-instance-variants:${childPathKey}`;
+                              let initialValue: unknown = undefined;
+                              try {
+                                const raw = localStorage.getItem(memKey);
+                                const mem = raw ? JSON.parse(raw) : {};
+                                if (Object.prototype.hasOwnProperty.call(mem, i)) initialValue = mem[i];
+                              } catch {
+                                // ignore storage errors
+                              }
+
+                              if (initialValue === undefined) initialValue = getDefaultValue(vs);
+                              onChange({ ...objectValue, [key]: initialValue });
+                            }}
+                          >
+                            {lbl}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <button
+                  key={key}
+                  className={styles.addButton}
+                  type="button"
+                  onClick={() => handleAddProperty(key)}
+                >
+                  +{key}
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -627,7 +704,7 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
               </div>
               {navButtons}
               <div ref={lastObjectRef} tabIndex={-1} style={{ outline: 'none' }}>
-                <JsonInstanceForm schema={itemsSchema} value={arrayValue[currentIndex]} onChange={(newValue) => updateItem(currentIndex, newValue)} />
+                <JsonInstanceForm schema={itemsSchema} value={arrayValue[currentIndex]} onChange={(newValue) => updateItem(currentIndex, newValue)} path={[...path, String(currentIndex)]} />
               </div>
               {navButtons}
             </div>
@@ -664,7 +741,7 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
                 });
                 if (deduped.length !== arrayValue.length) onChange(deduped);
               }}>
-                <JsonInstanceForm schema={itemsSchema} value={item} onChange={(newValue) => updateItem(idx, newValue)} />
+                <JsonInstanceForm schema={itemsSchema} value={item} onChange={(newValue) => updateItem(idx, newValue)} path={[...path, String(idx)]} />
               </div>
             </div>
           );
@@ -697,6 +774,7 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
 
 function getDefaultValue(schema: Record<string, unknown>): unknown {
   if (schema.const !== undefined) return schema.const;
+  if (schema.default !== undefined) return schema.default;
 
   // Support defaulting for oneOnly / oneOf by delegating to first variant
   if (schema.oneOnly && Array.isArray(schema.oneOnly) && schema.oneOnly.length > 0) {
@@ -705,8 +783,11 @@ function getDefaultValue(schema: Record<string, unknown>): unknown {
   if (schema.oneOf && Array.isArray(schema.oneOf) && schema.oneOf.length > 0) {
     return getDefaultValue(schema.oneOf[0] as Record<string, unknown>);
   }
+  if (schema.anyOf && Array.isArray(schema.anyOf) && schema.anyOf.length > 0) {
+    return getDefaultValue(schema.anyOf[0] as Record<string, unknown>);
+  }
 
-  const type = schema.type as string;
+  const type = schema.type as string || (schema.properties ? 'object' : 'string');
 
   if (schema.enum && Array.isArray(schema.enum) && schema.enum.length > 0) {
     return schema.enum[0];
@@ -721,9 +802,12 @@ function getDefaultValue(schema: Record<string, unknown>): unknown {
       return false;
     case "object": {
       const properties = (schema.properties as Record<string, Record<string, unknown>>) || {};
+      const required = (schema.required as string[]) || [];
       const obj: Record<string, unknown> = {};
       Object.entries(properties).forEach(([key, propSchema]) => {
-        obj[key] = getDefaultValue(propSchema);
+        if (required.includes(key) || propSchema.default !== undefined) {
+          obj[key] = getDefaultValue(propSchema);
+        }
       });
       return obj;
     }

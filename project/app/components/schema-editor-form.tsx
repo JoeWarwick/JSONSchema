@@ -11,6 +11,10 @@ import {
 import { validateSchema } from "../utils/schema-generator";
 import styles from "./schema-editor-form.module.css";
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip/tooltip";
+import { Badge } from "./ui/badge/badge";
+
+import Select from "react-select";
+import CreatableSelect from "react-select/creatable";
 
 interface SchemaEditorFormProps {
   schema: Record<string, unknown>;
@@ -27,52 +31,146 @@ import { generateSchema } from "../utils/schema-generator";
 export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename, isSchemaImported, instanceData }: SchemaEditorFormProps) {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [defaultError, setDefaultError] = useState<string | null>(null);
-  const [editingDefault, setEditingDefault] = useState<string>(String(schema.default ?? ""));
+  const [editingDefault, setEditingDefault] = useState<string>(String(schema?.default ?? ""));
 
   useEffect(() => {
-    setEditingDefault(String(schema.default ?? ""));
-  }, [schema.default]);
+    setEditingDefault(String(schema?.default ?? ""));
+  }, [schema?.default]);
+
+  if (!schema) return null;
+
+  const isRoot = path.length === 0;
+  const variants = (schema.oneOf || schema.anyOf || schema.allOf) as Record<string, unknown>[] | undefined;
+  const logicType = schema.oneOf ? 'oneOf' : (schema.anyOf ? 'anyOf' : (schema.allOf ? 'allOf' : undefined));
+
+  const getVariantLabel = (vs: Record<string, unknown>, index: number): string => {
+    // 1. Semantic identifiers we want to IGNORRE when looking for a "human" name
+    const noise = new Set([
+      'schema', 'root', 'item', 'items', 'object', 'string', 'number', 'boolean', 'array', 'null', 'any', 
+      'property', 'properties', 'definitions', '$defs', 'components', 'schemas', 'type', 'types', 'oneof', 'anyof', 'allof',
+      'variant', 'variants', 'choice', 'choices'
+    ]);
+    
+    const getFromRef = (ref?: any): string | null => {
+      if (!ref || typeof ref !== 'string') return null;
+      
+      const [baseUrl, fragment] = ref.split('#');
+      const target = fragment || baseUrl;
+      if (!target) return null;
+
+      // Split into parts and look for the first non-noise, non-numeric segment from the end
+      const parts = target.split('/').filter(p => p && p !== '#');
+      for (let i = parts.length - 1; i >= 0; i--) {
+        let name = decodeURIComponent(parts[i]);
+        
+        // 1. Skip technical domain/port noise (e.g. 'localhost:5173', '127.0.0.1')
+        if (name.includes(':') || /^\d+\.\d+\.\d+\.\d+$/.test(name) || name.toLowerCase().startsWith('localhost')) {
+          continue;
+        }
+
+        // 2. Strip common extensions to expose the base name (e.g. 'schema.json' -> 'schema')
+        name = name.replace(/\.(json|schema|yaml|yml)$/i, '');
+        
+        if (name && !noise.has(name.toLowerCase()) && !/^\d+$/.test(name)) {
+          return name;
+        }
+      }
+      
+      return null;
+    };
+
+    const getBestName = (s: any): string | null => {
+      if (!s || typeof s !== 'object') return null;
+      
+      // 1. Search in order of specificity: Ref or Documentation Comment (common in GitHub schemas)
+      const name = getFromRef(s.$ref) || getFromRef(s.$comment);
+      if (name) return name;
+      
+      // 2. Title fallback
+      if (s.title && typeof s.title === 'string') {
+        const t = s.title.replace(/\.json$/i, '').replace(/\.schema$/i, '');
+        if (!noise.has(t.toLowerCase())) return t;
+      }
+
+      // 3. Search in allOf if present (common for hydrated schemas)
+      if (Array.isArray(s.allOf)) {
+        for (const branch of s.allOf) {
+          const sub = getBestName(branch);
+          if (sub) return sub;
+        }
+      }
+
+      return null;
+    };
+
+    const refName = getBestName(vs);
+    if (refName) return refName;
+
+    // 2. Recursive generic detection for arrays (e.g. Array<Event>)
+    if (vs.type === 'array' && vs.items && !Array.isArray(vs.items)) {
+      const itemLabel = getVariantLabel(vs.items as Record<string, unknown>, 0);
+      if (itemLabel && !itemLabel.toLowerCase().startsWith('option ')) {
+        const cleanItem = itemLabel.charAt(0).toUpperCase() + itemLabel.slice(1);
+        return `Array<${cleanItem}>`;
+      }
+    }
+
+    // 4. Default fallbacks
+    if (vs.type) {
+      const t = Array.isArray(vs.type) ? vs.type[0] : vs.type;
+      return t as string;
+    }
+    if (vs.properties) return 'object';
+    if (vs.items) return 'array';
+    return `Option ${index + 1}`;
+  };
 
   const updateSchema = (updates: Partial<Record<string, unknown>>) => {
     let nextSchema: Record<string, unknown>;
-    // If type is being changed from object to array, hoist the object into items
+
+    // 1. Logic Transition Cleanup:
+    // If we're adding a logic type (oneOf/anyOf/allOf), we must clear any conflicting primary type
+    const isAddingLogic = !!(updates.oneOf || updates.anyOf || updates.allOf || updates.oneOnly);
+    
+    // 2. Swapping between array and object (existing logic)
     if (updates.type === "array" && schema.type === "object") {
       const rest = { ...schema };
       delete (rest as any).type;
       nextSchema = { type: "array", items: { type: "object", ...rest } };
     }
-    // If type is being changed from array to object, unhoist the items into the object
     else if (updates.type === "object" && schema.type === "array" && schema.items) {
       const items = schema.items as Record<string, unknown>;
       if (Array.isArray(items)) {
         const properties: Record<string, unknown> = {};
         items.forEach((item, index) => {
-          const propertyName = `property${index}`;
-          properties[propertyName] = item;
+          properties[`property${index}`] = item;
         });
         nextSchema = { type: "object", properties };
       } else {
         nextSchema = { ...items, type: "object" };
       }
     }
-    // If type is being changed from string with enum to array, move enum to items
-    else if (updates.type === "array" && (schema.type === "string" || !schema.type)) {
-      const items: Record<string, unknown> = { type: "string" };
-      if (schema.enum) {
-        items.enum = schema.enum;
-      }
-      // Remove enum from root
-      const rest = { ...schema };
-      delete (rest as any).enum;
-      nextSchema = { ...rest, ...updates, items };
-    } else if (updates.type === "array" && !schema.items) {
-      nextSchema = { ...schema, ...updates, items: { type: "string" } };
-    } else {
+    else {
+      // General merge
       nextSchema = { ...schema, ...updates };
+      
+      // If we now have logic choices, the root 'type' is usually invalid/redundant
+      if (isAddingLogic) {
+        delete (nextSchema as any).type;
+      }
+      
+      // Conversely, if we explicitly set a 'type', we should usually clear logic choices
+      // (switching FROM polymorphic TO simple)
+      if (updates.type && !isAddingLogic) {
+        delete (nextSchema as any).oneOf;
+        delete (nextSchema as any).anyOf;
+        delete (nextSchema as any).allOf;
+        delete (nextSchema as any).oneOnly;
+      }
     }
+
     const error = validateSchema(nextSchema);
     setValidationError(error);
-    // Only call onChange if the schema actually changed and is valid
     if (!error && JSON.stringify(nextSchema) !== JSON.stringify(schema)) {
       onChange(nextSchema);
     }
@@ -80,14 +178,34 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
 
   const toggleEnum = (enabled: boolean) => {
     if (enabled) {
-      // Enable enum with default values based on type
-      const type = schema.type as string || "string";
-      const defaultValues = type === "number" ? [1, 2, 3] : ["option1", "option2", "option3"];
-      updateSchema({ enum: defaultValues });
+      // Pick up values to reuse from default or existing enum
+      let existing: any[] | null = null;
+      if (Array.isArray(schema.enum)) existing = schema.enum;
+      else if (schema.items && typeof schema.items === 'object' && Array.isArray((schema.items as any).enum)) existing = (schema.items as any).enum;
+      else if (Array.isArray(schema.default)) existing = schema.default;
+
+      if (renderType === "array") {
+        const currentItems = schema.items && typeof schema.items === "object" ? (schema.items as any) : {};
+        const items = { 
+          type: currentItems.type || "string",
+          ...currentItems
+        };
+        items.enum = existing || ["option1", "option2", "option3"];
+        updateSchema({ items });
+      } else {
+        const type = schema.type as string || "string";
+        const defaultValues = existing || (type === "number" ? [1, 2, 3] : ["option1", "option2", "option3"]);
+        updateSchema({ enum: defaultValues });
+      }
     } else {
       // Disable enum
       const newSchema = { ...schema };
       delete newSchema.enum;
+      if (newSchema.items && typeof newSchema.items === "object") {
+        const newItems = { ...(newSchema.items as any) };
+        delete newItems.enum;
+        newSchema.items = newItems;
+      }
       onChange(newSchema);
     }
   };
@@ -99,30 +217,57 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
 
   // Infer root type for display when loading schemas that use $ref/$defs
   const inferredRootType = (() => {
-    if (schema.type) return schema.type as string;
-    if (schema.properties) return 'object';
-    if (schema.$ref && schema.$defs && typeof schema.$ref === 'string' && schema.$ref.startsWith('#/$defs/')) {
-      const key = (schema.$ref as string).replace('#/$defs/', '');
-      const def = (schema.$defs as any)[key];
-      if (def && def.type) return def.type as string;
-      if (def && def.properties) return 'object';
+    if (schema.type) return (Array.isArray(schema.type) ? schema.type[0] : schema.type) as string;
+    
+    // If it has enum, it's more likely a primitive with constraints than a structural container
+    if (schema.enum) {
+      const first = Array.isArray(schema.enum) ? schema.enum[0] : null;
+      if (typeof first === 'number') return 'number';
+      if (typeof first === 'boolean') return 'boolean';
+      return 'string';
     }
-    // If schema only contains $defs (no top-level $ref/type/properties), hoist the first def for display
-    if (!schema.type && !schema.properties && schema.$defs && typeof schema.$defs === 'object') {
-      const keys = Object.keys(schema.$defs as Record<string, unknown>);
-      if (keys.length > 0) {
-        const def = (schema.$defs as any)[keys[0]];
-        if (def && def.type) return def.type as string;
-        if (def && def.properties) return 'object';
+
+    if (schema.properties) return 'object';
+    if (schema.items) return 'array';
+    
+    if (schema.$ref && (schema.$defs || schema.definitions) && typeof schema.$ref === 'string') {
+      const defsKey = schema.$defs ? '$defs' : 'definitions';
+      const defs = (schema.$defs || schema.definitions) as any;
+      const key = (schema.$ref as string).replace(`#/${defsKey}/`, '');
+      const def = defs[key];
+      if (def) {
+        if (def.type) return (Array.isArray(def.type) ? def.type[0] : def.type) as string;
+        if (def.properties) return 'object';
+        if (def.items) return 'array';
       }
     }
-    return 'string';
+    // If schema only contains $defs (no top-level $ref/type/properties), hoist the first def for display
+    const defsKey = schema.$defs ? '$defs' : (schema.definitions ? 'definitions' : null);
+    if (!schema.type && !schema.properties && defsKey) {
+      const defs = (schema as any)[defsKey];
+      const keys = Object.keys(defs);
+      if (keys.length > 0) {
+        const def = defs[keys[0]];
+        if (def) {
+          if (def.type) return (Array.isArray(def.type) ? def.type[0] : def.type) as string;
+          if (def.properties) return 'object';
+          if (def.items) return 'array';
+        }
+      }
+    }
+    return null;
   })();
-  const renderType = (schema.type as string) ?? inferredRootType;
+  const renderType = (schema.type as string) ?? inferredRootType ?? (path.length === 0 ? 'object' : null);
+  const activeType = (() => {
+    if (schema.format === 'data-url' || (schema.contentMediaType && String(schema.contentMediaType).startsWith('image'))) return 'image';
+    if (renderType === 'array' && (schema.items as any)?.enum) return 'string';
+    return renderType || (path.length === 0 ? 'object' : 'string');
+  })();
+  
   const defaultIsImported = (node: Record<string, unknown> | null | undefined) => {
     try {
       if (!node || typeof node !== 'object') return false;
-      return !!(node as any).__from;
+      return !!(node as any).$ref;
     } catch (_) { return false; }
   };
 
@@ -188,25 +333,32 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
     };
 
     return (
-      <div key={patternKey} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 16, borderLeft: '2px solid #ddd', paddingLeft: 12 }}>
-        <div style={{ minWidth: 200, paddingTop: 6 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Regex Pattern</div>
-          <input aria-label={`pattern-key-${patternKey}`} value={keyState} onChange={(e) => setKeyState(e.target.value)} onBlur={handleKeyBlur} className={styles.input} />
-          {keyError && <div style={{ color: '#b71c1c', fontSize: 12, marginTop: 6 }}>{keyError}</div>}
-          <div style={{ marginTop: 12 }}>
-            <button
-              type="button"
-              className={styles.removeSmall}
-              onClick={() => {
-                const next = removePatternPropertyFromSchema(schema, patternKey);
-                updateSchema(next);
-              }}
-            >
-              Remove Pattern
-            </button>
+      <div key={patternKey} style={{ marginBottom: 24, padding: 16, background: 'var(--color-neutral-3)', borderRadius: 8, border: '1px solid var(--color-neutral-6)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16, gap: 16 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', color: 'var(--color-neutral-11)', marginBottom: 6 }}>Regex Pattern</div>
+            <input 
+              aria-label={`pattern-key-${patternKey}`} 
+              value={keyState} 
+              onChange={(e) => setKeyState(e.target.value)} 
+              onBlur={handleKeyBlur} 
+              className={styles.input} 
+              style={{ width: '100%', maxWidth: '500px', background: 'var(--color-neutral-1)' }}
+            />
+            {keyError && <div style={{ color: '#b71c1c', fontSize: 11, marginTop: 4, fontWeight: 700 }}>{keyError}</div>}
           </div>
+          <button
+            type="button"
+            className={styles.removeSmall}
+            onClick={() => {
+              const next = removePatternPropertyFromSchema(schema, patternKey);
+              updateSchema(next);
+            }}
+          >
+            Remove Pattern
+          </button>
         </div>
-        <div style={{ flex: 1, background: '#f9f9f9', padding: 8, borderRadius: 8 }}>
+        <div style={{ background: 'var(--color-neutral-1)', padding: 16, borderRadius: 8, border: '1px solid var(--color-neutral-4)', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.05)' }}>
           <SchemaEditorForm
             schema={subschema}
             onChange={(newSub) => {
@@ -214,6 +366,9 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
               updateSchema(updated);
             }}
             path={[...path, "patternProperties", patternKey]}
+            isSchemaImported={isSchemaImported}
+            instanceData={instanceData}
+            onPropertyRename={onPropertyRename}
           />
         </div>
       </div>
@@ -226,98 +381,282 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
         <div style={{ color: 'red', marginBottom: 8 }}>{validationError}</div>
       )}
       <div className={styles.container}>
-
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>{(schema.title as string) || 'Schema'}</div>
-          {isImported && (
+        {isRoot && !renderType && !variants && (
+          <div style={{ marginBottom: 16, padding: '12px 16px', background: 'var(--color-primary-1)', border: '1px solid var(--color-primary-6)', borderRadius: 8, color: 'var(--color-primary-11)', fontSize: 13, fontWeight: 500 }}>
+            Root node is unconfigured. Please select <strong>Object</strong> or <strong>Array</strong> to begin.
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {['string', 'number', 'boolean', 'object', 'array', 'null', 'image']
+              .filter(t => path.length > 0 || t === 'object' || t === 'array')
+              .map((t) => {
+              const targetType = t === 'image' ? 'string' : t;
+              const targetFormat = t === 'image' ? 'data-url' : undefined;
+              
+              const isSelected = variants ? (variants.some(v => v.type === targetType && (targetFormat ? v.format === targetFormat : true))) : (activeType === t);
+              // In building mode, we don't have a single "active" variant if showing all, 
+              // but we can highlight the pill if this type is present in the choices.
+              const isActive = !variants && (activeType === t);
+              
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => {
+                    if (activeType === t) return; // already this type, no-op
+                    if (t === 'image') {
+                      updateSchema({ type: 'string', format: 'data-url' });
+                    } else {
+                      updateSchema({ type: t });
+                    }
+                  }}
+                  style={{
+                    padding: '4px 12px',
+                    fontSize: '11px',
+                    borderRadius: '16px',
+                    border: isActive ? '2px solid var(--color-primary-10)' : (isSelected ? '1px dashed var(--color-primary-6)' : '1px solid var(--color-neutral-6)'),
+                    background: isActive ? 'var(--color-primary-4)' : (isSelected ? 'var(--color-neutral-3)' : 'var(--color-neutral-1)'),
+                    color: isActive ? 'var(--color-primary-11)' : (isSelected ? 'var(--color-neutral-11)' : 'var(--color-neutral-12)'),
+                    fontWeight: (isActive || isSelected) ? 700 : 400,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {t.charAt(0).toUpperCase() + t.slice(1)}
+                </button>
+              );
+            })}
+            {!variants && (
               <button
                 type="button"
+                className={styles.addSmall}
+                style={{ marginLeft: '4px', borderStyle: 'dashed' }}
                 onClick={() => {
-                  // build a local allOf override referencing the original $ref when available
-                  let refStr: string | null = null;
-                  try {
-                    if (typeof (schema as any).$ref === 'string') refStr = (schema as any).$ref;
-                    else if (Array.isArray((schema as any).allOf)) {
-                      const m = ((schema as any).allOf as any[]).find((e: any) => e && typeof e.$ref === 'string');
-                      if (m) refStr = m.$ref;
-                    } else if ((schema as any).__from) refStr = (schema as any).__from;
-                  } catch (e) {
-                    // ignore
-                  }
-                  if (!refStr) return;
-
-                  // If instance data is available, attempt to use instance keys at the current path
-                  // to pre-populate property schemas so we don't add arbitrary fields like "username".
-                  const localProperties: Record<string, unknown> = {};
-                  try {
-                    if (instanceData && typeof instanceData === 'object') {
-                      // Traverse instanceData according to the editor path to find the relevant object
-                      let node: any = instanceData as any;
-                      for (const p of path) {
-                        if (!node || typeof node !== 'object') { node = null; break; }
-                        node = node[p];
+                  const { title, description, ...constraints } = schema;
+                  const branch1 = Object.keys(constraints).length > 0 ? constraints : { type: renderType || 'string' };
+                  onChange({
+                    ...(title ? { title } : {}),
+                    ...(description ? { description } : {}),
+                    oneOf: [branch1, { type: 'string' }]
+                  });
+                }}
+              >
+                + polymorphic
+              </button>
+            )}
+          </div>
+          <div style={{ fontSize: (schema.title ? 11 : 10), fontWeight: (schema.title ? 700 : 900), textTransform: (schema.title ? 'none' : 'uppercase'), color: (schema.title ? 'inherit' : 'var(--color-neutral-10)') }}>
+            {(schema.title as string) || (renderType ? 'Type' : 'Schema')}
+          </div>
+          <div style={{ flex: 1 }} />
+          {isImported && renderType === 'object' && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // build a local allOf override referencing the original $ref when available
+                    let refStr: string | null = null;
+                    try {
+                      if (typeof (schema as any).$ref === 'string') refStr = (schema as any).$ref;
+                      else if (Array.isArray((schema as any).allOf)) {
+                        const m = ((schema as any).allOf as any[]).find((e: any) => e && typeof e.$ref === 'string');
+                        if (m) refStr = m.$ref;
                       }
-                      if (node && typeof node === 'object' && !Array.isArray(node)) {
-                        for (const [k, v] of Object.entries(node)) {
-                          try {
-                            // generate a schema for the instance value to make the override valid
-                            const gen = generateSchema(v as any);
-                            localProperties[k] = gen;
-                          } catch (_) {
-                            // fallback: mark as string
-                            localProperties[k] = { type: 'string' };
+                    } catch (e) {
+                      // ignore
+                    }
+                    if (!refStr) return;
+
+                    // If instance data is available, attempt to use instance keys at the current path
+                    // to pre-populate property schemas so we don't add arbitrary fields like "username".
+                    const localProperties: Record<string, unknown> = {};
+                    try {
+                      if (instanceData && typeof instanceData === 'object') {
+                        // Traverse instanceData according to the editor path to find the relevant object
+                        let node: any = instanceData as any;
+                        for (const p of path) {
+                          if (!node || typeof node !== 'object') { node = null; break; }
+                          node = node[p];
+                        }
+                        if (node && typeof node === 'object' && !Array.isArray(node)) {
+                          for (const [k, v] of Object.entries(node)) {
+                            try {
+                              // generate a schema for the instance value to make the override valid
+                              const gen = generateSchema(v as any);
+                              localProperties[k] = gen;
+                            } catch (_) {
+                              // fallback: mark as string
+                              localProperties[k] = { type: 'string' };
+                            }
                           }
                         }
                       }
-                    }
-                  } catch (_) { /* ignore */ }
+                    } catch (_) { /* ignore */ }
 
-                  const overrideObj: Record<string, unknown> = { type: 'object', properties: localProperties };
-                  const next: Record<string, unknown> = { allOf: [{ $ref: refStr }, overrideObj] };
-                  if (schema.title) next.title = schema.title as string;
-                  onChange(next);
-                }}
-                className={styles.addSmall}
-                title="Create a local override that preserves the upstream $ref and allows local edits"
-              >
-                Override
-              </button>
+                    const overrideObj: Record<string, unknown> = { type: 'object', properties: localProperties };
+                    const next: Record<string, unknown> = { allOf: [{ $ref: refStr }, overrideObj] };
+                    if (schema.title) next.title = schema.title as string;
+                    onChange(next);
+                  }}
+                  className={styles.addSmall}
+                >
+                  Override
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Create a local <code>allOf</code> extension. This keeps the original <code>$ref</code> definition as a base but allows you to add specific constraints (like pattern, minLength, or extra properties) to just this instance.
+              </TooltipContent>
+            </Tooltip>
           )}
         </div>
 
-        <div className={styles.fieldGroup}>
-          <div className={styles.fieldRow}>
-            <label className={styles.label}>Type{isImported && (
-              <span title={typeof (schema as any).$ref === 'string' ? `Imported from ${(schema as any).$ref}` : 'Imported definition (create local override to change)'} style={{ color: '#d9822b', marginLeft: 8 }}>*</span>
-            )}</label>
-            <select
-              className={styles.select}
-              value={renderType}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (v === 'image') {
-                  // Map 'image' to a string schema with image-specific metadata
-                  updateSchema({ type: 'string', format: 'data-url', contentMediaType: 'image/*' });
-                } else {
-                  updateSchema({ type: v });
-                }
-              }}
-            >
-              <option value="string">String</option>
-              <option value="number">Number</option>
-              <option value="boolean">Boolean</option>
-              <option value="object">Object</option>
-              <option value="array">Array</option>
-              <option value="null">Null</option>
-              <option value="image">Image</option>
-            </select>
-          </div>
+        {variants && variants.length > 0 && (
+          <div className={styles.variantsWrapper} style={{ border: '2px solid var(--color-accent-6)', background: 'var(--color-accent-1)', padding: '16px' }}>
+            <div className={styles.variantsLabel} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--color-accent-6)', padding: '6px 12px', borderRadius: '4px 4px 0 0', color: 'white', borderBottom: '1px solid var(--color-accent-7)', margin: '-16px -16px 16px -16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 800, opacity: 0.9 }}>COMBINER:</span>
+                <select 
+                  value={logicType || 'oneOf'} 
+                  onChange={(e) => {
+                    const nextType = e.target.value;
+                    const rest = { ...schema } as any;
+                    delete rest.oneOf; delete rest.anyOf; delete rest.allOf;
+                    onChange({ ...rest, [nextType]: variants });
+                  }}
+                  style={{ 
+                    background: 'rgba(255,255,255,0.15)', 
+                    color: 'white', 
+                    border: '1px solid rgba(255,255,255,0.3)', 
+                    borderRadius: '4px', 
+                    padding: '1px 4px', 
+                    fontWeight: 900, 
+                    fontSize: '10px', 
+                    cursor: 'pointer',
+                    outline: 'none'
+                  }}
+                >
+                  <option value="oneOf" style={{ color: 'black' }}>oneOf (Choice)</option>
+                  <option value="anyOf" style={{ color: 'black' }}>anyOf (Optional Mix)</option>
+                  <option value="allOf" style={{ color: 'black' }}>allOf (Composition/Merge)</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <button
+                  type="button"
+                  style={{ fontSize: '10px', fontWeight: 900, background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.4)', color: 'white', cursor: 'pointer' }}
+                  onClick={() => {
+                    updateSchema({ [logicType!]: [...variants, { type: 'string' }] });
+                  }}
+                >
+                  + ADD VARIANT
+                </button>
+                <span style={{ fontSize: '10px', fontWeight: 900, background: 'rgba(255,255,255,0.2)', padding: '2px 6px', borderRadius: '10px' }}>{variants.length} OPTIONS DEFINED</span>
+              </div>
+            </div>
+            {variants.map((v, i) => {
+              if (!v) return <div key={i} style={{ color: 'red', padding: 10 }}>Error: Variant {i} is null</div>;
+              
+              const comment = v.$comment as string | undefined;
+              const isUrl = comment?.startsWith('http');
+              const refString = v.$ref as string | undefined;
 
-          {/* Facet controls: hide for boolean/object/null and when enum is present */}
-          {!(renderType === "boolean" || renderType === "object" || renderType === "null" || !!schema.enum) && (
+              return (
+              <div key={i} className={styles.variantItem} style={{ border: '1px solid var(--color-accent-4)', marginBottom: 16, background: 'var(--color-neutral-1)' }}>
+                <div className={styles.variantItemHeader} style={{ background: 'var(--color-accent-2)', padding: '4px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div className={styles.variantItemTitle} style={{ color: 'var(--color-accent-11)', fontWeight: 700, flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {((label) => {
+                      const finalLabel = label.toLowerCase().startsWith('option ') ? label : `${i + 1}. ${label.charAt(0).toUpperCase() + label.slice(1)}`;
+                      return (
+                        <>
+                          <span style={{ cursor: (refString || comment) ? 'help' : 'default' }}>{finalLabel}</span>
+                          {(refString || comment) && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button type="button" style={{ background: 'none', border: 'none', padding: 0, cursor: 'help', opacity: 0.6, display: 'flex' }}>
+                                  <Badge variant="outline" style={{ fontSize: '9px', padding: '0 4px', height: '14px', lineHeight: '14px', color: 'var(--color-neutral-10)', borderColor: 'var(--color-neutral-6)' }}>REF</Badge>
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <div style={{ maxWidth: '300px', padding: '4px' }}>
+                                  {refString && (
+                                    <div style={{ marginBottom: comment ? '8px' : 0 }}>
+                                      <div style={{ fontWeight: 800, fontSize: '9px', textTransform: 'uppercase', marginBottom: '2px', color: 'var(--color-neutral-10)' }}>IDENTIFIER</div>
+                                      <div style={{ fontSize: '11px', fontFamily: 'monospace', wordBreak: 'break-all', background: 'var(--color-neutral-3)', padding: '4px', borderRadius: '4px', color: 'var(--color-neutral-12)' }}>{refString}</div>
+                                    </div>
+                                  )}
+                                  {comment && (
+                                    <div style={{ marginTop: refString ? '8px' : 0 }}>
+                                      <div style={{ fontWeight: 800, fontSize: '9px', textTransform: 'uppercase', marginBottom: '2px', color: 'var(--color-neutral-10)' }}>DOCUMENTATION</div>
+                                      {isUrl ? (
+                                        <a href={comment} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-primary-10)', textDecoration: 'underline', fontSize: '11px', wordBreak: 'break-all', display: 'block', marginTop: '4px' }}>
+                                          {comment}
+                                        </a>
+                                      ) : (
+                                        <div style={{ fontSize: '11px', color: 'var(--color-neutral-12)' }}>{comment}</div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </>
+                      );
+                    })(getVariantLabel(v, i))}
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.removeSmall}
+                    style={{ marginLeft: '12px' }}
+                    title="Remove this branch"
+                    onClick={() => {
+                      const next = variants.filter((_, idx) => idx !== i);
+                      if (next.length === 0) {
+                        const rest = { ...schema } as any;
+                        delete rest.oneOf; delete rest.anyOf; delete rest.allOf; delete rest.oneOnly;
+                        onChange({ ...rest, type: 'string' });
+                      } else if (next.length === 1) {
+                        const { title, description } = schema as any;
+                        const flattened = {
+                          ...(title ? { title } : {}),
+                          ...(description ? { description } : {}),
+                          ...next[0]
+                        };
+                        onChange(flattened);
+                      } else {
+                        updateSchema({ [logicType!]: next });
+                      }
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+                <div style={{ padding: '8px 12px' }}>
+                  <SchemaEditorForm
+                    schema={v}
+                    onChange={(newSub) => {
+                      const newVariants = [...variants];
+                      newVariants[i] = newSub;
+                      updateSchema({ [logicType!]: newVariants });
+                    }}
+                    path={[...path, logicType!, String(i)]}
+                    isSchemaImported={isSchemaImported}
+                    instanceData={instanceData}
+                    onPropertyRename={onPropertyRename}
+                  />
+                </div>
+              </div>
+            );})}
+          </div>
+        )}
+
+        {variants || (renderType === "boolean" || renderType === "object" || renderType === "null") ? null : (
+          <div className={styles.fieldGroup}>
+            {/* Facet controls: hide for boolean/object/null */}
             <>
             {/* Addable string-specific properties: format / pattern / default */}
-            {(renderType === "string") && (
+            {(renderType === "string" && !schema.enum) && (
             <div className={styles.inlineAdd}>
               {!('format' in schema) ? (
                 <button
@@ -398,87 +737,141 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                   </button>
                 </div>
               )}
-
-              {!('default' in schema) ? (
-                <button
-                  type="button"
-                  className={styles.addSmall}
-                  onClick={() => { setDefaultError(null); setEditingDefault(''); updateSchema({ default: '' }); }}
-                >
-                  + default
-                </button>
-              ) : (
-                <div className={styles.fieldRow}>
-                  <label className={styles.label}>Default</label>
-                        <input
-                          className={styles.input}
-                          value={editingDefault}
-                          onChange={(e) => setEditingDefault(e.target.value)}
-                          onBlur={() => {
-                            const raw = editingDefault;
-                            const parsed = (String(renderType) === 'number') ? (raw === '' ? '' : parseFloat(raw)) : raw;
-                            const error = validateValueAgainstSchema(parsed, schema);
-                            if (error) {
-                              setDefaultError(error);
-                            } else {
-                              setDefaultError(null);
-                              updateSchema({ default: parsed as any });
-                            }
-                          }}
-                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                          placeholder="Default value"
-                        />
-                </div>
-              )}
-              {(schema.format === 'data-url' || (typeof schema.contentMediaType === 'string' && String(schema.contentMediaType).startsWith('image'))) && (
-                <div className={styles.fieldRow} style={{ alignItems: 'center', gap: 12 }}>
-                  <label className={styles.label}>Image</label>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {typeof schema.default === 'string' && /^data:image\//i.test(schema.default as string) && (
-                      <img src={schema.default as string} alt="preview" style={{ maxWidth: 240, maxHeight: 160, border: '1px solid #ddd', borderRadius: 6 }} />
-                    )}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => {
-                        const f = e.target.files && e.target.files[0];
-                        if (!f) return;
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                          const result = reader.result as string | ArrayBuffer | null;
-                          if (typeof result === 'string') {
-                            updateSchema({ default: result });
-                          }
-                        };
-                        reader.readAsDataURL(f);
-                      }}
-                    />
-                    <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.default; onChange(next); }}>Remove image</button>
-                  </div>
-                </div>
-              )}
-              {defaultError && <div style={{ color: 'red', marginTop: 6 }}>{defaultError}</div>}
             </div>
             )}
 
-            {/* Show enum checkbox for string and number types */}
-            {(renderType === "string" || renderType === "number" || !schema.type) && (
-              <div className={styles.checkboxContainer}>
-              <input
-                type="checkbox"
-                className={styles.checkbox}
-                id={`enum-${path.join("-") || "root"}`}
-                checked={!!schema.enum}
-                onChange={(e) => toggleEnum(e.target.checked)}
-              />
-              <label className={styles.checkboxLabel} htmlFor={`enum-${path.join("-") || "root"}`}>
-                Enum (constrained values)
-              </label>
-            </div>
+            {/* Show enum checkbox for string, number, and array types */}
+            {(renderType === "string" || renderType === "number" || renderType === "array" || !schema.type) && (
+              <>
+                <div className={styles.checkboxContainer}>
+                  <input
+                    type="checkbox"
+                    className={styles.checkbox}
+                    id={`enum-${path.join("-") || "root"}`}
+                    checked={!!schema.enum || !!(schema.items && typeof schema.items === 'object' && (schema.items as any).enum)}
+                    onChange={(e) => toggleEnum(e.target.checked)}
+                  />
+                  <label className={styles.checkboxLabel} htmlFor={`enum-${path.join("-") || "root"}`}>
+                    Enum (constrained values)
+                  </label>
+                </div>
+                {(!!schema.enum || (renderType === 'array' && schema.items && typeof schema.items === 'object' && !!(schema.items as any).enum)) && (
+                  <div className={styles.fieldRow} style={{ marginTop: '4px', marginBottom: '12px' }}>
+                   <label className={styles.label} style={{ fontSize: '10px', color: 'var(--color-neutral-10)' }}>
+                      Allowed Values {renderType === 'array' ? `(${(((schema.items as any)?.type || 'string') as string).toUpperCase()} ITEMS)` : ''}
+                    </label>
+                    <CustomMultiSelect
+                      creatable
+                      options={[]} 
+                      values={(Array.isArray(schema.enum) ? schema.enum : (schema.items as any)?.enum) || []}
+                      onChange={(newEnum) => {
+                        if (renderType === 'array') {
+                          const items = schema.items && typeof schema.items === 'object' ? { ...(schema.items as any) } : { type: 'string' };
+                          items.enum = newEnum;
+                          updateSchema({ items });
+                        } else {
+                          updateSchema({ enum: newEnum });
+                        }
+                      }}
+                      placeholder="Add allowed values..."
+                    />
+                  </div>
+                )}
+
+                {/* Default Values Editor */}
+                {!('default' in schema) ? (
+                  <div style={{ marginTop: '4px' }}>
+                    <button
+                      type="button"
+                      className={styles.addSmall}
+                      onClick={() => { 
+                        setDefaultError(null); 
+                        const initialDefault = renderType === 'array' ? [] : '';
+                        setEditingDefault(String(initialDefault)); 
+                        updateSchema({ default: initialDefault }); 
+                      }}
+                    >
+                      + default
+                    </button>
+                  </div>
+                ) : (
+                  <div className={styles.fieldRow} style={{ marginTop: '8px' }}>
+                    <label className={styles.label}>Default Value</label>
+                    {renderType === 'array' || Array.isArray(schema.enum) || (schema.items && typeof schema.items === 'object' && Array.isArray((schema.items as any).enum)) ? (
+                      <CustomMultiSelect
+                        isMulti={renderType === 'array' || Array.isArray(schema.default)}
+                        creatable={renderType === 'array' && !Array.isArray(schema.enum) && !(schema.items && typeof schema.items === 'object' && Array.isArray((schema.items as any).enum))}
+                        options={((Array.isArray(schema.enum) ? schema.enum : (schema.items as any)?.enum) || []).map((v: any) => ({
+                          label: String(v),
+                          value: v
+                        }))}
+                        values={Array.isArray(schema.default) ? (schema.default as any[]) : (schema.default !== undefined ? [schema.default] : [])}
+                        onChange={(selectedValues) => {
+                          if (renderType === 'array' || Array.isArray(schema.default)) {
+                            updateSchema({ default: selectedValues });
+                          } else {
+                            updateSchema({ default: selectedValues[0] });
+                          }
+                        }}
+                        placeholder={renderType === 'array' ? "Select or add default values..." : "Select default..."}
+                      />
+                    ) : (
+                      <input
+                        className={styles.input}
+                        value={editingDefault}
+                        onChange={(e) => setEditingDefault(e.target.value)}
+                        onBlur={() => {
+                          const raw = editingDefault;
+                          const parsed = (String(renderType) === 'number') ? (raw === '' ? '' : parseFloat(raw)) : raw;
+                          const error = validateValueAgainstSchema(parsed, schema);
+                          if (error) {
+                            setDefaultError(error);
+                          } else {
+                            setDefaultError(null);
+                            updateSchema({ default: parsed as any });
+                          }
+                        }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                        placeholder="Default value"
+                      />
+                    )}
+                    <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.default; onChange(next); }}>Remove</button>
+                  </div>
+                )}
+                {defaultError && <div style={{ color: 'red', marginTop: 6, fontSize: '11px' }}>{defaultError}</div>}
+
+                {(schema.format === 'data-url' || (typeof schema.contentMediaType === 'string' && String(schema.contentMediaType).startsWith('image'))) && (
+                  <div className={styles.fieldRow} style={{ alignItems: 'center', gap: 12, marginTop: '8px' }}>
+                    <label className={styles.label}>Image Preview</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {typeof schema.default === 'string' && /^data:image\//i.test(schema.default as string) && (
+                        <img src={schema.default as string} alt="preview" style={{ maxWidth: 240, maxHeight: 160, border: '1px solid #ddd', borderRadius: 6 }} />
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const f = e.target.files && e.target.files[0];
+                          if (!f) return;
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            const result = reader.result as string | ArrayBuffer | null;
+                            if (typeof result === 'string') {
+                              updateSchema({ default: result });
+                            }
+                          };
+                          reader.readAsDataURL(f);
+                        }}
+                      />
+                      <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.default; onChange(next); }}>Remove image</button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
           {/* Number-specific facets: minimum / maximum / multipleOf / examples */}
-          {renderType === "number" && (
+          {(renderType === "number" && !schema.enum) && (
             <div className={styles.inlineAdd}>
               {!('minimum' in schema) ? (
                 <button type="button" className={styles.addSmall} onClick={() => updateSchema({ minimum: 0 })}>+ minimum</button>
@@ -686,8 +1079,8 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
             </div>
           )}
             </>
-          )}
-        </div>
+          </div>
+        )}
 
         {renderType === "object" && (
           <div className={styles.nestedContainer}>
@@ -737,7 +1130,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
             {/* Pattern Properties list */}
             {patternProperties && (
               <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Pattern properties</div>
+                <div className={styles.propertyTitle} style={{ marginBottom: 8, color: 'var(--color-neutral-11)' }}>Pattern properties</div>
                 {Object.entries(patternProperties).map(([pat, subschema]) => (
                   <PatternPropertyRow key={pat} patternKey={pat} subschema={subschema as Record<string, unknown>} />
                 ))}
@@ -746,6 +1139,14 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
 
             {Object.entries((schema.properties as Record<string, unknown>) || {})
               .filter(([propertyName]) => !propertyName.startsWith('__'))
+              .sort(([nameA], [nameB]) => {
+                const required = (schema.required as string[]) || [];
+                const aReq = required.includes(nameA);
+                const bReq = required.includes(nameB);
+                if (aReq && !bReq) return -1;
+                if (!aReq && bReq) return 1;
+                return 0; // preserve original order
+              })
               .map(([propertyName, propertySchema]) => (
                 <PropertyEditor
                   key={propertyName}
@@ -758,13 +1159,18 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                 />
               ))}
           </div>
-        )}        {renderType === "array" && (() => {
+        )}
+
+        {/* Show array item controls if not handled by a root-level enum filter */}
+        {renderType === "array" && !((schema.items as any)?.enum) && (() => {
           const itemsSchema = (schema.items && typeof schema.items === "object" && !Array.isArray(schema.items))
             ? (schema.items as Record<string, unknown>)
             : { type: "string" };
           return (
             <div className={styles.nestedContainer}>
-              <h3 className={styles.propertyTitle}>Array Items Schema</h3>
+              <div style={{ fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', color: 'var(--color-accent-10)', marginBottom: '8px' }}>
+                Array Items
+              </div>
               <SchemaEditorForm
                 schema={itemsSchema}
                 onChange={(newItems) => updateSchema({ items: newItems })}
@@ -773,18 +1179,6 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
             </div>
           );
         })()}
-
-        {/* Only show EnumEditor for root if not array type */}
-        {!!schema.enum && Array.isArray(schema.enum) && renderType !== "array" && (
-          <div className={styles.nestedContainer}>
-            <h3 className={styles.propertyTitle}>Allowed Values</h3>
-            <EnumEditor
-              values={(schema.enum as Array<string | number>) || []}
-              onChange={(newEnum) => updateSchema({ enum: newEnum })}
-              type={(renderType as string) || "string"}
-            />
-          </div>
-        )}
       </div>
     </>
   );
@@ -799,98 +1193,6 @@ interface PropertyEditorProps {
   onRename: (newName: string) => void;
 }
 
-interface EnumEditorProps {
-  values: Array<string | number>;
-  onChange: (values: Array<string | number>) => void;
-  type: string;
-}
-
-function EnumEditor({ values, onChange, type }: EnumEditorProps) {
-  const [editingValues, setEditingValues] = useState<Array<string | number>>(values);
-
-  // Sync local state from props when values change
-  useEffect(() => {
-    setEditingValues(values);
-  }, [values]);
-
-  const removeValue = (index: number) => {
-    const newValues = editingValues.filter((_, i) => i !== index);
-    setEditingValues(newValues);
-    onChange(newValues);
-  };
-
-  const updateValue = (index: number, newValue: string) => {
-    const newValues = [...editingValues];
-    if (type === "number") {
-      const numValue = parseFloat(newValue);
-      newValues[index] = isNaN(numValue) ? 0 : numValue;
-    } else {
-      newValues[index] = newValue;
-    }
-    setEditingValues(newValues);
-    onChange(newValues);
-  };
-
-  const [newEnumValue, setNewEnumValue] = useState("");
-  const handleNewEnumKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && newEnumValue.trim() !== "") {
-      const valueToAdd = type === "number" ? parseFloat(newEnumValue) : newEnumValue.trim();
-      if (!editingValues.includes(valueToAdd)) {
-        const newValues = [...editingValues, valueToAdd];
-        setEditingValues(newValues);
-        onChange(newValues);
-      }
-      setNewEnumValue("");
-      e.preventDefault();
-    }
-  };
-  return (
-    <div className={styles.enumContainer}>
-      {editingValues.map((value, index) => (
-        <div key={index} className={styles.enumItem}>
-          <input
-            className={styles.input}
-            type={type === "number" ? "number" : "text"}
-            value={value}
-            onChange={(e) => updateValue(index, e.target.value)}
-            placeholder={type === "number" ? "Enter number..." : "Enter value..."}
-          />
-          <button
-            className={styles.removeButton}
-            onClick={() => removeValue(index)}
-            disabled={editingValues.length === 1}
-          >
-            Remove
-          </button>
-        </div>
-      ))}
-      <div className={styles.enumItem}>
-        <input
-          className={styles.input}
-          type={type === "number" ? "number" : "text"}
-          value={newEnumValue}
-          onChange={e => setNewEnumValue(e.target.value)}
-          onKeyDown={handleNewEnumKeyDown}
-          placeholder={type === "number" ? "Add number and press Enter" : "Add value and press Enter"}
-        />
-        <button className={styles.addButton} onClick={() => {
-          if (newEnumValue.trim() !== "") {
-            const valueToAdd = type === "number" ? parseFloat(newEnumValue) : newEnumValue.trim();
-            if (!editingValues.includes(valueToAdd)) {
-              const newValues = [...editingValues, valueToAdd];
-              setEditingValues(newValues);
-              onChange(newValues);
-            }
-            setNewEnumValue("");
-          }
-        }}>
-          + Add Value
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function PropertyEditor({
   propertyName,
   propertySchema,
@@ -900,6 +1202,8 @@ function PropertyEditor({
   onRename,
 }: PropertyEditorProps) {
   const [editingName, setEditingName] = useState(propertyName);
+
+  if (!propertySchema) return null;
 
   return (
     <div className={styles.fieldGroup} data-testid={`prop-${propertyName}`}>
@@ -940,6 +1244,123 @@ function PropertyEditor({
       </div>
 
       <SchemaEditorForm schema={propertySchema} onChange={onUpdate} />
+    </div>
+  );
+}
+
+interface CustomMultiSelectProps {
+  options: { label: string; value: any }[];
+  values: any[];
+  onChange: (values: any[]) => void;
+  placeholder?: string;
+  creatable?: boolean;
+  isMulti?: boolean;
+}
+
+const reactSelectStyles = {
+  // ... (keeping existing styles)
+  control: (base: any) => ({
+    ...base,
+    background: 'var(--color-neutral-1)',
+    borderColor: 'var(--color-neutral-6)',
+    '&:hover': {
+      borderColor: 'var(--color-neutral-7)',
+    },
+    minHeight: '38px',
+    borderRadius: '6px',
+    boxShadow: 'none',
+  }),
+  menu: (base: any) => ({
+    ...base,
+    background: 'var(--color-neutral-1)',
+    border: '1px solid var(--color-neutral-6)',
+    zIndex: 100,
+  }),
+  option: (base: any, state: { isFocused: boolean; isSelected: boolean }) => ({
+    ...base,
+    background: state.isSelected 
+      ? 'var(--color-accent-9)' 
+      : state.isFocused 
+        ? 'var(--color-neutral-3)' 
+        : 'transparent',
+    color: 'var(--color-neutral-12)',
+    cursor: 'pointer',
+    '&:active': {
+      background: 'var(--color-accent-10)',
+    },
+  }),
+  multiValue: (base: any) => ({
+    ...base,
+    background: 'var(--color-neutral-3)',
+    borderRadius: '4px',
+    border: '1px solid var(--color-neutral-6)',
+  }),
+  multiValueLabel: (base: any) => ({
+    ...base,
+    color: 'var(--color-neutral-12)',
+  }),
+  multiValueRemove: (base: any) => ({
+    ...base,
+    color: 'var(--color-neutral-11)',
+    '&:hover': {
+      background: 'var(--color-accent-3)',
+      color: 'var(--color-accent-11)',
+    },
+  }),
+  input: (base: any) => ({
+    ...base,
+    color: 'var(--color-neutral-12)',
+  }),
+  placeholder: (base: any) => ({
+    ...base,
+    color: 'var(--color-neutral-8)',
+  }),
+  singleValue: (base: any) => ({
+    ...base,
+    color: 'var(--color-neutral-12)',
+  }),
+};
+
+function CustomMultiSelect({ options, values, onChange, placeholder, creatable, isMulti = true }: CustomMultiSelectProps) {
+  const selectOptions = (options || []).map(opt => ({ 
+    label: String(opt.label), 
+    value: opt.value 
+  }));
+  
+  // Handle both single and multi values correctly
+  const normalizedValues = Array.isArray(values) ? values : (values !== undefined ? [values] : []);
+
+  const selectedValues = selectOptions.filter(opt => normalizedValues.includes(opt.value));
+  
+  if (creatable) {
+    normalizedValues.forEach(val => {
+      if (!selectedValues.find(opt => opt.value === val)) {
+        selectedValues.push({ label: String(val), value: val });
+      }
+    });
+  }
+
+  const SelectComponent = creatable ? CreatableSelect : Select;
+
+  return (
+    <div style={{ flex: 1, minWidth: 200 }}>
+      <SelectComponent
+        isMulti={isMulti}
+        options={creatable ? [] : selectOptions}
+        value={isMulti ? selectedValues : selectedValues[0]}
+        onChange={(selected: any) => {
+          if (isMulti) {
+            const newValues = selected ? selected.map((s: any) => s.value) : [];
+            onChange(newValues);
+          } else {
+            onChange(selected ? [selected.value] : []);
+          }
+        }}
+        placeholder={placeholder || (creatable ? "Type and press enter to add..." : "Select...")}
+        styles={reactSelectStyles as any}
+        menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
+        menuPortalStyle={{ zIndex: 9999 }}
+      />
     </div>
   );
 }
