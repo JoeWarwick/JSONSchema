@@ -43,7 +43,7 @@ const Tooltip: React.FC<TooltipProps> = ({ children, onOpenChange, open: control
   };
 
   return (
-    <TooltipPrimitive.Root {...props} open={open} onOpenChange={handleOpenChange} delayDuration={100} disableHoverableContent={false}>
+    <TooltipPrimitive.Root {...props} open={open} onOpenChange={handleOpenChange} delayDuration={300} disableHoverableContent={false}>
       {children}
     </TooltipPrimitive.Root>
   );

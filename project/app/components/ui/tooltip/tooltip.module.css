@@ -5,8 +5,7 @@
   display: block;
   opacity: 0;
   pointer-events: none;
-  transform-origin: top center;
-  transition: opacity .12s ease, transform .12s ease;
+  transition: opacity .18s ease;
   overflow: hidden;
   border-radius: var(--radius-2);
   border: var(--border-size-1) solid var(--color-neutral-6);
@@ -24,5 +23,10 @@
 .content[data-state="open"] {
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .content {
+    transition: none !important;
+  }
 }
