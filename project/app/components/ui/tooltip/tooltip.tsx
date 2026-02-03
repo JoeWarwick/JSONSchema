@@ -37,12 +37,6 @@ const Tooltip: React.FC<TooltipProps> = ({ children, onOpenChange, open: control
   }, []);
 
   const handleOpenChange = (v: boolean) => {
-    // Respect global disable flag (set by parent when inline descriptions are present)
-    if (v && typeof document !== 'undefined' && document.body.getAttribute('data-disable-tooltips') === 'true') {
-      if (controlledOpen === undefined) setOpen(false);
-      if (onOpenChange) onOpenChange(false);
-      return;
-    }
     if (controlledOpen === undefined) setOpen(v);
     if (v) window.dispatchEvent(new CustomEvent('open-tooltip', { detail: idRef.current }));
     if (onOpenChange) onOpenChange(v);

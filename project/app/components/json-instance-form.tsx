@@ -547,17 +547,20 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
             delete rest[key];
             onChange(rest);
           };
+
+          // Decide whether to show the description inline (for explicit object schemas without variants)
+
+
           return (
             <div key={key} className={styles.propertyGroup}>
               <div className={styles.propertyHeader}>
                 {(() => {
-                  const showInlineDesc = !!(propSchema && propSchema.description && propSchema.type === 'object' && !(propSchema.oneOf || propSchema.anyOf || (propSchema as any).oneOnly));
                   return (
                     <>
-                      {propSchema && (propSchema.description as string) && !showInlineDesc ? (
+                      {propSchema && (propSchema.description as string) ? (
                         <Popover>
                           <PopoverTrigger asChild>
-                            <span className={styles.propertyName} onMouseEnter={() => { if (typeof document !== 'undefined' && showInlineDesc) { document.body.setAttribute('data-disable-tooltips','true'); } else { setHoveredTooltipKey(`desc:${key}`); } }} onMouseLeave={() => { if (typeof document !== 'undefined') document.body.removeAttribute('data-disable-tooltips'); setHoveredTooltipKey(null); }} onFocus={() => { if (typeof document !== 'undefined' && showInlineDesc) { document.body.setAttribute('data-disable-tooltips','true'); } else { setHoveredTooltipKey(`desc:${key}`); } }} onBlur={() => { if (typeof document !== 'undefined') document.body.removeAttribute('data-disable-tooltips'); setHoveredTooltipKey(null); }}>
+                            <span className={styles.propertyName} onMouseEnter={() => setHoveredTooltipKey(`desc:${key}`)} onMouseLeave={() => setHoveredTooltipKey(null)} onFocus={() => setHoveredTooltipKey(`desc:${key}`)} onBlur={() => setHoveredTooltipKey(null)}>
                               {displayLabel(key)}
                               {isRequired && <span className={styles.requiredMark}>*</span>}
                               {!!propSchema.writeOnly && <span className={styles.badge} style={{ backgroundColor: '#e8f0ff', color: '#2b6cb0' }}>writeOnly</span>}
@@ -567,7 +570,7 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                           <PopoverContent>{renderTooltipContentChildren(propSchema.description)}</PopoverContent>
                         </Popover>
                       ) : (
-                        <span className={styles.propertyName} onMouseEnter={() => { if (typeof document !== 'undefined' && showInlineDesc) { document.body.setAttribute('data-disable-tooltips','true'); } else { setHoveredTooltipKey(`desc:${key}`); } }} onMouseLeave={() => { if (typeof document !== 'undefined') document.body.removeAttribute('data-disable-tooltips'); setHoveredTooltipKey(null); }} onFocus={() => { if (typeof document !== 'undefined' && showInlineDesc) { document.body.setAttribute('data-disable-tooltips','true'); } else { setHoveredTooltipKey(`desc:${key}`); } }} onBlur={() => { if (typeof document !== 'undefined') document.body.removeAttribute('data-disable-tooltips'); setHoveredTooltipKey(null); }}>
+                        <span className={styles.propertyName} onMouseEnter={() => setHoveredTooltipKey(`desc:${key}`)} onMouseLeave={() => setHoveredTooltipKey(null)} onFocus={() => setHoveredTooltipKey(`desc:${key}`)} onBlur={() => setHoveredTooltipKey(null)}>
                           {displayLabel(key)}
                           {isRequired && <span className={styles.requiredMark}>*</span>}
                           {!!propSchema.writeOnly && <span className={styles.badge} style={{ backgroundColor: '#e8f0ff', color: '#2b6cb0' }}>writeOnly</span>}
@@ -576,7 +579,7 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                       )}
 
                       {/* visible fallback for tests */}
-                      {hoveredTooltipKey === `desc:${key}` && !showInlineDesc && propSchema && propSchema.description && (() => {
+                      {hoveredTooltipKey === `desc:${key}` && propSchema && propSchema.description && (() => {
                         const s = String(propSchema.description);
                         const m = s.match(/https?:\/\/[^\s]+/i);
                         if (m) {
@@ -608,11 +611,7 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                   );
                 })()}
               </div>
-              {showInlineDesc && (
-                <div style={{ fontSize: 13, color: '#666', marginTop: 8 }}>
-                  {renderTooltipContentChildren(propSchema.description)}
-                </div>
-              )}
+
               <JsonInstanceForm
                 schema={propSchema}
                 value={objectValue[key]}
