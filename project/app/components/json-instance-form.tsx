@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import styles from "./json-instance-form.module.css";
 import { validateValueAgainstSchema } from "../utils/validation";
 import { getAdditionalPropertiesSchema } from "./schema-behaviors";
-// `useState` already imported above
+import { getVariantLabel } from "../utils/labels";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./ui/tooltip/tooltip";
 
 interface JsonInstanceFormProps {
   schema: Record<string, unknown>;
@@ -16,9 +17,30 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
   const type = explicitType ?? (Array.isArray(value) ? 'array' : (value && typeof value === 'object' ? 'object' : 'string'));
   const storageKey = 'json-instance:' + (schema && typeof (schema.title as any) === 'string' ? schema.title : (schema.$id ? schema.$id : JSON.stringify(schema)));
   const pathKey = path.join('.');
+  const variantMemoryKey = `json-instance-variants:${storageKey}:${pathKey}`;
+  
   const [inputError, setInputError] = useState<string | null>(null);
+  const [newPropKey, setNewPropKey] = useState("");
+  const [currentIndexMap, setCurrentIndexMap] = useState<Record<string, number>>({});
+  
+  const numberInputRef = useRef<HTMLInputElement | null>(null);
+  const chipRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const lastPrimitiveRef = useRef<HTMLDivElement | null>(null);
+  const lastObjectRef = useRef<HTMLDivElement | null>(null);
 
-  const variantMemoryKey = `json-instance-variants:${pathKey}`;
+  const variants = Array.isArray(schema.oneOnly)
+    ? (schema.oneOnly as Record<string, unknown>[])
+    : Array.isArray(schema.oneOf)
+    ? (schema.oneOf as Record<string, unknown>[])
+    : null;
+  const hasVariants = !!variants && variants.length > 0;
+  
+  const [selectedVariantIndex, setSelectedVariantIndex] = useState<number>(() => {
+    if (!hasVariants) return 0;
+    const idx = variants!.findIndex((vs) => validateValueAgainstSchema(value, vs) === null);
+    return idx >= 0 ? idx : 0;
+  });
+
   const getVariantMemory = () => {
     if (typeof localStorage === 'undefined') return {};
     try {
@@ -51,29 +73,92 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
   const writeOnlyAttr = !!schema.writeOnly;
   const constValue = schema.const as unknown | undefined;
 
-  const numberInputRef = useRef<HTMLInputElement | null>(null);
+  // Persist instance value to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      if (value === undefined) {
+        localStorage.removeItem(storageKey);
+      } else {
+        localStorage.setItem(storageKey, JSON.stringify(value));
+      }
+    } catch (e) {
+      // ignore storage errors
+    }
+  }, [value, storageKey]);
 
-  // Support choice-like schemas: custom `oneOnly` and standard `oneOf`
-  const variants = Array.isArray(schema.oneOnly)
-    ? (schema.oneOnly as Record<string, unknown>[])
-    : Array.isArray(schema.oneOf)
-    ? (schema.oneOf as Record<string, unknown>[])
-    : null;
-  const hasVariants = !!variants && variants.length > 0;
-  const [selectedVariantIndex, setSelectedVariantIndex] = useState<number>(() => {
-    if (!hasVariants) return 0;
-    const idx = variants!.findIndex((vs) => validateValueAgainstSchema(value, vs) === null);
-    return idx >= 0 ? idx : 0;
-  });
+  // Load instance when storageKey (schema) changes: prefer stored value, else default when no value provided
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (JSON.stringify(parsed) !== JSON.stringify(value)) {
+          onChange(parsed);
+        }
+      } else if (value === undefined) {
+        onChange(getDefaultValue(schema as Record<string, unknown>));
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [storageKey]);
+
+  // Attach a non-passive native wheel listener to the number input so we can call
+  // preventDefault without the browser passive-listener warning.
+  useEffect(() => {
+    const el = numberInputRef.current;
+    if (!el) return;
+    const handler = (ee: WheelEvent) => {
+      ee.preventDefault();
+      const e = ee as WheelEvent & { shiftKey?: boolean };
+      const dir = e.deltaY > 0 ? -1 : 1;
+      const multiplier = e.shiftKey ? 10 : 1;
+      const inc = (schema.multipleOf as number | undefined) ?? (step as number) ?? 1;
+      const countDecimals = (n: number) => {
+        const s = String(n);
+        if (s.indexOf('e-') >= 0) {
+          const m = /e-(\d+)$/.exec(s);
+          if (m) return parseInt(m[1], 10);
+        }
+        if (s.indexOf('.') >= 0) return s.split('.')[1].length;
+        return 0;
+      };
+      const cur = typeof value === 'number' ? (value as number) : (el.value === '' ? 0 : parseFloat(el.value));
+      const precision = Math.max(countDecimals(inc), countDecimals(cur));
+      const factor = Math.pow(10, precision);
+      const stepInt = Math.round(inc * factor) * multiplier;
+      const curInt = Math.round(cur * factor);
+      const newVal = (curInt + dir * stepInt) / factor;
+      const err = validateValueAgainstSchema(newVal, schema);
+      setInputError(err);
+      if (!err) onChange(newVal);
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler as EventListener);
+  }, [numberInputRef, schema, step, value, onChange]);
 
   useEffect(() => {
     if (!hasVariants) return;
     const idx = variants!.findIndex((vs) => validateValueAgainstSchema(value, vs) === null);
     if (idx >= 0 && idx !== selectedVariantIndex) setSelectedVariantIndex(idx);
-  }, [value, schema]);
+  }, [value, schema, hasVariants, variants, selectedVariantIndex]);
 
-  // Refs for variant chips so keyboard navigation can focus them
-  const chipRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  useEffect(() => {
+    if (hasVariants && value !== undefined) {
+      const vs = variants![selectedVariantIndex];
+      if (validateValueAgainstSchema(value, vs) === null) {
+        saveVariantMemory(selectedVariantIndex, value);
+      }
+    }
+  }, [value, selectedVariantIndex, hasVariants, variants]);
+
+  const parentKey = typeof value === 'object' && value !== null ? (value as any).id ?? value : value;
+  const currentArrayKey = String(parentKey ?? 'default');
+  useEffect(() => {
+    if (type === 'array') {
+      setCurrentIndexMap((map) => ({ ...map, [currentArrayKey]: 0 }));
+    }
+  }, [currentArrayKey, type]);
 
   const selectVariant = (idx: number) => {
     if (!hasVariants) return;
@@ -88,15 +173,6 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
       onChange(getDefaultValue(vs));
     }
   };
-
-  useEffect(() => {
-    if (hasVariants && value !== undefined) {
-      const vs = variants![selectedVariantIndex];
-      if (validateValueAgainstSchema(value, vs) === null) {
-        saveVariantMemory(selectedVariantIndex, value);
-      }
-    }
-  }, [value, selectedVariantIndex, hasVariants]);
 
   const handleChipKeyDown = (e: any, idx: number) => {
     const key = e.key;
@@ -119,33 +195,45 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
     const label = (schema.description as string) || "Choose an option";
     const matchesAny = variants!.some((vs) => validateValueAgainstSchema(value, vs) === null);
     return (
-      <div className={styles.field}>
-        <label className={styles.label}>{label}</label>
-        <div className={styles.variantChips}>
-          {variants!.map((vs, i) => {
-            const lbl = (vs.title as string) || (vs.description as string) || (vs.type as string) || `Option ${i + 1}`;
-            const selected = i === selectedVariantIndex;
-            return (
-              <button
-                key={i}
-                type="button"
-                ref={(el) => { chipRefs.current[i] = el; }}
-                tabIndex={0}
-                onKeyDown={(e) => handleChipKeyDown(e, i)}
-                className={`${styles.variantChip} ${selected ? styles.variantChipSelected : styles.variantChipUnselected}`}
-                onClick={() => selectVariant(i)}
-                aria-pressed={selected}
-              >
-                {lbl}
-              </button>
-            );
-          })}
+      <TooltipProvider>
+        <div className={styles.field}>
+          <label className={styles.label}>{label}</label>
+          <div className={styles.variantChips}>
+            {variants!.map((vs, i) => {
+              const labelData = getVariantLabel(vs, i);
+              const selected = i === selectedVariantIndex;
+              const chip = (
+                <button
+                  key={i}
+                  type="button"
+                  ref={(el) => { chipRefs.current[i] = el; }}
+                  tabIndex={0}
+                  onKeyDown={(e) => handleChipKeyDown(e, i)}
+                  className={`${styles.variantChip} ${selected ? styles.variantChipSelected : styles.variantChipUnselected}`}
+                  onClick={() => selectVariant(i)}
+                  aria-pressed={selected}
+                >
+                  {labelData.title}
+                </button>
+              );
+
+              if (labelData.description) {
+                return (
+                  <Tooltip key={i}>
+                    <TooltipTrigger asChild>{chip}</TooltipTrigger>
+                    <TooltipContent>{labelData.description}</TooltipContent>
+                  </Tooltip>
+                );
+              }
+              return chip;
+            })}
+          </div>
+          {!matchesAny && value !== undefined && <div style={{ color: 'red', marginTop: 6 }}>Value does not match any option</div>}
+          <div style={{ marginTop: 8 }}>
+            <JsonInstanceForm schema={variants![selectedVariantIndex]} value={value} onChange={onChange} path={path} />
+          </div>
         </div>
-        {!matchesAny && value !== undefined && <div style={{ color: 'red', marginTop: 6 }}>Value does not match any option</div>}
-        <div style={{ marginTop: 8 }}>
-          <JsonInstanceForm schema={variants![selectedVariantIndex]} value={value} onChange={onChange} path={path} />
-        </div>
-      </div>
+      </TooltipProvider>
     );
   }
 
@@ -245,70 +333,6 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
         </div>
       );
   }
-  
-  // Persist instance value to localStorage whenever it changes
-  useEffect(() => {
-    try {
-      if (value === undefined) {
-        localStorage.removeItem(storageKey);
-      } else {
-        localStorage.setItem(storageKey, JSON.stringify(value));
-      }
-    } catch (e) {
-      // ignore storage errors
-    }
-  }, [value, storageKey]);
-
-  // Load instance when storageKey (schema) changes: prefer stored value, else default when no value provided
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (JSON.stringify(parsed) !== JSON.stringify(value)) {
-          onChange(parsed);
-        }
-      } else if (value === undefined) {
-        onChange(getDefaultValue(schema as Record<string, unknown>));
-      }
-    } catch (e) {
-      // ignore
-    }
-  }, [storageKey]);
-
-  // Attach a non-passive native wheel listener to the number input so we can call
-  // preventDefault without the browser passive-listener warning.
-  useEffect(() => {
-    const el = numberInputRef.current;
-    if (!el) return;
-    const handler = (ee: WheelEvent) => {
-      ee.preventDefault();
-      const e = ee as WheelEvent & { shiftKey?: boolean };
-      const dir = e.deltaY > 0 ? -1 : 1;
-      const multiplier = e.shiftKey ? 10 : 1;
-      const inc = (schema.multipleOf as number | undefined) ?? (step as number) ?? 1;
-      const countDecimals = (n: number) => {
-        const s = String(n);
-        if (s.indexOf('e-') >= 0) {
-          const m = /e-(\d+)$/.exec(s);
-          if (m) return parseInt(m[1], 10);
-        }
-        if (s.indexOf('.') >= 0) return s.split('.')[1].length;
-        return 0;
-      };
-      const cur = typeof value === 'number' ? (value as number) : (el.value === '' ? 0 : parseFloat(el.value));
-      const precision = Math.max(countDecimals(inc), countDecimals(cur));
-      const factor = Math.pow(10, precision);
-      const stepInt = Math.round(inc * factor) * multiplier;
-      const curInt = Math.round(cur * factor);
-      const newVal = (curInt + dir * stepInt) / factor;
-      const err = validateValueAgainstSchema(newVal, schema);
-      setInputError(err);
-      if (!err) onChange(newVal);
-    };
-    el.addEventListener('wheel', handler, { passive: false });
-    return () => el.removeEventListener('wheel', handler as EventListener);
-  }, [numberInputRef, schema, step, value, onChange]);
 
   if (type === "number") {
     if (schema.enum && Array.isArray(schema.enum)) {
@@ -432,8 +456,6 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
       });
     };
 
-    const [newPropKey, setNewPropKey] = useState("");
-
     return (
       <div className={styles.objectContainer}>
         {/* Render fixed properties */}
@@ -525,8 +547,8 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                     <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-neutral-10)', textTransform: 'uppercase', letterSpacing: '0.02em' }}>{key}:</span>
                     <div style={{ display: 'flex', gap: 4 }}>
                       {propVariants.map((vs, i) => {
-                        const lbl = (vs.title as string) || (vs.type as string) || `Variant ${i + 1}`;
-                        return (
+                        const labelData = getVariantLabel(vs, i);
+                        const chip = (
                           <button
                             key={i}
                             type="button"
@@ -535,7 +557,8 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                             onClick={() => {
                               // Check variant memory for this property
                               const childPathKey = [...path, key].join('.');
-                              const memKey = `json-instance-variants:${childPathKey}`;
+                              const storageSuffix = (vs.$ref || vs.$id || JSON.stringify(vs));
+                              const memKey = `json-instance-variants:json-instance:${storageSuffix}:${childPathKey}`;
                               let initialValue: unknown = undefined;
                               try {
                                 const raw = localStorage.getItem(memKey);
@@ -549,9 +572,19 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                               onChange({ ...objectValue, [key]: initialValue });
                             }}
                           >
-                            {lbl}
+                            {labelData.title}
                           </button>
                         );
+
+                        if (labelData.description) {
+                          return (
+                            <Tooltip key={i}>
+                              <TooltipTrigger asChild>{chip}</TooltipTrigger>
+                              <TooltipContent>{labelData.description}</TooltipContent>
+                            </Tooltip>
+                          );
+                        }
+                        return chip;
                       })}
                     </div>
                   </div>
@@ -623,10 +656,6 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
       arrayValue = [];
     }
 
-    // refs
-    const lastPrimitiveRef = useRef<HTMLDivElement | null>(null);
-    const lastObjectRef = useRef<HTMLDivElement | null>(null);
-
     const itemsSchema = items as Record<string, unknown>;
     const isObjectItem = itemsSchema.type === 'object';
     const uniqueRequired = !!schema.uniqueItems;
@@ -660,16 +689,10 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
     };
 
     // Navigation state for array editing (object items)
-    const parentKey = typeof value === 'object' && value !== null ? (value as any).id ?? value : value;
-    const [currentIndexMap, setCurrentIndexMap] = useState<Record<string, number>>({});
-    const key = String(parentKey ?? 'default');
-    const currentIndex = currentIndexMap[key] ?? 0;
+    const currentIndex = currentIndexMap[currentArrayKey] ?? 0;
     const maxIndex = arrayValue.length - 1;
-    useEffect(() => {
-      setCurrentIndexMap((map) => ({ ...map, [key]: 0 }));
-    }, [key, arrayValue.length]);
     const setCurrentIndex = (idx: number) => {
-      setCurrentIndexMap((map) => ({ ...map, [key]: idx }));
+      setCurrentIndexMap((map) => ({ ...map, [currentArrayKey]: idx }));
     };
 
     const focusObjectForm = () => {

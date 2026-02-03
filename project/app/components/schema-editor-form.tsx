@@ -10,7 +10,7 @@ import {
 } from "./schema-behaviors";
 import { validateSchema } from "../utils/schema-generator";
 import styles from "./schema-editor-form.module.css";
-import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip/tooltip";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./ui/tooltip/tooltip";
 import { Badge } from "./ui/badge/badge";
 
 import Select from "react-select";
@@ -27,6 +27,7 @@ interface SchemaEditorFormProps {
 }
 
 import { generateSchema } from "../utils/schema-generator";
+import { getVariantLabel } from "../utils/labels";
 
 export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename, isSchemaImported, instanceData }: SchemaEditorFormProps) {
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -42,88 +43,6 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
   const isRoot = path.length === 0;
   const variants = (schema.oneOf || schema.anyOf || schema.allOf) as Record<string, unknown>[] | undefined;
   const logicType = schema.oneOf ? 'oneOf' : (schema.anyOf ? 'anyOf' : (schema.allOf ? 'allOf' : undefined));
-
-  const getVariantLabel = (vs: Record<string, unknown>, index: number): string => {
-    // 1. Semantic identifiers we want to IGNORRE when looking for a "human" name
-    const noise = new Set([
-      'schema', 'root', 'item', 'items', 'object', 'string', 'number', 'boolean', 'array', 'null', 'any', 
-      'property', 'properties', 'definitions', '$defs', 'components', 'schemas', 'type', 'types', 'oneof', 'anyof', 'allof',
-      'variant', 'variants', 'choice', 'choices'
-    ]);
-    
-    const getFromRef = (ref?: any): string | null => {
-      if (!ref || typeof ref !== 'string') return null;
-      
-      const [baseUrl, fragment] = ref.split('#');
-      const target = fragment || baseUrl;
-      if (!target) return null;
-
-      // Split into parts and look for the first non-noise, non-numeric segment from the end
-      const parts = target.split('/').filter(p => p && p !== '#');
-      for (let i = parts.length - 1; i >= 0; i--) {
-        let name = decodeURIComponent(parts[i]);
-        
-        // 1. Skip technical domain/port noise (e.g. 'localhost:5173', '127.0.0.1')
-        if (name.includes(':') || /^\d+\.\d+\.\d+\.\d+$/.test(name) || name.toLowerCase().startsWith('localhost')) {
-          continue;
-        }
-
-        // 2. Strip common extensions to expose the base name (e.g. 'schema.json' -> 'schema')
-        name = name.replace(/\.(json|schema|yaml|yml)$/i, '');
-        
-        if (name && !noise.has(name.toLowerCase()) && !/^\d+$/.test(name)) {
-          return name;
-        }
-      }
-      
-      return null;
-    };
-
-    const getBestName = (s: any): string | null => {
-      if (!s || typeof s !== 'object') return null;
-      
-      // 1. Search in order of specificity: Ref or Documentation Comment (common in GitHub schemas)
-      const name = getFromRef(s.$ref) || getFromRef(s.$comment);
-      if (name) return name;
-      
-      // 2. Title fallback
-      if (s.title && typeof s.title === 'string') {
-        const t = s.title.replace(/\.json$/i, '').replace(/\.schema$/i, '');
-        if (!noise.has(t.toLowerCase())) return t;
-      }
-
-      // 3. Search in allOf if present (common for hydrated schemas)
-      if (Array.isArray(s.allOf)) {
-        for (const branch of s.allOf) {
-          const sub = getBestName(branch);
-          if (sub) return sub;
-        }
-      }
-
-      return null;
-    };
-
-    const refName = getBestName(vs);
-    if (refName) return refName;
-
-    // 2. Recursive generic detection for arrays (e.g. Array<Event>)
-    if (vs.type === 'array' && vs.items && !Array.isArray(vs.items)) {
-      const itemLabel = getVariantLabel(vs.items as Record<string, unknown>, 0);
-      if (itemLabel && !itemLabel.toLowerCase().startsWith('option ')) {
-        const cleanItem = itemLabel.charAt(0).toUpperCase() + itemLabel.slice(1);
-        return `Array<${cleanItem}>`;
-      }
-    }
-
-    // 4. Default fallbacks
-    if (vs.type) {
-      const t = Array.isArray(vs.type) ? vs.type[0] : vs.type;
-      return t as string;
-    }
-    if (vs.properties) return 'object';
-    if (vs.items) return 'array';
-    return `Option ${index + 1}`;
-  };
 
   const updateSchema = (updates: Partial<Record<string, unknown>>) => {
     let nextSchema: Record<string, unknown>;
@@ -376,7 +295,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
   }
 
   return (
-    <>
+    <TooltipProvider>
       {validationError && (
         <div style={{ color: 'red', marginBottom: 8 }}>{validationError}</div>
       )}
@@ -446,7 +365,8 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
             )}
           </div>
           <div style={{ fontSize: (schema.title ? 11 : 10), fontWeight: (schema.title ? 700 : 900), textTransform: (schema.title ? 'none' : 'uppercase'), color: (schema.title ? 'inherit' : 'var(--color-neutral-10)') }}>
-            {(schema.title as string) || (renderType ? 'Type' : 'Schema')}
+            {((schema.title as string) || (renderType ? 'Type' : 'Schema'))}
+            {isImported && <span style={{ color: 'var(--color-accent-9)', marginLeft: 4 }} title="Imported from $ref">*</span>}
           </div>
           <div style={{ flex: 1 }} />
           {isImported && renderType === 'object' && (
@@ -557,53 +477,30 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
             {variants.map((v, i) => {
               if (!v) return <div key={i} style={{ color: 'red', padding: 10 }}>Error: Variant {i} is null</div>;
               
-              const comment = v.$comment as string | undefined;
-              const isUrl = comment?.startsWith('http');
-              const refString = v.$ref as string | undefined;
+              const labelData = getVariantLabel(v, i);
 
               return (
               <div key={i} className={styles.variantItem} style={{ border: '1px solid var(--color-accent-4)', marginBottom: 16, background: 'var(--color-neutral-1)' }}>
                 <div className={styles.variantItemHeader} style={{ background: 'var(--color-accent-2)', padding: '4px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div className={styles.variantItemTitle} style={{ color: 'var(--color-accent-11)', fontWeight: 700, flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {((label) => {
-                      const finalLabel = label.toLowerCase().startsWith('option ') ? label : `${i + 1}. ${label.charAt(0).toUpperCase() + label.slice(1)}`;
-                      return (
-                        <>
-                          <span style={{ cursor: (refString || comment) ? 'help' : 'default' }}>{finalLabel}</span>
-                          {(refString || comment) && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button type="button" style={{ background: 'none', border: 'none', padding: 0, cursor: 'help', opacity: 0.6, display: 'flex' }}>
-                                  <Badge variant="outline" style={{ fontSize: '9px', padding: '0 4px', height: '14px', lineHeight: '14px', color: 'var(--color-neutral-10)', borderColor: 'var(--color-neutral-6)' }}>REF</Badge>
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <div style={{ maxWidth: '300px', padding: '4px' }}>
-                                  {refString && (
-                                    <div style={{ marginBottom: comment ? '8px' : 0 }}>
-                                      <div style={{ fontWeight: 800, fontSize: '9px', textTransform: 'uppercase', marginBottom: '2px', color: 'var(--color-neutral-10)' }}>IDENTIFIER</div>
-                                      <div style={{ fontSize: '11px', fontFamily: 'monospace', wordBreak: 'break-all', background: 'var(--color-neutral-3)', padding: '4px', borderRadius: '4px', color: 'var(--color-neutral-12)' }}>{refString}</div>
-                                    </div>
-                                  )}
-                                  {comment && (
-                                    <div style={{ marginTop: refString ? '8px' : 0 }}>
-                                      <div style={{ fontWeight: 800, fontSize: '9px', textTransform: 'uppercase', marginBottom: '2px', color: 'var(--color-neutral-10)' }}>DOCUMENTATION</div>
-                                      {isUrl ? (
-                                        <a href={comment} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-primary-10)', textDecoration: 'underline', fontSize: '11px', wordBreak: 'break-all', display: 'block', marginTop: '4px' }}>
-                                          {comment}
-                                        </a>
-                                      ) : (
-                                        <div style={{ fontSize: '11px', color: 'var(--color-neutral-12)' }}>{comment}</div>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-                        </>
-                      );
-                    })(getVariantLabel(v, i))}
+                    <span style={{ cursor: labelData.description ? 'help' : 'default' }}>
+                      {`${i + 1}. ${labelData.title}`}
+                    </span>
+                    {labelData.description && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" style={{ background: 'none', border: 'none', padding: 0, cursor: 'help', opacity: 0.6, display: 'flex' }}>
+                            <Badge variant="outline" style={{ fontSize: '9px', padding: '0 4px', height: '14px', lineHeight: '14px', color: 'var(--color-neutral-10)', borderColor: 'var(--color-neutral-6)' }}>REF</Badge>
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <div style={{ maxWidth: '300px', padding: '4px' }}>
+                            <div style={{ fontWeight: 800, fontSize: '9px', textTransform: 'uppercase', marginBottom: '2px', color: 'var(--color-neutral-10)' }}>IDENTIFIER / SOURCE</div>
+                            <div style={{ fontSize: '11px', fontFamily: 'monospace', wordBreak: 'break-all', background: 'var(--color-neutral-3)', padding: '4px', borderRadius: '4px', color: 'var(--color-neutral-12)' }}>{labelData.description}</div>
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                   </div>
                   <button
                     type="button"
@@ -1180,7 +1077,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
           );
         })()}
       </div>
-    </>
+    </TooltipProvider>
   );
 }
 
@@ -1319,6 +1216,10 @@ const reactSelectStyles = {
     ...base,
     color: 'var(--color-neutral-12)',
   }),
+  menuPortal: (base: any) => ({
+    ...base,
+    zIndex: 9999,
+  }),
 };
 
 function CustomMultiSelect({ options, values, onChange, placeholder, creatable, isMulti = true }: CustomMultiSelectProps) {
@@ -1359,7 +1260,6 @@ function CustomMultiSelect({ options, values, onChange, placeholder, creatable, 
         placeholder={placeholder || (creatable ? "Type and press enter to add..." : "Select...")}
         styles={reactSelectStyles as any}
         menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
-        menuPortalStyle={{ zIndex: 9999 }}
       />
     </div>
   );

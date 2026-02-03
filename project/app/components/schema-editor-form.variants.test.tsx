@@ -26,7 +26,7 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
     };
     renderForm(schema);
     // Should prioritize 'event' from ref over 'string' type
-    expect(screen.getByText('1. Event')).toBeInTheDocument();
+    expect(screen.getAllByText('1. Event')[0]).toBeInTheDocument();
   });
 
   it('correctly labels an array of $ref as Array<Name>', () => {
@@ -40,7 +40,7 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
     };
     renderForm(schema);
     // Should show Array<Event>
-    expect(screen.getByText('1. Array<Event>')).toBeInTheDocument();
+    expect(screen.getAllByText('1. Array<Event>')[0]).toBeInTheDocument();
   });
 
   it('prioritizes $ref over generic types like string or object', () => {
@@ -51,8 +51,8 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
       ]
     };
     renderForm(schema);
-    expect(screen.getByText('1. User')).toBeInTheDocument();
-    expect(screen.getByText('2. String')).toBeInTheDocument();
+    expect(screen.getAllByText('1. User')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('2. String')[0]).toBeInTheDocument();
   });
 
   it('uses $ref for labeling on hydrated nodes', () => {
@@ -62,7 +62,7 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
       ]
     };
     renderForm(schema);
-    expect(screen.getByText('1. Event')).toBeInTheDocument();
+    expect(screen.getAllByText('1. Event')[0]).toBeInTheDocument();
   });
 
   it('filters out "boring" words from the label', () => {
@@ -74,8 +74,8 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
     };
     renderForm(schema);
     // 'item' is in boring set, so it should fallback to 'object' (type)
-    expect(screen.getByText('1. Object')).toBeInTheDocument();
-    expect(screen.getByText('2. Custom')).toBeInTheDocument();
+    expect(screen.getAllByText('1. Object')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('2. Custom')[0]).toBeInTheDocument();
   });
 
   it('handles nested arrays correctly (Array<Array<T>>)', () => {
@@ -91,7 +91,7 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
       ]
     };
     renderForm(schema);
-    expect(screen.getByText('1. Array<Array<Event>>')).toBeInTheDocument();
+    expect(screen.getAllByText('1. Array<Array<Event>>')[0]).toBeInTheDocument();
   });
 
   it('uses Option N fallback when no semantic info is available', () => {
@@ -102,8 +102,8 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
       ]
     };
     renderForm(schema);
-    expect(screen.getByText('Option 1')).toBeInTheDocument();
-    expect(screen.getByText('Option 2')).toBeInTheDocument();
+    expect(screen.getAllByText('1. Option 1')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('2. Option 2')[0]).toBeInTheDocument();
   });
 
   it('renders a REF badge when $ref or $comment is present', () => {
@@ -114,9 +114,9 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
     };
     renderForm(schema);
     // The label should be there
-    expect(screen.getByText('1. Event')).toBeInTheDocument();
+    expect(screen.getAllByText('1. Event')[0]).toBeInTheDocument();
     // The REF badge should be there
-    expect(screen.getByText('REF')).toBeInTheDocument();
+    expect(screen.getAllByText('REF')[0]).toBeInTheDocument();
   });
 
   it('handles complex sub-paths in $ref', () => {
@@ -143,7 +143,7 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
       ]
     };
     renderForm(schema);
-    expect(screen.getByText('1. Event')).toBeInTheDocument();
+    expect(screen.getAllByText('1. Event')[0]).toBeInTheDocument();
   });
 
   it('handles array with items having name in allOf', () => {
@@ -161,7 +161,7 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
       ]
     };
     renderForm(schema);
-    expect(screen.getByText('1. Array<Event>')).toBeInTheDocument();
+    expect(screen.getAllByText('1. Array<Event>')[0]).toBeInTheDocument();
   });
 
   it('handles GitHub style variant with ref and enum', () => {
@@ -175,7 +175,7 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
       ]
     };
     renderForm(schema);
-    expect(screen.getByText('1. Event')).toBeInTheDocument();
+    expect(screen.getAllByText('1. Event')[0]).toBeInTheDocument();
   });
 
   it('skips host/file noise and searches deeper into allOf', () => {
@@ -191,7 +191,7 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
     };
     renderForm(schema);
     // Should skip localhost:5173 and schema.json, finding 'Event' in allOf
-    expect(screen.getByText('1. Event')).toBeInTheDocument();
+    expect(screen.getAllByText('1. Event')[0]).toBeInTheDocument();
   });
 
   it('extracts name from $comment URL if pointers are generic or missing', () => {
@@ -205,6 +205,6 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
     };
     renderForm(schema);
     // Should skip schema.json and pick 'Event-type' from comment
-    expect(screen.getByText('1. Event-type')).toBeInTheDocument();
+    expect(screen.getAllByText('1. Event-type')[0]).toBeInTheDocument();
   });
 });

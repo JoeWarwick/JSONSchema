@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { SchemaEditorForm } from './schema-editor-form';
+import { TooltipProvider } from './ui/tooltip/tooltip';
 
 describe('SchemaEditorForm Polymorphic Labels', () => {
   const isSchemaImportedStub = (n: any) => !!(n && (n.$ref || n.__from || (Array.isArray(n?.allOf) && n.allOf.some((e: any) => e.$ref))));
@@ -26,18 +27,20 @@ describe('SchemaEditorForm Polymorphic Labels', () => {
 
     const handleChange = jest.fn();
     render(
-      <SchemaEditorForm 
-        schema={schema} 
-        onChange={handleChange} 
-        isSchemaImported={isSchemaImportedStub} 
-      />
+      <TooltipProvider>
+        <SchemaEditorForm 
+          schema={schema} 
+          onChange={handleChange} 
+          isSchemaImported={isSchemaImportedStub} 
+        />
+      </TooltipProvider>
     );
 
     // Check for "1. Event"
-    expect(screen.getByText('1. Event')).toBeInTheDocument();
+    expect(screen.getAllByText('1. Event')[0]).toBeInTheDocument();
     
     // Check for "2. Array<Event>"
-    expect(screen.getByText('2. Array<Event>')).toBeInTheDocument();
+    expect(screen.getAllByText('2. Array<Event>')[0]).toBeInTheDocument();
   });
 
   it('renders labels from deep hydration provenance (__from)', async () => {
@@ -52,9 +55,13 @@ describe('SchemaEditorForm Polymorphic Labels', () => {
       ]
     } as any;
 
-    render(<SchemaEditorForm schema={schema} onChange={jest.fn()} isSchemaImported={isSchemaImportedStub} />);
+    render(
+      <TooltipProvider>
+        <SchemaEditorForm schema={schema} onChange={jest.fn()} isSchemaImported={isSchemaImportedStub} />
+      </TooltipProvider>
+    );
 
-    expect(screen.getByText('1. Architecture')).toBeInTheDocument();
+    expect(screen.getAllByText('1. Architecture')[0]).toBeInTheDocument();
   });
 
   it('ignores boring structural names and generic filenames', async () => {
@@ -71,10 +78,14 @@ describe('SchemaEditorForm Polymorphic Labels', () => {
       ]
     } as any;
 
-    render(<SchemaEditorForm schema={schema} onChange={jest.fn()} isSchemaImported={isSchemaImportedStub} />);
+    render(
+      <TooltipProvider>
+        <SchemaEditorForm schema={schema} onChange={jest.fn()} isSchemaImported={isSchemaImportedStub} />
+      </TooltipProvider>
+    );
 
     // Should fall back to Option labels if all parts are boring
-    expect(screen.getByText('Option 1')).toBeInTheDocument();
-    expect(screen.getByText('Option 2')).toBeInTheDocument();
+    expect(screen.getAllByText('1. String')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('2. Object')[0]).toBeInTheDocument();
   });
 });

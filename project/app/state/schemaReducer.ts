@@ -336,7 +336,7 @@ function normalizeResolved(s: Schema, source?: Schema): Schema {
           if (!skipSelf && typeof obj.$ref === 'string') nestedFroms.add(obj.$ref as string);
           for (const v of Object.values(obj)) collectFroms(v, false);
         };
-        for (const [_, v] of Object.entries(props)) {
+        for (const v of Object.values(props)) {
           // collect froms from nested content, skipping the top-level property itself
           collectFroms(v, true);
         }
@@ -382,7 +382,7 @@ function normalizeResolved(s: Schema, source?: Schema): Schema {
           if (!skipSelf && typeof obj.$ref === 'string') nestedFroms.add(obj.$ref as string);
           for (const v of Object.values(obj)) collectFroms(v, false);
         };
-        for (const [_, v] of Object.entries(propsClone)) collectFroms(v, true);
+        for (const v of Object.values(propsClone)) collectFroms(v, true);
 
         // Build helper sets from nestedFroms: referenced defs by key and by anchor name
         const referencedKeys = new Set<string>();

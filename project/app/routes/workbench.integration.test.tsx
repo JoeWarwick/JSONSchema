@@ -49,12 +49,15 @@ describe('Workbench integration - load unresolved $defs schema', () => {
 
     // Now the SchemaEditorForm should be rendered with root type 'object'
     await waitFor(() => {
-      const typeLabels = screen.getAllByText('Type');
-      expect(typeLabels.length).toBeGreaterThan(0);
-      const typeLabel = typeLabels[0];
-      const select = typeLabel.parentElement?.querySelector('select') as HTMLSelectElement | null;
-      expect(select).toBeInTheDocument();
-      expect(select?.value).toBe('object');
+      // Look for the "Schema" section header
+      const schemaHeaders = screen.getAllByText('Schema');
+      expect(schemaHeaders.length).toBeGreaterThan(0);
+      
+      // Look for the Object pill/button and check if it's selected (bold font-weight)
+      const objectBtns = screen.getAllByRole('button', { name: /^Object$/ });
+      expect(objectBtns.length).toBeGreaterThan(0);
+      // The first one should be the root object button
+      expect(objectBtns[0]).toHaveStyle('font-weight: 700');
     });
   });
 
@@ -79,12 +82,14 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     });
 
     await waitFor(() => {
-      const typeLabels = screen.getAllByText('Type');
-      expect(typeLabels.length).toBeGreaterThan(0);
-      const typeLabel = typeLabels[0];
-      const select = typeLabel.parentElement?.querySelector('select') as HTMLSelectElement | null;
-      expect(select).toBeInTheDocument();
-      expect(select?.value).toBe('object');
+      // Look for the "Schema" section header
+      const schemaHeaders = screen.getAllByText('Schema');
+      expect(schemaHeaders.length).toBeGreaterThan(0);
+      
+      // Look for the Object pill/button and check if it's selected (bold font-weight)
+      const objectBtns = screen.getAllByRole('button', { name: /^Object$/ });
+      expect(objectBtns.length).toBeGreaterThan(0);
+      expect(objectBtns[0]).toHaveStyle('font-weight: 700');
     });
   });
 });
