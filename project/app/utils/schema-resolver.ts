@@ -337,7 +337,12 @@ export function rehydrateToRefs(original: Record<string, any>, edited: Record<st
   }
 
   // Root Sync: Now handle properties and metadata that AREN'T in $defs
-  const { $defs: _unused1, definitions: _unused2, properties: editedProps, ...rootFacets } = edited;
+  const rootProps = { ...edited } as any;
+  delete rootProps.$defs;
+  delete rootProps.definitions;
+  const editedProps = rootProps.properties;
+  delete rootProps.properties;
+  const rootFacets = rootProps;
 
   // Merge metadata / logic facets (oneOf, title, etc)
   Object.assign(out, deepMerge(out, rootFacets));
@@ -374,7 +379,7 @@ export function rehydrateSchema(original: Record<string, any>, edited: Record<st
   return deepMerge(original, edited);
 }
 
-function deepMerge(a: any, b: any, options: any = {}): any {
+function deepMerge(a: any, b: any): any {
   if (a === null || a === undefined) return b;
   if (b === null || b === undefined) return a;
 
@@ -387,12 +392,17 @@ function deepMerge(a: any, b: any, options: any = {}): any {
 
     // If moving from simple/$ref to polymorphic, drop conflicting keys from A
     if (isBPolymorphic && !isAPolymorphic) {
-      const { type: _unusedT, $ref: _unusedR, ...restA } = a;
+      const restA = { ...a };
+      delete restA.type;
+      delete restA.$ref;
       a = restA;
     }
     // If moving from polymorphic back to simple, drop logic keys from A
     if (!isBPolymorphic && isAPolymorphic) {
-      const { oneOf: _u1, anyOf: _u2, oneOnly: _u3, ...restA } = a;
+      const restA = { ...a };
+      delete restA.oneOf;
+      delete restA.anyOf;
+      delete restA.oneOnly;
       a = restA;
     }
   }
