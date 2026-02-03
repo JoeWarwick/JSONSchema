@@ -4,7 +4,7 @@ export const BADGE_DEFS: Record<string, BadgeDef> = {
   typeUnion: {
     key: 'typeUnion',
     condition: (d: any) => Array.isArray(d.typeUnion) && d.typeUnion.length > 0,
-    label: (d: any) => 'union',
+    label: () => 'union',
     tooltip: (d: any) => String((d.typeUnion || []).join(' | ')),
     variant: 'union',
     bg: '#e8f0ff',
@@ -57,7 +57,7 @@ export const BADGE_DEFS: Record<string, BadgeDef> = {
   imported: {
     key: 'imported',
     condition: (d: any) => !!d.imported,
-    label: (d: any) => 'imported',
+    label: () => 'imported',
     tooltip: (d: any) => (d.$ref ? `Imported from ${d.$ref}` : 'Imported definition (create local override to change)'),
     variant: 'imported',
     bg: '#f3e8ff',
@@ -99,15 +99,15 @@ export const BADGE_DEFS: Record<string, BadgeDef> = {
     badgeVisible: true,
   },
   // Hidden/non-badge properties
-  description: { key: 'description', condition: (d: any) => false, label: () => '', variant: 'meta', badgeVisible: false },
-  $comment: { key: '$comment', condition: (d: any) => false, label: () => '', variant: 'meta', badgeVisible: false },
-  patternKey: { key: 'patternKey', condition: (d: any) => false, label: () => '', variant: 'meta', badgeVisible: false },
-  label: { key: 'label', condition: (d: any) => false, label: () => '', variant: 'meta', badgeVisible: false },
-  id: { key: 'id', condition: (d: any) => false, label: () => '', variant: 'meta', badgeVisible: false },
-  parent: { key: 'parent', condition: (d: any) => false, label: () => '', variant: 'meta', badgeVisible: false },
-  items: { key: 'items', condition: (d: any) => false, label: () => '', variant: 'meta', badgeVisible: false },
-  default: { key: 'default', condition: (d: any) => false, label: () => '', variant: 'meta', badgeVisible: false },
-  title: { key: 'title', condition: (d: any) => false, label: () => '', variant: 'meta', badgeVisible: false },
+  description: { key: 'description', condition: () => false, label: () => '', variant: 'meta', badgeVisible: false },
+  $comment: { key: '$comment', condition: () => false, label: () => '', variant: 'meta', badgeVisible: false },
+  patternKey: { key: 'patternKey', condition: () => false, label: () => '', variant: 'meta', badgeVisible: false },
+  label: { key: 'label', condition: () => false, label: () => '', variant: 'meta', badgeVisible: false },
+  id: { key: 'id', condition: () => false, label: () => '', variant: 'meta', badgeVisible: false },
+  parent: { key: 'parent', condition: () => false, label: () => '', variant: 'meta', badgeVisible: false },
+  items: { key: 'items', condition: () => false, label: () => '', variant: 'meta', badgeVisible: false },
+  default: { key: 'default', condition: () => false, label: () => '', variant: 'meta', badgeVisible: false },
+  title: { key: 'title', condition: () => false, label: () => '', variant: 'meta', badgeVisible: false },
 };
 
 import React from 'react';
@@ -146,7 +146,7 @@ export const buildBadges = (data: any) => {
 };
 
 // Helper to render badges using CSS classes and optional tooltips
-export const renderBadges = (badges: any[], data: any) => badges.map((b) => {
+export const renderBadges = (badges: any[]) => badges.map((b) => {
   const cls = `${styles.badge} ${styles['badge_' + (b.variant || 'type')]}`;
   const inlineStyle: any = {};
   if (b.bg) inlineStyle.background = b.bg;

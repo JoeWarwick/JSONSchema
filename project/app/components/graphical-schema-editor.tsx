@@ -10,7 +10,6 @@ import {
 import ReactFlow, {
   ReactFlowProvider,
   addEdge,
-  MiniMap,
   Controls,
   Background,
   useNodesState,
@@ -28,7 +27,6 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
 
   // Ref to store label of selected node before graph rebuild
   const selectedNodeLabelRef = React.useRef<string | null>(null);
-  const [resolvedSchema, setResolvedSchema] = React.useState<Record<string, unknown> | null>(null);
   const initialLoadRef = React.useRef(true);
   const flowWrapperRef = React.useRef<HTMLDivElement | null>(null);
   // Only render ReactFlow when the wrapper has a measured non-zero height.
@@ -141,7 +139,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
             else { target = null; break; }
           }
           if (target && typeof target === 'object') {
-            const { $ref, ...rest } = candidate;
+            const rest = { ...candidate };
+            delete (rest as any).$ref;
             return { ...JSON.parse(JSON.stringify(target)), ...rest };
           }
           return candidate;
@@ -180,7 +179,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       obj = resolveLocalRef(obj);
 
       // Normalize type values so we can handle arrays like ['object','null'] and implicit objects/arrays
-      let rawType = obj.type;
+      const rawType = obj.type;
       let type = Array.isArray(rawType) ? rawType[0] : rawType; // prefer first declared type for display
       if (!type) {
         // If no explicit type, infer type from schema shape
@@ -196,7 +195,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         isRequired = parentRequired.includes(label);
       }
       // Include common annotations so editors stay in sync (default, format, pattern, description, enum)
-      let nodeData: any = { id, label: label || obj.title || (parentId ? type : 'Root'), type, parent: parentId };
+      const nodeData: any = { id, label: label || obj.title || (parentId ? type : 'Root'), type, parent: parentId };
       // Preserve raw type arrays (e.g., ["boolean","number"]) so editors can show unions
       if (Array.isArray(rawType)) nodeData.typeUnion = rawType;
       // Mark nodes that originate from a $ref or external provenance so the UI can show an indicator
@@ -347,11 +346,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     let dagreLib: any = null;
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      // @ts-ignore
       dagreLib = require('dagre');
     } catch (e) {
       // try window global (if loaded externally)
-      // @ts-ignore
       if (typeof window !== 'undefined' && (window as any).dagre) dagreLib = (window as any).dagre;
     }
 
@@ -691,17 +688,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       return;
     }
     if (useTestData) return;
-    // If deref is in progress for a schema that contains $ref/$defs, wait
-    const containsRefs = (s: any): boolean => {
-      if (!s || typeof s !== 'object') return false;
-      if (s.$ref !== undefined) return true;
-      if (s.$defs !== undefined) return true;
-      for (const v of Object.values(s)) {
-        if (containsRefs(v)) return true;
-      }
-      return false;
-    };
-    const activeSchema = resolvedSchema || schema;
+    const activeSchema = schema;
     if (!activeSchema) return;
     // Normalize schema for graph: if top-level is a $ref into $defs, hoist that definition
     const normalizeForGraph = (root: any) => {
@@ -713,7 +700,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
           if (def) {
             // shallow clone and replace internal anchor refs using $defs anchors
             const anchorMap: Record<string, any> = {};
-            for (const [k, v] of Object.entries(root.$defs || {})) {
+            for (const v of Object.values(root.$defs || {})) {
               if ((v as any).$anchor) anchorMap[`#${(v as any).$anchor}`] = v;
             }
             const replaceRefs = (obj: any): any => {
@@ -773,7 +760,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       setEdges(edges);
     }
     // Otherwise, do not reset selection (preserve selection and form)
-  }, [schema, resolvedSchema, setNodes, setEdges, useTestData, schemaToGraph]);
+  }, [schema, setNodes, setEdges, useTestData, schemaToGraph]);
 
   // Note: dereferencing is handled by the top-level reducer/workbench.
 

@@ -67,6 +67,10 @@ export function schemaNodeDataToSchema(node: SchemaNodeData): Record<string, unk
     }
     schema.properties = serializedProps;
   }
+  // Support additionalProperties on object nodes
+  if (node.type === 'object' && (node as any).additionalProperties !== undefined) {
+    schema.additionalProperties = (node as any).additionalProperties;
+  }
   return schema;
 }
 /**
@@ -186,6 +190,17 @@ export function renamePatternPropertyInSchema(schema: Record<string, unknown>, o
   };
 }
 
+/**
+ * Resolves the schema for additionalProperties (which can be boolean or object).
+ * Returns a Record<string, unknown> if allowed, or null if denied (false).
+ */
+export function getAdditionalPropertiesSchema(ap: any): Record<string, unknown> | null {
+  if (ap === false) return null;
+  if (ap === true || ap === undefined) return {};
+  if (typeof ap === 'object' && ap !== null) return ap as Record<string, unknown>;
+  return {};
+}
+
 // schema-behaviors.ts
 // Centralized types and shared edit actions for schema-form and graphical-schema-editor
 
@@ -229,46 +244,11 @@ export interface SchemaNodeData {
   imported?: boolean;
   $ref?: string;
   contentMediaType?: string;
+  additionalProperties?: boolean | Record<string, unknown>;
 }
 
 export interface GraphicalSchemaEditorProps {
   schema: Record<string, unknown>;
   onChange: (schema: Record<string, unknown>) => void;
   useTestData?: boolean;
-}
-
-/**
- * Returns a patch object for a node when its type is changed, applying special behaviors.
- * For example, clearing incompatible fields, setting defaults, etc.
- */
-export function handleTypeChange(newType: SchemaNodeType, prevData: SchemaNodeData): Partial<SchemaNodeData> {
-  const patch: Partial<SchemaNodeData> = { type: newType };
-
-  // Reset fields that are not compatible with the new type
-  if (newType === "array") {
-    patch.ofType = prevData.ofType || "string"; // default to string if not set
-    patch.enum = undefined;
-    patch.default = undefined;
-  } else if (newType === "object") {
-    patch.ofType = undefined;
-    patch.enum = undefined;
-    patch.default = undefined;
-  } else if (["string", "number", "boolean", "null", "image"].includes(newType)) {
-    patch.ofType = undefined;
-    // Keep enum and default for primitives
-  }
-  return patch;
-}
-
-/**
- * Returns a patch object for a node when its ofType is changed (for arrays).
- */
-export function handleOfTypeChange(newOfType: SchemaNodeType, prevData: SchemaNodeData): Partial<SchemaNodeData> {
-  const patch: Partial<SchemaNodeData> = { ofType: newOfType };
-  // If switching to a primitive, allow enum/default; if to object, clear enum/default
-  if (newOfType === "object") {
-    patch.enum = undefined;
-    patch.default = undefined;
-  }
-  return patch;
 }

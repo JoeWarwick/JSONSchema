@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { validateValueAgainstSchema } from "../utils/validation";
 import {
   addPropertyToSchema,
-  removePropertyFromSchema,
   updateNestedPropertyInSchema,
   addPatternPropertyToSchema,
   removePatternPropertyFromSchema,
@@ -10,7 +9,6 @@ import {
   renamePatternPropertyInSchema
 } from "./schema-behaviors";
 import { validateSchema } from "../utils/schema-generator";
-import { ChevronDown, ChevronRight } from "lucide-react";
 import styles from "./schema-editor-form.module.css";
 
 interface SchemaEditorFormProps {
@@ -25,7 +23,7 @@ interface SchemaEditorFormProps {
 
 import { generateSchema } from "../utils/schema-generator";
 
-export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, onPropertyRename, isSchemaImported, instanceData }: SchemaEditorFormProps) {
+export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename, isSchemaImported, instanceData }: SchemaEditorFormProps) {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [defaultError, setDefaultError] = useState<string | null>(null);
   const [editingDefault, setEditingDefault] = useState<string>(String(schema.default ?? ""));
@@ -38,7 +36,8 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
     let nextSchema: Record<string, unknown>;
     // If type is being changed from object to array, hoist the object into items
     if (updates.type === "array" && schema.type === "object") {
-      const { type, ...rest } = schema;
+      const rest = { ...schema };
+      delete (rest as any).type;
       nextSchema = { type: "array", items: { type: "object", ...rest } };
     }
     // If type is being changed from array to object, unhoist the items into the object
@@ -57,12 +56,13 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
     }
     // If type is being changed from string with enum to array, move enum to items
     else if (updates.type === "array" && (schema.type === "string" || !schema.type)) {
-      let items: Record<string, unknown> = { type: "string" };
+      const items: Record<string, unknown> = { type: "string" };
       if (schema.enum) {
         items.enum = schema.enum;
       }
       // Remove enum from root
-      const { enum: _removed, ...rest } = schema;
+      const rest = { ...schema };
+      delete (rest as any).enum;
       nextSchema = { ...rest, ...updates, items };
     } else if (updates.type === "array" && !schema.items) {
       nextSchema = { ...schema, ...updates, items: { type: "string" } };
@@ -118,7 +118,6 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
     return 'string';
   })();
   const renderType = (schema.type as string) ?? inferredRootType;
-  const contentMediaType = (schema.contentMediaType as string | undefined) ?? undefined;
   const defaultIsImported = (node: Record<string, unknown> | null | undefined) => {
     try {
       if (!node || typeof node !== 'object') return false;
@@ -127,11 +126,6 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
   };
 
   const isImported = (isSchemaImported || defaultIsImported)(schema as Record<string, unknown>);
-
-  const removeProperty = (propertyName: string) => {
-    const nextSchema = removePropertyFromSchema(schema, propertyName);
-    updateSchema(nextSchema as any);
-  };
 
   const addProperty = () => {
     const nextSchema = addPropertyToSchema(schema);
@@ -174,9 +168,6 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
   function PatternPropertyRow({ patternKey, subschema }: { patternKey: string; subschema: Record<string, unknown> }) {
     const [keyState, setKeyState] = useState<string>(patternKey);
     const [keyError, setKeyError] = useState<string | null>(null);
-    const [subText, setSubText] = useState<string>(JSON.stringify(subschema, null, 2));
-
-    useEffect(() => setSubText(JSON.stringify(subschema, null, 2)), [subschema]);
 
     const handleKeyBlur = () => {
       const newKey = keyState;
@@ -195,43 +186,34 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
       }
     };
 
-    const handleSubBlur = () => {
-      try {
-        const parsed = JSON.parse(subText);
-        const updated = updatePatternPropertyInSchema(schema, patternKey, parsed);
-        updateSchema(updated);
-      } catch (_e) {
-        // ignore invalid JSON until user fixes
-      }
-    };
-
     return (
-      <div key={patternKey} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
+      <div key={patternKey} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 16, borderLeft: '2px solid #ddd', paddingLeft: 12 }}>
         <div style={{ minWidth: 200, paddingTop: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Regex Pattern</div>
           <input aria-label={`pattern-key-${patternKey}`} value={keyState} onChange={(e) => setKeyState(e.target.value)} onBlur={handleKeyBlur} className={styles.input} />
-          <div style={{ fontSize: 12, color: '#666', marginTop: 6 }}>{String((subschema as any).type || 'schema')}</div>
           {keyError && <div style={{ color: '#b71c1c', fontSize: 12, marginTop: 6 }}>{keyError}</div>}
+          <div style={{ marginTop: 12 }}>
+            <button
+              type="button"
+              className={styles.removeSmall}
+              onClick={() => {
+                const next = removePatternPropertyFromSchema(schema, patternKey);
+                updateSchema(next);
+              }}
+            >
+              Remove Pattern
+            </button>
+          </div>
         </div>
-        <div style={{ flex: 1 }}>
-          <textarea
-            aria-label={`pattern-${patternKey}-editor`}
-            style={{ width: '100%', minHeight: 80, fontFamily: 'monospace', fontSize: 12 }}
-            value={subText}
-            onChange={(e) => setSubText(e.target.value)}
-            onBlur={handleSubBlur}
-          />
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <button
-            type="button"
-            className={styles.removeSmall}
-            onClick={() => {
-              const next = removePatternPropertyFromSchema(schema, patternKey);
-              updateSchema(next);
+        <div style={{ flex: 1, background: '#f9f9f9', padding: 8, borderRadius: 8 }}>
+          <SchemaEditorForm
+            schema={subschema}
+            onChange={(newSub) => {
+              const updated = updatePatternPropertyInSchema(schema, patternKey, newSub);
+              updateSchema(updated);
             }}
-          >
-            Remove
-          </button>
+            path={[...path, "patternProperties", patternKey]}
+          />
         </div>
       </div>
     );
@@ -265,7 +247,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
 
                   // If instance data is available, attempt to use instance keys at the current path
                   // to pre-populate property schemas so we don't add arbitrary fields like "username".
-                  let localProperties: Record<string, unknown> = {};
+                  const localProperties: Record<string, unknown> = {};
                   try {
                     if (instanceData && typeof instanceData === 'object') {
                       // Traverse instanceData according to the editor path to find the relevant object
@@ -287,7 +269,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
                         }
                       }
                     }
-                  } catch (_) {}
+                  } catch (_) { /* ignore */ }
 
                   const overrideObj: Record<string, unknown> = { type: 'object', properties: localProperties };
                   const next: Record<string, unknown> = { allOf: [{ $ref: refStr }, overrideObj] };
@@ -711,6 +693,19 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
           <div className={styles.nestedContainer}>
             <div className={styles.propertiesHeader}>
               <h3 className={styles.propertyTitle}>Properties</h3>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#666', marginBottom: 16 }}>
+                <input
+                  type="checkbox"
+                  checked={schema.additionalProperties === false}
+                  onChange={(e) => {
+                    const next = { ...schema };
+                    if (e.target.checked) next.additionalProperties = false;
+                    else delete next.additionalProperties;
+                    onChange(next);
+                  }}
+                />
+                Strict mode (<code>additionalProperties: false</code>)
+              </label>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <button className={styles.addButton} onClick={addProperty} disabled={(schema.additionalProperties === false) && (!patternProperties || Object.keys(patternProperties).length === 0)}>
                   Add Property
@@ -748,7 +743,6 @@ export function SchemaEditorForm({ schema, onChange, path = [], onViewSource, on
                   propertySchema={propertySchema as Record<string, unknown>}
                   isRequired={((schema.required as string[]) || []).includes(propertyName)}
                   onUpdate={(newValue) => updateNestedProperty(propertyName, newValue)}
-                  onRemove={() => removeProperty(propertyName)}
                   onToggleRequired={() => toggleRequired(propertyName)}
                   onRename={(newName) => updatePropertyName(propertyName, newName)}
                 />
@@ -791,7 +785,6 @@ interface PropertyEditorProps {
   propertySchema: Record<string, unknown>;
   isRequired: boolean;
   onUpdate: (schema: Record<string, unknown>) => void;
-  onRemove: () => void;
   onToggleRequired: () => void;
   onRename: (newName: string) => void;
 }
@@ -809,13 +802,6 @@ function EnumEditor({ values, onChange, type }: EnumEditorProps) {
   useEffect(() => {
     setEditingValues(values);
   }, [values]);
-
-  const addValue = () => {
-    const newValue = type === "number" ? editingValues.length + 1 : `option${editingValues.length + 1}`;
-    const newValues = [...editingValues, newValue];
-    setEditingValues(newValues);
-    onChange(newValues);
-  };
 
   const removeValue = (index: number) => {
     const newValues = editingValues.filter((_, i) => i !== index);
@@ -900,12 +886,11 @@ function PropertyEditor({
   propertySchema,
   isRequired,
   onUpdate,
-  onRemove,
   onToggleRequired,
   onRename,
 }: PropertyEditorProps) {
   const [editingName, setEditingName] = useState(propertyName);
-  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+  const [descriptionExpanded] = useState(false);
 
   return (
     <div className={styles.fieldGroup} data-testid={`prop-${propertyName}`}>

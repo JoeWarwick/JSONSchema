@@ -4,6 +4,7 @@ import '@testing-library/jest-dom';
 import { GraphicalSchemaEditor } from './graphical-schema-editor';
 import { TooltipProvider } from './ui/tooltip/tooltip';
 import { waitFor } from '@testing-library/react';
+import schemastoreWorkflow from '../test-fixtures/schemastore-workflow.json';
 
 describe('GraphicalSchemaEditor - Enum Editing', () => {
 
@@ -672,7 +673,7 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
       </TooltipProvider>
     );
 
-    const noteNode = await screen.findByText('note');
+    await screen.findByText('note');
     const commentTrigger = await screen.findByLabelText('Node comment');
     fireEvent.mouseEnter(commentTrigger);
     fireEvent.focus(commentTrigger);
@@ -911,7 +912,7 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
 
   it('loads a reduced Schemastore GitHub workflow fixture and maps object children/patternProperties', async () => {
     // Use a reduced fixture resembling https://www.schemastore.org/github-workflow.json
-    const fixture = require('../test-fixtures/schemastore-workflow.json');
+    const fixture = schemastoreWorkflow;
     render(<GraphicalSchemaEditor schema={fixture as any} onChange={() => { }} />);
 
     // Top-level 'jobs' should exist

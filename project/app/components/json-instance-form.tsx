@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import styles from "./json-instance-form.module.css";
 import { validateValueAgainstSchema } from "../utils/validation";
+import { getAdditionalPropertiesSchema } from "./schema-behaviors";
 // `useState` already imported above
 
 interface JsonInstanceFormProps {
@@ -349,6 +350,9 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
 
   if (type === "object") {
     const properties = (schema.properties as Record<string, Record<string, unknown>>) || {};
+    const patternProperties = (schema.patternProperties as Record<string, Record<string, unknown>>) || {};
+    const additionalProperties = schema.additionalProperties;
+
     // Only required properties should be present initially
     const required = (schema.required as string[]) || [];
     let objectValue = (value as Record<string, unknown>) || {};
@@ -369,46 +373,57 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
       });
     };
 
-    // Find non-required properties not present in objectValue (skip internal markers)
-    const addableProperties = Object.keys(properties).filter(
-      (key) => !key.startsWith('__') && !required.includes(key) && !(key in objectValue)
-    );
+    const getSchemaForProperty = (key: string): Record<string, unknown> | null => {
+      if (properties[key]) return properties[key];
+      for (const [pattern, subschema] of Object.entries(patternProperties)) {
+        try {
+          if (new RegExp(pattern).test(key)) return subschema;
+        } catch (_) {
+          // invalid regex - skip
+        }
+      }
+      return getAdditionalPropertiesSchema(additionalProperties);
+    };
+
+    // Properties matched by fixed `properties` or existing required keys
+    const fixedKeys = Object.keys(properties).filter(k => !k.startsWith('__'));
+    
+    // keys in instance that are NOT in fixed properties
+    const extraInstanceKeys = Object.keys(objectValue).filter(k => !k.startsWith('__') && !properties[k]);
 
     const handleAddProperty = (key: string) => {
+      const propSchema = getSchemaForProperty(key) || {};
       onChange({
         ...objectValue,
-        [key]: getDefaultValue(properties[key]),
+        [key]: getDefaultValue(propSchema),
       });
     };
 
+    const [newPropKey, setNewPropKey] = useState("");
+
     return (
       <div className={styles.objectContainer}>
-        {Object.entries(properties).filter(([k]) => !k.startsWith('__')).map(([key, propSchema]) => {
+        {/* Render fixed properties */}
+        {fixedKeys.map((key) => {
+          const propSchema = properties[key];
           const isRequired = required.includes(key);
-          // Show if required OR if instance data exists for it
           if (!isRequired && !(key in objectValue)) return null;
           const handleRemoveProperty = () => {
-            const { [key]: _, ...rest } = objectValue;
+            const rest = { ...objectValue };
+            delete rest[key];
             onChange(rest);
           };
           return (
             <div key={key} className={styles.propertyGroup}>
               <div className={styles.propertyHeader}>
                 <span className={styles.propertyName}>
-                  {key.charAt(0).toUpperCase() + key.slice(1)}
+                  {key}
                   {isRequired && <span className={styles.requiredMark}>*</span>}
-                  {(propSchema as any)?.writeOnly && <span style={{ marginLeft: 8, background: '#f0f0f0', padding: '2px 6px', borderRadius: 6, fontSize: 12, color: '#555' }}>writeOnly</span>}
+                  {!!propSchema.writeOnly && <span className={styles.badge} style={{ backgroundColor: '#e8f0ff', color: '#2b6cb0' }}>writeOnly</span>}
+                  {!!propSchema.readOnly && <span className={styles.badge} style={{ backgroundColor: '#f5f5f5', color: '#666' }}>readOnly</span>}
                 </span>
-                {!isRequired && key in objectValue && (
-                  <button
-                    className={styles.removeButton}
-                    type="button"
-                    onClick={handleRemoveProperty}
-                    title={`Remove ${key}`}
-                    style={{ marginLeft: 8 }}
-                  >
-                    ×
-                  </button>
+                {!isRequired && (
+                  <button className={styles.removeButton} type="button" onClick={handleRemoveProperty}>×</button>
                 )}
               </div>
               <JsonInstanceForm
@@ -419,20 +434,100 @@ export function JsonInstanceForm({ schema, value, onChange }: JsonInstanceFormPr
             </div>
           );
         })}
-        {addableProperties.length > 0 && (
-          <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-            {addableProperties.map((key) => (
+
+        {/* Render pattern/additional properties already in instance */}
+        {extraInstanceKeys.map((key) => {
+          const propSchema = getSchemaForProperty(key);
+          if (!propSchema) {
+            return (
+              <div key={key} className={styles.propertyGroup} style={{ border: '1px solid #ffcdd2' }}>
+                <div className={styles.propertyHeader}>
+                  <span className={styles.propertyName} style={{ color: '#d32f2f' }}>{key} (unexpected)</span>
+                  <button className={styles.removeButton} type="button" onClick={() => {
+                    const rest = { ...objectValue };
+                    delete rest[key];
+                    onChange(rest);
+                  }}>×</button>
+                </div>
+                <div style={{ fontSize: 12, color: '#d32f2f', padding: '4px 8px' }}>
+                  Property not allowed by schema (additionalProperties: false)
+                </div>
+              </div>
+            );
+          }
+          return (
+            <div key={key} className={styles.propertyGroup}>
+              <div className={styles.propertyHeader}>
+                <span className={styles.propertyName}>
+                  {key} <span style={{ fontSize: 11, color: '#666', fontWeight: 400 }}>(matched)</span>
+                  {!!propSchema.writeOnly && <span className={styles.badge} style={{ backgroundColor: '#e8f0ff', color: '#2b6cb0' }}>writeOnly</span>}
+                  {!!propSchema.readOnly && <span className={styles.badge} style={{ backgroundColor: '#f5f5f5', color: '#666' }}>readOnly</span>}
+                </span>
+                <button className={styles.removeButton} type="button" onClick={() => {
+                  const rest = { ...objectValue };
+                  delete rest[key];
+                  onChange(rest);
+                }}>×</button>
+              </div>
+              <JsonInstanceForm
+                schema={propSchema}
+                value={objectValue[key]}
+                onChange={(newValue) => updateProperty(key, newValue)}
+              />
+            </div>
+          );
+        })}
+
+        {/* Add defined properties */}
+        {fixedKeys.filter(k => !required.includes(k) && !(k in objectValue)).length > 0 && (
+          <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {fixedKeys.filter(k => !required.includes(k) && !(k in objectValue)).map((key) => (
               <button
                 key={key}
                 className={styles.addButton}
                 type="button"
                 onClick={() => handleAddProperty(key)}
-                title={`Add ${key}`}
-                style={{ padding: '0 12px', fontSize: '1em', borderRadius: '16px', display: 'flex', alignItems: 'center', height: 32 }}
               >
-                +{key.charAt(0).toUpperCase() + key.slice(1)}
+                +{key}
               </button>
             ))}
+          </div>
+        )}
+
+        {/* Add arbitrary property (if matches pattern or additionalProperties allowed) */}
+        {(Object.keys(patternProperties).length > 0 || additionalProperties !== false) && (
+          <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+            <input
+              className={styles.input}
+              style={{ width: 160, height: 32, fontSize: 13 }}
+              placeholder="New property name..."
+              value={newPropKey}
+              onChange={e => setNewPropKey(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && newPropKey.trim()) {
+                  const key = newPropKey.trim();
+                  if (!(key in objectValue)) {
+                    const sch = getSchemaForProperty(key);
+                    if (sch) {
+                      handleAddProperty(key);
+                      setNewPropKey("");
+                    }
+                  }
+                }
+              }}
+            />
+            <button
+              className={styles.addButton}
+              type="button"
+              disabled={!newPropKey.trim() || !!getSchemaForProperty(newPropKey.trim()) === false || (newPropKey.trim() in objectValue)}
+              onClick={() => {
+                const key = newPropKey.trim();
+                handleAddProperty(key);
+                setNewPropKey("");
+              }}
+            >
+              + Add
+            </button>
           </div>
         )}
       </div>
@@ -624,13 +719,14 @@ function getDefaultValue(schema: Record<string, unknown>): unknown {
       return 0;
     case "boolean":
       return false;
-    case "object":
+    case "object": {
       const properties = (schema.properties as Record<string, Record<string, unknown>>) || {};
       const obj: Record<string, unknown> = {};
       Object.entries(properties).forEach(([key, propSchema]) => {
         obj[key] = getDefaultValue(propSchema);
       });
       return obj;
+    }
     case "array":
       return [];
     case "null":

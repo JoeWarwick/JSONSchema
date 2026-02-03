@@ -1,4 +1,4 @@
-import { validateValueAgainstSchema } from './validation';
+import { validateValueAgainstSchema, flattenSchemaAllOf } from './validation';
 
 describe('validateValueAgainstSchema', () => {
   test('allows empty values', () => {
@@ -37,5 +37,27 @@ describe('validateValueAgainstSchema', () => {
     expect(validateValueAgainstSchema('not-a-date', { format: 'date-time' } as any)).toMatch(/date-time/i);
     expect(validateValueAgainstSchema('not-email', { format: 'email' } as any)).toMatch(/email/i);
     expect(validateValueAgainstSchema('999.999.999.999', { format: 'ipv4' } as any)).toMatch(/IPv4/i);
+  });
+
+  test('validates oneOf union semantics', () => {
+    const schema = { oneOf: [{ type: 'string' }, { type: 'number' }] } as any;
+    expect(validateValueAgainstSchema('abc', schema)).toBeNull();
+    expect(validateValueAgainstSchema(123, schema)).toBeNull();
+    const err = validateValueAgainstSchema(true, schema);
+    expect(err).toMatch(/oneOf|exactly one/i);
+  });
+
+  test('flattens allOf using merge helper', () => {
+    const schema = {
+      allOf: [
+        { type: 'object', properties: { a: { type: 'string' } } },
+        { properties: { b: { type: 'number' } } }
+      ]
+    } as any;
+    const merged = flattenSchemaAllOf(schema);
+    expect(merged).toBeDefined();
+    expect((merged as any).properties).toBeDefined();
+    expect((merged as any).properties.a).toBeDefined();
+    expect((merged as any).properties.b).toBeDefined();
   });
 });

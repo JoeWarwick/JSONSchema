@@ -1,7 +1,6 @@
 import React from 'react';
 import { validateValueAgainstSchema } from "../utils/validation";
 import styles from "./graphical-schema-editor.module.css";
-import type { Node as FlowNode } from 'reactflow';
 import type { NodeData, NodePropertyEditorProps } from './types';
 
 export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, onChange }) => {
@@ -117,11 +116,11 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     }
     // If type is being changed from string with enum to array, move enum to items
     else if (newType === 'array' && (prevType === 'string' || !prevType)) {
-      let items: Record<string, unknown> = { type: 'string' };
+      const items: Record<string, unknown> = { type: 'string' };
       if (data.enum) {
         items.enum = data.enum;
       }
-      const { enum: _removed, ...rest } = data;
+      const rest = { ...data };
       patch = { ...rest, type: 'array', ofType: 'string', items, ...override };
     } else if (newType === 'array' && !data.items) {
       patch = { ...data, type: 'array', ofType: override?.ofType || ofType || 'string', items: { type: override?.ofType || ofType || 'string' }, ...override };
@@ -206,6 +205,9 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     else base.readOnly = override?.readOnly ?? readOnlyFlag;
     if (override && Object.prototype.hasOwnProperty.call(override, 'deprecated')) base.deprecated = override.deprecated;
     else base.deprecated = override?.deprecated ?? deprecatedFlag;
+    // support additionalProperties
+    if (override && Object.prototype.hasOwnProperty.call(override, 'additionalProperties')) (base as any).additionalProperties = override.additionalProperties;
+    else (base as any).additionalProperties = (data as any).additionalProperties;
     // If this node is the internal image type, ensure we include sensible defaults
     if (base.type === 'image') {
       if (!base.format) base.format = base.format ?? 'data-url';
@@ -251,11 +253,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
       }, 0);
     }
   };
-
-  const handleTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setType(e.target.value);
-    onChange(buildPatchWithAnnotations({ type: e.target.value }));
-  };
+  
   const handleOfTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setOfType(e.target.value);
     onChange(buildPatchWithAnnotations({ ofType: e.target.value }));
@@ -354,17 +352,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
             style={{ width: '100%', marginTop: 6, padding: 6, borderRadius: 6, border: '1px solid #ccc', minHeight: 64 }}
           />
         </div>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 700, marginTop: 8 }}>Comment ($comment)</div>
-          <input
-            value={comment ?? ''}
-            onChange={e => setComment(e.target.value)}
-            onBlur={() => onChange(buildPatchWithAnnotations({ $comment: comment }))}
-            placeholder="Internal comment for editors"
-            aria-label="Comment ($comment)"
-            style={{ width: '100%', marginTop: 6, padding: 4, borderRadius: 4, border: '1px solid #ccc' }}
-          />
-        </div>
+
       </>
 
       <div>
@@ -412,7 +400,39 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
           </select>
         </div>
       )}
-      {node.data.hasOwnProperty('required') && !isRoot && (
+      {type === 'object' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={data.additionalProperties === false}
+              onChange={e => {
+                onChange(buildPatchWithAnnotations({ additionalProperties: e.target.checked ? false : undefined }));
+              }}
+            />
+            <span style={{ fontSize: 13 }}>additionalProperties</span>
+          </label>
+          {comment === undefined ? (
+            <button type="button" onClick={() => { setComment(''); onChange(buildPatchWithAnnotations({ $comment: '' })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6, width: 'fit-content' }}>+ Comment</button>
+          ) : (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, marginTop: 8 }}>Comment</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
+                <input
+                  value={comment ?? ''}
+                  onChange={e => setComment(e.target.value)}
+                  onBlur={() => onChange(buildPatchWithAnnotations({ $comment: comment }))}
+                  placeholder="Internal comment for editors"
+                  aria-label="Comment ($comment)"
+                  style={{ flex: 1, padding: 4, borderRadius: 4, border: '1px solid #ccc' }}
+                />
+                <button type="button" onClick={() => { setComment(undefined); onChange(buildPatchWithAnnotations({ $comment: undefined })); }} className={styles.removeControl} title="Remove comment">×</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {Object.prototype.hasOwnProperty.call(node.data, 'required') && !isRoot && (
         <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <input type="checkbox" checked={required} onChange={handleRequiredChange} aria-label="Required" /> Required
         </label>
@@ -640,6 +660,23 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
               {multipleOfError && <div style={{ color: '#e53935', fontSize: 12, marginTop: 6 }}>{multipleOfError}</div>}
             </div>
           ))}
+
+          {/* Comment (appears in the dashed options flow) */}
+          {comment === undefined ? (
+            <button type="button" onClick={() => { setComment(''); onChange(buildPatchWithAnnotations({ $comment: '' })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Comment</button>
+          ) : (
+            <div style={{ width: '100%', display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input
+                value={comment ?? ''}
+                onChange={e => setComment(e.target.value)}
+                onBlur={() => onChange(buildPatchWithAnnotations({ $comment: comment }))}
+                placeholder="Internal comment for editors"
+                aria-label="Comment ($comment)"
+                style={{ flex: 1, padding: 4, borderRadius: 4, border: '1px solid #ccc' }}
+              />
+              <button type="button" onClick={() => { setComment(undefined); onChange(buildPatchWithAnnotations({ $comment: undefined })); }} className={styles.removeControl} title="Remove comment">×</button>
+            </div>
+          )}
 
           {/* uniqueItems and min/max items for arrays */}
           {type === 'array' && (

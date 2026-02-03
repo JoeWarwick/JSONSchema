@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useReducer } from "react";
 import useAsyncMemo from "~/hooks/useAsyncMemo";
-import { Sparkles, Copy, Check, X, Upload, Link as LinkIcon, Download, FileUp } from "lucide-react";
+import { Sparkles, Copy, Check, X, Link as LinkIcon, Download, FileUp } from "lucide-react";
 import styles from "./workbench.module.css";
 import { generateSchema, isValidJSON } from "~/utils/schema-generator";
 import schemaReducer, { initialSchemaState, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, ensureResolved, getPersistableSource, getEditorSchema } from "~/state/schemaReducer";
@@ -15,7 +15,6 @@ function renamePropertyInObject(obj: any, oldName: string, newName: string) {
   return newObj;
 }
 import { SchemaEditorForm } from "~/components/schema-editor-form";
-import { resolveSchema } from "~/utils/schema-resolver";
 import { JsonInstanceForm } from "~/components/json-instance-form";
 
 import { GraphicalSchemaEditor } from "~/components/graphical-schema-editor";
@@ -149,7 +148,6 @@ export default function Workbench() {
   const buildCompactJson = (text: string) => {
     try {
       const parsed = JSON.parse(text);
-      const seen = new WeakSet();
       const compact = JSON.stringify(parsed, function (_k, v) {
         if (typeof v === 'string') {
           if (v.startsWith('data:') || v.length > 160) return truncateString(v, 160);
@@ -160,7 +158,7 @@ export default function Workbench() {
       return compact;
     } catch (_) {
       // Fallback: replace data:... tokens heuristically
-      return String(text).replace(/(data:[^\s\"\'\)\]]{80,})/g, (m) => truncateString(m, 160));
+      return String(text).replace(/(data:[^\s"'))\]]{80,})/g, (m) => truncateString(m, 160));
     }
   };
 
@@ -173,7 +171,9 @@ export default function Workbench() {
       if (cancelled) return;
       try {
         await ensureResolved(dispatch, state.source);
-      } catch (_) {}
+      } catch (_) {
+        /* ignore error */
+      }
     })();
     return () => { cancelled = true; };
   }, [state.source]);
@@ -253,7 +253,9 @@ export default function Workbench() {
       try {
         const parsed = JSON.parse(content);
         setInstanceData(parsed);
-      } catch {}
+      } catch {
+        // invalid JSON
+      }
     };
     reader.onerror = () => {
       setError("Failed to read file");
@@ -374,7 +376,9 @@ export default function Workbench() {
       const w = window as any;
       if (!w.__tabDebug) w.__tabDebug = [];
       w.__tabDebug.push({ type: 'init', activeTab, timestamp: Date.now() });
-    } catch (e) {}
+    } catch (e) {
+      /* ignore */
+    }
   }, []);
 
   useEffect(() => {
@@ -382,7 +386,9 @@ export default function Workbench() {
       const w = window as any;
       if (!w.__tabDebug) w.__tabDebug = [];
       w.__tabDebug.push({ type: 'tab-change', activeTab, timestamp: Date.now() });
-    } catch (e) {}
+    } catch (e) {
+      /* ignore */
+    }
   }, [activeTab]);
 
   useEffect(() => {
@@ -391,8 +397,12 @@ export default function Workbench() {
       if (!w.__tabDebug) w.__tabDebug = [];
       const entry = { type: 'schema-load', used: state.resolvedCache ? 'resolved' : state.source ? 'source' : 'none', timestamp: Date.now(), hasSource: !!state.source, hasResolved: !!state.resolvedCache };
       w.__tabDebug.push(entry);
-      try { w.__lastSchemaLoad = { ...entry, resolvedCache: state.resolvedCache || null, source: state.source || null }; } catch (_) {}
-    } catch (e) {}
+      try { w.__lastSchemaLoad = { ...entry, resolvedCache: state.resolvedCache || null, source: state.source || null }; } catch (_) {
+        /* ignore */
+      }
+    } catch (e) {
+      /* ignore */
+    }
   }, [state.resolvedCache, state.source]);
 
   // Compute editor schema asynchronously and memoize it so expensive
@@ -423,7 +433,9 @@ export default function Workbench() {
     try {
       // eslint-disable-next-line no-console
       console.info('[Workbench] Schema passed to editors:', editorSchema);
-    } catch (_) {}
+    } catch (_) {
+      /* ignore */
+    }
   }, [editorSchema]);
 
   return (
@@ -627,8 +639,8 @@ export default function Workbench() {
                   <label style={{ fontSize: 13, color: '#666' }}>
                     View:
                   </label>
-                  <button className={styles.controlButton} onClick={() => setCompactJsonView(false)} disabled={!compactJsonView}>Full</button>
-                  <button className={styles.controlButton} onClick={() => setCompactJsonView(true)} disabled={compactJsonView}>Compact</button>
+                  <button className={styles.controlButton} onClick={() => setCompactJsonView(false)} disabled={compactJsonView}>Full</button>
+                  <button className={styles.controlButton} onClick={() => setCompactJsonView(true)} disabled={!compactJsonView}>Compact</button>
                 </div>
                 {compactJsonView ? (
                   <div className={`${styles.jsonInput} ${error ? styles.error : ""}`} style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', padding: 12, borderRadius: 6, width: '100%', height: '100%', minHeight: 240, boxSizing: 'border-box', overflow: 'auto', color: 'inherit' }}>
@@ -648,7 +660,9 @@ export default function Workbench() {
                       try {
                         const parsed = JSON.parse(e.target.value);
                         setInstanceData(parsed);
-                      } catch {}
+                      } catch {
+                        // ignore invalid
+                      }
                     }}
                     placeholder="Paste your JSON here..."
                     spellCheck={false}

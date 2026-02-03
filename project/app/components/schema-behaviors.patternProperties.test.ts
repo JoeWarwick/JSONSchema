@@ -36,4 +36,30 @@ describe('patternProperties helpers', () => {
     const next = updatePatternPropertyInSchema(schema, '^pat$', newSub);
     expect((next.patternProperties as Record<string, any>)['^pat$']).toEqual(newSub);
   });
+
+  test('renames a pattern property key', () => {
+    const { renamePatternPropertyInSchema } = require('./schema-behaviors');
+    const schema = { type: 'object', patternProperties: { '^old$': { type: 'string' } } } as Record<string, any>;
+    const next = renamePatternPropertyInSchema(schema, '^old$', '^new$');
+    expect(next.patternProperties).toEqual({ '^new$': { type: 'string' } });
+  });
+
+  test('enforces uniqueness when renaming pattern property key', () => {
+    const { renamePatternPropertyInSchema } = require('./schema-behaviors');
+    const schema = { 
+      type: 'object', 
+      patternProperties: { 
+        '^pat1$': { type: 'string' },
+        '^pat2$': { type: 'number' }
+      } 
+    } as Record<string, any>;
+    // try to rename pat1 to pat2
+    const next = renamePatternPropertyInSchema(schema, '^pat1$', '^pat2$');
+    // should have both, but with suffix on the new one
+    const keys = Object.keys(next.patternProperties);
+    expect(keys).toContain('^pat2$');
+    expect(keys).toContain('^pat2$_1');
+    expect(next.patternProperties['^pat2$']).toEqual({ type: 'number' });
+    expect(next.patternProperties['^pat2$_1']).toEqual({ type: 'string' });
+  });
 });

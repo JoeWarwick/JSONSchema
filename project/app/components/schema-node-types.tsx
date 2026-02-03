@@ -12,7 +12,7 @@ import type { SchemaNodeType } from './types';
 import { renderBadges } from './graphical-schema-badges';
 
 // Group box for Properties/Items
-export const GroupBox = ({ title, children }: { title: string; children: React.ReactNode }) => (
+export const GroupBox = ({ children }: { title: string; children: React.ReactNode }) => (
   <div style={{
     background: '#e8fbe8',
     border: '2px dashed #7ed957',
@@ -41,8 +41,7 @@ export const GroupBox = ({ title, children }: { title: string; children: React.R
 
 // Enum node component for displaying enum type (no inline editor)
 export const EnumNode = ({ data }: { data: SchemaNodeData & { enum: string[] } }) => {
-  const { label, type, ofType, enum: enumVals, required } = data;
-  const baseType = ofType || type || 'string';
+  const { label, required } = data;
   const badges = buildBadges(data);
   return (
     <div style={{
@@ -94,7 +93,7 @@ export const EnumNode = ({ data }: { data: SchemaNodeData & { enum: string[] } }
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
-        {renderBadges(badges, data)}
+        {renderBadges(badges)}
       </div>
       <Handle type="source" position={Position.Right} style={{ background: '#00e676', width: 10, height: 10, borderRadius: 5 }} />
     </div>
@@ -103,7 +102,7 @@ export const EnumNode = ({ data }: { data: SchemaNodeData & { enum: string[] } }
 
 // Custom node component that renders all data properties
 export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boolean } }) => {
-  const { label, type, ofType, required } = data;
+  const { label, required } = data;
   const isPattern = Boolean((data as any).patternKey);
   const badges = buildBadges(data);
   return (
@@ -157,7 +156,7 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-        {renderBadges(badges, data)}
+        {renderBadges(badges)}
         {Object.entries(data).map(([key, value]) => {
           if (value === undefined) return null;
           const hidden = ['label', 'id', 'parent', 'type', 'ofType', 'required', 'enum', 'items', 'default', 'title', 'description', '$comment', 'patternKey', 'typeUnion'];
