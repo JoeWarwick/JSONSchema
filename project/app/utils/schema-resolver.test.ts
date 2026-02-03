@@ -27,8 +27,7 @@ describe('schema-resolver fallback behavior', () => {
 
     const resolved = await resolveSchema(unresolved as any) as any;
     // debug output for CI/local runs
-    // eslint-disable-next-line no-console
-    // debug log removed
+    // (removed temporary debug log)
 
     // Expect a root object with properties containing `order`
     expect(resolved).toBeTruthy();

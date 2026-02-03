@@ -125,7 +125,9 @@ export async function resolveSchema(schema: Record<string, unknown> | null): Pro
         }
         obj = out;
       } else if (dk && obj.properties) {
-        obj.properties = { ...(obj.properties || {}), ...(obj[dk] || {}) };
+        // Ensure existing explicit properties on the object take precedence
+        // over `$defs` entries to avoid overwriting inlined local refs.
+        obj.properties = { ...(obj[dk] || {}), ...(obj.properties || {}) };
       }
       if (obj.$defs) delete obj.$defs;
       if (obj.definitions) delete obj.definitions;
