@@ -585,9 +585,9 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                         if (m) {
                           const url = m[0];
                           const parts = s.split(url);
-                          return (<div>{parts[0]}<a href={url} target="_blank" rel="noreferrer noopener">{url}</a>{parts.slice(1).join(url)}</div>);
+                          return (<div className={styles.fallbackTooltip} role="tooltip">{parts[0]}<a href={url} target="_blank" rel="noreferrer noopener">{url}</a>{parts.slice(1).join(url)}</div>);
                         }
-                        return (<div>{s}</div>);
+                        return (<div className={styles.fallbackTooltip} role="tooltip">{s}</div>);
                       })()}
 
                       {!isRequired && (
@@ -865,9 +865,9 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                           if (m) {
                             const url = m[0];
                             const parts = s.split(url);
-                            return (<div>{parts[0]}<a href={url} target="_blank" rel="noreferrer noopener">{url}</a>{parts.slice(1).join(url)}</div>);
+                            return (<div className={styles.fallbackTooltip} role="tooltip">{parts[0]}<a href={url} target="_blank" rel="noreferrer noopener">{url}</a>{parts.slice(1).join(url)}</div>);
                           }
-                          return (<div>{s}</div>);
+                          return (<div className={styles.fallbackTooltip} role="tooltip">{s}</div>);
                         })()}
                       </>
                     ) : (
