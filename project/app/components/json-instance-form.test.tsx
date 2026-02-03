@@ -259,6 +259,8 @@ describe('JsonInstanceForm extras', () => {
     const onChange = jest.fn();
     renderForm(<JsonInstanceForm schema={schema} value={{ jobs: {} }} onChange={onChange} />);
 
+
+
     // Find the jobs property group by locating the label 'Jobs'
     const label = screen.getByText('Jobs');
 
@@ -274,6 +276,114 @@ describe('JsonInstanceForm extras', () => {
     const jobLinks = await screen.findAllByRole('link', { name: /https?:\/\/example\.com\/jobs/ });
     expect(jobLinks.length).toBeGreaterThan(0);
 
+  });
+
+  test('renders variant chips for anyOf property', () => {
+    const schema: any = {
+      type: 'object',
+      properties: {
+        'runs-on': {
+          description: 'The type of machine to run the job on.',
+          anyOf: [
+            { title: 'GitHub Hosted', type: 'string', enum: ['ubuntu-latest'] },
+            { title: 'Self Hosted', type: 'string' }
+          ]
+        }
+      }
+    };
+    const onChange = jest.fn();
+    // Make sure the property exists in the value so its editor renders
+    renderForm(<JsonInstanceForm schema={schema} value={{ 'runs-on': undefined }} onChange={onChange} />);
+    // The variant chips should be visible for runs-on
+    const githubBtn = screen.getByRole('button', { name: /GitHub Hosted/i });
+    const selfBtn = screen.getByRole('button', { name: /Self Hosted/i });
+    expect(githubBtn).toBeTruthy();
+    expect(selfBtn).toBeTruthy();
+
+    // None should be selected initially (anyOf defaults to no selections)
+    expect(githubBtn.getAttribute('aria-pressed')).toBe('false');
+    expect(selfBtn.getAttribute('aria-pressed')).toBe('false');
+
+    // Label should indicate multi-select options
+    expect(screen.getByText('Choose the options')).toBeTruthy();
+  });
+
+  test('required polymorphic property renders unselected chips by default', () => {
+    const schema: any = {
+      type: 'object',
+      properties: {
+        job: {
+          type: 'object',
+          properties: {
+            'runs-on': {
+              anyOf: [
+                { title: 'GitHub Hosted', type: 'string' },
+                { title: 'Self Hosted', type: 'string' }
+              ]
+            }
+          },
+          required: ['runs-on']
+        }
+      },
+      required: ['job']
+    };
+    const onChange = jest.fn();
+    renderForm(<JsonInstanceForm schema={schema} value={undefined} onChange={onChange} />);
+    const githubBtn = screen.getByRole('button', { name: /GitHub Hosted/i });
+    const selfBtn = screen.getByRole('button', { name: /Self Hosted/i });
+    expect(githubBtn.getAttribute('aria-pressed')).toBe('false');
+    expect(selfBtn.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  test('anyOf property with empty-string value has no chips selected', () => {
+    const schema: any = {
+      type: 'object',
+      properties: {
+        'runs-on': {
+          description: 'The type of machine to run the job on.',
+          anyOf: [
+            { title: 'GitHub Hosted', type: 'string', enum: ['ubuntu-latest'] },
+            { title: 'Self Hosted', type: 'string' }
+          ]
+        }
+      }
+    };
+    const onChange = jest.fn();
+    // value contains an empty string which should be treated as 'no selection'
+    renderForm(<JsonInstanceForm schema={schema} value={{ 'runs-on': '' }} onChange={onChange} />);
+    const githubBtn = screen.getByRole('button', { name: /GitHub Hosted/i });
+    const selfBtn = screen.getByRole('button', { name: /Self Hosted/i });
+    expect(githubBtn.getAttribute('aria-pressed')).toBe('false');
+    expect(selfBtn.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  test('clicking anyOf chip populates default and shows content', () => {
+    const schema: any = {
+      type: 'object',
+      properties: {
+        'runs-on': {
+          description: 'The type of machine to run the job on.',
+          anyOf: [
+            { title: 'GitHub Hosted', type: 'string', enum: ['ubuntu-latest'] },
+            { title: 'Self Hosted', type: 'string' }
+          ]
+        }
+      }
+    };
+    const onChange = jest.fn();
+    const { rerender } = renderForm(<JsonInstanceForm schema={schema} value={{ 'runs-on': undefined }} onChange={onChange} />);
+    const githubBtn = screen.getByRole('button', { name: /GitHub Hosted/i });
+    fireEvent.click(githubBtn);
+    expect(onChange).toHaveBeenCalled();
+    const called = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    // The parent will be updated with the property set to the default value
+    const newVal = typeof called === 'object' && called['runs-on'] !== undefined ? called['runs-on'] : called;
+    // Simulate parent updating the value prop and rerendering
+    act(() => rerender(<TooltipProvider><JsonInstanceForm schema={schema} value={{ 'runs-on': newVal }} onChange={onChange} /></TooltipProvider>));
+    // Now the input/select for the selected variant should appear and the chip should be selected
+    expect(screen.queryByPlaceholderText('Enter value...') || screen.queryByRole('combobox')).toBeTruthy();
+    const githubBtnAfter = screen.getByRole('button', { name: /GitHub Hosted/i });
+    expect(githubBtnAfter.getAttribute('aria-pressed')).toBe('true');
   });
 
 

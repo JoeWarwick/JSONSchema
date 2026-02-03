@@ -368,6 +368,13 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
     const sourceVariants = Array.isArray(schema.anyOf) ? (schema.anyOf as any[]) : (renderVariants ?? []);
     const isAny = !!sourceVariants && sourceVariants.length > 0;
     if (!isAny) { setSelectedAnyIndices([]); return; }
+
+    // Treat an empty-string value as "no selection" for anyOf. The validator
+    // intentionally returns null for empty primitives (to preserve legacy
+    // behavior for simple inputs) but that caused empty strings to match every
+    // anyOf variant. Explicitly handle '' as an absent value here.
+    if (value === '') { setSelectedAnyIndices([]); return; }
+
     const idxs: number[] = [];
     if (Array.isArray(value)) {
       for (let i = 0; i < sourceVariants.length; i++) {
@@ -382,9 +389,29 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
         if (validateValueAgainstSchema(value, vs) === null) idxs.push(i);
       }
     } else if (value !== undefined) {
-      for (let i = 0; i < sourceVariants.length; i++) {
-        const vs = sourceVariants[i];
-        if (validateValueAgainstSchema(value, vs) === null) idxs.push(i);
+      // For primitive values prefer explicit enum matches so a value like
+      // 'ubuntu-latest' does not accidentally mark every string-typed variant
+      // as selected. If no enum matches are found, fall back to validation
+      // behavior.
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        const enumMatches: number[] = [];
+        for (let i = 0; i < sourceVariants.length; i++) {
+          const vs = sourceVariants[i];
+          if (Array.isArray((vs as any).enum) && (vs as any).enum.includes(value)) enumMatches.push(i);
+        }
+        if (enumMatches.length > 0) {
+          idxs.push(...enumMatches);
+        } else {
+          for (let i = 0; i < sourceVariants.length; i++) {
+            const vs = sourceVariants[i];
+            if (validateValueAgainstSchema(value, vs) === null) idxs.push(i);
+          }
+        }
+      } else {
+        for (let i = 0; i < sourceVariants.length; i++) {
+          const vs = sourceVariants[i];
+          if (validateValueAgainstSchema(value, vs) === null) idxs.push(i);
+        }
       }
     }
     setSelectedAnyIndices(idxs);
@@ -408,7 +435,8 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
   };
 
   if (hasVariants) {
-    const label = (schema.title as string) || "Choose an option";
+    const isAnyType = Array.isArray(schema.anyOf) && schema.anyOf.length > 0;
+    const label = (schema.title as string) || (isAnyType ? "Choose the options" : "Choose an option");
     const matchesAny = renderVariants!.some((vs) => validateValueAgainstSchema(value, vs) === null);
     return (
       <TooltipProvider>
@@ -455,6 +483,18 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
             {selectedVariantIndex >= 0 && oneVariants && (
               <JsonInstanceForm schema={oneVariants[selectedVariantIndex]} value={value} onChange={onChange} path={path} />
             )}
+
+            {/* For anyOf (multi-select) when a single option is selected, render the
+                editor for that selected variant so the user can edit the default
+                instance that was just added. For multiple selections we do not
+                attempt to render a merged editor here. */}
+            {isAnyType && Array.isArray(selectedAnyIndices) && selectedAnyIndices.length === 1 && (() => {
+              const src = Array.isArray(schema.anyOf) ? (schema.anyOf as any[]) : (renderVariants ?? []);
+              const idx = selectedAnyIndices[0];
+              const vs = src[idx];
+              if (!vs) return null;
+              return <JsonInstanceForm schema={vs} value={value} onChange={onChange} path={path} />;
+            })()}
           </div>
         </div>
       </TooltipProvider>
@@ -655,12 +695,16 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
     // Only required properties should be present initially
     const required = (schema.required as string[]) || [];
     let objectValue = (value as Record<string, unknown>) || {};
-    // If value is empty, initialize with only required properties
+    // If value is empty, initialize with only required properties. For polymorphic
+    // properties (oneOf/anyOf/oneOnly) we leave the property as undefined so the
+    // variant editor renders but does not auto-select a variant by default.
     if (Object.keys(objectValue).length === 0 && Object.keys(properties).length > 0) {
       objectValue = {};
       required.forEach((key) => {
         if (properties[key]) {
-          objectValue[key] = getDefaultValue(properties[key]);
+          const propSchema = properties[key] as any;
+          const isPoly = Array.isArray(propSchema.oneOf) || Array.isArray(propSchema.anyOf) || Array.isArray(propSchema.oneOnly);
+          objectValue[key] = isPoly ? undefined : getDefaultValue(propSchema);
         }
       });
     }
@@ -1189,8 +1233,15 @@ function getDefaultValue(schema: Record<string, unknown>): unknown {
   if (schema.oneOf && Array.isArray(schema.oneOf) && schema.oneOf.length > 0) {
     return getDefaultValue(schema.oneOf[0] as Record<string, unknown>);
   }
+  // Do not auto-default `anyOf` variants. anyOf is multi-select; the editor
+  // should render options but start with no selections by default.
   if (schema.anyOf && Array.isArray(schema.anyOf) && schema.anyOf.length > 0) {
-    return getDefaultValue(schema.anyOf[0] as Record<string, unknown>);
+    // Return undefined so parent object defaulting does not populate polymorphic
+    // sub-properties with a primitive default (which would be treated as an
+    // existing value and accidentally select chips). Returning undefined
+    // keeps the nested property effectively 'absent' to the child editor so
+    // it can render options with no initial selection.
+    return undefined;
   }
 
   const type = schema.type as string || (schema.properties ? 'object' : 'string');
