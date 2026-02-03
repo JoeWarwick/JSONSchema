@@ -14,7 +14,8 @@ interface JsonInstanceFormProps {
 
 export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonInstanceFormProps) {
   const explicitType = schema.type as string | undefined;
-  const type = explicitType ?? (Array.isArray(value) ? 'array' : (value && typeof value === 'object' ? 'object' : 'string'));
+  const hasSchemaProps = !!(schema.properties || schema.patternProperties || schema.additionalProperties);
+  const type = explicitType ?? (hasSchemaProps ? 'object' : (Array.isArray(value) ? 'array' : (value && typeof value === 'object' ? 'object' : 'string')));
   const storageKey = 'json-instance:' + (schema && typeof (schema.title as any) === 'string' ? schema.title : (schema.$id ? schema.$id : JSON.stringify(schema)));
   const pathKey = path.join('.');
   const variantMemoryKey = `json-instance-variants:${storageKey}:${pathKey}`;
@@ -22,6 +23,11 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
   const [inputError, setInputError] = useState<string | null>(null);
   const [newPropKey, setNewPropKey] = useState("");
   const [currentIndexMap, setCurrentIndexMap] = useState<Record<string, number>>({});
+
+  // State used for inline rename of auto-added pattern properties
+  const [creatingPropKey, setCreatingPropKey] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState<string>('');
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
   
   const numberInputRef = useRef<HTMLInputElement | null>(null);
   const chipRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -410,6 +416,24 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
     const patternProperties = (schema.patternProperties as Record<string, Record<string, unknown>>) || {};
     const additionalProperties = schema.additionalProperties;
 
+
+
+    const deriveBaseHint = (myPath: string[]) => {
+      const last = myPath[myPath.length - 1] || 'item';
+      // naive singularization: drop trailing 's'
+      if (last.length > 1 && last.endsWith('s')) return last.slice(0, -1);
+      return last;
+    };
+
+    const generateAutoKey = (existingObj: Record<string, unknown>, baseHint: string) => {
+      let candidate = baseHint;
+      if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(candidate)) candidate = 'item';
+      if (!Object.prototype.hasOwnProperty.call(existingObj, candidate)) return candidate;
+      let n = 1;
+      while (Object.prototype.hasOwnProperty.call(existingObj, `${candidate}-${n}`)) n += 1;
+      return `${candidate}-${n}`;
+    };
+
     // Only required properties should be present initially
     const required = (schema.required as string[]) || [];
     let objectValue = (value as Record<string, unknown>) || {};
@@ -455,6 +479,11 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
         [key]: getDefaultValue(propSchema),
       });
     };
+
+    const hasPatternVariants = Object.values(patternProperties).some((sub: any) => {
+      const c = sub && (sub.oneOf || sub.anyOf || sub.oneOnly);
+      return Array.isArray(c) && c.length > 0;
+    });
 
     return (
       <div className={styles.objectContainer}>
@@ -514,16 +543,50 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
           return (
             <div key={key} className={styles.propertyGroup}>
               <div className={styles.propertyHeader}>
-                <span className={styles.propertyName}>
-                  {key} <span style={{ fontSize: 11, color: '#666', fontWeight: 400 }}>(matched)</span>
-                  {!!propSchema.writeOnly && <span className={styles.badge} style={{ backgroundColor: '#e8f0ff', color: '#2b6cb0' }}>writeOnly</span>}
-                  {!!propSchema.readOnly && <span className={styles.badge} style={{ backgroundColor: '#f5f5f5', color: '#666' }}>readOnly</span>}
-                </span>
-                <button className={styles.removeButton} type="button" onClick={() => {
-                  const rest = { ...objectValue };
-                  delete rest[key];
-                  onChange(rest);
-                }}>×</button>
+                {creatingPropKey === key ? (
+                  <>
+                    <input
+                      ref={(el) => { renameInputRef.current = el; }}
+                      className={styles.input}
+                      style={{ width: 160, height: 32, fontSize: 13 }}
+                      placeholder="New property name..."
+                      value={renameDraft}
+                      onChange={(e) => setRenameDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          setCreatingPropKey(null);
+                        }
+                        if (e.key === 'Enter') {
+                          const newName = renameDraft.trim();
+                          if (newName && newName !== key && !(newName in objectValue)) {
+                            const moved = { ...objectValue } as Record<string, unknown>;
+                            moved[newName] = moved[key];
+                            delete moved[key];
+                            onChange(moved);
+                          }
+                          setCreatingPropKey(null);
+                        }
+                      }}
+                      onBlur={() => {
+                        // keep UI while renaming; blur does not cancel
+                      }}
+                    />
+                    <div data-testid="rename-hint" style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>Press Enter to confirm — Esc to cancel</div>
+                  </>
+                ) : (
+                  <>
+                    <span className={styles.propertyName}>
+                      {key} <span style={{ fontSize: 11, color: '#666', fontWeight: 400 }}>(matched)</span>
+                      {!!propSchema.writeOnly && <span className={styles.badge} style={{ backgroundColor: '#e8f0ff', color: '#2b6cb0' }}>writeOnly</span>}
+                      {!!propSchema.readOnly && <span className={styles.badge} style={{ backgroundColor: '#f5f5f5', color: '#666' }}>readOnly</span>}
+                    </span>
+                    <button className={styles.removeButton} type="button" onClick={() => {
+                      const rest = { ...objectValue };
+                      delete rest[key];
+                      onChange(rest);
+                    }}>×</button>
+                  </>
+                )}
               </div>
               <JsonInstanceForm
                 schema={propSchema}
@@ -604,8 +667,71 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
           </div>
         )}
 
+        {/* Pattern-based variant chips (preferred over free-form add) */}
+        {hasPatternVariants && (
+          <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            {Object.entries(patternProperties).map(([pattern, subschema]: [string, any]) => {
+              const candidates = subschema && (subschema.oneOf || subschema.anyOf || subschema.oneOnly) ? (subschema.oneOf || subschema.anyOf || subschema.oneOnly) : null;
+              if (!candidates) return null;
+              return (
+                <div key={pattern} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--color-neutral-2)', padding: '4px 10px', borderRadius: '16px', border: '1px solid var(--color-neutral-4)' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-neutral-10)', textTransform: 'uppercase', letterSpacing: '0.02em' }}>pattern:</span>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {candidates.map((vs: any, i: number) => {
+                      const labelData = getVariantLabel(vs, i);
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          className={styles.variantChip}
+                          aria-pressed={"false"}
+                          style={{ padding: '2px 8px', fontSize: '10px', height: '22px' }}
+                          onClick={() => {
+                            // generate a semantic key and add a property entry
+                            const base = deriveBaseHint(path);
+                            const toAddKey = generateAutoKey(objectValue, base);
+                            let initialValue: unknown = undefined;
+                            try {
+                              const childPathKey = [...path, toAddKey].join('.');
+                              const storageSuffix = (vs.$ref || vs.$id || JSON.stringify(vs));
+                              const memKey = `json-instance-variants:json-instance:${storageSuffix}:${childPathKey}`;
+                              const raw = localStorage.getItem(memKey);
+                              const mem = raw ? JSON.parse(raw) : {};
+                              if (Object.prototype.hasOwnProperty.call(mem, i)) initialValue = mem[i];
+                            } catch {
+                              // ignore storage errors
+                            }
+                            if (initialValue === undefined) initialValue = getDefaultValue(vs);
+
+                            // Add the new property
+                            onChange({ ...objectValue, [toAddKey]: initialValue });
+
+                            // Enter rename mode for the new key
+                            setCreatingPropKey(toAddKey);
+                            setRenameDraft(toAddKey);
+
+                            // Focus the rename input after render
+                            setTimeout(() => {
+                              if (renameInputRef.current) {
+                                renameInputRef.current.focus();
+                                try { renameInputRef.current.select(); } catch (_) {}
+                              }
+                            }, 0);
+                          }}
+                        >
+                          {labelData.title}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {/* Add arbitrary property (if matches pattern or additionalProperties allowed) */}
-        {(Object.keys(patternProperties).length > 0 || additionalProperties !== false) && (
+        {(!hasPatternVariants && (Object.keys(patternProperties).length > 0 || additionalProperties !== false)) && (
           <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
             <input
               className={styles.input}

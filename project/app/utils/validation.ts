@@ -3,7 +3,14 @@ import type { ValidateFunction } from 'ajv';
 
 // Preserve legacy behavior for empty values
 export function isEmptyValue(value: unknown): boolean {
-  return value === '' || value === undefined || value === null;
+  if (value === '' || value === undefined || value === null) return true;
+  if (typeof value === 'object') {
+    if (Array.isArray(value)) return value.length === 0;
+    try {
+      return Object.keys(value as Record<string, unknown>).length === 0;
+    } catch (_) { return false; }
+  }
+  return false;
 }
 
 const validatorCache = new Map<string, any>();
@@ -33,6 +40,34 @@ function makeSimpleValidator(schema: Record<string, unknown>) {
         });
         if (!ok) errors.push({ instancePath: '', message: `must be ${typeof type === 'string' ? type : 'one of types'}` });
       }
+
+      // required properties
+      if (schema.required && Array.isArray(schema.required) && typeof data === 'object' && data !== null && !Array.isArray(data)) {
+        for (const req of schema.required) {
+          if (!(req in data)) {
+            errors.push({ instancePath: '', message: `must have required property '${req}'` });
+          }
+        }
+      }
+
+      // additionalProperties: false
+      if (schema.additionalProperties === false && typeof data === 'object' && data !== null && !Array.isArray(data)) {
+        const props = (schema.properties as Record<string, unknown>) || {};
+        const patterns = Object.keys((schema.patternProperties as Record<string, unknown>) || {});
+        for (const key of Object.keys(data)) {
+          if (props[key]) continue;
+          let matchedPattern = false;
+          for (const p of patterns) {
+            try { if (new RegExp(p).test(key)) { matchedPattern = true; break; } } catch (_) {
+              /* ignore */
+            }
+          }
+          if (!matchedPattern) {
+            errors.push({ instancePath: '', message: `property '${key}' is not allowed` });
+          }
+        }
+      }
+
       if (schema.pattern && typeof data === 'string') {
         try { const re = new RegExp(String(schema.pattern)); if (!re.test(data)) errors.push({ instancePath: '', message: 'must match pattern' }); } catch (e) { /* ignore */ errors.push({ instancePath: '', message: 'Invalid pattern' }); }
       }
@@ -127,8 +162,9 @@ function getValidator(schema: Record<string, unknown>): ValidateFunction {
 }
 
 export function validateValueAgainstSchema(value: unknown, schema: Record<string, unknown> | null): string | null {
-  // Preserve existing behavior: allow empty inputs
-  if (isEmptyValue(value)) return null;
+  // Preserve existing behavior for primitive empty inputs: allow empty string/null/undefined to bypass validation
+  // but do NOT treat empty arrays/objects as 'empty' so variant detection can make an explicit choice.
+  if (value === '' || value === undefined || value === null) return null;
   if (!schema || typeof schema !== 'object') return null;
 
   try {
