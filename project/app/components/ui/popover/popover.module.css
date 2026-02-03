@@ -10,6 +10,21 @@
   outline: none;
 }
 
+/* Simple popover variant: compact, minimal styling, link-friendly */
+.simple {
+  max-width: 28rem;
+  width: auto;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.3;
+  border-radius: 6px;
+}
+
+.simple a {
+  color: var(--color-primary-7);
+  text-decoration: underline;
+}
+
 .content[data-state="open"] {
   animation: contentShow 200ms var(--ease);
 }
@@ -33,7 +48,6 @@
 .content[data-side="right"] {
   animation-name: slideFromLeft;
 }
-
 @keyframes contentShow {
   from {
     opacity: 0;

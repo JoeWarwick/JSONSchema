@@ -6,7 +6,7 @@ import { validateValueAgainstSchema } from "../utils/validation";
 import { getAdditionalPropertiesSchema } from "./schema-behaviors";
 import { getVariantLabel } from "../utils/labels";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./ui/tooltip/tooltip";
-import { Popover, PopoverTrigger, PopoverContent } from "./ui/popover/popover";
+
 import { renderTooltipContentChildren } from './tooltip-utils';
 
 interface JsonInstanceFormProps {
@@ -245,12 +245,12 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
     return (
       <TooltipProvider>
         <div className={styles.field}>
-          <Popover>
-            <PopoverTrigger asChild>
+          <Tooltip>
+            <TooltipTrigger asChild>
               <label className={styles.label} tabIndex={0}>{label}</label>
-            </PopoverTrigger>
-            {schema.description && <PopoverContent>{renderTooltipContentChildren(schema.description)}</PopoverContent>}
-          </Popover>
+            </TooltipTrigger>
+            {schema.description && <TooltipContent>{renderTooltipContentChildren(schema.description)}</TooltipContent>}
+          </Tooltip>
           <div className={styles.variantChips}>
             {variants!.map((vs, i) => {
               const labelData = getVariantLabel(vs, i);
@@ -558,17 +558,17 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                   return (
                     <>
                       {propSchema && (propSchema.description as string) ? (
-                        <Popover>
-                          <PopoverTrigger asChild>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
                             <span className={styles.propertyName} onMouseEnter={() => setHoveredTooltipKey(`desc:${key}`)} onMouseLeave={() => setHoveredTooltipKey(null)} onFocus={() => setHoveredTooltipKey(`desc:${key}`)} onBlur={() => setHoveredTooltipKey(null)}>
                               {displayLabel(key)}
                               {isRequired && <span className={styles.requiredMark}>*</span>}
                               {!!propSchema.writeOnly && <span className={styles.badge} style={{ backgroundColor: '#e8f0ff', color: '#2b6cb0' }}>writeOnly</span>}
                               {!!propSchema.readOnly && <span className={styles.badge} style={{ backgroundColor: '#f5f5f5', color: '#666' }}>readOnly</span>}
                             </span>
-                          </PopoverTrigger>
-                          <PopoverContent>{renderTooltipContentChildren(propSchema.description)}</PopoverContent>
-                        </Popover>
+                          </TooltipTrigger>
+                          <TooltipContent>{renderTooltipContentChildren(propSchema.description)}</TooltipContent>
+                        </Tooltip>
                       ) : (
                         <span className={styles.propertyName} onMouseEnter={() => setHoveredTooltipKey(`desc:${key}`)} onMouseLeave={() => setHoveredTooltipKey(null)} onFocus={() => setHoveredTooltipKey(`desc:${key}`)} onBlur={() => setHoveredTooltipKey(null)}>
                           {displayLabel(key)}
@@ -830,8 +830,8 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                   <div key={key}>
                     {propSchema && (propSchema.description as string) ? (
                       <>
-                        <Popover>
-                          <PopoverTrigger asChild>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
                             <button
                               className={styles.addButton}
                               type="button"
@@ -843,17 +843,17 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                             >
                               + {displayLabel(key)}
                             </button>
-                          </PopoverTrigger>
-                          <PopoverContent>{renderTooltipContentChildren(propSchema.description)}</PopoverContent>
-                        </Popover>
+                          </TooltipTrigger>
+                          <TooltipContent>{renderTooltipContentChildren(propSchema.description)}</TooltipContent>
+                        </Tooltip>
                         {propSchema.$comment && (
                           <>
-                            <Popover>
-                              <PopoverTrigger asChild>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
                                 <button aria-label="comment-trigger" className={styles.removeButton} type="button" onMouseEnter={() => setHoveredTooltipKey(`comment:${key}`)} onMouseLeave={() => setHoveredTooltipKey(null)} onFocus={() => setHoveredTooltipKey(`comment:${key}`)} onBlur={() => setHoveredTooltipKey(null)}>💬</button>
-                              </PopoverTrigger>
-                              <PopoverContent>{renderTooltipContentChildren(propSchema.$comment)}</PopoverContent>
-                            </Popover>
+                              </TooltipTrigger>
+                              <TooltipContent>{renderTooltipContentChildren(propSchema.$comment)}</TooltipContent>
+                            </Tooltip>
                             {hoveredTooltipKey === `comment:${key}` && propSchema && propSchema.$comment && (
                               <div>{renderTooltipContentChildren(propSchema.$comment)}</div>
                             )}
