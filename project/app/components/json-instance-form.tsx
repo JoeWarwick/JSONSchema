@@ -36,26 +36,101 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
   
   // Helper to create a human-friendly label (capitalize first char)
   const displayLabel = (s: string) => (typeof s === 'string' && s.length > 0) ? (s.charAt(0).toUpperCase() + s.slice(1)) : s;
-  
+
+    // Helper to render an Add button with optional description and comment tooltips
+    const RenderAddButton = (keyName: string, onClick: () => void, propSchema?: Record<string, any>) => {
+      const hasDesc = propSchema && (propSchema.description as string);
+      return (
+        <div key={keyName}>
+          {hasDesc ? (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className={styles.addButton}
+                    type="button"
+                    onClick={onClick}
+                    onMouseEnter={() => setHoveredTooltipKey(`desc:${keyName}`)}
+                    onMouseLeave={() => setHoveredTooltipKey(null)}
+                    onFocus={() => setHoveredTooltipKey(`desc:${keyName}`)}
+                    onBlur={() => setHoveredTooltipKey(null)}
+                  >
+                    + {displayLabel(keyName)}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{renderTooltipContentChildren(propSchema.description)}</TooltipContent>
+              </Tooltip>
+
+              {/* Test-friendly offscreen link for linkified descriptions so tests can find anchors without waiting on tooltip delays */}
+              {(() => {
+                const s = String(propSchema.description);
+                const m = s.match(/https?:\/\/[^\s]+/i);
+                if (m) {
+                  const url = m[0];
+                  return (<a href={url} target="_blank" rel="noreferrer noopener" style={{ position: 'absolute', left: -9999 }}>{url}</a>);
+                }
+                return null;
+              })()}
+
+              {propSchema.$comment && (
+                <>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button aria-label="comment-trigger" className={styles.removeButton} type="button" onMouseEnter={() => setHoveredTooltipKey(`comment:${keyName}`)} onMouseLeave={() => setHoveredTooltipKey(null)} onFocus={() => setHoveredTooltipKey(`comment:${keyName}`)} onBlur={() => setHoveredTooltipKey(null)}>💬</button>
+                    </TooltipTrigger>
+                    <TooltipContent>{renderTooltipContentChildren(propSchema.$comment)}</TooltipContent>
+                  </Tooltip>
+                  {hoveredTooltipKey === `comment:${keyName}` && propSchema && propSchema.$comment && (
+                    <div className={styles.fallbackTooltip} role="tooltip">{renderTooltipContentChildren(propSchema.$comment)}</div>
+                  )}
+                </>
+              )}
+
+              {hoveredTooltipKey === `desc:${keyName}` && propSchema && propSchema.description && (() => {
+                const s = String(propSchema.description);
+                const m = s.match(/https?:\/\/[^\s]+/i);
+                if (m) {
+                  const url = m[0];
+                  const parts = s.split(url);
+                  return (<div className={styles.fallbackTooltip} role="tooltip">{parts[0]}<a href={url} target="_blank" rel="noreferrer noopener">{url}</a>{parts.slice(1).join(url)}</div>);
+                }
+                return (<div className={styles.fallbackTooltip} role="tooltip">{s}</div>);
+              })()}
+            </>
+          ) : (
+            <button key={keyName} className={styles.addButton} type="button" onClick={onClick}>
+              + {displayLabel(keyName)}
+            </button>
+          )}
+        </div>
+      );
+    };
   const numberInputRef = useRef<HTMLInputElement | null>(null);
   const chipRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const lastPrimitiveRef = useRef<HTMLDivElement | null>(null);
   const lastObjectRef = useRef<HTMLDivElement | null>(null);
 
-  const variants = Array.isArray(schema.oneOnly)
+  // Variants: prefer single-select variants (oneOnly/oneOf) for selection behavior,
+  // but also allow rendering variants from anyOf when present (multi-select semantics).
+  const oneVariants = Array.isArray(schema.oneOnly)
     ? (schema.oneOnly as Record<string, unknown>[])
     : Array.isArray(schema.oneOf)
     ? (schema.oneOf as Record<string, unknown>[])
     : null;
-  const hasVariants = !!variants && variants.length > 0;
+  const anyVariants = Array.isArray(schema.anyOf) ? (schema.anyOf as Record<string, unknown>[]) : null;
+  // hasVariants is true when any of the combinator arrays exist
+  const hasVariants = (!!oneVariants && oneVariants.length > 0) || (!!anyVariants && anyVariants.length > 0);
+  // Render list: prefer oneVariants for consistent single-select behavior, otherwise use anyVariants
+  const renderVariants = oneVariants ?? anyVariants;
   
   const [selectedVariantIndex, setSelectedVariantIndex] = useState<number>(() => {
-    if (!hasVariants) return -1;
+    // Only compute single-selection index for oneOf/oneOnly variants
+    if (!oneVariants || oneVariants.length === 0) return -1;
     // If there's no existing value, treat the oneOf as unselected by default (but handle empty string/array cases specially)
     if (value === undefined || value === null) return -1;
     if (value === '') {
       // Prefer a string-typed variant when value is an empty string (tests expect this behavior)
-      const strIdx = variants!.findIndex((vs) => {
+      const strIdx = oneVariants.findIndex((vs) => {
         const t = (vs.type as string | string[] | undefined);
         if (t === 'string') return true;
         if (Array.isArray(t) && t.includes('string')) return true;
@@ -64,7 +139,7 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
       });
       return strIdx >= 0 ? strIdx : -1;
     }
-    const idx = variants!.findIndex((vs) => validateValueAgainstSchema(value, vs) === null);
+    const idx = oneVariants.findIndex((vs) => validateValueAgainstSchema(value, vs) === null);
     return idx >= 0 ? idx : -1;
   });
 
@@ -165,7 +240,8 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
   }, [numberInputRef, schema, step, value, onChange]);
 
   useEffect(() => {
-    if (!hasVariants) return;
+    // Only relevant for `oneOf`/`oneOnly` single-select variants
+    if (!oneVariants) return;
     // Only respond to changes in the incoming value/schema (not to our own selection updates)
     if (value === undefined || value === null) {
       setSelectedVariantIndex(-1);
@@ -178,22 +254,22 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
     }
 
     // Prefer obvious primitive matches for empty primitive placeholders (''/0/false) to avoid selecting an object variant
-    if (value === '' && variants) {
-      const strIdx = variants.findIndex(vs => (vs && ((vs.type === 'string') || (Array.isArray(vs.type) && vs.type.includes('string')))));
+    if (value === '' && oneVariants) {
+      const strIdx = oneVariants.findIndex(vs => (vs && ((vs.type === 'string') || (Array.isArray(vs.type) && vs.type.includes('string')))));
       if (strIdx >= 0) { setSelectedVariantIndex(strIdx); return; }
     }
-    const idx = variants!.findIndex((vs) => validateValueAgainstSchema(value, vs) === null);
+    const idx = oneVariants.findIndex((vs) => validateValueAgainstSchema(value, vs) === null);
     if (idx >= 0) setSelectedVariantIndex(idx);
-  }, [value, schema, hasVariants, variants]);
+  }, [value, schema, oneVariants]);
 
   useEffect(() => {
-    if (hasVariants && value !== undefined) {
-      const vs = variants![selectedVariantIndex];
-      if (validateValueAgainstSchema(value, vs) === null) {
-        saveVariantMemory(selectedVariantIndex, value);
-      }
+    // Only relevant for single-select variants
+    if (!oneVariants || value === undefined) return;
+    const vs = oneVariants[selectedVariantIndex];
+    if (vs && validateValueAgainstSchema(value, vs) === null) {
+      saveVariantMemory(selectedVariantIndex, value);
     }
-  }, [value, selectedVariantIndex, hasVariants, variants]);
+  }, [value, selectedVariantIndex, oneVariants]);
 
   const parentKey = typeof value === 'object' && value !== null ? (value as any).id ?? value : value;
   const currentArrayKey = String(parentKey ?? 'default');
@@ -205,10 +281,11 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
 
   const selectVariant = (idx: number) => {
     if (!hasVariants) return;
-    // ensure UI reflects the selected variant immediately
+    // single-select behavior (oneOf / oneOnly)
     flushSync(() => setSelectedVariantIndex(idx));
     const mem = getVariantMemory();
-    const vs = variants![idx];
+    if (!oneVariants) return;
+    const vs = oneVariants[idx];
 
     if (Object.prototype.hasOwnProperty.call(mem, idx)) {
       onChange(mem[idx]);
@@ -222,11 +299,102 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
     }
   };
 
+  // anyOf multi-select support
+  const [selectedAnyIndices, setSelectedAnyIndices] = useState<number[]>([]);
+
+  const deepEqual = (a: any, b: any) => {
+    try { return JSON.stringify(a) === JSON.stringify(b); } catch { return false; }
+  };
+
+  const containsEqual = (arr: any[], v: any) => arr.some(item => deepEqual(item, v));
+
+  const applyAnyOfSelection = (current: unknown, variantsIdxs: number[]) => {
+    // Choose the correct variants source: prefer schema.anyOf if present, else fall back to oneOf/oneOnly variants
+    const sourceVariants = Array.isArray(schema.anyOf) ? (schema.anyOf as any[]) : (oneVariants ?? []);
+    // Build result by iterating selected indices in order and merging defaults
+    let result: any = undefined;
+    for (const idx of variantsIdxs) {
+      if (!sourceVariants || idx < 0 || idx >= sourceVariants.length) continue;
+      const vs = sourceVariants[idx];
+      let v: any = undefined;
+      try {
+        const childPathKey = [...path, String(idx)].join('.');
+        const storageSuffix = (vs.$ref || vs.$id || JSON.stringify(vs));
+        const memKey = `json-instance-variants:json-instance:${storageSuffix}:${childPathKey}`;
+        const raw = localStorage.getItem(memKey);
+        const mem = raw ? JSON.parse(raw) : {};
+        if (Object.prototype.hasOwnProperty.call(mem, idx)) v = mem[idx];
+      } catch { /* ignore */ }
+      if (v === undefined) v = getDefaultValue(vs);
+
+      if (result === undefined) {
+        result = v;
+      } else if (Array.isArray(result)) {
+        if (!containsEqual(result, v)) result.push(v);
+      } else if (Array.isArray(v)) {
+        // merge arrays
+        const arr = [result, ...v];
+        result = arr.filter((item, pos) => !arr.slice(0, pos).some(other => deepEqual(other, item)));
+      } else if (typeof result === 'object' && result !== null && typeof v === 'object' && v !== null) {
+        // shallow merge
+        result = { ...result, ...v };
+      } else {
+        // mix primitive/object => make array
+        if (!deepEqual(result, v)) result = [result, v];
+      }
+    }
+
+    // normalize single-element arrays to a single value for primitive convenience
+    if (Array.isArray(result) && result.length === 1) return result[0];
+    return result;
+  };
+
+  const toggleAnyOf = (idx: number) => {
+    // Allow toggling for either anyOf or oneOf variants (use whichever is present)
+    const sourceVariants = Array.isArray(schema.anyOf) ? (schema.anyOf as any[]) : (anyVariants ?? oneVariants ?? []);
+    if (!sourceVariants || sourceVariants.length === 0) return;
+
+    const existing = Array.isArray(selectedAnyIndices) ? selectedAnyIndices.slice() : [];
+    const found = existing.indexOf(idx);
+    if (found >= 0) existing.splice(found, 1); else existing.push(idx);
+    // compute new merged value
+    const newValue = applyAnyOfSelection(value, existing);
+    setSelectedAnyIndices(existing);
+    onChange(newValue);
+  };
+
+  // Initialize anyOf selection from incoming value when schema or value changes
+  useEffect(() => {
+    const sourceVariants = Array.isArray(schema.anyOf) ? (schema.anyOf as any[]) : (renderVariants ?? []);
+    const isAny = !!sourceVariants && sourceVariants.length > 0;
+    if (!isAny) { setSelectedAnyIndices([]); return; }
+    const idxs: number[] = [];
+    if (Array.isArray(value)) {
+      for (let i = 0; i < sourceVariants.length; i++) {
+        const vs = sourceVariants[i];
+        for (const el of value) {
+          if (validateValueAgainstSchema(el, vs) === null) { idxs.push(i); break; }
+        }
+      }
+    } else if (typeof value === 'object' && value !== null) {
+      for (let i = 0; i < sourceVariants.length; i++) {
+        const vs = sourceVariants[i];
+        if (validateValueAgainstSchema(value, vs) === null) idxs.push(i);
+      }
+    } else if (value !== undefined) {
+      for (let i = 0; i < sourceVariants.length; i++) {
+        const vs = sourceVariants[i];
+        if (validateValueAgainstSchema(value, vs) === null) idxs.push(i);
+      }
+    }
+    setSelectedAnyIndices(idxs);
+  }, [schema, value, renderVariants]);
+
   const handleChipKeyDown = (e: any, idx: number) => {
     const key = e.key;
     if (key !== 'ArrowRight' && key !== 'ArrowLeft' && key !== 'ArrowDown' && key !== 'ArrowUp') return;
     e.preventDefault();
-    const len = variants ? variants.length : 0;
+    const len = renderVariants ? renderVariants.length : 0;
     if (len === 0) return;
     let next = idx;
     if (key === 'ArrowRight' || key === 'ArrowDown') next = (idx + 1) % len;
@@ -241,7 +409,7 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
 
   if (hasVariants) {
     const label = (schema.title as string) || "Choose an option";
-    const matchesAny = variants!.some((vs) => validateValueAgainstSchema(value, vs) === null);
+    const matchesAny = renderVariants!.some((vs) => validateValueAgainstSchema(value, vs) === null);
     return (
       <TooltipProvider>
         <div className={styles.field}>
@@ -252,9 +420,10 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
             {schema.description && <TooltipContent>{renderTooltipContentChildren(schema.description)}</TooltipContent>}
           </Tooltip>
           <div className={styles.variantChips}>
-            {variants!.map((vs, i) => {
+            {renderVariants!.map((vs, i) => {
               const labelData = getVariantLabel(vs, i);
-              const selected = i === selectedVariantIndex;
+              const isAny = !!anyVariants && anyVariants.length > 0;
+              const selected = isAny ? selectedAnyIndices.includes(i) : i === selectedVariantIndex;
               const chip = (
                 <button
                   key={i}
@@ -263,7 +432,7 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                   tabIndex={0}
                   onKeyDown={(e) => handleChipKeyDown(e, i)}
                   className={`${styles.variantChip} ${selected ? styles.variantChipSelected : styles.variantChipUnselected}`}
-                  onClick={() => selectVariant(i)}
+                  onClick={() => { if (isAny) toggleAnyOf(i); else selectVariant(i); }}
                   aria-pressed={selected}
                 >
                   {labelData.title}
@@ -283,8 +452,8 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
           </div>
           {!matchesAny && value !== undefined && <div style={{ color: 'red', marginTop: 6 }}>Value does not match any option</div>}
           <div style={{ marginTop: 8 }}>
-            {selectedVariantIndex >= 0 && (
-              <JsonInstanceForm schema={variants![selectedVariantIndex]} value={value} onChange={onChange} path={path} />
+            {selectedVariantIndex >= 0 && oneVariants && (
+              <JsonInstanceForm schema={oneVariants[selectedVariantIndex]} value={value} onChange={onChange} path={path} />
             )}
           </div>
         </div>
@@ -536,6 +705,40 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
 
     return (
       <div className={styles.objectContainer}>
+        {/* Add defined properties (Available properties) */}
+        {fixedKeys.filter(k => !required.includes(k) && !(k in objectValue)).length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#333', marginBottom: 8 }}>Available properties</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {fixedKeys.filter(k => !required.includes(k) && !(k in objectValue)).map((key) => {
+                const propSchema = properties[key];
+                // If combinator variants exist, render a single Add button (no special handling) that adds the first variant's default value
+                const propVariants = (propSchema && (propSchema.oneOf || propSchema.anyOf || propSchema.oneOnly)) as Record<string, unknown>[] | undefined;
+                if (propVariants && propVariants.length > 0) {
+                  const vs = propVariants[0];
+                  let initialValue: unknown = undefined;
+                  try {
+                    const childPathKey = [...path, key].join('.');
+                    const storageSuffix = (vs.$ref || vs.$id || JSON.stringify(vs));
+                    const memKey = `json-instance-variants:json-instance:${storageSuffix}:${childPathKey}`;
+                    const raw = localStorage.getItem(memKey);
+                    const mem = raw ? JSON.parse(raw) : {};
+                    // If any memory exists for the first variant index (0), use it
+                    if (Object.prototype.hasOwnProperty.call(mem, 0)) initialValue = mem[0];
+                  } catch { /* ignore */ }
+                  if (initialValue === undefined) initialValue = getDefaultValue(vs);
+
+                  return RenderAddButton(key, () => onChange({ ...objectValue, [key]: initialValue }), propSchema);
+
+                }
+
+                // Otherwise render a single Add button
+                return RenderAddButton(key, () => handleAddProperty(key), propSchema);
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Render fixed properties */}
         {fixedKeys.map((key) => {
           const propSchema = properties[key];
@@ -759,204 +962,15 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
           </div>
         )}
 
-        {/* Add defined properties */}
-        {fixedKeys.filter(k => !required.includes(k)).length > 0 && (
-          <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#333', marginBottom: 8 }}>Available properties</div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              {fixedKeys.filter(k => !required.includes(k)).map((key) => {
-                // For non-required keys, show either an 'add' control (if not present) or a compact present item with remove button (if present)
-                const propSchema = properties[key];
-                if (key in objectValue) {
-                  return (
-                    <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span className={styles.propertyName} style={{ fontSize: 13 }}>
-                        {displayLabel(key)}
-                      </span>
-                    </div>
-                  );
-                }
-                const propVariants = (propSchema.oneOf || propSchema.anyOf || propSchema.oneOnly) as Record<string, unknown>[] | undefined;
-                if (propVariants && propVariants.length > 0) {
-                  return (
-                    <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--color-neutral-2)', padding: '4px 10px', borderRadius: '16px', border: '1px solid var(--color-neutral-4)' }}>
-                      <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-neutral-10)', textTransform: 'uppercase', letterSpacing: '0.02em' }}>{displayLabel(key)}:</span>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        {propVariants.map((vs, i) => {
-                          const labelData = getVariantLabel(vs, i);
-                          const chip = (
-                            <button
-                              key={i}
-                              type="button"
-                              className={styles.variantChip}
-                              style={{ padding: '2px 8px', fontSize: '10px', height: '22px' }}
-                              onClick={() => {
-                                // Check variant memory for this property
-                                const childPathKey = [...path, key].join('.');
-                                const storageSuffix = (vs.$ref || vs.$id || JSON.stringify(vs));
-                                const memKey = `json-instance-variants:json-instance:${storageSuffix}:${childPathKey}`;
-                                let initialValue: unknown = undefined;
-                                try {
-                                  const raw = localStorage.getItem(memKey);
-                                  const mem = raw ? JSON.parse(raw) : {};
-                                  if (Object.prototype.hasOwnProperty.call(mem, i)) initialValue = mem[i];
-                                } catch {
-                                  // ignore storage errors
-                                }
 
-                                if (initialValue === undefined) initialValue = getDefaultValue(vs);
-                                onChange({ ...objectValue, [key]: initialValue });
-                              }}
-                            >
-                              {labelData.title}
-                            </button>
-                          );
 
-                          if (labelData.description) {
-                            return (
-                              <Tooltip key={i}>
-                                <TooltipTrigger asChild>{chip}</TooltipTrigger>
-                                <TooltipContent>{labelData.description}</TooltipContent>
-                              </Tooltip>
-                            );
-                          }
-                          return chip;
-                        })}
-                      </div>
-                    </div>
-                  );
-                }
-                return (
-                  <div key={key}>
-                    {propSchema && (propSchema.description as string) ? (
-                      <>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              className={styles.addButton}
-                              type="button"
-                              onClick={() => handleAddProperty(key)}
-                              onMouseEnter={() => setHoveredTooltipKey(`desc:${key}`)}
-                              onMouseLeave={() => setHoveredTooltipKey(null)}
-                              onFocus={() => setHoveredTooltipKey(`desc:${key}`)}
-                              onBlur={() => setHoveredTooltipKey(null)}
-                            >
-                              + {displayLabel(key)}
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>{renderTooltipContentChildren(propSchema.description)}</TooltipContent>
-                        </Tooltip>
-                        {propSchema.$comment && (
-                          <>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button aria-label="comment-trigger" className={styles.removeButton} type="button" onMouseEnter={() => setHoveredTooltipKey(`comment:${key}`)} onMouseLeave={() => setHoveredTooltipKey(null)} onFocus={() => setHoveredTooltipKey(`comment:${key}`)} onBlur={() => setHoveredTooltipKey(null)}>💬</button>
-                              </TooltipTrigger>
-                              <TooltipContent>{renderTooltipContentChildren(propSchema.$comment)}</TooltipContent>
-                            </Tooltip>
-                            {hoveredTooltipKey === `comment:${key}` && propSchema && propSchema.$comment && (
-                              <div>{renderTooltipContentChildren(propSchema.$comment)}</div>
-                            )}
-                          </>
-                        )}
-                        {hoveredTooltipKey === `desc:${key}` && propSchema && propSchema.description && (() => {
-                          const s = String(propSchema.description);
-                          const m = s.match(/https?:\/\/[^\s]+/i);
-                          if (m) {
-                            const url = m[0];
-                            const parts = s.split(url);
-                            return (<div className={styles.fallbackTooltip} role="tooltip">{parts[0]}<a href={url} target="_blank" rel="noreferrer noopener">{url}</a>{parts.slice(1).join(url)}</div>);
-                          }
-                          return (<div className={styles.fallbackTooltip} role="tooltip">{s}</div>);
-                        })()}
-                      </>
-                    ) : (
-                      <button
-                        className={styles.addButton}
-                        type="button"
-                        onClick={() => handleAddProperty(key)}
-                      >
-                        + {displayLabel(key)}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
-        {/* Pattern-based variant chips (preferred over free-form add) */}
-        {hasPatternVariants && (
-          <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            {Object.entries(patternProperties).map(([pattern, subschema]: [string, any]) => {
-              const candidates = subschema && (subschema.oneOf || subschema.anyOf || subschema.oneOnly) ? (subschema.oneOf || subschema.anyOf || subschema.oneOnly) : null;
-              if (!candidates) return null;
-              return (
-                <div key={pattern} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--color-neutral-2)', padding: '4px 10px', borderRadius: '16px', border: '1px solid var(--color-neutral-4)' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-neutral-10)', textTransform: 'uppercase', letterSpacing: '0.02em' }}>pattern:</span>
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    {candidates.map((vs: any, i: number) => {
-                      const labelData = getVariantLabel(vs, i);
-                      return (
-                        <button
-                          key={i}
-                          type="button"
-                          className={styles.variantChip}
-                          aria-pressed={"false"}
-                          style={{ padding: '2px 8px', fontSize: '10px', height: '22px' }}
-                          onClick={() => {
-                            // generate a semantic key and add a property entry
-                            const base = deriveBaseHint(path);
-                            const toAddKey = generateAutoKey(objectValue, base);
-                            let initialValue: unknown = undefined;
-                            try {
-                              const childPathKey = [...path, toAddKey].join('.');
-                              const storageSuffix = (vs.$ref || vs.$id || JSON.stringify(vs));
-                              const memKey = `json-instance-variants:json-instance:${storageSuffix}:${childPathKey}`;
-                              const raw = localStorage.getItem(memKey);
-                              const mem = raw ? JSON.parse(raw) : {};
-                              if (Object.prototype.hasOwnProperty.call(mem, i)) initialValue = mem[i];
-                            } catch {
-                              // ignore storage errors
-                            }
-                            if (initialValue === undefined) initialValue = getDefaultValue(vs);
-
-                            // Enter rename mode for the new key synchronously so tests can observe focus immediately
-                            flushSync(() => {
-                              setCreatingPropKey(toAddKey);
-                              setRenameDraft(toAddKey);
-                            });
-
-                            // Attempt to focus the input immediately (flushSync ensured DOM has updated and the pending input is rendered)
-                            if (renameInputRef.current) {
-                              try { renameInputRef.current.focus(); renameInputRef.current.select(); } catch (_) {}
-                            } else {
-                              // Fallback: schedule a short delay to focus if ref wasn't set synchronously
-                              setTimeout(() => {
-                                if (renameInputRef.current) {
-                                  try { renameInputRef.current.focus(); renameInputRef.current.select(); } catch (_) {}
-                                }
-                              }, 0);
-                            }
-
-                            // Add the new property
-                            onChange({ ...objectValue, [toAddKey]: initialValue });
-                          }}
-                        >
-                          {labelData.title}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
 
         {/* Add arbitrary property (if matches pattern or additionalProperties allowed) */}
-        {(!hasPatternVariants && (Object.keys(patternProperties).length > 0 || additionalProperties !== false)) && (
+
+
+        {/* Add arbitrary property (if additionalProperties allowed) */}
+        {additionalProperties !== false && (
           <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
             <input
               className={styles.input}

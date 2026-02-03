@@ -261,87 +261,19 @@ describe('JsonInstanceForm extras', () => {
 
     // Find the jobs property group by locating the label 'Jobs'
     const label = screen.getByText('Jobs');
-    // Navigate up to the containing property group that contains the variant chips or add controls
-    let group: HTMLElement | null = label.closest('div');
-    while (group && !Array.from(group.querySelectorAll('button')).some(b => /Job Object|Job String|Object|String/i.test(b.textContent || ''))) {
-      group = group.parentElement;
-    }
-    expect(group).toBeTruthy();
 
-    // Variant chips should be present inside jobs group immediately (no key typed)
-    const jobObjectBtn = Array.from(group!.querySelectorAll('button')).find(b => /Job Object|Object/i.test(b.textContent || ''));
-    const jobStringBtn = Array.from(group!.querySelectorAll('button')).find(b => /Job String|String/i.test(b.textContent || ''));
-    expect(jobObjectBtn).toBeTruthy();
-    expect(jobStringBtn).toBeTruthy();
 
-    // Description should be present via tooltip on the label
-    const labelEl = group!.querySelector('span') as HTMLElement | null;
-    expect(labelEl).toBeTruthy();
-    fireEvent.mouseEnter(labelEl!);
-    fireEvent.focus(labelEl!);
+    // Pattern chips were removed — the PATTERN label and variant buttons should not be present anywhere
+    expect(screen.queryByText(/pattern:/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /NormalJob/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /ReusableWorkflowCallJob/ })).toBeNull();
+
+    // Description should still be present via tooltip on the Jobs label
+    fireEvent.mouseEnter(label);
+    fireEvent.focus(label);
     const jobLinks = await screen.findAllByRole('link', { name: /https?:\/\/example\.com\/jobs/ });
     expect(jobLinks.length).toBeGreaterThan(0);
 
-    // New property input should not exist initially for polymorphic candidate
-    const input = group!.querySelector('input[placeholder="New property name..."]') as HTMLInputElement | null;
-    expect(input).toBeNull();
-
-    // Initially, variant chips should be unselected
-    expect(jobObjectBtn!.getAttribute('aria-pressed')).toBe('false');
-    expect(jobStringBtn!.getAttribute('aria-pressed')).toBe('false');
-
-    // Click variant to add a new property immediately with default name
-    if (jobStringBtn) fireEvent.click(jobStringBtn);
-
-    // onChange should have been called and added a property with an auto-generated name
-    expect(onChange).toHaveBeenCalled();
-    const calledWithNew = onChange.mock.calls[0][0];
-    const addedKeys = Object.keys(calledWithNew.jobs || {});
-    expect(addedKeys.length).toBeGreaterThan(0);
-    const addedKey = addedKeys.find(k => !k.startsWith('__')) || addedKeys[0];
-    expect(addedKey).toBeTruthy();
-    // Allow plain 'job' when available, otherwise 'job-N'
-    expect(/^job(-\d+)?$/.test(addedKey)).toBe(true);
-    expect(typeof calledWithNew.jobs[addedKey]).toBe('string');
-
-    // The inline rename input should be present and prefilled with the generated key, and focused for immediate editing
-    const nameInput = group!.querySelector('input[placeholder="New property name..."]') as HTMLInputElement | null;
-    expect(nameInput).toBeTruthy();
-    expect(nameInput!.value).toMatch(/^job(-\d+)?$/);
-    // The input should be focused (immediate edit)
-    expect(document.activeElement).toBe(nameInput);
-
-    // The inline hint should be visible while renaming
-    const hint = group!.querySelector('[data-testid="rename-hint"]') as HTMLElement | null;
-    expect(hint).toBeTruthy();
-    expect(hint!.textContent).toMatch(/Press Enter to confirm/i);
-
-    // Press Escape to cancel rename: input should disappear and no rename should occur
-    fireEvent.keyDown(nameInput!, { key: 'Escape' });
-    expect(group!.querySelector('input[placeholder="New property name..."]')).toBeNull();
-    // No additional onChange should have been emitted by canceling
-    expect(onChange.mock.calls.length).toBe(1);
-
-    // Re-open by clicking variant again and then rename to 'myjob'
-    if (jobStringBtn) fireEvent.click(jobStringBtn);
-    const nameInput2 = group!.querySelector('input[placeholder="New property name..."]') as HTMLInputElement | null;
-    expect(nameInput2).toBeTruthy();
-    fireEvent.change(nameInput2!, { target: { value: 'myjob' } });
-    fireEvent.keyDown(nameInput2!, { key: 'Enter' });
-
-    // A second onChange should be emitted for the rename
-    expect(onChange.mock.calls.length).toBeGreaterThanOrEqual(2);
-    const secondCall = onChange.mock.calls[onChange.mock.calls.length - 1][0];
-    const addedKeysAfterRename = Object.keys(secondCall.jobs || {});
-    expect(addedKeysAfterRename).toContain('myjob');
-    expect(addedKeysAfterRename).not.toContain(addedKey);
-
-    // Now test that memory is used when adding typed property: store a memory value for the 'Job String' variant
-    const chosenSchema = { type: 'string', title: 'Job String' };
-    const storageSuffix = JSON.stringify(chosenSchema);
-    const childPathKey = ['jobs', 'secondJob'].join('.');
-    const memKey = `json-instance-variants:json-instance:${storageSuffix}:${childPathKey}`;
-    localStorage.setItem(memKey, JSON.stringify({ 0: 'Stored Value' }));  
   });
 
 
@@ -453,8 +385,9 @@ describe('JsonInstanceForm extras', () => {
     const row = header.nextElementSibling as HTMLElement | null;
     expect(row).toBeTruthy();
     const children = Array.from(row!.children).filter((ch) => ch.nodeType === 1);
-    // Only b (present, removable) and c (not present, addable) should be rendered
-    expect(children.length).toBe(2);
+    // Only c (not present, addable) should be rendered — present properties are removed from the Available list
+    expect(children.length).toBe(1);
+    expect(children[0].textContent).toMatch(/\+\s*C/i);
   });
 
   test('hides Available properties when there are no non-required properties', () => {
