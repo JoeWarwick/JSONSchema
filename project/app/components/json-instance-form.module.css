@@ -89,31 +89,17 @@
   position: relative; /* anchor absolute fallback tooltip */
 }
 
-.fallbackTooltip {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 9999;
-  background: var(--color-neutral-3);
-  color: var(--color-neutral-11);
-  border: var(--border-size-1) solid var(--color-neutral-6);
-  padding: 6px 8px;
-  border-radius: 6px;
-  max-width: 36rem;
-  box-shadow: var(--shadow-2);
-  font-size: 13px;
-  white-space: pre-wrap;
-}
-
 .propertyName {
   display: inline-flex;
-  gap: 6px;
   align-items: center;
+  gap: 6px;
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--color-neutral-12);
   /* allow title to take remaining space so remove button can float right */
   flex: 1;
+  cursor: help;
+  outline: none;
 }
 
 .requiredMark {
@@ -193,7 +179,6 @@
   font-weight: 500;
   cursor: pointer;
   transition: background 0.2s;
-  margin-top: var(--space-3);
   display: inline-flex;
   align-items: center;
   height: 32px; /* explicit height to match remove button */
@@ -256,14 +241,22 @@
   opacity: 0;
   transition: opacity 0.12s ease, transform 0.12s ease;
   pointer-events: none;
-  background: transparent;
-  border: none;
+  background: var(--color-neutral-1);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  padding: 4px;
-  font-size: 14px;
+  padding: 0;
+  font-size: 11px;
   position: static; /* inline by default - shown inline next to label */
   margin-left: 6px;
   transform: none;
+  box-shadow: var(--shadow-1);
+  z-index: 5;
 }
 
 /* When used inside the Available row we keep the absolute position behavior */

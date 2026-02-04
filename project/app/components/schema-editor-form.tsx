@@ -477,7 +477,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
             {variants.map((v, i) => {
               if (!v) return <div key={i} style={{ color: 'red', padding: 10 }}>Error: Variant {i} is null</div>;
               
-              const labelData = getVariantLabel(v, i);
+              const labelData = getVariantLabel(v, i, variants);
 
               return (
               <div key={i} className={styles.variantItem} style={{ border: '1px solid var(--color-accent-4)', marginBottom: 16, background: 'var(--color-neutral-1)' }}>

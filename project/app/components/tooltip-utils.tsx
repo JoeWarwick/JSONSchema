@@ -1,4 +1,6 @@
-export const renderTooltipContentChildren = (text?: any) => {
+import React from 'react';
+
+export const renderTooltipContentChildren = (text?: any): React.ReactNode => {
   if (text === undefined || text === null) return null;
   const s = String(text);
   // Find any http(s) URLs within the string and render them as anchors so tests and users can follow links

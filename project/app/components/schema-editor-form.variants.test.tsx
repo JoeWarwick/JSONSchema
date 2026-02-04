@@ -207,4 +207,17 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
     // Should skip schema.json and pick 'Event-type' from comment
     expect(screen.getAllByText('1. Event-type')[0]).toBeInTheDocument();
   });
+
+  it('qualifies duplicate variant names with their type', () => {
+    const schema = {
+      oneOf: [
+        { $comment: 'https://help.github.com/en/actions/automating-your-workflow-with-github-actions/workflow-syntax-for-github-actions#self-hosted-runners', type: 'string' },
+        { $comment: 'https://help.github.com/en/actions/automating-your-workflow-with-github-actions/workflow-syntax-for-github-actions#self-hosted-runners', type: 'array', items: { type: 'string' } }
+      ]
+    };
+    renderForm(schema);
+    // Both variants have same base name; ensure they are qualified with type
+    expect(screen.getAllByText('1. Self-hosted-runners<string>')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('2. Self-hosted-runners<array>')[0]).toBeInTheDocument();
+  });
 });

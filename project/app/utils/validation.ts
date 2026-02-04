@@ -21,6 +21,9 @@ function makeSimpleValidator(schema: Record<string, unknown>) {
   const fn: any = (data: any) => {
     const errors: any[] = [];
     try {
+      const keys = Object.keys(schema);
+      const isNakedRef = keys.length === 1 && keys[0] === '$ref';
+
       if (schema.enum && Array.isArray(schema.enum) && !schema.enum.includes(data)) {
         errors.push({ instancePath: '', message: `Value must be one of: ${(schema.enum as any[]).map(String).join(', ')}` });
       }
@@ -39,9 +42,27 @@ function makeSimpleValidator(schema: Record<string, unknown>) {
           }
         });
         if (!ok) errors.push({ instancePath: '', message: `must be ${typeof type === 'string' ? type : 'one of types'}` });
+      } else if (isNakedRef) {
+        const ref = String(schema.$ref);
+        const lowRef = ref.toLowerCase();
+        // Heuristic: if the ref name suggests a string/expression, don't match complex types.
+        // This is a safety measure for GitHub Actions anyOf variants when Ajv isn't fully resolving refs.
+        if (lowRef.includes('string') || lowRef.includes('expression')) {
+          if (typeof data === 'object' && data !== null) {
+             errors.push({ instancePath: '', message: 'Ref suggests string/expression but data is object/array' });
+          } else if (typeof data === 'string' && lowRef.includes('expression')) {
+             // If ref is an "expression", it usually MUST contain ${{ }} if it's GitHub
+             if (data.length > 0 && !data.includes('${{')) {
+                errors.push({ instancePath: '', message: 'Expression ref requires ${{ }} syntax' });
+             }
+          }
+        } else if (lowRef.includes('object') || lowRef.includes('def')) {
+          if (typeof data !== 'object' || data === null) {
+             errors.push({ instancePath: '', message: 'Ref suggests object but data is primitive' });
+          }
+        }
       }
 
-      // required properties
       if (schema.required && Array.isArray(schema.required) && typeof data === 'object' && data !== null && !Array.isArray(data)) {
         for (const req of schema.required) {
           if (!(req in data)) {
@@ -71,6 +92,18 @@ function makeSimpleValidator(schema: Record<string, unknown>) {
       if (schema.pattern && typeof data === 'string') {
         try { const re = new RegExp(String(schema.pattern)); if (!re.test(data)) errors.push({ instancePath: '', message: 'must match pattern' }); } catch (e) { /* ignore */ errors.push({ instancePath: '', message: 'Invalid pattern' }); }
       }
+
+      // items / properties structural hints for choice detection
+      if (schema.items && !Array.isArray(data)) {
+         errors.push({ instancePath: '', message: 'must be an array' });
+      }
+      if (schema.minItems && Array.isArray(data) && data.length < (schema.minItems as number)) {
+         errors.push({ instancePath: '', message: 'too few items' });
+      }
+      if (schema.properties && (typeof data !== 'object' || data === null || Array.isArray(data))) {
+         errors.push({ instancePath: '', message: 'must be an object' });
+      }
+
       // minimal formats
       if (schema.format && typeof data === 'string') {
         const fmt = String(schema.format);
@@ -163,8 +196,13 @@ function getValidator(schema: Record<string, unknown>): ValidateFunction {
 
 export function validateValueAgainstSchema(value: unknown, schema: Record<string, unknown> | null): string | null {
   // Preserve existing behavior for primitive empty inputs: allow empty string/null/undefined to bypass validation
-  // but do NOT treat empty arrays/objects as 'empty' so variant detection can make an explicit choice.
-  if (value === '' || value === undefined || value === null) return null;
+  // during active editing so the user can type into a field without immediate error blocking.
+  if (value === '' || value === undefined || value === null) {
+      // If the schema specifies a pattern or minLength, or is an enum that doesn't include '', 
+      // we might want to flag it as invalid eventually, but for the 'anyOf' variant detection
+      // we should be careful. 
+      return null;
+  }
   if (!schema || typeof schema !== 'object') return null;
 
   try {

@@ -1,28 +1,28 @@
 .content {
-  /* Ensure tooltips overlay graph nodes and do not affect layout */
-  position: absolute;
   z-index: 9999;
-  display: block;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .18s ease;
-  overflow: hidden;
   border-radius: var(--radius-2);
   border: var(--border-size-1) solid var(--color-neutral-6);
   background: var(--color-neutral-3);
   padding: var(--space-2);
   color: var(--color-neutral-11);
   box-shadow: var(--shadow-3);
-  /* Constrain width and allow text to wrap neatly */
   max-width: 36rem;
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
+  /* Radix handles visibility by mounting/unmounting, but we can add a fade-in */
+  animation: slideDownAndFade 200ms ease-out;
 }
 
-.content[data-state="open"] {
-  opacity: 1;
-  pointer-events: auto;
+@keyframes slideDownAndFade {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

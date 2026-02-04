@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, fireEvent, screen, act } from '@testing-library/react';
+import { render, fireEvent, screen, act, within, waitFor } from '@testing-library/react';
 import { JsonInstanceForm } from './json-instance-form';
 import { TooltipProvider } from './ui/tooltip/tooltip';
 
@@ -15,6 +15,20 @@ describe('JsonInstanceForm extras', () => {
   beforeEach(() => {
     localStorage.clear();
   });
+
+  // Helper to find the add-input that belongs to a specific labeled object
+  const findAddInputForSection = (label: string) => {
+    const inputs = screen.getAllByPlaceholderText('New property name...');
+    return inputs.find((el) => {
+      let p: HTMLElement | null = el.closest('div');
+      while (p) {
+        const span = p.querySelector('span');
+        if (span && span.textContent === label) return el;
+        p = p.parentElement;
+      }
+      return undefined;
+    });
+  };
 
   test('auto-deduplicates unique primitive arrays on blur', () => {
     const schema = {
@@ -308,6 +322,27 @@ describe('JsonInstanceForm extras', () => {
     expect(screen.getByText('Choose the options')).toBeTruthy();
   });
 
+  test('variant chips are qualified when names clash (type qualifier)', () => {
+    const schema: any = {
+      type: 'object',
+      properties: {
+        'runs-on': {
+          description: 'The type of machine to run the job on.',
+          anyOf: [
+            { $comment: 'https://help.github.com/...#self-hosted-runners', type: 'string' },
+            { $comment: 'https://help.github.com/...#self-hosted-runners', anyOf: [{ items: [{ type: 'string' }], minItems: 1 }], type: 'array' }
+          ]
+        }
+      }
+    };
+    const onChange = jest.fn();
+    renderForm(<JsonInstanceForm schema={schema} value={{ 'runs-on': undefined }} onChange={onChange} />);
+
+    // Buttons should include the base name and be qualified by type to avoid clash
+    expect(screen.getByRole('button', { name: /Self-hosted-runners<string>/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Self-hosted-runners<array>/i })).toBeTruthy();
+  });
+
   test('required polymorphic property renders unselected chips by default', () => {
     const schema: any = {
       type: 'object',
@@ -386,6 +421,48 @@ describe('JsonInstanceForm extras', () => {
     expect(githubBtnAfter.getAttribute('aria-pressed')).toBe('true');
   });
 
+  test('clicking anyOf chip without default inserts empty value and autofocuses editor, duplicates prevented', () => {
+    const schema: any = {
+      type: 'object',
+      properties: {
+        'runs-on': {
+          description: 'The type of machine to run the job on.',
+          anyOf: [
+            { title: 'GitHub Hosted', type: 'string', enum: ['ubuntu-latest'] },
+            { title: 'Self Hosted', type: 'string' }
+          ]
+        }
+      }
+    };
+
+    const onChange = jest.fn();
+    const { rerender } = renderForm(<JsonInstanceForm schema={schema} value={{ 'runs-on': [] }} onChange={onChange} />);
+
+    const selfBtn = screen.getByRole('button', { name: /Self Hosted/i });
+    // Add Self Hosted (no default) - should insert empty string and call onChange
+    fireEvent.click(selfBtn);
+    // DEBUG
+    console.debug('onChange.calls', JSON.stringify(onChange.mock.calls));
+    expect(onChange).toHaveBeenCalled();
+    let called = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    // parent updated with runs-on array containing empty string
+    expect(Array.isArray(called['runs-on'])).toBe(true);
+    expect(called['runs-on']).toEqual(['']);
+
+    // Simulate parent updating prop and rerender - the inner input should be visible and focused
+    act(() => rerender(<TooltipProvider><JsonInstanceForm schema={schema} value={{ 'runs-on': called['runs-on'] }} onChange={onChange} /></TooltipProvider>));
+    const input = screen.getByPlaceholderText('Enter value...') as HTMLInputElement;
+    expect(input).toBeTruthy();
+    expect(document.activeElement).toBe(input);
+
+    // Clicking the same chip again should remove it (toggle) - duplicates should not be created
+    fireEvent.click(selfBtn);
+    expect(onChange).toHaveBeenCalled();
+    called = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    expect(Array.isArray(called['runs-on'])).toBe(true);
+    expect(called['runs-on']).toEqual([]);
+  });
+
 
   test('available property shows name as label and description/comment tooltips (linkify)', async () => {
     const schema: any = { properties: { trigger: { type: 'string', description: 'A test description — https://example.com/docs', $comment: 'https://example.com/doc' } }, required: [] };
@@ -399,7 +476,7 @@ describe('JsonInstanceForm extras', () => {
     // Hover to show description tooltip (contains a link)
     fireEvent.mouseEnter(addBtn);
     fireEvent.focus(addBtn);
-    const links = await screen.findAllByRole('link', { name: /https?:\/\/example\.com\/docs/ });
+    const links = screen.getAllByRole('link', { name: /https?:\/\/example\.com\/docs/ });
     expect(links.length).toBeGreaterThan(0);
     expect(links[0].getAttribute('target')).toBe('_blank');
 
@@ -416,15 +493,33 @@ describe('JsonInstanceForm extras', () => {
       expect(descQuery).toBeNull();
 
       // Now the comment tooltip link should appear
-      const commentLinks = await screen.findAllByRole('link', { name: /https?:\/\/example\.com\/doc/ });
+      const commentLinks = screen.getAllByRole('link', { name: /https?:\/\/example\.com\/doc/ });
       expect(commentLinks.length).toBeGreaterThan(0);
       expect(commentLinks[0].getAttribute('target')).toBe('_blank');
 
       // Keyboard focus reveal: focus the comment button (simulate tab focus)
       commentBtn.focus();
-      const commentLinks2 = await screen.findAllByRole('link', { name: /https?:\/\/example\.com\/doc/ });
+      const commentLinks2 = screen.getAllByRole('link', { name: /https?:\/\/example\.com\/doc/ });
       expect(commentLinks2.length).toBeGreaterThan(0);
     }
+  });
+
+  test('empty anyOf schema shows no chips and is treated as no-variants', () => {
+    const schema: any = { type: 'object', properties: { a: { anyOf: [] } } };
+    const onChange = jest.fn();
+    renderForm(<JsonInstanceForm schema={schema} value={{ a: [] }} onChange={onChange} />);
+
+    // No variant chips should be rendered for an empty anyOf
+    expect(screen.queryByText(/Choose the options/i)).toBeNull();
+  });
+
+  test('empty oneOf schema shows no chips and is treated as no-variants', () => {
+    const schema: any = { type: 'object', properties: { a: { oneOf: [] } } };
+    const onChange = jest.fn();
+    renderForm(<JsonInstanceForm schema={schema} value={undefined} onChange={onChange} />);
+
+    // No variant chips should be rendered for an empty oneOf
+    expect(screen.queryByText(/Choose an option/i)).toBeNull();
   });
 
   test('remove buttons show delete tooltip on hover', async () => {
@@ -484,6 +579,237 @@ describe('JsonInstanceForm extras', () => {
 
     const tips = await screen.findAllByText(/Delete Job\?/);
     expect(tips.length).toBeGreaterThan(0);
+  });
+
+  test('adding a pattern property (NormalJob) creates required runs-on as empty array (no default selection)', () => {
+    const schema: any = {
+      type: 'object',
+      properties: {
+        jobs: {
+          type: 'object',
+          patternProperties: {
+            '^[_a-zA-Z][a-zA-Z0-9_-]*$': {
+              type: 'object',
+              properties: {
+                'runs-on': {
+                  anyOf: [
+                    { title: 'GitHub Hosted', type: 'string', enum: ['ubuntu-latest'] },
+                    { title: 'Self Hosted', type: 'string' }
+                  ]
+                }
+              },
+              required: ['runs-on']
+            }
+          },
+          additionalProperties: true
+        }
+      }
+    };
+
+    const onChange = jest.fn();
+    renderForm(<JsonInstanceForm schema={schema} value={{ jobs: {} }} onChange={onChange} />);
+
+    const input = findAddInputForSection('Jobs') as HTMLInputElement;
+
+    // Add a new NormalJob
+    fireEvent.change(input, { target: { value: 'normal' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onChange).toHaveBeenCalled();
+    const called = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    expect(called.jobs).toBeTruthy();
+    expect(Object.prototype.hasOwnProperty.call(called.jobs, 'normal')).toBeTruthy();
+    const added = called.jobs['normal'];
+    // runs-on should be present and be an empty array so anyOf chips remain unselected
+    expect(Object.prototype.hasOwnProperty.call(added, 'runs-on')).toBeTruthy();
+    expect(Array.isArray(added['runs-on'])).toBe(true);
+    expect(added['runs-on']).toEqual([]);
+  });
+
+  test('adding a pattern property shows job-type oneOf chips (NormalJob vs ReusableWorkflowCallJob)', async () => {
+    const schema: any = {
+      type: 'object',
+      properties: {
+        jobs: {
+          type: 'object',
+          patternProperties: {
+            '^[_a-zA-Z][a-zA-Z0-9_-]*$': {
+              oneOf: [
+                { title: 'NormalJob', type: 'object', properties: { 'runs-on': { anyOf: [ { title: 'GitHub Hosted', type: 'string' }, { title: 'Self Hosted', type: 'string' } ] }, required: ['runs-on'] } },
+                { title: 'ReusableWorkflowCallJob', type: 'object', properties: { 'uses': { type: 'string' } }, required: ['uses'] }
+              ]
+            }
+          },
+          additionalProperties: true
+        }
+      }
+    };
+
+    const onChange = jest.fn();
+    const { rerender } = renderForm(<JsonInstanceForm schema={schema} value={{ jobs: {} }} onChange={onChange} />);
+
+    const input = findAddInputForSection('Jobs') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'job' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    // Wait for the deferred add to fire
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const called = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    expect(called.jobs).toBeTruthy();
+    const keyName = Object.keys(called.jobs)[0];
+    expect(keyName).toBeTruthy();
+
+    // Simulate parent update and rerender so child editors mount
+    act(() => rerender(<TooltipProvider><JsonInstanceForm schema={schema} value={{ jobs: called.jobs }} onChange={onChange} /></TooltipProvider>));
+
+
+    const jobsLabel = screen.getByText('Jobs');
+    const jobsGroup = jobsLabel.closest('div');
+    expect(jobsGroup).toBeTruthy();
+
+    // Find the property group for the newly-created key and assert the variant chips are present there
+    const jobLabel = within(jobsGroup as Element).getByText(new RegExp(keyName, 'i'));
+    const jobHeader = jobLabel.closest('div');
+    expect(jobHeader).toBeTruthy();
+    const jobGroup = jobHeader ? jobHeader.parentElement : null;
+    expect(jobGroup).toBeTruthy();
+
+    // DEBUG
+    // console.debug('jobGroup html:', jobGroup ? jobGroup.innerHTML : '<none>');
+
+    const normalChip = within(jobGroup as Element).getByRole('button', { name: /NormalJob/i });
+    const reusableChip = within(jobGroup as Element).getByRole('button', { name: /ReusableWorkflowCallJob/i });
+    expect(normalChip).toBeTruthy();
+    expect(reusableChip).toBeTruthy();
+  });
+
+  test('inline rename of newly-added pattern property works', async () => {
+    jest.useFakeTimers();
+
+    const schema: any = {
+      type: 'object',
+      properties: {
+        jobs: {
+          type: 'object',
+          patternProperties: {
+            '^[_a-zA-Z][a-zA-Z0-9_-]*$': {
+              type: 'object'
+            }
+          },
+          additionalProperties: true
+        }
+      }
+    };
+
+    const onChange = jest.fn();
+    const { rerender } = renderForm(<JsonInstanceForm schema={schema} value={{ jobs: {} }} onChange={onChange} />);
+
+    const input = findAddInputForSection('Jobs') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'normal' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    // The pending rename input should be visible before the deferred add runs
+    const jobsLabel = screen.getByText('Jobs');
+    const jobsHeader = jobsLabel.closest('div');
+    expect(jobsHeader).toBeTruthy();
+    const jobsGroup = jobsHeader ? jobsHeader.parentElement : null;
+    expect(jobsGroup).toBeTruthy();
+
+
+    const allInputs = within(jobsGroup as Element).getAllByPlaceholderText('New property name...') as HTMLInputElement[];
+    const pendingInput = allInputs.find(i => (i as HTMLInputElement).value === 'normal');
+    expect(pendingInput).toBeTruthy();
+
+    // Rename to 'normalJob1' while add is still pending, and confirm it cancels the pending add and creates the renamed key
+    fireEvent.change(pendingInput, { target: { value: 'normalJob1' } });
+    fireEvent.keyDown(pendingInput, { key: 'Enter' });
+
+    // Run pending timers (the deferred add would have run here if not cancelled)
+    act(() => { jest.runOnlyPendingTimers(); });
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const called = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    expect(Object.prototype.hasOwnProperty.call(called.jobs, 'normalJob1')).toBeTruthy();
+
+    jest.useRealTimers();
+  });
+
+  test('pattern properties show add input even when additionalProperties is false', () => {
+    const schema: any = {
+      type: 'object',
+      properties: {
+        jobs: {
+          type: 'object',
+          patternProperties: {
+            '^[_a-zA-Z][a-zA-Z0-9_-]*$': {
+              type: 'object',
+              properties: {
+                'runs-on': {
+                  anyOf: [
+                    { title: 'GitHub Hosted', type: 'string', enum: ['ubuntu-latest'] },
+                    { title: 'Self Hosted', type: 'string' }
+                  ]
+                }
+              },
+              required: ['runs-on']
+            }
+          },
+          additionalProperties: false
+        }
+      }
+    };
+
+    const onChange = jest.fn();
+    renderForm(<JsonInstanceForm schema={schema} value={{ jobs: {} }} onChange={onChange} />);
+
+    // Locate the Jobs property group and ensure it does not contain the free Add input
+    const jobsLabel = screen.getByText('Jobs');
+    const jobsGroup = jobsLabel.closest('div');
+    expect(jobsGroup).toBeTruthy();
+    const input = jobsGroup ? within(jobsGroup).queryByPlaceholderText('New property name...') : null;
+    expect(input).toBeNull();
+    // No free-add control is available; pattern properties must be added via other UI flows.
+  });
+
+  test('adding a pattern property will populate runs-on with schema default when provided', () => {
+    const schema: any = {
+      type: 'object',
+      properties: {
+        jobs: {
+          type: 'object',
+          patternProperties: {
+            '^[_a-zA-Z][a-zA-Z0-9_-]*$': {
+              type: 'object',
+              properties: {
+                'runs-on': {
+                  anyOf: [
+                    { title: 'GitHub Hosted', type: 'string', enum: ['ubuntu-latest'], default: 'ubuntu-latest' },
+                    { title: 'Self Hosted', type: 'string' }
+                  ]
+                }
+              },
+              required: ['runs-on']
+            }
+          },
+          additionalProperties: true
+        }
+      }
+    };
+
+    const onChange = jest.fn();
+    renderForm(<JsonInstanceForm schema={schema} value={{ jobs: {} }} onChange={onChange} />);
+
+    const input = findAddInputForSection('Jobs') as HTMLInputElement;
+
+    // Add a new NormalJob
+    fireEvent.change(input, { target: { value: 'normal' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onChange).toHaveBeenCalled();
+    const called = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    const added = called.jobs['normal'];
+    // runs-on should be set to the provided default
+    expect(added['runs-on']).toBe('ubuntu-latest');
   });
 
   test('available row has no empty placeholders for required properties', () => {

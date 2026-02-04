@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from "react";
 import styles from "./json-instance-form.module.css";
 import Select from "react-select";
+import CreatableSelect from "react-select/creatable";
 import { flushSync } from 'react-dom';
 import { validateValueAgainstSchema } from "../utils/validation";
 import { getAdditionalPropertiesSchema } from "./schema-behaviors";
 import { getVariantLabel } from "../utils/labels";
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./ui/tooltip/tooltip";
+import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip/tooltip";
 
 import { renderTooltipContentChildren } from './tooltip-utils';
 
@@ -14,12 +15,14 @@ interface JsonInstanceFormProps {
   value: unknown;
   onChange: (value: unknown) => void;
   path?: string[];
+  // If true, focus the first input rendered for this form when it mounts
+  autoFocus?: boolean;
 }
 
-export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonInstanceFormProps) {
+export function JsonInstanceForm({ schema, value, onChange, path = [], autoFocus = false }: JsonInstanceFormProps) {
   const explicitType = schema.type as string | undefined;
   const hasSchemaProps = !!(schema.properties || schema.patternProperties || schema.additionalProperties);
-  const type = explicitType ?? (hasSchemaProps ? 'object' : (Array.isArray(value) ? 'array' : (value && typeof value === 'object' ? 'object' : 'string')));
+  const type = explicitType ?? (hasSchemaProps ? 'object' : (schema.items || schema.additionalItems || Array.isArray(value) ? 'array' : (value && typeof value === 'object' ? 'object' : 'string')));
   const storageKey = 'json-instance:' + (schema && typeof (schema.title as any) === 'string' ? schema.title : (schema.$id ? schema.$id : JSON.stringify(schema)));
   const pathKey = path.join('.');
   const variantMemoryKey = `json-instance-variants:${storageKey}:${pathKey}`;
@@ -32,7 +35,6 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
   const [creatingPropKey, setCreatingPropKey] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState<string>('');
   const renameInputRef = useRef<HTMLInputElement | null>(null);
-  const [hoveredTooltipKey, setHoveredTooltipKey] = useState<string | null>(null);
   
   // Helper to create a human-friendly label (capitalize first char)
   const displayLabel = (s: string) => (typeof s === 'string' && s.length > 0) ? (s.charAt(0).toUpperCase() + s.slice(1)) : s;
@@ -41,24 +43,20 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
     const RenderAddButton = (keyName: string, onClick: () => void, propSchema?: Record<string, any>) => {
       const hasDesc = propSchema && (propSchema.description as string);
       return (
-        <div key={keyName}>
+        <div key={keyName} className={styles.availItem}>
           {hasDesc ? (
             <>
-              <Tooltip>
+              <Tooltip delayDuration={200}>
                 <TooltipTrigger asChild>
                   <button
                     className={styles.addButton}
                     type="button"
                     onClick={onClick}
-                    onMouseEnter={() => setHoveredTooltipKey(`desc:${keyName}`)}
-                    onMouseLeave={() => setHoveredTooltipKey(null)}
-                    onFocus={() => setHoveredTooltipKey(`desc:${keyName}`)}
-                    onBlur={() => setHoveredTooltipKey(null)}
                   >
                     + {displayLabel(keyName)}
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>{renderTooltipContentChildren(propSchema.description)}</TooltipContent>
+                <TooltipContent side="bottom">{renderTooltipContentChildren(propSchema.description)}</TooltipContent>
               </Tooltip>
 
               {/* Test-friendly offscreen link for linkified descriptions so tests can find anchors without waiting on tooltip delays */}
@@ -73,29 +71,13 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
               })()}
 
               {propSchema.$comment && (
-                <>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button aria-label="comment-trigger" className={styles.removeButton} type="button" onMouseEnter={() => setHoveredTooltipKey(`comment:${keyName}`)} onMouseLeave={() => setHoveredTooltipKey(null)} onFocus={() => setHoveredTooltipKey(`comment:${keyName}`)} onBlur={() => setHoveredTooltipKey(null)}>💬</button>
-                    </TooltipTrigger>
-                    <TooltipContent>{renderTooltipContentChildren(propSchema.$comment)}</TooltipContent>
-                  </Tooltip>
-                  {hoveredTooltipKey === `comment:${keyName}` && propSchema && propSchema.$comment && (
-                    <div className={styles.fallbackTooltip} role="tooltip">{renderTooltipContentChildren(propSchema.$comment)}</div>
-                  )}
-                </>
+                <Tooltip delayDuration={0}>
+                  <TooltipTrigger asChild>
+                    <button aria-label="comment-trigger" className={styles.commentIcon} type="button">💬</button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{renderTooltipContentChildren(propSchema.$comment)}</TooltipContent>
+                </Tooltip>
               )}
-
-              {hoveredTooltipKey === `desc:${keyName}` && propSchema && propSchema.description && (() => {
-                const s = String(propSchema.description);
-                const m = s.match(/https?:\/\/[^\s]+/i);
-                if (m) {
-                  const url = m[0];
-                  const parts = s.split(url);
-                  return (<div className={styles.fallbackTooltip} role="tooltip">{parts[0]}<a href={url} target="_blank" rel="noreferrer noopener">{url}</a>{parts.slice(1).join(url)}</div>);
-                }
-                return (<div className={styles.fallbackTooltip} role="tooltip">{s}</div>);
-              })()}
             </>
           ) : (
             <button key={keyName} className={styles.addButton} type="button" onClick={onClick}>
@@ -106,17 +88,42 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
       );
     };
   const numberInputRef = useRef<HTMLInputElement | null>(null);
+  const stringInputRef = useRef<HTMLInputElement | null>(null);
   const chipRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const lastPrimitiveRef = useRef<HTMLDivElement | null>(null);
   const lastObjectRef = useRef<HTMLDivElement | null>(null);
+  // Timer for deferring add operations (so pending rename UI can appear)
+  const addTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track a variant index that should be auto-focused after being added (for empty/default-less variants)
+  const [focusVariantIndex, setFocusVariantIndex] = useState<number | null>(null);
 
   // Variants: prefer single-select variants (oneOnly/oneOf) for selection behavior,
   // but also allow rendering variants from anyOf when present (multi-select semantics).
+
+// Helper component to focus a string input when mounted
+function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLInputElement | null> }) {
+  useEffect(() => {
+    if (inputRef && inputRef.current && 'focus' in inputRef.current) {
+      try { (inputRef.current as HTMLInputElement).focus(); } catch { /* ignore */ }
+    }
+  }, [inputRef]);
+  return null;
+}
   const oneVariants = Array.isArray(schema.oneOnly)
     ? (schema.oneOnly as Record<string, unknown>[])
     : Array.isArray(schema.oneOf)
     ? (schema.oneOf as Record<string, unknown>[])
     : null;
+
+  // Cleanup: cancel any pending add timers on unmount
+  useEffect(() => {
+    return () => {
+      if (addTimerRef.current) {
+        clearTimeout(addTimerRef.current as any);
+        addTimerRef.current = null;
+      }
+    };
+  }, []);
   const anyVariants = Array.isArray(schema.anyOf) ? (schema.anyOf as Record<string, unknown>[]) : null;
   // hasVariants is true when any of the combinator arrays exist
   const hasVariants = (!!oneVariants && oneVariants.length > 0) || (!!anyVariants && anyVariants.length > 0);
@@ -126,6 +133,8 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
   const [selectedVariantIndex, setSelectedVariantIndex] = useState<number>(() => {
     // Only compute single-selection index for oneOf/oneOnly variants
     if (!oneVariants || oneVariants.length === 0) return -1;
+    // Auto-select if there is only one option and it's unique
+    if (oneVariants.length === 1) return 0;
     // If there's no existing value, treat the oneOf as unselected by default (but handle empty string/array cases specially)
     if (value === undefined || value === null) return -1;
     if (value === '') {
@@ -175,33 +184,56 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
   const writeOnlyAttr = !!schema.writeOnly;
   const constValue = schema.const as unknown | undefined;
 
-  // Persist instance value to localStorage whenever it changes
-  useEffect(() => {
-    try {
-      if (value === undefined) {
-        localStorage.removeItem(storageKey);
-      } else {
-        localStorage.setItem(storageKey, JSON.stringify(value));
-      }
-    } catch (e) {
-      // ignore storage errors
-    }
-  }, [value, storageKey]);
+  const getSchemaForProperty = (key: string): Record<string, unknown> | null => {
+    const properties = (schema.properties as Record<string, any>) || {};
+    const patternProperties = (schema.patternProperties as Record<string, any>) || {};
+    const additionalProperties = schema.additionalProperties;
 
-  // Load instance when storageKey (schema) changes: prefer stored value, else default when no value provided
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (JSON.stringify(parsed) !== JSON.stringify(value)) {
-          onChange(parsed);
-        }
-      } else if (value === undefined) {
-        onChange(getDefaultValue(schema as Record<string, unknown>));
+    if (properties[key]) return properties[key];
+    for (const [pattern, subschema] of Object.entries(patternProperties)) {
+      try {
+        if (new RegExp(pattern).test(key)) return subschema;
+      } catch (_) {
+        // invalid regex - skip
       }
-    } catch (e) {
-      // ignore
+    }
+    return getAdditionalPropertiesSchema(additionalProperties);
+  };
+
+  // Initialize value from schema defaults if undefined (and parent didn't provide it)
+  useEffect(() => {
+    if (value === undefined) {
+      const def = getDefaultValue(schema);
+      if (def !== undefined) {
+        onChange(def);
+        return;
+      }
+    }
+
+    // Seed missing required properties or minProperties if object is empty
+    if (type === 'object' && value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) {
+      const properties = (schema.properties as Record<string, any>) || {};
+      const required = (schema.required as string[]) || [];
+      const hasMinProps = typeof schema.minProperties === 'number' && schema.minProperties > 0;
+      
+      if (required.length > 0 || hasMinProps) {
+        const newValue: Record<string, any> = {};
+        required.forEach(k => {
+          if (properties[k]) newValue[k] = getDefaultValue(properties[k]);
+        });
+        
+        if (Object.keys(newValue).length === 0 && hasMinProps) {
+          // Use the same logic as the component body to generate a default key
+          const last = path[path.length - 1] || 'item';
+          const hint = (last.length > 1 && last.endsWith('s')) ? last.slice(0, -1) : last;
+          // For seeding, we just use the hint directly if empty
+          newValue[hint] = getDefaultValue(getSchemaForProperty(hint) || {});
+        }
+
+        if (Object.keys(newValue).length > 0) {
+          onChange(newValue);
+        }
+      }
     }
   }, [storageKey]);
 
@@ -258,9 +290,19 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
       const strIdx = oneVariants.findIndex(vs => (vs && ((vs.type === 'string') || (Array.isArray(vs.type) && vs.type.includes('string')))));
       if (strIdx >= 0) { setSelectedVariantIndex(strIdx); return; }
     }
+    // Preserve current selection if it is still type-compatible with the value,
+    // even if it's currently invalid (allows typing to start).
+    if (selectedVariantIndex >= 0 && selectedVariantIndex < oneVariants.length) {
+      const curVs = oneVariants[selectedVariantIndex];
+      const isString = typeof value === 'string' && (curVs.type === 'string' || (Array.isArray(curVs.type) && curVs.type.includes('string')));
+      const isObject = typeof value === 'object' && value !== null && !Array.isArray(value) && (curVs.type === 'object' || (Array.isArray(curVs.type) && curVs.type.includes('object')) || curVs.properties);
+      const isArray = Array.isArray(value) && (curVs.type === 'array' || (Array.isArray(curVs.type) && curVs.type.includes('array')) || curVs.items);
+      if (isString || isObject || isArray) return;
+    }
+
     const idx = oneVariants.findIndex((vs) => validateValueAgainstSchema(value, vs) === null);
     if (idx >= 0) setSelectedVariantIndex(idx);
-  }, [value, schema, oneVariants]);
+  }, [value, schema, oneVariants, selectedVariantIndex]);
 
   useEffect(() => {
     // Only relevant for single-select variants
@@ -300,13 +342,61 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
   };
 
   // anyOf multi-select support
-  const [selectedAnyIndices, setSelectedAnyIndices] = useState<number[]>([]);
+  const [selectedAnyIndices, setSelectedAnyIndices] = useState<number[]>(() => {
+    if (anyVariants && anyVariants.length === 1 && !oneVariants) return [0];
+    return [];
+  });
 
   const deepEqual = (a: any, b: any) => {
     try { return JSON.stringify(a) === JSON.stringify(b); } catch { return false; }
   };
 
   const containsEqual = (arr: any[], v: any) => arr.some(item => deepEqual(item, v));
+
+  const resolveValueForVariant = (current: any, vs: any, idx: number) => {
+    // If the schema itself matches the current value, return the value as is
+    if (validateValueAgainstSchema(current, vs) === null) return current;
+    
+    // If the value is an array and the variant is a primitive,
+    // this might be an aggregated anyOf value where this variant contributed one element.
+    if (Array.isArray(current) && (vs.type === 'string' || vs.type === 'number' || vs.type === 'boolean')) {
+       for (const item of current) {
+         if (validateValueAgainstSchema(item, vs) === null) return item;
+       }
+    }
+    
+    // Fallback to memory or default
+    const mem = getVariantMemory();
+    if (Object.prototype.hasOwnProperty.call(mem, idx)) return mem[idx];
+    return getDefaultValue(vs);
+  };
+
+  const updateValueForVariant = (current: any, selectedIdxs: number[], targetIdx: number, newVal: any) => {
+    // If only one variant is selected, the value is just that variant's value
+    if (selectedIdxs.length === 1 && selectedIdxs[0] === targetIdx) {
+      return newVal;
+    }
+
+    // Otherwise we are aggregating.
+    const sourceVariants = Array.isArray(schema.anyOf) ? (schema.anyOf as any[]) : (oneVariants ?? []);
+    let result: any = undefined;
+    
+    for (const idx of selectedIdxs) {
+      const vs = sourceVariants[idx];
+      const v = (idx === targetIdx) ? newVal : resolveValueForVariant(current, vs, idx);
+
+      if (result === undefined) {
+         result = Array.isArray(v) ? v.slice() : [v];
+      } else if (Array.isArray(result)) {
+         if (Array.isArray(v)) {
+           for (const vv of v) if (!containsEqual(result, vv)) result.push(vv);
+         } else {
+           if (!containsEqual(result, v)) result.push(v);
+         }
+      }
+    }
+    return result;
+  };
 
   const applyAnyOfSelection = (current: unknown, variantsIdxs: number[]) => {
     // Choose the correct variants source: prefer schema.anyOf if present, else fall back to oneOf/oneOnly variants
@@ -328,11 +418,22 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
       if (v === undefined) v = getDefaultValue(vs);
 
       if (result === undefined) {
-        result = v;
+        // If we only have ONE variant selected, don't wrap it in an array yet.
+        // This allows anyOf to act as a union type selector (string OR object)
+        // instead of forcing a multi-item list.
+        if (variantsIdxs.length === 1) {
+          result = v;
+        } else {
+          result = Array.isArray(v) ? v.slice() : (v === undefined ? [] : [v]);
+        }
       } else if (Array.isArray(result)) {
-        if (!containsEqual(result, v)) result.push(v);
+        if (Array.isArray(v)) {
+          for (const vv of v) if (!containsEqual(result, vv)) result.push(vv);
+        } else {
+          if (!containsEqual(result, v)) result.push(v);
+        }
       } else if (Array.isArray(v)) {
-        // merge arrays
+        // merge arrays with an existing non-array result
         const arr = [result, ...v];
         result = arr.filter((item, pos) => !arr.slice(0, pos).some(other => deepEqual(other, item)));
       } else if (typeof result === 'object' && result !== null && typeof v === 'object' && v !== null) {
@@ -344,9 +445,9 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
       }
     }
 
-    // normalize single-element arrays to a single value for primitive convenience
-    if (Array.isArray(result) && result.length === 1) return result[0];
-    return result;
+    // Per spec, anyOf must be represented as an array. Do not collapse
+    // single-item arrays to primitives; return the array as-is.
+    return result; 
   };
 
   const toggleAnyOf = (idx: number) => {
@@ -356,10 +457,37 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
 
     const existing = Array.isArray(selectedAnyIndices) ? selectedAnyIndices.slice() : [];
     const found = existing.indexOf(idx);
+
+    // If adding (not removing) compute the variant's default so we can
+    // decide whether to autofocus the inner editor (empty primitive case)
+    const willAdd = found < 0;
+    let vForAdd: any = undefined;
+    try {
+      const vs = sourceVariants[idx];
+      const childPathKey = [...path, String(idx)].join('.');
+      const storageSuffix = (vs.$ref || vs.$id || JSON.stringify(vs));
+      const memKey = `json-instance-variants:json-instance:${storageSuffix}:${childPathKey}`;
+      const raw = localStorage.getItem(memKey);
+      const mem = raw ? JSON.parse(raw) : {};
+      if (Object.prototype.hasOwnProperty.call(mem, idx)) vForAdd = mem[idx];
+    } catch { /* ignore */ }
+    if (vForAdd === undefined) vForAdd = Array.isArray(sourceVariants[idx]) ? undefined : getDefaultValue(sourceVariants[idx]);
+
     if (found >= 0) existing.splice(found, 1); else existing.push(idx);
+    
+    const uniqueIdxs = Array.from(new Set(existing)).filter(i => i >= 0);
     // compute new merged value
-    const newValue = applyAnyOfSelection(value, existing);
-    setSelectedAnyIndices(existing);
+    const newValue = applyAnyOfSelection(value, uniqueIdxs);
+    setSelectedAnyIndices(uniqueIdxs);
+
+    // If we just added a variant, set focus marker so the child
+    // editor can mount and preserve selection even if value is initially invalid.
+    if (willAdd) {
+      setFocusVariantIndex(idx);
+      // Clear focus marker after a short time to avoid lingering state
+      setTimeout(() => setFocusVariantIndex((cur) => cur === idx ? null : cur), 2000);
+    }
+
     onChange(newValue);
   };
 
@@ -369,18 +497,79 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
     const isAny = !!sourceVariants && sourceVariants.length > 0;
     if (!isAny) { setSelectedAnyIndices([]); return; }
 
-    // Treat an empty-string value as "no selection" for anyOf. The validator
-    // intentionally returns null for empty primitives (to preserve legacy
-    // behavior for simple inputs) but that caused empty strings to match every
-    // anyOf variant. Explicitly handle '' as an absent value here.
-    if (value === '') { setSelectedAnyIndices([]); return; }
+    // If the value is empty, try to preserve the current selection or use focus hint
+    // so the UI doesn't disappear while the user is starting to type or interact.
+    if (value === '' || (Array.isArray(value) && value.length === 0)) {
+      if (focusVariantIndex !== null && focusVariantIndex >= 0 && focusVariantIndex < sourceVariants.length) {
+        setSelectedAnyIndices([focusVariantIndex]);
+        return;
+      }
+      if (selectedAnyIndices.length > 0) {
+        // Check if existing indices are "type-compatible" with the empty value
+        const allCompatible = selectedAnyIndices.every(idx => {
+          const vs = sourceVariants[idx];
+          if (value === '' && (vs.type === 'string' || (Array.isArray(vs.type) && vs.type.includes('string')))) return true;
+          if (Array.isArray(value) && (vs.type === 'array' || (Array.isArray(vs.type) && vs.type.includes('array')) || vs.items || vs.additionalItems)) return true;
+          return validateValueAgainstSchema(value, vs) === null;
+        });
+        if (allCompatible) return; 
+      }
+      setSelectedAnyIndices([]);
+      return;
+    }
 
     const idxs: number[] = [];
     if (Array.isArray(value)) {
+      const wholeArrayMatches: number[] = [];
       for (let i = 0; i < sourceVariants.length; i++) {
         const vs = sourceVariants[i];
-        for (const el of value) {
-          if (validateValueAgainstSchema(el, vs) === null) { idxs.push(i); break; }
+        if (validateValueAgainstSchema(value, vs) === null) {
+          wholeArrayMatches.push(i);
+        }
+      }
+
+      if (wholeArrayMatches.length > 0) {
+        // TIE-BREAK: If multiple variants match the whole array (common when $refs are greedy),
+        // prefer variants that are explicitly marked as 'array' types.
+        const arrayTypedMatches = wholeArrayMatches.filter(i => {
+            const vs = sourceVariants[i];
+            return vs.type === "array" || (Array.isArray(vs.type) && vs.type.includes("array")) || vs.items || vs.additionalItems;
+        });
+        if (arrayTypedMatches.length > 0) {
+            idxs.push(...arrayTypedMatches);
+        } else {
+            idxs.push(...wholeArrayMatches);
+        }
+      } else {
+        // Otherwise check if it matches elements (for mixed-type anyOf arrays)
+        for (let i = 0; i < sourceVariants.length; i++) {
+          const vs = sourceVariants[i];
+          const matchesArray = vs.type === "array" || (Array.isArray(vs.type) && vs.type.includes("array")) || vs.items || vs.additionalItems;
+          if (matchesArray) continue;
+          
+          for (const el of value) {
+            if (typeof el === 'string' && el.length === 0) continue;
+            if (validateValueAgainstSchema(el, vs) === null) { 
+              // Verify it's not a false positive for an empty string if it's a pattern variant
+              if (el === '' && (vs.pattern || vs.minLength)) {
+                 // skip
+              } else {
+                 idxs.push(i); 
+                 break; 
+              }
+            }
+          }
+        }
+      }
+
+      // If the value is an array that only contains empty placeholders ([''])
+      // try to preserve recent selection so the inner editor can mount
+      // immediately.
+      if (idxs.length === 0 && Array.isArray(value) && value.some((el: any) => typeof el === 'string' && el.length === 0)) {
+        if (focusVariantIndex !== null && focusVariantIndex >= 0 && focusVariantIndex < sourceVariants.length) {
+          idxs.push(focusVariantIndex);
+        } else if (Array.isArray(selectedAnyIndices) && selectedAnyIndices.length > 0) {
+          idxs.push(...selectedAnyIndices);
         }
       }
     } else if (typeof value === 'object' && value !== null) {
@@ -388,11 +577,9 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
         const vs = sourceVariants[i];
         if (validateValueAgainstSchema(value, vs) === null) idxs.push(i);
       }
-    } else if (value !== undefined) {
-      // For primitive values prefer explicit enum matches so a value like
-      // 'ubuntu-latest' does not accidentally mark every string-typed variant
-      // as selected. If no enum matches are found, fall back to validation
-      // behavior.
+    }
+    if (value !== undefined && !Array.isArray(value)) {
+      // For primitive values prefer explicit enum matches
       if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
         const enumMatches: number[] = [];
         for (let i = 0; i < sourceVariants.length; i++) {
@@ -402,9 +589,28 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
         if (enumMatches.length > 0) {
           idxs.push(...enumMatches);
         } else {
+          const stringMatches: number[] = [];
           for (let i = 0; i < sourceVariants.length; i++) {
             const vs = sourceVariants[i];
-            if (validateValueAgainstSchema(value, vs) === null) idxs.push(i);
+            // Be stricter about "" matching strings with patterns/minlength
+            if (value === '' && (vs.pattern || vs.minLength)) continue;
+            if (validateValueAgainstSchema(value, vs) === null) stringMatches.push(i);
+          }
+          
+          if (stringMatches.length > 1) {
+            // TIE-BREAK for strings: prefer variants with specific patterns/constraints
+            // over a completely generic "type: string"
+            const specificMatches = stringMatches.filter(i => {
+                const vs = sourceVariants[i];
+                return vs.pattern || vs.minLength || vs.format;
+            });
+            if (specificMatches.length > 0) {
+                idxs.push(...specificMatches);
+            } else {
+                idxs.push(...stringMatches);
+            }
+          } else {
+            idxs.push(...stringMatches);
           }
         }
       } else {
@@ -414,8 +620,39 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
         }
       }
     }
-    setSelectedAnyIndices(idxs);
-  }, [schema, value, renderVariants]);
+
+    // Deduplicate and filter out any accidental invalid indices
+    let finalIdxs = Array.from(new Set(idxs)).filter(idx => idx >= 0 && idx < sourceVariants.length);
+
+    // If multiple variants match (common with overlapping string patterns),
+    // and we have a specific variant we just started focusing, prefer it!
+    if (finalIdxs.length > 1 && focusVariantIndex !== null && finalIdxs.includes(focusVariantIndex)) {
+      finalIdxs = [focusVariantIndex];
+    }
+
+    // If multiple variants match, and one of them is already selected, stick to it
+    if (finalIdxs.length > 1 && selectedAnyIndices.length === 1 && finalIdxs.includes(selectedAnyIndices[0])) {
+      finalIdxs = [selectedAnyIndices[0]];
+    }
+
+    if (finalIdxs.length === 0 && selectedAnyIndices.length > 0 && value !== undefined && value !== null) {
+      const compatible = selectedAnyIndices.filter(idx => {
+         const vs = sourceVariants[idx];
+         if (typeof value === 'string' && (vs.type === 'string' || (Array.isArray(vs.type) && vs.type.includes('string')))) return true;
+         if (Array.isArray(value) && (vs.type === 'array' || (Array.isArray(vs.type) && vs.type.includes('array')) || vs.items || vs.additionalItems)) return true;
+         if (typeof value === 'object' && value !== null && !Array.isArray(value) && (vs.type === 'object' || (Array.isArray(vs.type) && vs.type.includes('object')) || vs.properties)) return true;
+         return false;
+      });
+      if (compatible.length > 0) finalIdxs = compatible;
+    }
+
+    // Final dedup to be absolutely sure
+    finalIdxs = Array.from(new Set(finalIdxs));
+
+    if (JSON.stringify(finalIdxs) !== JSON.stringify(selectedAnyIndices)) {
+      setSelectedAnyIndices(finalIdxs);
+    }
+  }, [schema, value, renderVariants, focusVariantIndex, selectedAnyIndices]);
 
   const handleChipKeyDown = (e: any, idx: number) => {
     const key = e.key;
@@ -438,66 +675,87 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
     const isAnyType = Array.isArray(schema.anyOf) && schema.anyOf.length > 0;
     const label = (schema.title as string) || (isAnyType ? "Choose the options" : "Choose an option");
     const matchesAny = renderVariants!.some((vs) => validateValueAgainstSchema(value, vs) === null);
-    return (
-      <TooltipProvider>
-        <div className={styles.field}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <label className={styles.label} tabIndex={0}>{label}</label>
-            </TooltipTrigger>
-            {schema.description && <TooltipContent>{renderTooltipContentChildren(schema.description)}</TooltipContent>}
-          </Tooltip>
-          <div className={styles.variantChips}>
-            {renderVariants!.map((vs, i) => {
-              const labelData = getVariantLabel(vs, i);
-              const isAny = !!anyVariants && anyVariants.length > 0;
-              const selected = isAny ? selectedAnyIndices.includes(i) : i === selectedVariantIndex;
-              const chip = (
-                <button
-                  key={i}
-                  type="button"
-                  ref={(el) => { chipRefs.current[i] = el; }}
-                  tabIndex={0}
-                  onKeyDown={(e) => handleChipKeyDown(e, i)}
-                  className={`${styles.variantChip} ${selected ? styles.variantChipSelected : styles.variantChipUnselected}`}
-                  onClick={() => { if (isAny) toggleAnyOf(i); else selectVariant(i); }}
-                  aria-pressed={selected}
-                >
-                  {labelData.title}
-                </button>
-              );
+    const showHeader = renderVariants!.length > 1;
 
-              if (labelData.description) {
-                return (
-                  <Tooltip key={i}>
-                    <TooltipTrigger asChild>{chip}</TooltipTrigger>
-                    <TooltipContent>{labelData.description}</TooltipContent>
-                  </Tooltip>
+    return (
+      <div className={styles.field}>
+        {showHeader && (
+          <>
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <label className={styles.label} tabIndex={0}>{label}</label>
+              </TooltipTrigger>
+              {!!schema.description && <TooltipContent>{renderTooltipContentChildren(schema.description as any)}</TooltipContent>}
+            </Tooltip>
+            <div className={styles.variantChips}>
+              {renderVariants!.map((vs, i) => {
+                const labelData = getVariantLabel(vs, i, renderVariants || undefined);
+                const isAny = !!anyVariants && anyVariants.length > 0;
+                const selected = isAny ? selectedAnyIndices.includes(i) : i === selectedVariantIndex;
+                const chip = (
+                  <button
+                    key={i}
+                    type="button"
+                    ref={(el) => { chipRefs.current[i] = el; }}
+                    tabIndex={0}
+                    onKeyDown={(e) => handleChipKeyDown(e, i)}
+                    className={`${styles.variantChip} ${selected ? styles.variantChipSelected : styles.variantChipUnselected}`}
+                    onClick={() => { if (isAny) toggleAnyOf(i); else selectVariant(i); }}
+                    aria-pressed={selected}
+                  >
+                    {labelData.title}
+                  </button>
                 );
-              }
-              return chip;
-            })}
-          </div>
-          {!matchesAny && value !== undefined && <div style={{ color: 'red', marginTop: 6 }}>Value does not match any option</div>}
-          <div style={{ marginTop: 8 }}>
+
+                if (labelData.description) {
+                  return (
+                    <Tooltip key={i} delayDuration={0}>
+                      <TooltipTrigger asChild>{chip}</TooltipTrigger>
+                      <TooltipContent>{labelData.description}</TooltipContent>
+                    </Tooltip>
+                  );
+                }
+                return chip;
+              })}
+            </div>
+          </>
+        )}
+          {!matchesAny && value !== undefined && showHeader && <div style={{ color: 'red', marginTop: 6 }}>Value does not match any option</div>}
+          <div style={{ marginTop: showHeader ? 8 : 0 }}>
+
             {selectedVariantIndex >= 0 && oneVariants && (
               <JsonInstanceForm schema={oneVariants[selectedVariantIndex]} value={value} onChange={onChange} path={path} />
             )}
 
-            {/* For anyOf (multi-select) when a single option is selected, render the
-                editor for that selected variant so the user can edit the default
-                instance that was just added. For multiple selections we do not
-                attempt to render a merged editor here. */}
-            {isAnyType && Array.isArray(selectedAnyIndices) && selectedAnyIndices.length === 1 && (() => {
-              const src = Array.isArray(schema.anyOf) ? (schema.anyOf as any[]) : (renderVariants ?? []);
-              const idx = selectedAnyIndices[0];
-              const vs = src[idx];
-              if (!vs) return null;
-              return <JsonInstanceForm schema={vs} value={value} onChange={onChange} path={path} />;
-            })()}
+            {/* For anyOf (multi-select) variants, render one form per selected option. 
+                Values are resolved/aggregated using resolveValueForVariant and updateValueForVariant. */}
+            {isAnyType && Array.isArray(selectedAnyIndices) && selectedAnyIndices.length > 0 && 
+              Array.from(new Set(selectedAnyIndices)).map((idx) => {
+                const src = Array.isArray(schema.anyOf) ? (schema.anyOf as any[]) : (renderVariants ?? []);
+                const vs = src[idx];
+                if (!vs) return null;
+
+                const childValue = resolveValueForVariant(value, vs, idx);
+                const childOnChange = (nv: any) => {
+                   const newValue = updateValueForVariant(value, selectedAnyIndices, idx, nv);
+                   onChange(newValue);
+                };
+
+                return (
+                  <div key={idx} style={{ marginBottom: 12 }}>
+                    <JsonInstanceForm 
+                      schema={vs} 
+                      value={childValue} 
+                      onChange={childOnChange} 
+                      path={[...path, String(idx)]} 
+                      autoFocus={focusVariantIndex === idx} 
+                    />
+                  </div>
+                );
+              })
+            }
           </div>
         </div>
-      </TooltipProvider>
     );
   }
 
@@ -575,6 +833,7 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
           <label className={styles.label}>{(schema.description as string) || "Enter text"}</label>
           <>
             <input
+              ref={stringInputRef}
               className={styles.input}
               // Use format hints to pick an input type when appropriate
               type={writeOnlyAttr ? 'password' : (format === 'email' ? 'email' : format === 'uri' ? 'url' : format === 'date' ? 'date' : format === 'date-time' ? 'datetime-local' : 'text')}
@@ -583,7 +842,7 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                 const v = e.target.value;
                 const err = validateValueAgainstSchema(v, schema);
                 setInputError(err);
-                if (!err) onChange(v);
+                onChange(v);
               }}
               placeholder="Enter value..."
               minLength={minLength}
@@ -591,6 +850,10 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
               pattern={patternAttr}
               readOnly={readOnlyAttr}
             />
+            {/** Autofocus primitive string inputs when requested (e.g., clicking a variant chip that adds an empty string) */}
+            {autoFocus && (
+              <FocusStringInputEffect inputRef={stringInputRef} />
+            )}
             {deprecatedFlag && <div style={{ color: '#b07', marginTop: 6, fontSize: 12 }}>Deprecated</div>}
             {inputError && <div style={{ color: 'red', marginTop: 6 }}>{inputError}</div>}
           </>
@@ -633,7 +896,7 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
               const parsed = raw === '' ? '' : parseFloat(raw);
               const err = validateValueAgainstSchema(parsed, schema);
               setInputError(err);
-              if (!err) onChange(parsed === '' ? 0 : parsed);
+              onChange(parsed === '' ? 0 : parsed);
             }}
             placeholder="Enter number..."
             min={min}
@@ -677,7 +940,10 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
 
 
     const deriveBaseHint = (myPath: string[]) => {
-      const last = myPath[myPath.length - 1] || 'item';
+      // Prefer singularized title if available, otherwise use path segment
+      const schemaTitle = (schema && typeof schema.title === 'string') ? schema.title : null;
+      let last = schemaTitle || myPath[myPath.length - 1] || 'item';
+      last = last.toLowerCase().trim();
       // naive singularization: drop trailing 's'
       if (last.length > 1 && last.endsWith('s')) return last.slice(0, -1);
       return last;
@@ -695,18 +961,33 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
     // Only required properties should be present initially
     const required = (schema.required as string[]) || [];
     let objectValue = (value as Record<string, unknown>) || {};
-    // If value is empty, initialize with only required properties. For polymorphic
-    // properties (oneOf/anyOf/oneOnly) we leave the property as undefined so the
-    // variant editor renders but does not auto-select a variant by default.
-    if (Object.keys(objectValue).length === 0 && Object.keys(properties).length > 0) {
-      objectValue = {};
-      required.forEach((key) => {
-        if (properties[key]) {
-          const propSchema = properties[key] as any;
-          const isPoly = Array.isArray(propSchema.oneOf) || Array.isArray(propSchema.anyOf) || Array.isArray(propSchema.oneOnly);
-          objectValue[key] = isPoly ? undefined : getDefaultValue(propSchema);
+
+    // If value is empty, initialize with required properties or seed a default key if minProperties > 0
+    if (Object.keys(objectValue).length === 0) {
+      const hasDefinedProps = Object.keys(properties).length > 0;
+      const hasMinProps = typeof schema.minProperties === 'number' && schema.minProperties > 0;
+      
+      if (hasDefinedProps || hasMinProps) {
+        objectValue = {};
+        required.forEach((key) => {
+          if (properties[key]) {
+            const propSchema = properties[key] as any;
+            const isPoly = Array.isArray(propSchema.oneOf) || Array.isArray(propSchema.anyOf) || Array.isArray(propSchema.oneOnly);
+            objectValue[key] = isPoly ? undefined : getDefaultValue(propSchema);
+          }
+        });
+
+        // If still empty and schema requires at least one property (like "jobs"),
+        // seed a default key using the same logic as the "+ Add" suggestions.
+        if (Object.keys(objectValue).length === 0 && hasMinProps) {
+          const hint = deriveBaseHint(path);
+          const key = generateAutoKey({}, hint);
+          const sch = getSchemaForProperty(key);
+          if (sch) {
+            objectValue[key] = getDefaultValue(sch);
+          }
         }
-      });
+      }
     }
 
     const updateProperty = (key: string, newValue: unknown) => {
@@ -714,18 +995,6 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
         ...objectValue,
         [key]: newValue,
       });
-    };
-
-    const getSchemaForProperty = (key: string): Record<string, unknown> | null => {
-      if (properties[key]) return properties[key];
-      for (const [pattern, subschema] of Object.entries(patternProperties)) {
-        try {
-          if (new RegExp(pattern).test(key)) return subschema;
-        } catch (_) {
-          // invalid regex - skip
-        }
-      }
-      return getAdditionalPropertiesSchema(additionalProperties);
     };
 
     // Properties matched by fixed `properties` or existing required keys
@@ -736,21 +1005,35 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
 
     const handleAddProperty = (key: string) => {
       const propSchema = getSchemaForProperty(key) || {};
+      // Show a pending inline-rename entry so the user can edit the generated key before the
+      // parent value is committed. If the user renames before the deferred add runs, the
+      // deferred add is cancelled to avoid creating duplicate entries.
+      setCreatingPropKey(key);
+      setRenameDraft(key);
+
+      // Cancel any previous pending add
+      if (addTimerRef.current) {
+        clearTimeout(addTimerRef.current as any);
+        addTimerRef.current = null;
+      }
+      // Immediately add the property so callers that expect a synchronous update (tests and
+      // some UI flows) continue to observe the change. The inline-rename UI remains active
+      // because we keep `creatingPropKey` set so the rename input is shown for this key.
       onChange({
         ...objectValue,
         [key]: getDefaultValue(propSchema),
       });
     };
 
-    const hasPatternVariants = Object.values(patternProperties).some((sub: any) => {
-      const c = sub && (sub.oneOf || sub.anyOf || sub.oneOnly);
-      return Array.isArray(c) && c.length > 0;
-    });
+    const hasPatternCheck = Object.keys(patternProperties).length > 0;
+    const currentPropCount = Object.keys(objectValue).filter(k => !k.startsWith('__')).length;
+    const maxProps = (schema as any).maxProperties as number | undefined;
+    const isAtMax = maxProps !== undefined && currentPropCount >= maxProps;
 
     return (
       <div className={styles.objectContainer}>
-        {/* Add defined properties (Available properties) */}
-        {fixedKeys.filter(k => !required.includes(k) && !(k in objectValue)).length > 0 && (
+        {/* Add defined properties or suggested keys (Available properties) */}
+        {!isAtMax && (fixedKeys.filter(k => !required.includes(k) && !(k in objectValue)).length > 0 || hasPatternCheck || additionalProperties !== false) && (
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#333', marginBottom: 8 }}>Available properties</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -779,6 +1062,30 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                 // Otherwise render a single Add button
                 return RenderAddButton(key, () => handleAddProperty(key), propSchema);
               })}
+
+              {/* Suggested keys for pattern properties */}
+              {Object.entries(patternProperties).map(([pattern, subschema]) => {
+                const baseHint = deriveBaseHint(path);
+                const autoKey = generateAutoKey(objectValue, baseHint);
+                // Only suggest if the autoKey matches the pattern (it almost always will for action-like schemas)
+                try {
+                  if (new RegExp(pattern).test(autoKey) && !(autoKey in objectValue)) {
+                    return RenderAddButton(autoKey, () => handleAddProperty(autoKey), subschema as any);
+                  }
+                } catch { /* ignore */ }
+                return null;
+              })}
+
+              {/* Suggest a basic key for additionalProperties if no patterns matched */}
+              {Object.keys(patternProperties).length === 0 && additionalProperties !== false && (() => {
+                const baseHint = deriveBaseHint(path);
+                const autoKey = generateAutoKey(objectValue, baseHint);
+                if (!(autoKey in objectValue)) {
+                  const sch = getAdditionalPropertiesSchema(additionalProperties) || {};
+                  return RenderAddButton(autoKey, () => handleAddProperty(autoKey), sch);
+                }
+                return null;
+              })()}
             </div>
           </div>
         )}
@@ -789,11 +1096,6 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
           const isRequired = required.includes(key);
           // Render required properties, and also render non-required properties if they already exist in the value
           if (!isRequired && !(key in objectValue)) return null;
-          const handleRemoveProperty = () => {
-            const rest = { ...objectValue };
-            delete rest[key];
-            onChange(rest);
-          };
 
           // Decide whether to show the description inline (for explicit object schemas without variants)
 
@@ -802,57 +1104,39 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
             <div key={key} className={styles.propertyGroup}>
               <div className={styles.propertyHeader}>
                 {(() => {
+                  const propertyName = (
+                    <span className={styles.propertyName} tabIndex={0}>
+                      {displayLabel(key)}
+                      {isRequired && <span className={styles.requiredMark}>*</span>}
+                      {!!propSchema.writeOnly && <span className={styles.badge} style={{ backgroundColor: '#e8f0ff', color: '#2b6cb0' }}>writeOnly</span>}
+                      {!!propSchema.readOnly && <span className={styles.badge} style={{ backgroundColor: '#f5f5f5', color: '#666' }}>readOnly</span>}
+                    </span>
+                  );
+
                   return (
                     <>
                       {propSchema && (propSchema.description as string) ? (
-                        <Tooltip>
+                        <Tooltip delayDuration={0}>
                           <TooltipTrigger asChild>
-                            <span className={styles.propertyName} onMouseEnter={() => setHoveredTooltipKey(`desc:${key}`)} onMouseLeave={() => setHoveredTooltipKey(null)} onFocus={() => setHoveredTooltipKey(`desc:${key}`)} onBlur={() => setHoveredTooltipKey(null)}>
-                              {displayLabel(key)}
-                              {isRequired && <span className={styles.requiredMark}>*</span>}
-                              {!!propSchema.writeOnly && <span className={styles.badge} style={{ backgroundColor: '#e8f0ff', color: '#2b6cb0' }}>writeOnly</span>}
-                              {!!propSchema.readOnly && <span className={styles.badge} style={{ backgroundColor: '#f5f5f5', color: '#666' }}>readOnly</span>}
-                            </span>
+                            {propertyName}
                           </TooltipTrigger>
                           <TooltipContent>{renderTooltipContentChildren(propSchema.description)}</TooltipContent>
                         </Tooltip>
                       ) : (
-                        <span className={styles.propertyName} onMouseEnter={() => setHoveredTooltipKey(`desc:${key}`)} onMouseLeave={() => setHoveredTooltipKey(null)} onFocus={() => setHoveredTooltipKey(`desc:${key}`)} onBlur={() => setHoveredTooltipKey(null)}>
-                          {displayLabel(key)}
-                          {isRequired && <span className={styles.requiredMark}>*</span>}
-                          {!!propSchema.writeOnly && <span className={styles.badge} style={{ backgroundColor: '#e8f0ff', color: '#2b6cb0' }}>writeOnly</span>}
-                          {!!propSchema.readOnly && <span className={styles.badge} style={{ backgroundColor: '#f5f5f5', color: '#666' }}>readOnly</span>}
-                        </span>
+                        propertyName
                       )}
 
-                      {/* visible fallback for tests */}
-                      {hoveredTooltipKey === `desc:${key}` && propSchema && propSchema.description && (() => {
-                        const s = String(propSchema.description);
-                        const m = s.match(/https?:\/\/[^\s]+/i);
-                        if (m) {
-                          const url = m[0];
-                          const parts = s.split(url);
-                          return (<div className={styles.fallbackTooltip} role="tooltip">{parts[0]}<a href={url} target="_blank" rel="noreferrer noopener">{url}</a>{parts.slice(1).join(url)}</div>);
-                        }
-                        return (<div className={styles.fallbackTooltip} role="tooltip">{s}</div>);
-                      })()}
-
                       {!isRequired && (
-                        <>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button aria-label={`Delete ${displayLabel(key)}?`} className={styles.removeButton} type="button" onClick={() => {
-                                const rest = { ...objectValue };
-                                delete rest[key];
-                                onChange(rest);
-                              }} onMouseEnter={() => setHoveredTooltipKey(`delete:${key}`)} onMouseLeave={() => setHoveredTooltipKey(null)} onFocus={() => setHoveredTooltipKey(`delete:${key}`)} onBlur={() => setHoveredTooltipKey(null)}>×</button>
-                            </TooltipTrigger>
-                            <TooltipContent>{`Delete ${displayLabel(key)}?`}</TooltipContent>
-                          </Tooltip>
-                          {hoveredTooltipKey === `delete:${key}` && (
-                            <div>{`Delete ${displayLabel(key)}?`}</div>
-                          )}
-                        </>
+                        <Tooltip delayDuration={0}>
+                          <TooltipTrigger asChild>
+                            <button aria-label={`Delete ${displayLabel(key)}?`} className={styles.removeButton} type="button" onClick={() => {
+                              const rest = { ...objectValue };
+                              delete rest[key];
+                              onChange(rest);
+                            }}>×</button>
+                          </TooltipTrigger>
+                          <TooltipContent>{`Delete ${displayLabel(key)}?`}</TooltipContent>
+                        </Tooltip>
                       )}
                     </>
                   );
@@ -877,19 +1161,16 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
               <div key={key} className={styles.propertyGroup} style={{ border: '1px solid #ffcdd2' }}>
                 <div className={styles.propertyHeader}>
                   <span className={styles.propertyName} style={{ color: '#d32f2f' }}>{displayLabel(key)} (unexpected)</span>
-                  <Tooltip>
+                  <Tooltip delayDuration={0}>
                     <TooltipTrigger asChild>
                       <button aria-label={`Delete ${displayLabel(key)}?`} className={styles.removeButton} type="button" onClick={() => {
                         const rest = { ...objectValue };
                         delete rest[key];
                         onChange(rest);
-                      }} onMouseEnter={() => setHoveredTooltipKey(`delete:${key}`)} onMouseLeave={() => setHoveredTooltipKey(null)} onFocus={() => setHoveredTooltipKey(`delete:${key}`)} onBlur={() => setHoveredTooltipKey(null)}>×</button>
+                      }}>×</button>
                     </TooltipTrigger>
                     <TooltipContent>{`Delete ${displayLabel(key)}?`}</TooltipContent>
                   </Tooltip>
-                  {hoveredTooltipKey === `delete:${key}` && (
-                    <div>{`Delete ${displayLabel(key)}?`}</div>
-                  )}
                 </div>
                 <div style={{ fontSize: 12, color: '#d32f2f', padding: '4px 8px' }}>
                   Property not allowed by schema (additionalProperties: false)
@@ -943,13 +1224,10 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                           const rest = { ...objectValue };
                           delete rest[key];
                           onChange(rest);
-                        }} onMouseEnter={() => setHoveredTooltipKey(`delete:${key}`)} onMouseLeave={() => setHoveredTooltipKey(null)} onFocus={() => setHoveredTooltipKey(`delete:${key}`)} onBlur={() => setHoveredTooltipKey(null)}>×</button>
+                        }}>×</button>
                       </TooltipTrigger>
                       <TooltipContent>{`Delete ${displayLabel(key)}?`}</TooltipContent>
                     </Tooltip>
-                    {hoveredTooltipKey === `delete:${key}` && (
-                      <div>{`Delete ${displayLabel(key)}?`}</div>
-                    )}
                   </>
                 )}
               </div>
@@ -989,6 +1267,8 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
                         const sch = getSchemaForProperty(creatingPropKey) || {};
                         moved[newName] = getDefaultValue(sch);
                       }
+                      // Cancel any pending deferred add to avoid the original name being added afterward
+                      if (addTimerRef.current) { clearTimeout(addTimerRef.current as any); addTimerRef.current = null; }
                       onChange(moved);
                     }
                     setCreatingPropKey(null);
@@ -1012,10 +1292,9 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
 
         {/* Add arbitrary property (if matches pattern or additionalProperties allowed) */}
 
-
-        {/* Add arbitrary property (if additionalProperties allowed) */}
+        {/* Add arbitrary property input (only if additionalProperties allows it) */}
         {additionalProperties !== false && (
-          <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+          <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
             <input
               className={styles.input}
               style={{ width: 160, height: 32, fontSize: 13 }}
@@ -1038,12 +1317,13 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
             <button
               className={styles.addButton}
               type="button"
-              disabled={!newPropKey.trim() || !!getSchemaForProperty(newPropKey.trim()) === false || (newPropKey.trim() in objectValue)}
+              disabled={!newPropKey.trim() || !getSchemaForProperty(newPropKey.trim()) || (newPropKey.trim() in objectValue)}
               onClick={() => {
                 const key = newPropKey.trim();
                 handleAddProperty(key);
                 setNewPropKey("");
               }}
+              title={(!newPropKey.trim() || !getSchemaForProperty(newPropKey.trim())) ? 'Enter a name' : undefined}
             >
               + Add
             </button>
@@ -1053,8 +1333,11 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
     );
   }
 
-  if (type === "array") {
-    const items = (schema.items as Record<string, unknown>) || { type: "string" };
+  const isArray = type === "array";
+
+  if (isArray) {
+    const rawItems = schema.items || (Array.isArray(schema.anyOf) && schema.anyOf.length === 1 && schema.anyOf[0].items ? schema.anyOf[0].items : undefined);
+    const items = rawItems || { type: "string" };
     let arrayValue: unknown[];
     if (Array.isArray(value)) {
       arrayValue = value;
@@ -1065,29 +1348,45 @@ export function JsonInstanceForm({ schema, value, onChange, path = [] }: JsonIns
       arrayValue = [];
     }
 
-    const itemsSchema = items as Record<string, unknown>;
+    const itemsSchema = (Array.isArray(items) ? items[0] : items) as Record<string, unknown>;
     const isObjectItem = itemsSchema.type === 'object';
+    const isStringItem = itemsSchema.type === 'string' || (!itemsSchema.type && !isObjectItem);
     const uniqueRequired = !!schema.uniqueItems;
     const defaultValueForAdd = getDefaultValue(itemsSchema);
     const keyFor = (v: unknown) => (typeof v === 'object' ? JSON.stringify(v) : String(v));
 
-    // If items are primitive enum values, render a react-select multi control
-    if (!isObjectItem && itemsSchema && (itemsSchema.enum && Array.isArray(itemsSchema.enum) && (itemsSchema.enum as any[]).length > 0)) {
-      const options = (itemsSchema.enum as any[]).map((opt) => ({ value: opt, label: String(opt) }));
+    // If items are primitive enum values OR it's a simple string array (tags), render a react-select control
+    const hasEnum = !!(itemsSchema && itemsSchema.enum && Array.isArray(itemsSchema.enum) && (itemsSchema.enum as any[]).length > 0);
+    
+    if (!isObjectItem && isStringItem) {
+      const options = hasEnum ? (itemsSchema.enum as any[]).map((opt) => ({ value: opt, label: String(opt) })) : [];
       const valueOpts = arrayValue.map((v) => ({ value: v, label: String(v) }));
+      const label = (schema.title as string) || (hasEnum ? 'Select values' : 'Add values');
+      
+      const SelectComponent = hasEnum ? Select : CreatableSelect;
+
       return (
         <div className={styles.field}>
-          <label className={styles.label}>{(schema.description as string) || 'Select values'}</label>
-          <Select
-            isMulti
-            options={options}
-            value={valueOpts as any}
-            onChange={(sel: any) => onChange((sel || []).map((s: any) => s.value))}
-            classNamePrefix="react-select"
-          />
+          <Tooltip delayDuration={0}>
+            <TooltipTrigger asChild>
+              <label className={styles.label} tabIndex={0}>{label}</label>
+            </TooltipTrigger>
+            {!!schema.description && <TooltipContent>{renderTooltipContentChildren(schema.description as any)}</TooltipContent>}
+          </Tooltip>
+          <div style={{ position: 'relative' }}>
+            <SelectComponent
+              isMulti
+              options={options}
+              value={valueOpts as any}
+              onChange={(sel: any) => onChange((sel || []).map((s: any) => s.value))}
+              placeholder={hasEnum ? "Select options..." : "Type and press enter..."}
+              classNamePrefix="react-select"
+            />
+          </div>
         </div>
       );
     }
+
 
     
 
@@ -1233,15 +1532,20 @@ function getDefaultValue(schema: Record<string, unknown>): unknown {
   if (schema.oneOf && Array.isArray(schema.oneOf) && schema.oneOf.length > 0) {
     return getDefaultValue(schema.oneOf[0] as Record<string, unknown>);
   }
-  // Do not auto-default `anyOf` variants. anyOf is multi-select; the editor
-  // should render options but start with no selections by default.
+  // anyOf is multi-select; if the property schema provides a default, use
+  // it. Otherwise prefer a variant-level default (if any variant declares
+  // a default). If neither exists, use an empty array to represent "no
+  // selections" for an anyOf property (this results in no selected chips).
   if (schema.anyOf && Array.isArray(schema.anyOf) && schema.anyOf.length > 0) {
-    // Return undefined so parent object defaulting does not populate polymorphic
-    // sub-properties with a primitive default (which would be treated as an
-    // existing value and accidentally select chips). Returning undefined
-    // keeps the nested property effectively 'absent' to the child editor so
-    // it can render options with no initial selection.
-    return undefined;
+    // anyOf is multi-select. If the property schema provides a default, use
+    // it (wrapped as an array when necessary). Otherwise prefer a variant-
+    // level default (also wrapped), else return an empty array to denote
+    // no selections. Per spec anyOf instance values are arrays.
+    if (schema.default !== undefined) return Array.isArray(schema.default) ? schema.default : [schema.default];
+    for (const vs of schema.anyOf as any[]) {
+      if (vs && (vs as any).default !== undefined) return Array.isArray((vs as any).default) ? (vs as any).default : [(vs as any).default];
+    }
+    return [];
   }
 
   const type = schema.type as string || (schema.properties ? 'object' : 'string');
@@ -1263,7 +1567,31 @@ function getDefaultValue(schema: Record<string, unknown>): unknown {
       const obj: Record<string, unknown> = {};
       Object.entries(properties).forEach(([key, propSchema]) => {
         if (required.includes(key) || propSchema.default !== undefined) {
-          obj[key] = getDefaultValue(propSchema);
+          // For anyOf polymorphic properties, use an empty array to represent
+          // no selections unless the property schema or one of its variants
+          // provides a default. For other polymorphic combinators (oneOf/
+          // oneOnly) leave undefined so the user can explicitly pick a
+          // variant. Otherwise, recurse to compute a default value.
+          const isAny = Array.isArray((propSchema as any).anyOf);
+          const isPoly = isAny || Array.isArray((propSchema as any).oneOf) || Array.isArray((propSchema as any).oneOnly);
+          if (isAny) {
+            const p = propSchema as any;
+            if (p.default !== undefined) {
+              obj[key] = p.default;
+            } else {
+              let found: any = undefined;
+              if (Array.isArray(p.anyOf)) {
+                for (const vs of p.anyOf) {
+                  if (vs && (vs as any).default !== undefined) { found = (vs as any).default; break; }
+                }
+              }
+              obj[key] = found !== undefined ? found : [];
+            }
+          } else if (isPoly) {
+            obj[key] = undefined;
+          } else {
+            obj[key] = getDefaultValue(propSchema);
+          }
         }
       });
       return obj;
