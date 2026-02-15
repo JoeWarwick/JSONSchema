@@ -1,3 +1,4 @@
+/* global console */
 // Simple test script to verify getRefKey extraction logic
 const getRefKey = (refOrSchema) => {
   if (!refOrSchema) return null;

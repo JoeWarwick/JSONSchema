@@ -204,6 +204,26 @@ export default function Workbench() {
     }
   }, [instanceData]);
 
+  /**
+   * Clear all variant storage when loading a fresh JSON document
+   * This implements the "version 1" approach: clean slate on new document load
+   * Prevents stale variant selections from previous documents
+   */
+  const clearVariantStorage = () => {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      const keysToRemove: string[] = [];
+      // Find all variant storage keys (format: json-instance-variants:v1:*)
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('json-instance-variants:')) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+    } catch { /* ignore */ }
+  };
+
   const handleGenerate = () => {
     setError(null);
 
@@ -222,6 +242,8 @@ export default function Workbench() {
       const generatedSchema = generateSchema(parsed);
       dispatch({ type: APPLY_SOURCE_UPDATE, payload: generatedSchema });
       setInstanceData(parsed);
+      // Clear variant storage when loading fresh JSON (version 1 approach)
+      clearVariantStorage();
     } catch (err) {
       setError("Failed to generate schema. Please check your JSON.");
     }
@@ -253,6 +275,8 @@ export default function Workbench() {
       try {
         const parsed = JSON.parse(content);
         setInstanceData(parsed);
+        // Clear variant storage when loading fresh JSON (version 1 approach)
+        clearVariantStorage();
       } catch {
         // invalid JSON
       }
@@ -280,6 +304,8 @@ export default function Workbench() {
       const data = await response.json();
       setJsonInput(JSON.stringify(data, null, 2));
       setInstanceData(data);
+      // Clear variant storage when loading fresh JSON (version 1 approach)
+      clearVariantStorage();
       setJsonUrl("");
     } catch (err) {
       setError(`Failed to load JSON from URL: ${err instanceof Error ? err.message : 'Unknown error'}`);
