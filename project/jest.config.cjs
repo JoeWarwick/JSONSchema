@@ -3,6 +3,7 @@ module.exports = {
   transform: {
     "^.+\\.(ts|tsx|js|jsx)$": "babel-jest",
   },
+  maxWorkers: 1,
   // Ignore E2E Playwright tests during Jest runs
   testPathIgnorePatterns: ["/e2e/"],
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json", "node"],

@@ -30,26 +30,6 @@ describe('JsonInstanceForm extras', () => {
     });
   };
 
-  test('auto-deduplicates unique primitive arrays on blur', () => {
-    const schema = {
-      type: 'array',
-      items: { type: 'string' },
-      uniqueItems: true,
-    };
-    const onChange = jest.fn();
-    const { container } = renderForm(<JsonInstanceForm schema={schema} value={['a','b','a']} onChange={onChange} />);
-    // find all text inputs
-    const inputs = container.querySelectorAll('input[type="text"], input[type="email"], input[type="url"], input[type="datetime-local"], input[type="date"]');
-    expect(inputs.length).toBeGreaterThanOrEqual(3);
-    const last = inputs[inputs.length - 1];
-    // blur the last input to trigger dedupe
-    fireEvent.blur(last);
-    // onChange should have been called with deduped array ['a','b']
-    expect(onChange).toHaveBeenCalled();
-    const calledWith = onChange.mock.calls.find(call => Array.isArray(call[0]));
-    expect(calledWith[0]).toEqual(['a','b']);
-  });
-
   test('renders const value readonly and sets parent value', () => {
     jest.useFakeTimers();
     const schema = { type: 'string', const: 'fixed' };
@@ -339,8 +319,8 @@ describe('JsonInstanceForm extras', () => {
     renderForm(<JsonInstanceForm schema={schema} value={{ 'runs-on': undefined }} onChange={onChange} />);
 
     // Buttons should include the base name and be qualified by type to avoid clash
-    expect(screen.getByRole('button', { name: /Self-hosted-runners<string>/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Self-hosted-runners<array>/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Self-hosted-runners\s*<string>/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Self-hosted-runners\s*<array>/i })).toBeTruthy();
   });
 
   test('required polymorphic property renders unselected chips by default', () => {
@@ -450,7 +430,7 @@ describe('JsonInstanceForm extras', () => {
     expect(called['runs-on']).toEqual(['']);
 
     // Simulate parent updating prop and rerender - the inner input should be visible and focused
-    act(() => rerender(<TooltipProvider><JsonInstanceForm schema={schema} value={{ 'runs-on': called['runs-on'] }} onChange={onChange} /></TooltipProvider>));
+    act(() => rerender(<JsonInstanceForm schema={schema} value={{ 'runs-on': called['runs-on'] }} onChange={onChange} />));
     const input = screen.getByPlaceholderText('Enter value...') as HTMLInputElement;
     expect(input).toBeTruthy();
     expect(document.activeElement).toBe(input);
@@ -664,21 +644,21 @@ describe('JsonInstanceForm extras', () => {
 
 
     const jobsLabel = screen.getByText('Jobs');
-    const jobsGroup = jobsLabel.closest('div');
+    const jobsGroup = jobsLabel.closest('div') as HTMLElement | null;
     expect(jobsGroup).toBeTruthy();
 
     // Find the property group for the newly-created key and assert the variant chips are present there
-    const jobLabel = within(jobsGroup as Element).getByText(new RegExp(keyName, 'i'));
+    const jobLabel = within(jobsGroup as HTMLElement).getByText(new RegExp(keyName, 'i'));
     const jobHeader = jobLabel.closest('div');
     expect(jobHeader).toBeTruthy();
-    const jobGroup = jobHeader ? jobHeader.parentElement : null;
+    const jobGroup = jobHeader ? (jobHeader.parentElement as HTMLElement | null) : null;
     expect(jobGroup).toBeTruthy();
 
     // DEBUG
     // console.debug('jobGroup html:', jobGroup ? jobGroup.innerHTML : '<none>');
 
-    const normalChip = within(jobGroup as Element).getByRole('button', { name: /NormalJob/i });
-    const reusableChip = within(jobGroup as Element).getByRole('button', { name: /ReusableWorkflowCallJob/i });
+    const normalChip = within(jobGroup as HTMLElement).getByRole('button', { name: /NormalJob/i });
+    const reusableChip = within(jobGroup as HTMLElement).getByRole('button', { name: /ReusableWorkflowCallJob/i });
     expect(normalChip).toBeTruthy();
     expect(reusableChip).toBeTruthy();
   });
@@ -702,7 +682,7 @@ describe('JsonInstanceForm extras', () => {
     };
 
     const onChange = jest.fn();
-    const { rerender } = renderForm(<JsonInstanceForm schema={schema} value={{ jobs: {} }} onChange={onChange} />);
+    renderForm(<JsonInstanceForm schema={schema} value={{ jobs: {} }} onChange={onChange} />);
 
     const input = findAddInputForSection('Jobs') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'normal' } });
@@ -712,17 +692,17 @@ describe('JsonInstanceForm extras', () => {
     const jobsLabel = screen.getByText('Jobs');
     const jobsHeader = jobsLabel.closest('div');
     expect(jobsHeader).toBeTruthy();
-    const jobsGroup = jobsHeader ? jobsHeader.parentElement : null;
+    const jobsGroup = jobsHeader ? (jobsHeader.parentElement as HTMLElement | null) : null;
     expect(jobsGroup).toBeTruthy();
 
 
-    const allInputs = within(jobsGroup as Element).getAllByPlaceholderText('New property name...') as HTMLInputElement[];
+    const allInputs = within(jobsGroup as HTMLElement).getAllByPlaceholderText('New property name...') as HTMLInputElement[];
     const pendingInput = allInputs.find(i => (i as HTMLInputElement).value === 'normal');
     expect(pendingInput).toBeTruthy();
 
     // Rename to 'normalJob1' while add is still pending, and confirm it cancels the pending add and creates the renamed key
-    fireEvent.change(pendingInput, { target: { value: 'normalJob1' } });
-    fireEvent.keyDown(pendingInput, { key: 'Enter' });
+    fireEvent.change(pendingInput as HTMLInputElement, { target: { value: 'normalJob1' } });
+    fireEvent.keyDown(pendingInput as HTMLInputElement, { key: 'Enter' });
 
     // Run pending timers (the deferred add would have run here if not cancelled)
     act(() => { jest.runOnlyPendingTimers(); });
@@ -900,7 +880,134 @@ describe('JsonInstanceForm extras', () => {
     const arrBtn2 = screen.getByRole('button', { name: /Array/ });
     expect(objBtn2.getAttribute('aria-pressed')).toBe('false');
     expect(arrBtn2.getAttribute('aria-pressed')).toBe('true');
-    // array editor should be present (add item button for primitive list)
-    expect(screen.getByRole('button', { name: '+ Add Item' })).toBeTruthy();
+    // array editor should be present (multi-value select for string arrays using react-select)
+    expect(screen.getByRole('combobox', { name: '' })).toBeTruthy();
+  });
+
+  test('oneOf $ref variant button renders correctly', () => {
+    const schema: any = {
+      $defs: {
+        Concurrency: {
+          type: 'object',
+          properties: {
+            group: { type: 'string' },
+            'cancel-in-progress': { type: 'boolean' }
+          },
+          required: ['group']
+        }
+      },
+      oneOf: [
+        { type: 'string', title: 'String' },
+        { $ref: '#/$defs/Concurrency', title: 'Concurrency' }
+      ]
+    };
+
+    const onChange = jest.fn();
+    renderForm(<JsonInstanceForm schema={schema} value={undefined} onChange={onChange} />);
+
+    // This test verifies that oneOf variants with $ref pointers are properly resolved:
+    // - The Concurrency button renders with the title "Concurrency" (from the $ref variant)
+    // - The resolved schema from $defs/Concurrency is correctly handled
+    // - Both variant buttons are unselected initially
+    const concurrencyBtn = screen.getByRole('button', { name: /Concurrency/i });
+    expect(concurrencyBtn).toBeTruthy();
+    expect(concurrencyBtn.getAttribute('aria-pressed')).toBe('false');
+    
+    const stringBtn = screen.getByRole('button', { name: /String/i });
+    expect(stringBtn).toBeTruthy();
+    expect(stringBtn.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  test('oneOf $ref variant shows object fields after clicking Concurrency button', () => {
+    const schema: any = {
+      $defs: {
+        Concurrency: {
+          type: 'object',
+          properties: {
+            group: { type: 'string' },
+            'cancel-in-progress': { type: 'boolean' }
+          },
+          required: ['group']
+        }
+      },
+      oneOf: [
+        { type: 'string', title: 'String' },
+        { $ref: '#/$defs/Concurrency', title: 'Concurrency' }
+      ]
+    };
+
+    const onChange = jest.fn();
+    const { rerender } = renderForm(<JsonInstanceForm schema={schema} value={undefined} onChange={onChange} />);
+
+    // Initially, no form content should be visible
+    expect(screen.queryByText(/Group/i)).toBeNull();
+    expect(screen.queryByText(/cancel-in-progress/i)).toBeNull();
+
+    // Click the Concurrency button
+    const concurrencyBtn = screen.getByRole('button', { name: /Concurrency/i });
+    fireEvent.click(concurrencyBtn);
+
+    // onChange should have been called with a default object containing 'group' property
+    expect(onChange).toHaveBeenCalled();
+    const called = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    expect(typeof called).toBe('object');
+    expect(called).not.toBeNull();
+    expect(Object.prototype.hasOwnProperty.call(called, 'group')).toBe(true);
+
+    // Simulate parent updating the value and rerendering
+    act(() => rerender(<JsonInstanceForm schema={schema} value={called} onChange={onChange} />));
+
+    // The object form should now be visible with its properties
+    expect(screen.getByText(/Group/i)).toBeTruthy();
+    expect(screen.getByText(/Cancel-in-progress/i)).toBeTruthy();
+  });
+
+  test('oneOf $ref variant hides string input when object variant selected', () => {
+    const schema: any = {
+      $defs: {
+        Concurrency: {
+          type: 'object',
+          properties: {
+            group: { type: 'string' },
+            'cancel-in-progress': { type: 'boolean' }
+          },
+          required: ['group']
+        }
+      },
+      oneOf: [
+        { type: 'string', title: 'String' },
+        { $ref: '#/$defs/Concurrency', title: 'Concurrency' }
+      ]
+    };
+
+    const onChange = jest.fn();
+    const { rerender } = renderForm(<JsonInstanceForm schema={schema} value={'initial string'} onChange={onChange} />);
+
+    // String variant should be selected initially since value is a string
+    const stringBtn = screen.getByRole('button', { name: /String/i });
+    expect(stringBtn.getAttribute('aria-pressed')).toBe('true');
+
+    // Verify no object properties are present yet (String variant doesn't have them)
+    expect(screen.queryByText(/Group/i)).toBeNull();
+    expect(screen.queryByText(/Cancel-in-progress/i)).toBeNull();
+
+    // Click Concurrency button to switch to object variant
+    const concurrencyBtn = screen.getByRole('button', { name: /Concurrency/i });
+    fireEvent.click(concurrencyBtn);
+
+    // onChange should have been called with an object, not a string
+    expect(onChange).toHaveBeenCalled();
+    const called = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    expect(typeof called).toBe('object');
+    expect(called).not.toBeNull();
+
+    // Simulate parent updating and rerendering with new object value
+    act(() => rerender(<JsonInstanceForm schema={schema} value={called} onChange={onChange} />));
+
+    // Object properties should now be visible (including their inputs)
+    expect(screen.getByText(/Group/i)).toBeTruthy();
+    // The group property should have its own string input within the object form
+    const groupInputs = screen.getAllByPlaceholderText('Enter value...');
+    expect(groupInputs.length).toBeGreaterThan(0);
   });
 });

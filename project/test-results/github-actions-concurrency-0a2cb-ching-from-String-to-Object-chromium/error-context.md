@@ -1,0 +1,90 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - heading "Schema Sculptor - JSON Schema Workbench" [level=4] [ref=e5]
+        - generic [ref=e6]:
+          - text: "Schema source:"
+          - generic [ref=e7]: resolved
+      - paragraph [ref=e8]: Generate and modify JSON schemas with an intuitive form-based editor
+    - generic [ref=e9]:
+      - button "JSON Input" [ref=e10] [cursor=pointer]
+      - button "Instance Editor" [ref=e11] [cursor=pointer]
+      - button "Schema Input" [ref=e12] [cursor=pointer]
+      - button "Schema Editor" [ref=e13] [cursor=pointer]
+    - generic [ref=e15]:
+      - heading "Instance Editor" [level=2] [ref=e17]
+      - generic [ref=e19]:
+        - generic [ref=e20]:
+          - generic [ref=e21]: Available properties
+          - button "+ Item" [ref=e24] [cursor=pointer]
+        - generic [ref=e25]:
+          - generic [ref=e26]:
+            - generic [ref=e27]: Jobs
+            - button "Delete Jobs?" [ref=e28] [cursor=pointer]: ×
+          - generic [ref=e29]:
+            - generic [ref=e30]:
+              - generic [ref=e31]: Available properties
+              - button "+ Job-1" [ref=e34] [cursor=pointer]
+            - generic [ref=e35]:
+              - generic [ref=e36]:
+                - generic [ref=e37]: Job
+                - button "Delete Job?" [ref=e38] [cursor=pointer]: ×
+              - generic [ref=e39]:
+                - generic [ref=e40]:
+                  - generic [ref=e41]: Available properties
+                  - button "+ Job" [ref=e44] [cursor=pointer]
+                - generic [ref=e45]:
+                  - generic [ref=e46]:
+                    - generic [ref=e47]: Runs-on
+                    - button "Delete Runs-on?" [ref=e48] [cursor=pointer]: ×
+                  - generic [ref=e49]:
+                    - generic [ref=e50]: Enter text
+                    - textbox "Enter value..." [ref=e51]: test-xyz-concurrency
+                - generic [ref=e52]:
+                  - generic [ref=e53]:
+                    - generic [ref=e54]: Concurrency
+                    - button "Delete Concurrency?" [ref=e55] [cursor=pointer]: ×
+                  - generic [ref=e56]:
+                    - generic [ref=e57]: Choose an option
+                    - generic [ref=e58]:
+                      - button "String" [ref=e59] [cursor=pointer]
+                      - button "Concurrency" [active] [pressed] [ref=e60] [cursor=pointer]
+                    - generic [ref=e62]:
+                      - generic [ref=e63]:
+                        - generic [ref=e64]: Available properties
+                        - generic [ref=e65]:
+                          - button "+ Cancel-in-progress" [ref=e67] [cursor=pointer]
+                          - button "+ Concurrency" [ref=e69] [cursor=pointer]
+                      - generic [ref=e70]:
+                        - generic [ref=e72]:
+                          - text: Group
+                          - generic [ref=e73]: "*"
+                        - generic [ref=e74]:
+                          - generic [ref=e75]: Enter text
+                          - textbox "Enter value..." [ref=e76]
+                      - generic [ref=e77]:
+                        - textbox "New property name..." [ref=e78]
+                        - button "+ Add" [disabled] [ref=e79] [cursor=pointer]
+                - generic [ref=e80]:
+                  - textbox "New property name..." [ref=e81]
+                  - button "+ Add" [disabled] [ref=e82] [cursor=pointer]
+            - generic [ref=e83]:
+              - textbox "New property name..." [ref=e84]
+              - button "+ Add" [disabled] [ref=e85] [cursor=pointer]
+        - generic [ref=e86]:
+          - generic [ref=e87]:
+            - generic [ref=e88]: "On"
+            - button "Delete On?" [ref=e89] [cursor=pointer]: ×
+          - generic [ref=e90]:
+            - generic [ref=e91]: Enter text
+            - textbox "Enter value..." [ref=e92]: branch_protection_rule
+        - generic [ref=e93]:
+          - textbox "New property name..." [ref=e94]
+          - button "+ Add" [disabled] [ref=e95] [cursor=pointer]
+  - region "Notifications (F8)":
+    - list
+```

@@ -1,4 +1,4 @@
-import { rehydrateSchema, resolveSchema } from "~/utils/schema-resolver";
+import { rehydrateSchema, resolveSchema, augmentSchemaForKnownIssues } from "~/utils/schema-resolver";
 
 export const LOAD_SOURCE_SCHEMA = "LOAD_SOURCE_SCHEMA";
 export const APPLY_SOURCE_UPDATE = "APPLY_SOURCE_UPDATE";
@@ -361,7 +361,7 @@ function normalizeResolved(s: Schema, source?: Schema): Schema {
         if (!(out as any).type) (out as any).type = 'object';
         // Ensure we never expose a top-level $defs on the normalized view
         if ((out as any).$defs) delete (out as any).$defs;
-        return out;
+        return augmentSchemaForKnownIssues(out) as Schema;
       }
       return s;
     }
@@ -409,13 +409,13 @@ function normalizeResolved(s: Schema, source?: Schema): Schema {
             continue;
           }
         }
-        return { type: 'object', properties: propsClone };
+        return augmentSchemaForKnownIssues({ type: 'object', properties: propsClone }) as Schema;
       }
     }
   } catch (_) {
     // ignore
   }
-  return s;
+  return augmentSchemaForKnownIssues(s) as Schema;
 }
 
 function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source?: Schema): Schema {

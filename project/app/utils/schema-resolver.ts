@@ -432,3 +432,45 @@ function deepMerge(a: any, b: any): any {
   }
   return out;
 }
+
+/**
+ * Augment schema with known enhancements for compatibility.
+ * For example, GitHub Actions concurrency field only defines object type,
+ * but it actually supports both string (group name) and object variants.
+ * This function wraps such fields with oneOf to reflect reality.
+ */
+export function augmentSchemaForKnownIssues(schema: Record<string, unknown> | null | undefined): Record<string, unknown> | null | undefined {
+  if (!schema || typeof schema !== 'object') return schema;
+  try {
+    // Deep clone to avoid mutations
+    const augmented = JSON.parse(JSON.stringify(schema));
+
+    // Augment root-level concurrency: GitHub Actions supports concurrency as either
+    // a string (group name) or object (group + cancel-in-progress).
+    // The schema only defines object (not oneOf and not already string), so wrap with oneOf.
+    if (augmented.properties && typeof augmented.properties === 'object') {
+      const props = augmented.properties as Record<string, any>;
+      if (props.concurrency && typeof props.concurrency === 'object') {
+        // Only augment if:
+        // 1. Does not already have oneOf
+        // 2. Is actually an object definition (has type: 'object' or has properties), not a simple type
+        const hasConcurrency = props.concurrency;
+        const hasOneOf = !!(hasConcurrency as any).oneOf;
+        const looksLikeObjectDef = ((hasConcurrency as any).type === 'object' || (hasConcurrency as any).properties);
+        
+        if (!hasOneOf && looksLikeObjectDef) {
+          props.concurrency = {
+            oneOf: [
+              { type: 'string', title: 'String' },
+              hasConcurrency
+            ]
+          };
+        }
+      }
+    }
+
+    return augmented;
+  } catch (_) {
+    return schema;
+  }
+}

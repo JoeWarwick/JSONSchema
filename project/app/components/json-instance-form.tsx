@@ -1,8 +1,7 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import styles from "./json-instance-form.module.css";
 import Select from "react-select";
 import CreatableSelect from "react-select/creatable";
-import { flushSync } from 'react-dom';
 import { validateValueAgainstSchema } from "../utils/validation";
 import { getAdditionalPropertiesSchema } from "./schema-behaviors";
 import { getVariantLabel } from "../utils/labels";
@@ -15,15 +14,61 @@ interface JsonInstanceFormProps {
   value: unknown;
   onChange: (value: unknown) => void;
   path?: string[];
+  // Root schema for resolving local $ref pointers
+  rootSchema?: Record<string, unknown>;
   // If true, focus the first input rendered for this form when it mounts
   autoFocus?: boolean;
 }
 
-export function JsonInstanceForm({ schema, value, onChange, path = [], autoFocus = false }: JsonInstanceFormProps) {
+const decodePointerSegment = (seg: string) => seg.replace(/~1/g, '/').replace(/~0/g, '~');
+
+const getSchemaByPointer = (root: Record<string, unknown>, ref: string): Record<string, unknown> | null => {
+  if (!ref.startsWith('#/')) return null;
+  const parts = ref.replace(/^#\//, '').split('/').map(decodePointerSegment).filter(Boolean);
+  let node: any = root;
+  for (const part of parts) {
+    if (!node || typeof node !== 'object' || !(part in node)) return null;
+    node = node[part];
+  }
+  return (node && typeof node === 'object') ? (node as Record<string, unknown>) : null;
+};
+
+const resolveLocalRefSchema = (
+  node: Record<string, unknown>,
+  root: Record<string, unknown>,
+  seen: Set<string> = new Set()
+): Record<string, unknown> => {
+  if (!node || typeof node !== 'object') return node;
+  const ref = node.$ref;
+  if (typeof ref === 'string' && ref.startsWith('#')) {
+    if (seen.has(ref)) return node;
+    seen.add(ref);
+    const target = getSchemaByPointer(root, ref);
+    if (target && target !== node) {
+      return { ...target, ...node } as Record<string, unknown>;
+    }
+  }
+  return node;
+};
+
+export function JsonInstanceForm({ schema: rawSchema, value, onChange, path = [], rootSchema, autoFocus = false }: JsonInstanceFormProps) {
+  const rootSchemaRef = rootSchema ?? rawSchema;
+  const schema = useMemo(
+    () => resolveLocalRefSchema(rawSchema, rootSchemaRef),
+    [rawSchema, rootSchemaRef]
+  );
+  const resolveSchemaNode = useMemo(
+    () => (node: Record<string, unknown> | null | undefined) => {
+      if (!node || typeof node !== 'object') return node as any;
+      return resolveLocalRefSchema(node, rootSchemaRef);
+    },
+    [rootSchemaRef]
+  );
+
   const explicitType = schema.type as string | undefined;
   const hasSchemaProps = !!(schema.properties || schema.patternProperties || schema.additionalProperties);
   const type = explicitType ?? (hasSchemaProps ? 'object' : (schema.items || schema.additionalItems || Array.isArray(value) ? 'array' : (value && typeof value === 'object' ? 'object' : 'string')));
-  const storageKey = 'json-instance:' + (schema && typeof (schema.title as any) === 'string' ? schema.title : (schema.$id ? schema.$id : JSON.stringify(schema)));
+  const storageKey = 'json-instance:' + (rawSchema && typeof (rawSchema.title as any) === 'string' ? rawSchema.title : (rawSchema.$id ? rawSchema.$id : JSON.stringify(rawSchema)));
   const pathKey = path.join('.');
   const variantMemoryKey = `json-instance-variants:${storageKey}:${pathKey}`;
   
@@ -109,11 +154,15 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
   }, [inputRef]);
   return null;
 }
-  const oneVariants = Array.isArray(schema.oneOnly)
+  const oneVariantsRaw = Array.isArray(schema.oneOnly)
     ? (schema.oneOnly as Record<string, unknown>[])
     : Array.isArray(schema.oneOf)
     ? (schema.oneOf as Record<string, unknown>[])
     : null;
+  const oneVariants = useMemo(
+    () => oneVariantsRaw ? oneVariantsRaw.map((vs) => resolveSchemaNode(vs)) : null,
+    [schema.oneOf, schema.oneOnly]
+  );
 
   // Cleanup: cancel any pending add timers on unmount
   useEffect(() => {
@@ -124,7 +173,11 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
       }
     };
   }, []);
-  const anyVariants = Array.isArray(schema.anyOf) ? (schema.anyOf as Record<string, unknown>[]) : null;
+  const anyVariantsRaw = Array.isArray(schema.anyOf) ? (schema.anyOf as Record<string, unknown>[]) : null;
+  const anyVariants = useMemo(
+    () => anyVariantsRaw ? anyVariantsRaw.map((vs) => resolveSchemaNode(vs)) : null,
+    [schema.anyOf]
+  );
   // hasVariants is true when any of the combinator arrays exist
   const hasVariants = (!!oneVariants && oneVariants.length > 0) || (!!anyVariants && anyVariants.length > 0);
   // Render list: prefer oneVariants for consistent single-select behavior, otherwise use anyVariants
@@ -152,6 +205,12 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     return idx >= 0 ? idx : -1;
   });
 
+  // anyOf multi-select support
+  const [selectedAnyIndices, setSelectedAnyIndices] = useState<number[]>(() => {
+    if (anyVariants && anyVariants.length === 1 && !oneVariants) return [0];
+    return [];
+  });
+
   const getVariantMemory = () => {
     if (typeof localStorage === 'undefined') return {};
     try {
@@ -160,15 +219,29 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     } catch { return {}; }
   };
 
-  const saveVariantMemory = (idx: number, val: unknown) => {
-    if (val === undefined || typeof localStorage === 'undefined') return;
+  const clearVariantMemory = () => {
+    if (typeof localStorage === 'undefined') return;
     try {
-      const mem = getVariantMemory();
-      mem[idx] = val;
-      localStorage.setItem(variantMemoryKey, JSON.stringify(mem));
-    } catch {
-      // Ignore storage errors
-    }
+      // Clear all oneOf storage keys within the same parent object
+      // e.g., if at path ['workflow', 'strategy'], clear all paths starting with 'workflow.'
+      const parentPath = path.slice(0, -1).join('.');
+      const parentPrefix = parentPath ? `${parentPath}.` : '';
+      const keyPrefix = `json-instance-variants:${storageKey}:`;
+      
+      // Find and remove all keys matching this parent + storageKey combo
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(keyPrefix) && (key.includes(parentPrefix) || !parentPath)) {
+          keysToRemove.push(key);
+        }
+      }
+      
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+      
+      // Also reset this field's variant selection to -1
+      setSelectedVariantIndex(-1);
+    } catch { /* ignore */ }
   };
 
   const min = (schema.minimum as number | undefined) ?? undefined;
@@ -203,7 +276,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
   // Initialize value from schema defaults if undefined (and parent didn't provide it)
   useEffect(() => {
     if (value === undefined) {
-      const def = getDefaultValue(schema);
+      const def = getDefaultValue(schema, rootSchemaRef);
       if (def !== undefined) {
         onChange(def);
         return;
@@ -219,7 +292,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
       if (required.length > 0 || hasMinProps) {
         const newValue: Record<string, any> = {};
         required.forEach(k => {
-          if (properties[k]) newValue[k] = getDefaultValue(properties[k]);
+          if (properties[k]) newValue[k] = getDefaultValue(resolveSchemaNode(properties[k]), rootSchemaRef);
         });
         
         if (Object.keys(newValue).length === 0 && hasMinProps) {
@@ -227,7 +300,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
           const last = path[path.length - 1] || 'item';
           const hint = (last.length > 1 && last.endsWith('s')) ? last.slice(0, -1) : last;
           // For seeding, we just use the hint directly if empty
-          newValue[hint] = getDefaultValue(getSchemaForProperty(hint) || {});
+          newValue[hint] = getDefaultValue(resolveSchemaNode(getSchemaForProperty(hint) || {}), rootSchemaRef);
         }
 
         if (Object.keys(newValue).length > 0) {
@@ -274,6 +347,14 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
   useEffect(() => {
     // Only relevant for `oneOf`/`oneOnly` single-select variants
     if (!oneVariants) return;
+
+    // If we have a focus hint (user just clicked a chip), respect it above all else
+    // while the value might still be in a transitional or empty state.
+    if (focusVariantIndex !== null && focusVariantIndex >= 0 && focusVariantIndex < oneVariants.length) {
+      setSelectedVariantIndex(focusVariantIndex);
+      return;
+    }
+
     // Only respond to changes in the incoming value/schema (not to our own selection updates)
     if (value === undefined || value === null) {
       setSelectedVariantIndex(-1);
@@ -297,55 +378,58 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
       const isString = typeof value === 'string' && (curVs.type === 'string' || (Array.isArray(curVs.type) && curVs.type.includes('string')));
       const isObject = typeof value === 'object' && value !== null && !Array.isArray(value) && (curVs.type === 'object' || (Array.isArray(curVs.type) && curVs.type.includes('object')) || curVs.properties);
       const isArray = Array.isArray(value) && (curVs.type === 'array' || (Array.isArray(curVs.type) && curVs.type.includes('array')) || curVs.items);
+      // If the current selection is compatible with the "emptiness" of the value, keep it.
       if (isString || isObject || isArray) return;
+      if (value === '' && (curVs.type === 'string' || !curVs.type)) return;
+      if (Array.isArray(value) && value.length === 0 && (curVs.type === 'array' || curVs.items)) return;
     }
 
-    const idx = oneVariants.findIndex((vs) => validateValueAgainstSchema(value, vs) === null);
-    if (idx >= 0) setSelectedVariantIndex(idx);
-  }, [value, schema, oneVariants, selectedVariantIndex]);
-
-  useEffect(() => {
-    // Only relevant for single-select variants
-    if (!oneVariants || value === undefined) return;
-    const vs = oneVariants[selectedVariantIndex];
-    if (vs && validateValueAgainstSchema(value, vs) === null) {
-      saveVariantMemory(selectedVariantIndex, value);
+    const match = oneVariants.find(vs => validateValueAgainstSchema(value, vs) === null);
+    if (match) {
+      setSelectedVariantIndex(oneVariants.indexOf(match));
+    } else {
+      setSelectedVariantIndex(-1);
     }
-  }, [value, selectedVariantIndex, oneVariants]);
-
-  const parentKey = typeof value === 'object' && value !== null ? (value as any).id ?? value : value;
-  const currentArrayKey = String(parentKey ?? 'default');
-  useEffect(() => {
-    if (type === 'array') {
-      setCurrentIndexMap((map) => ({ ...map, [currentArrayKey]: 0 }));
-    }
-  }, [currentArrayKey, type]);
+  }, [value, oneVariants, focusVariantIndex]);
 
   const selectVariant = (idx: number) => {
     if (!hasVariants) return;
-    // single-select behavior (oneOf / oneOnly)
-    flushSync(() => setSelectedVariantIndex(idx));
-    const mem = getVariantMemory();
-    if (!oneVariants) return;
-    const vs = oneVariants[idx];
+    const variants = oneVariants ?? anyVariants;
+    if (!variants || idx < 0 || idx >= variants.length) return;
 
+    // Track this index as the "intended" selection so the synchronization useEffect
+    // doesn't fight us while the parent state is still updating.
+    // Use a long timeout (30s) to allow parent updates to propagate even on slow connections.
+    setFocusVariantIndex(idx);
+    setTimeout(() => setFocusVariantIndex((cur) => cur === idx ? null : cur), 30000);
+
+    // For single-select (oneOf/oneOnly), track the index
+    if (oneVariants) {
+      setSelectedVariantIndex(idx);
+    } else if (anyVariants) {
+      // For anyOf behaving as single-select
+      setSelectedAnyIndices([idx]);
+    }
+
+    const mem = getVariantMemory();
+    const vs = variants[idx];
+
+    // Determine the new value to pass to onChange
+    let newValue: unknown;
     if (Object.prototype.hasOwnProperty.call(mem, idx)) {
-      onChange(mem[idx]);
+      newValue = mem[idx];
     } else if (value === undefined || value === null || value === '') {
       // If there is no existing value, initialize with the variant default so the inner form renders deterministically
-      onChange(getDefaultValue(vs));
+      newValue = getDefaultValue(vs, rootSchemaRef);
     } else if (validateValueAgainstSchema(value, vs) === null) {
-      onChange(value);
+      newValue = value;
     } else {
-      onChange(getDefaultValue(vs));
+      // Type mismatch: use the variant's default value
+      newValue = getDefaultValue(vs, rootSchemaRef);
     }
-  };
 
-  // anyOf multi-select support
-  const [selectedAnyIndices, setSelectedAnyIndices] = useState<number[]>(() => {
-    if (anyVariants && anyVariants.length === 1 && !oneVariants) return [0];
-    return [];
-  });
+    onChange(newValue);
+  };
 
   const deepEqual = (a: any, b: any) => {
     try { return JSON.stringify(a) === JSON.stringify(b); } catch { return false; }
@@ -368,7 +452,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     // Fallback to memory or default
     const mem = getVariantMemory();
     if (Object.prototype.hasOwnProperty.call(mem, idx)) return mem[idx];
-    return getDefaultValue(vs);
+    return getDefaultValue(vs, rootSchemaRef);
   };
 
   const updateValueForVariant = (current: any, selectedIdxs: number[], targetIdx: number, newVal: any) => {
@@ -378,7 +462,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     }
 
     // Otherwise we are aggregating.
-    const sourceVariants = Array.isArray(schema.anyOf) ? (schema.anyOf as any[]) : (oneVariants ?? []);
+    const sourceVariants = anyVariants ?? (oneVariants ?? []);
     let result: any = undefined;
     
     for (const idx of selectedIdxs) {
@@ -399,8 +483,8 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
   };
 
   const applyAnyOfSelection = (current: unknown, variantsIdxs: number[]) => {
-    // Choose the correct variants source: prefer schema.anyOf if present, else fall back to oneOf/oneOnly variants
-    const sourceVariants = Array.isArray(schema.anyOf) ? (schema.anyOf as any[]) : (oneVariants ?? []);
+    // Choose the correct variants source: prefer anyOf if present, else fall back to oneOf/oneOnly variants
+    const sourceVariants = anyVariants ?? (oneVariants ?? []);
     // Build result by iterating selected indices in order and merging defaults
     let result: any = undefined;
     for (const idx of variantsIdxs) {
@@ -415,14 +499,13 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
         const mem = raw ? JSON.parse(raw) : {};
         if (Object.prototype.hasOwnProperty.call(mem, idx)) v = mem[idx];
       } catch { /* ignore */ }
-      if (v === undefined) v = getDefaultValue(vs);
+      if (v === undefined) v = getDefaultValue(vs, rootSchemaRef);
 
       if (result === undefined) {
-        // If we only have ONE variant selected, don't wrap it in an array yet.
-        // This allows anyOf to act as a union type selector (string OR object)
-        // instead of forcing a multi-item list.
+        // For anyOf: always wrap in array (per JSON Schema spec)
+        // For oneOf: single variant can be unwrapped to act as union selector
         if (variantsIdxs.length === 1) {
-          result = v;
+          result = anyVariants ? [v] : v;
         } else {
           result = Array.isArray(v) ? v.slice() : (v === undefined ? [] : [v]);
         }
@@ -447,12 +530,14 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
 
     // Per spec, anyOf must be represented as an array. Do not collapse
     // single-item arrays to primitives; return the array as-is.
+    // If anyOf with no variants selected, return empty array
+    if (anyVariants && result === undefined) return [];
     return result; 
   };
 
   const toggleAnyOf = (idx: number) => {
     // Allow toggling for either anyOf or oneOf variants (use whichever is present)
-    const sourceVariants = Array.isArray(schema.anyOf) ? (schema.anyOf as any[]) : (anyVariants ?? oneVariants ?? []);
+    const sourceVariants = anyVariants ?? (oneVariants ?? []);
     if (!sourceVariants || sourceVariants.length === 0) return;
 
     const existing = Array.isArray(selectedAnyIndices) ? selectedAnyIndices.slice() : [];
@@ -471,7 +556,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
       const mem = raw ? JSON.parse(raw) : {};
       if (Object.prototype.hasOwnProperty.call(mem, idx)) vForAdd = mem[idx];
     } catch { /* ignore */ }
-    if (vForAdd === undefined) vForAdd = Array.isArray(sourceVariants[idx]) ? undefined : getDefaultValue(sourceVariants[idx]);
+    if (vForAdd === undefined) vForAdd = Array.isArray(sourceVariants[idx]) ? undefined : getDefaultValue(sourceVariants[idx], rootSchemaRef);
 
     if (found >= 0) existing.splice(found, 1); else existing.push(idx);
     
@@ -484,8 +569,8 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     // editor can mount and preserve selection even if value is initially invalid.
     if (willAdd) {
       setFocusVariantIndex(idx);
-      // Clear focus marker after a short time to avoid lingering state
-      setTimeout(() => setFocusVariantIndex((cur) => cur === idx ? null : cur), 2000);
+      // Increased timeout to 5s to ensure the user has time to start typing/interacting
+      setTimeout(() => setFocusVariantIndex((cur) => cur === idx ? null : cur), 5000);
     }
 
     onChange(newValue);
@@ -493,12 +578,17 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
 
   // Initialize anyOf selection from incoming value when schema or value changes
   useEffect(() => {
-    const sourceVariants = Array.isArray(schema.anyOf) ? (schema.anyOf as any[]) : (renderVariants ?? []);
+    const sourceVariants = anyVariants ?? (renderVariants ?? []);
     const isAny = !!sourceVariants && sourceVariants.length > 0;
     if (!isAny) { setSelectedAnyIndices([]); return; }
 
+    // If we have a focus hint, stick to it while the value is being initialized
+    if (focusVariantIndex !== null && focusVariantIndex >= 0 && focusVariantIndex < sourceVariants.length) {
+      setSelectedAnyIndices((prev) => prev.includes(focusVariantIndex) ? prev : [focusVariantIndex]);
+      return;
+    }
+
     // If the value is empty, try to preserve the current selection or use focus hint
-    // so the UI doesn't disappear while the user is starting to type or interact.
     if (value === '' || (Array.isArray(value) && value.length === 0)) {
       if (focusVariantIndex !== null && focusVariantIndex >= 0 && focusVariantIndex < sourceVariants.length) {
         setSelectedAnyIndices([focusVariantIndex]);
@@ -630,29 +720,13 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
       finalIdxs = [focusVariantIndex];
     }
 
-    // If multiple variants match, and one of them is already selected, stick to it
-    if (finalIdxs.length > 1 && selectedAnyIndices.length === 1 && finalIdxs.includes(selectedAnyIndices[0])) {
-      finalIdxs = [selectedAnyIndices[0]];
-    }
-
-    if (finalIdxs.length === 0 && selectedAnyIndices.length > 0 && value !== undefined && value !== null) {
-      const compatible = selectedAnyIndices.filter(idx => {
-         const vs = sourceVariants[idx];
-         if (typeof value === 'string' && (vs.type === 'string' || (Array.isArray(vs.type) && vs.type.includes('string')))) return true;
-         if (Array.isArray(value) && (vs.type === 'array' || (Array.isArray(vs.type) && vs.type.includes('array')) || vs.items || vs.additionalItems)) return true;
-         if (typeof value === 'object' && value !== null && !Array.isArray(value) && (vs.type === 'object' || (Array.isArray(vs.type) && vs.type.includes('object')) || vs.properties)) return true;
-         return false;
-      });
-      if (compatible.length > 0) finalIdxs = compatible;
-    }
-
     // Final dedup to be absolutely sure
     finalIdxs = Array.from(new Set(finalIdxs));
 
     if (JSON.stringify(finalIdxs) !== JSON.stringify(selectedAnyIndices)) {
       setSelectedAnyIndices(finalIdxs);
     }
-  }, [schema, value, renderVariants, focusVariantIndex, selectedAnyIndices]);
+  }, [value, renderVariants, focusVariantIndex]);
 
   const handleChipKeyDown = (e: any, idx: number) => {
     const key = e.key;
@@ -672,7 +746,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
   };
 
   if (hasVariants) {
-    const isAnyType = Array.isArray(schema.anyOf) && schema.anyOf.length > 0;
+    const isAnyType = !!anyVariants && anyVariants.length > 0;
     const label = (schema.title as string) || (isAnyType ? "Choose the options" : "Choose an option");
     const matchesAny = renderVariants!.some((vs) => validateValueAgainstSchema(value, vs) === null);
     const showHeader = renderVariants!.length > 1;
@@ -700,7 +774,13 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                     tabIndex={0}
                     onKeyDown={(e) => handleChipKeyDown(e, i)}
                     className={`${styles.variantChip} ${selected ? styles.variantChipSelected : styles.variantChipUnselected}`}
-                    onClick={() => { if (isAny) toggleAnyOf(i); else selectVariant(i); }}
+                    onClick={() => { 
+                      // Prefer single-select behavior for anyOf when it represents a Type Union (poly-type)
+                      // unless it's clearly an array of contributors.
+                      const isExclusive = anyVariants && anyVariants.length > 0 && anyVariants.some(v => v.type !== anyVariants[0].type);
+                      if (isAny && !isExclusive) toggleAnyOf(i); 
+                      else selectVariant(i); 
+                    }}
                     aria-pressed={selected}
                   >
                     {labelData.title}
@@ -718,24 +798,60 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                 return chip;
               })}
             </div>
+            {false && process.env.NODE_ENV === 'development' && (
+              <button
+                type="button"
+                onClick={clearVariantMemory}
+                style={{
+                  marginTop: 8,
+                  padding: '4px 8px',
+                  fontSize: '11px',
+                  backgroundColor: '#f0f0f0',
+                  border: '1px solid #ccc',
+                  borderRadius: '3px',
+                  cursor: 'pointer',
+                  opacity: 0.6,
+                  fontFamily: 'monospace'
+                }}
+                title="Dev only: Clear stored variant selection and reset to default"
+              >
+                🔄 Clear storage
+              </button>
+            )}
           </>
         )}
-          {!matchesAny && value !== undefined && showHeader && <div style={{ color: 'red', marginTop: 6 }}>Value does not match any option</div>}
+          {selectedVariantIndex < 0 && !matchesAny && value !== undefined && showHeader && <div style={{ color: 'red', marginTop: 6 }}>Value does not match any option</div>}
+          {selectedVariantIndex >= 0 && oneVariants && value !== undefined && validateValueAgainstSchema(value, oneVariants[selectedVariantIndex]) !== null && (
+            <div style={{ color: 'red', marginTop: 6, marginBottom: 6 }}>Ref suggests object but data is primitive</div>
+          )}
           <div style={{ marginTop: showHeader ? 8 : 0 }}>
 
             {selectedVariantIndex >= 0 && oneVariants && (
-              <JsonInstanceForm schema={oneVariants[selectedVariantIndex]} value={value} onChange={onChange} path={path} />
+              (() => {
+                const schema = oneVariants[selectedVariantIndex];
+                // If the value doesn't validate against the selected variant schema,
+                // use a default value to prevent rendering type mismatches 
+                // (e.g., string value with object schema).
+                let childValue = value;
+                const hasTypeMismatch = validateValueAgainstSchema(value, schema) !== null;
+                if (hasTypeMismatch) {
+                  childValue = getDefaultValue(schema, rootSchemaRef);
+                }
+                return (
+                  <JsonInstanceForm schema={schema} value={childValue} onChange={onChange} path={path} rootSchema={rootSchemaRef} />
+                );
+              })()
             )}
 
             {/* For anyOf (multi-select) variants, render one form per selected option. 
                 Values are resolved/aggregated using resolveValueForVariant and updateValueForVariant. */}
             {isAnyType && Array.isArray(selectedAnyIndices) && selectedAnyIndices.length > 0 && 
               Array.from(new Set(selectedAnyIndices)).map((idx) => {
-                const src = Array.isArray(schema.anyOf) ? (schema.anyOf as any[]) : (renderVariants ?? []);
-                const vs = src[idx];
+                 const src = anyVariants ?? (renderVariants ?? []);
+                 const vs = src[idx];
                 if (!vs) return null;
 
-                const childValue = resolveValueForVariant(value, vs, idx);
+                 const childValue = resolveValueForVariant(value, vs, idx);
                 const childOnChange = (nv: any) => {
                    const newValue = updateValueForVariant(value, selectedAnyIndices, idx, nv);
                    onChange(newValue);
@@ -748,6 +864,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                       value={childValue} 
                       onChange={childOnChange} 
                       path={[...path, String(idx)]} 
+                      rootSchema={rootSchemaRef}
                       autoFocus={focusVariantIndex === idx} 
                     />
                   </div>
@@ -762,9 +879,12 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
   // Handle primitive types
   if (type === "string") {
     if (schema.enum && Array.isArray(schema.enum)) {
+      // For nested properties, parent already shows description in tooltip
+      const showDesc = path.length === 0;
+      const label = showDesc ? (schema.description as string) : undefined;
       return (
         <div className={styles.field}>
-          <label className={styles.label}>{(schema.description as string) || "Select value"}</label>
+          <label className={styles.label}>{label || "Select value"}</label>
           <select
             className={styles.select}
             value={(value as string) || ""}
@@ -787,9 +907,12 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
           // propagate once
           setTimeout(() => onChange(constValue), 0);
         }
+        // For nested properties, parent already shows description in tooltip
+        const showDesc = path.length === 0;
+        const label = showDesc ? (schema.description as string) : undefined;
         return (
           <div className={styles.field}>
-            <label className={styles.label}>{(schema.description as string) || "Const value"}</label>
+            <label className={styles.label}>{label || "Const value"}</label>
             <div style={{ padding: 8, background: '#fafafa', border: '1px solid #eee', borderRadius: 6 }}>{String(constValue)}</div>
           </div>
         );
@@ -797,9 +920,12 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
 
       // If schema indicates image/data-url, show an image upload + preview for instance form
       if (format === 'data-url' || (contentMediaType && String(contentMediaType).startsWith('image'))) {
+        // For nested properties, parent already shows description in tooltip
+        const showDesc = path.length === 0;
+        const label = showDesc ? (schema.description as string) : undefined;
         return (
           <div className={styles.field}>
-            <label className={styles.label}>{(schema.description as string) || "Image"}</label>
+            <label className={styles.label}>{label || "Image"}</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {typeof value === 'string' && /^data:image\//i.test(value) && (
                 <img src={value as string} alt="preview" style={{ maxWidth: 240, maxHeight: 160, border: '1px solid #ddd', borderRadius: 6 }} />
@@ -828,9 +954,12 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
         );
       }
 
+      // For nested properties, parent already shows description in tooltip
+      const showDesc = path.length === 0;
+      const label = showDesc ? (schema.description as string) : undefined;
       return (
         <div className={styles.field}>
-          <label className={styles.label}>{(schema.description as string) || "Enter text"}</label>
+          <label className={styles.label}>{label || "Enter text"}</label>
           <>
             <input
               ref={stringInputRef}
@@ -971,9 +1100,9 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
         objectValue = {};
         required.forEach((key) => {
           if (properties[key]) {
-            const propSchema = properties[key] as any;
+            const propSchema = resolveSchemaNode(properties[key] as any) as any;
             const isPoly = Array.isArray(propSchema.oneOf) || Array.isArray(propSchema.anyOf) || Array.isArray(propSchema.oneOnly);
-            objectValue[key] = isPoly ? undefined : getDefaultValue(propSchema);
+            objectValue[key] = isPoly ? undefined : getDefaultValue(propSchema, rootSchemaRef);
           }
         });
 
@@ -984,7 +1113,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
           const key = generateAutoKey({}, hint);
           const sch = getSchemaForProperty(key);
           if (sch) {
-            objectValue[key] = getDefaultValue(sch);
+            objectValue[key] = getDefaultValue(resolveSchemaNode(sch), rootSchemaRef);
           }
         }
       }
@@ -1021,7 +1150,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
       // because we keep `creatingPropKey` set so the rename input is shown for this key.
       onChange({
         ...objectValue,
-        [key]: getDefaultValue(propSchema),
+        [key]: getDefaultValue(resolveSchemaNode(propSchema), rootSchemaRef),
       });
     };
 
@@ -1033,16 +1162,16 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     return (
       <div className={styles.objectContainer}>
         {/* Add defined properties or suggested keys (Available properties) */}
-        {!isAtMax && (fixedKeys.filter(k => !required.includes(k) && !(k in objectValue)).length > 0 || hasPatternCheck || additionalProperties !== false) && (
+        {!isAtMax && (fixedKeys.filter(k => !required.includes(k) && !(k in objectValue)).length > 0 || hasPatternCheck) && (
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#333', marginBottom: 8 }}>Available properties</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               {fixedKeys.filter(k => !required.includes(k) && !(k in objectValue)).map((key) => {
-                const propSchema = properties[key];
+                const propSchema = resolveSchemaNode(properties[key]);
                 // If combinator variants exist, render a single Add button (no special handling) that adds the first variant's default value
                 const propVariants = (propSchema && (propSchema.oneOf || propSchema.anyOf || propSchema.oneOnly)) as Record<string, unknown>[] | undefined;
                 if (propVariants && propVariants.length > 0) {
-                  const vs = propVariants[0];
+                  const vs = resolveSchemaNode(propVariants[0]);
                   let initialValue: unknown = undefined;
                   try {
                     const childPathKey = [...path, key].join('.');
@@ -1053,7 +1182,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                     // If any memory exists for the first variant index (0), use it
                     if (Object.prototype.hasOwnProperty.call(mem, 0)) initialValue = mem[0];
                   } catch { /* ignore */ }
-                  if (initialValue === undefined) initialValue = getDefaultValue(vs);
+                  if (initialValue === undefined) initialValue = getDefaultValue(resolveSchemaNode(vs), rootSchemaRef);
 
                   return RenderAddButton(key, () => onChange({ ...objectValue, [key]: initialValue }), propSchema);
 
@@ -1076,8 +1205,8 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                 return null;
               })}
 
-              {/* Suggest a basic key for additionalProperties if no patterns matched */}
-              {Object.keys(patternProperties).length === 0 && additionalProperties !== false && (() => {
+              {/* Suggest a basic key for additionalProperties if no patterns matched and no defined available properties */}
+              {Object.keys(patternProperties).length === 0 && additionalProperties !== false && fixedKeys.filter(k => !required.includes(k) && !(k in objectValue)).length === 0 && (() => {
                 const baseHint = deriveBaseHint(path);
                 const autoKey = generateAutoKey(objectValue, baseHint);
                 if (!(autoKey in objectValue)) {
@@ -1092,7 +1221,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
 
         {/* Render fixed properties */}
         {fixedKeys.map((key) => {
-          const propSchema = properties[key];
+          const propSchema = resolveSchemaNode(properties[key]);
           const isRequired = required.includes(key);
           // Render required properties, and also render non-required properties if they already exist in the value
           if (!isRequired && !(key in objectValue)) return null;
@@ -1148,6 +1277,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                 value={objectValue[key]}
                 onChange={(newValue) => updateProperty(key, newValue)}
                 path={[...path, key]}
+                rootSchema={rootSchemaRef}
               />
             </div>
           );
@@ -1155,7 +1285,8 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
 
         {/* Render pattern/additional properties already in instance */}
         {extraInstanceKeys.map((key) => {
-          const propSchema = getSchemaForProperty(key);
+          const basePropSchema = getSchemaForProperty(key);
+          const propSchema = basePropSchema ? resolveSchemaNode(basePropSchema) : null;
           if (!propSchema) {
             return (
               <div key={key} className={styles.propertyGroup} style={{ border: '1px solid #ffcdd2' }}>
@@ -1236,6 +1367,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                 value={objectValue[key]}
                 onChange={(newValue) => updateProperty(key, newValue)}
                 path={[...path, key]}
+                rootSchema={rootSchemaRef}
               />
             </div>
           );
@@ -1265,7 +1397,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                         delete moved[creatingPropKey];
                       } else {
                         const sch = getSchemaForProperty(creatingPropKey) || {};
-                        moved[newName] = getDefaultValue(sch);
+                        moved[newName] = getDefaultValue(resolveSchemaNode(sch), rootSchemaRef);
                       }
                       // Cancel any pending deferred add to avoid the original name being added afterward
                       if (addTimerRef.current) { clearTimeout(addTimerRef.current as any); addTimerRef.current = null; }
@@ -1278,10 +1410,11 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
               <div data-testid="rename-hint" style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>Press Enter to confirm — Esc to cancel</div>
             </div>
             <JsonInstanceForm
-              schema={getSchemaForProperty(creatingPropKey) || {}}
+              schema={resolveSchemaNode(getSchemaForProperty(creatingPropKey) || {})}
               value={undefined}
               onChange={() => { /* noop while pending */ }}
               path={[...path, creatingPropKey]}
+              rootSchema={rootSchemaRef}
             />
           </div>
         )}
@@ -1336,7 +1469,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
   const isArray = type === "array";
 
   if (isArray) {
-    const rawItems = schema.items || (Array.isArray(schema.anyOf) && schema.anyOf.length === 1 && schema.anyOf[0].items ? schema.anyOf[0].items : undefined);
+    const rawItems = schema.items || (anyVariants && anyVariants.length === 1 && (anyVariants[0] as any).items ? (anyVariants[0] as any).items : undefined);
     const items = rawItems || { type: "string" };
     let arrayValue: unknown[];
     if (Array.isArray(value)) {
@@ -1348,11 +1481,11 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
       arrayValue = [];
     }
 
-    const itemsSchema = (Array.isArray(items) ? items[0] : items) as Record<string, unknown>;
+    const itemsSchema = resolveSchemaNode((Array.isArray(items) ? items[0] : items) as Record<string, unknown>);
     const isObjectItem = itemsSchema.type === 'object';
     const isStringItem = itemsSchema.type === 'string' || (!itemsSchema.type && !isObjectItem);
     const uniqueRequired = !!schema.uniqueItems;
-    const defaultValueForAdd = getDefaultValue(itemsSchema);
+    const defaultValueForAdd = getDefaultValue(itemsSchema, rootSchemaRef);
     const keyFor = (v: unknown) => (typeof v === 'object' ? JSON.stringify(v) : String(v));
 
     // If items are primitive enum values OR it's a simple string array (tags), render a react-select control
@@ -1360,7 +1493,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     
     if (!isObjectItem && isStringItem) {
       const options = hasEnum ? (itemsSchema.enum as any[]).map((opt) => ({ value: opt, label: String(opt) })) : [];
-      const valueOpts = arrayValue.map((v) => ({ value: v, label: String(v) }));
+      const valueOpts = arrayValue.map((v, idx) => ({ value: v, label: String(v), __key: `${String(v)}-${idx}` }));
       const label = (schema.title as string) || (hasEnum ? 'Select values' : 'Add values');
       
       const SelectComponent = hasEnum ? Select : CreatableSelect;
@@ -1375,12 +1508,21 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
           </Tooltip>
           <div style={{ position: 'relative' }}>
             <SelectComponent
-              isMulti
+              isMulti={true}
+              isClearable={true}
               options={options}
-              value={valueOpts as any}
-              onChange={(sel: any) => onChange((sel || []).map((s: any) => s.value))}
-              placeholder={hasEnum ? "Select options..." : "Type and press enter..."}
+              value={valueOpts}
+              getOptionValue={(opt: any) => (opt && opt.__key ? String(opt.__key) : String(opt.value))}
+              onChange={(sel: any) => {
+                // If it's a multi-select, sel is an array of options. 
+                // If it's single select (e.g. enum), it might be a single option.
+                const selected = Array.isArray(sel) ? sel : (sel ? [sel] : []);
+                const vals = selected.map((s: any) => s.value);
+                onChange(vals);
+              }}
+              placeholder={hasEnum ? "Select options..." : "Type tag and press enter..."}
               classNamePrefix="react-select"
+              noOptionsMessage={hasEnum ? undefined : () => null}
             />
           </div>
         </div>
@@ -1415,10 +1557,10 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     };
 
     // Navigation state for array editing (object items)
-    const currentIndex = currentIndexMap[currentArrayKey] ?? 0;
+    const currentIndex = currentIndexMap[pathKey] ?? 0;
     const maxIndex = arrayValue.length - 1;
     const setCurrentIndex = (idx: number) => {
-      setCurrentIndexMap((map) => ({ ...map, [currentArrayKey]: idx }));
+      setCurrentIndexMap((map) => ({ ...map, [pathKey]: idx }));
     };
 
     const focusObjectForm = () => {
@@ -1453,7 +1595,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
               </div>
               {navButtons}
               <div ref={lastObjectRef} tabIndex={-1} style={{ outline: 'none' }}>
-                <JsonInstanceForm schema={itemsSchema} value={arrayValue[currentIndex]} onChange={(newValue) => updateItem(currentIndex, newValue)} path={[...path, String(currentIndex)]} />
+                <JsonInstanceForm schema={itemsSchema} value={arrayValue[currentIndex]} onChange={(newValue) => updateItem(currentIndex, newValue)} path={[...path, String(currentIndex)]} rootSchema={rootSchemaRef} />
               </div>
               {navButtons}
             </div>
@@ -1490,7 +1632,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                 });
                 if (deduped.length !== arrayValue.length) onChange(deduped);
               }}>
-                <JsonInstanceForm schema={itemsSchema} value={item} onChange={(newValue) => updateItem(idx, newValue)} path={[...path, String(idx)]} />
+                <JsonInstanceForm schema={itemsSchema} value={item} onChange={(newValue) => updateItem(idx, newValue)} path={[...path, String(idx)]} rootSchema={rootSchemaRef} />
               </div>
             </div>
           );
@@ -1521,37 +1663,38 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
   return <div className={styles.field}>Unsupported type: {type}</div>;
 }
 
-function getDefaultValue(schema: Record<string, unknown>): unknown {
-  if (schema.const !== undefined) return schema.const;
-  if (schema.default !== undefined) return schema.default;
+function getDefaultValue(schema: Record<string, unknown>, rootSchema?: Record<string, unknown>): unknown {
+  const resolved = resolveLocalRefSchema(schema, rootSchema ?? schema);
+  if (resolved.const !== undefined) return resolved.const;
+  if (resolved.default !== undefined) return resolved.default;
 
   // Support defaulting for oneOnly / oneOf by delegating to first variant
-  if (schema.oneOnly && Array.isArray(schema.oneOnly) && schema.oneOnly.length > 0) {
-    return getDefaultValue(schema.oneOnly[0] as Record<string, unknown>);
+  if (resolved.oneOnly && Array.isArray(resolved.oneOnly) && resolved.oneOnly.length > 0) {
+    return getDefaultValue(resolved.oneOnly[0] as Record<string, unknown>, rootSchema ?? schema);
   }
-  if (schema.oneOf && Array.isArray(schema.oneOf) && schema.oneOf.length > 0) {
-    return getDefaultValue(schema.oneOf[0] as Record<string, unknown>);
+  if (resolved.oneOf && Array.isArray(resolved.oneOf) && resolved.oneOf.length > 0) {
+    return getDefaultValue(resolved.oneOf[0] as Record<string, unknown>, rootSchema ?? schema);
   }
   // anyOf is multi-select; if the property schema provides a default, use
   // it. Otherwise prefer a variant-level default (if any variant declares
   // a default). If neither exists, use an empty array to represent "no
   // selections" for an anyOf property (this results in no selected chips).
-  if (schema.anyOf && Array.isArray(schema.anyOf) && schema.anyOf.length > 0) {
+  if (resolved.anyOf && Array.isArray(resolved.anyOf) && resolved.anyOf.length > 0) {
     // anyOf is multi-select. If the property schema provides a default, use
     // it (wrapped as an array when necessary). Otherwise prefer a variant-
     // level default (also wrapped), else return an empty array to denote
     // no selections. Per spec anyOf instance values are arrays.
-    if (schema.default !== undefined) return Array.isArray(schema.default) ? schema.default : [schema.default];
-    for (const vs of schema.anyOf as any[]) {
+    if (resolved.default !== undefined) return Array.isArray(resolved.default) ? resolved.default : [resolved.default];
+    for (const vs of resolved.anyOf as any[]) {
       if (vs && (vs as any).default !== undefined) return Array.isArray((vs as any).default) ? (vs as any).default : [(vs as any).default];
     }
     return [];
   }
 
-  const type = schema.type as string || (schema.properties ? 'object' : 'string');
+  const type = (resolved.type as string) || (resolved.properties ? 'object' : 'string');
 
-  if (schema.enum && Array.isArray(schema.enum) && schema.enum.length > 0) {
-    return schema.enum[0];
+  if (resolved.enum && Array.isArray(resolved.enum) && resolved.enum.length > 0) {
+    return resolved.enum[0];
   }
 
   switch (type) {
@@ -1562,20 +1705,21 @@ function getDefaultValue(schema: Record<string, unknown>): unknown {
     case "boolean":
       return false;
     case "object": {
-      const properties = (schema.properties as Record<string, Record<string, unknown>>) || {};
-      const required = (schema.required as string[]) || [];
+      const properties = (resolved.properties as Record<string, Record<string, unknown>>) || {};
+      const required = (resolved.required as string[]) || [];
       const obj: Record<string, unknown> = {};
       Object.entries(properties).forEach(([key, propSchema]) => {
-        if (required.includes(key) || propSchema.default !== undefined) {
+        const resolvedPropSchema = resolveLocalRefSchema(propSchema, rootSchema ?? schema);
+        if (required.includes(key) || resolvedPropSchema.default !== undefined) {
           // For anyOf polymorphic properties, use an empty array to represent
           // no selections unless the property schema or one of its variants
           // provides a default. For other polymorphic combinators (oneOf/
           // oneOnly) leave undefined so the user can explicitly pick a
           // variant. Otherwise, recurse to compute a default value.
-          const isAny = Array.isArray((propSchema as any).anyOf);
-          const isPoly = isAny || Array.isArray((propSchema as any).oneOf) || Array.isArray((propSchema as any).oneOnly);
+          const isAny = Array.isArray((resolvedPropSchema as any).anyOf);
+          const isPoly = isAny || Array.isArray((resolvedPropSchema as any).oneOf) || Array.isArray((resolvedPropSchema as any).oneOnly);
           if (isAny) {
-            const p = propSchema as any;
+            const p = resolvedPropSchema as any;
             if (p.default !== undefined) {
               obj[key] = p.default;
             } else {
@@ -1590,7 +1734,7 @@ function getDefaultValue(schema: Record<string, unknown>): unknown {
           } else if (isPoly) {
             obj[key] = undefined;
           } else {
-            obj[key] = getDefaultValue(propSchema);
+            obj[key] = getDefaultValue(resolvedPropSchema, rootSchema ?? schema);
           }
         }
       });
