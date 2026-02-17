@@ -6,6 +6,7 @@ import { validateValueAgainstSchema } from "../utils/validation";
 import { getAdditionalPropertiesSchema } from "./schema-behaviors";
 import { getVariantLabel } from "../utils/labels";
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip/tooltip";
+import { flattenValueByVariants, filterOutDefaults, toStorageFormat } from "../utils/schema-flattener";
 
 import { renderTooltipContentChildren } from './tooltip-utils';
 
@@ -71,6 +72,8 @@ export function JsonInstanceForm({ schema: rawSchema, value, onChange, path = []
   const storageKey = 'json-instance:' + (rawSchema && typeof (rawSchema.title as any) === 'string' ? rawSchema.title : (rawSchema.$id ? rawSchema.$id : JSON.stringify(rawSchema)));
   const pathKey = path.join('.');
   const variantMemoryKey = `json-instance-variants:${storageKey}:${pathKey}`;
+  // New schema-identity-based storage key for flattened variants (avoids path-dependent issues)
+  const flattenedVariantKey = `json-instance-variants:v1:flattened:${storageKey}`;
   
   const [inputError, setInputError] = useState<string | null>(null);
   const [newPropKey, setNewPropKey] = useState("");
@@ -324,6 +327,170 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     saveVariantStructure(variantMap);
   };
 
+  /**
+   * Save flattened variant data to schema-identity-based storage
+   * Serializes nested oneOf selections using $ref normalization
+   * 
+   * Complete Serialization/Round-Trip Flow:
+   * =======================================
+   * 
+   * STEP 1: Input (Pure JSON)
+   * -------------------------
+   * Form value with user-selected variants:
+   * {
+   *   "name": "build",
+   *   "runs-on": "ubuntu-latest"  <- selected oneOf variant
+   * }
+   * 
+   * STEP 2: Normalization (oneOf -> $ref)
+   * ------------------------------------
+   * Detect nested oneOf and convert to $ref pointers:
+   * {
+   *   "name": "build",
+   *   "runs-on": {"$ref": "#/$defs/GitHubHosted"}  <- stored as $ref
+   * }
+   * 
+   * STEP 3: Flattening (by Schema Identity)
+   * ---------------------------------------
+   * Extract variants keyed by schema identity:
+   * Key: "$ref:#/$defs/Workflow"
+   * Value: the entire object WITH $ref pointers
+   * 
+   * STEP 4: Serialization (to localStorage)
+   * ----------------------------------------
+   * localStorage["json-instance-variants:v1:flattened:${storageKey}"] = {
+   *   "$ref:#/$defs/Workflow": JSON.stringify({
+   *     "name": "build",
+   *     "runs-on": {"$ref": "#/$defs/GitHubHosted"}
+   *   })
+   * }
+   * 
+   * ====================================================================
+   * 
+   * RETRIEVAL (Later, in loadFlattenedVariants):
+   * 
+   * STEP 1: Deserialization (from localStorage)
+   * -------------------------------------------
+   * Read stored JSON from localStorage
+   * 
+   * STEP 2: Denormalization ($refs -> actual values)
+   * -----------------------------------------------
+   * Traverse and resolve each {"$ref": "..."} occurrence:
+   * {"$ref": "#/$defs/GitHubHosted"} -> "ubuntu-latest"
+   * (or whatever the variant's default value is)
+   * 
+   * STEP 3: Output (Pure JSON, no $refs)
+   * -----------------------------------
+   * Return complete structure with all $refs resolved:
+   * {
+   *   "name": "build",
+   *   "runs-on": "ubuntu-latest"  <- $ref resolved back
+   * }
+   * 
+   * The returned value is identical to the form's internal state,
+   * ensuring seamless round-trip with zero $refs in the output.
+   * 
+   * Benefits:
+   * - Path-independent: survives parent object context changes
+   * - Schema-aware: nested oneOf selections stored via schema identity
+   * - Recursive: normalization handles arbitrarily nested structures
+   * - Recoverable: $refs explicitly resolved to original values
+   * - Default-optimized: only non-default selections written
+   */
+  const saveFlattenedVariants = (variantValue: unknown) => {
+    if (typeof localStorage === 'undefined' || !hasVariants) return;
+    try {
+      const sourceVariants = anyVariants ?? (oneVariants ?? []);
+      if (!sourceVariants || sourceVariants.length === 0) return;
+
+      // Flatten the variant value by matching it to variants
+      // const isAnyOf = !!anyVariants;
+      const flattened = flattenValueByVariants(variantValue, schema, sourceVariants);
+      
+      // Filter out defaults (optimization)
+      const nonDefaults = filterOutDefaults(flattened, sourceVariants, (vs) =>
+        getDefaultValue(vs, rootSchemaRef)
+      );
+
+      // Convert to storage format and save
+      // Note: Values in storage are JSON structures with nested oneOf converted to $ref pointers
+      const storageObj = toStorageFormat(nonDefaults);
+      if (Object.keys(storageObj).length > 0) {
+        localStorage.setItem(flattenedVariantKey, JSON.stringify(storageObj));
+      } else {
+        localStorage.removeItem(flattenedVariantKey);
+      }
+    } catch (err) {
+      console.warn('Failed to save flattened variants:', err);
+    }
+  };
+
+  /**
+   * Flattened Variant Storage Format Specification
+   * ═════════════════════════════════════════════
+   * 
+   * Storage Key:
+   * ────────────
+   * json-instance-variants:v1:flattened:${storageKey}
+   * Where storageKey = schema.title || schema.$id || JSON.stringify(schema)
+   * 
+   * Storage Value (JSON):
+   * ──────────────────────
+   * {
+   *   "${schemaIdentity}": "${stringified-json-value}",
+   *   ...
+   * }
+   * 
+   * Storage Entry Details:
+   * ─────────────────────
+   * Key (schemaIdentity):
+   *   - "$ref:${refPointer}"  if schema has $ref
+   *   - "$id:${idValue}"      if schema has $id
+   *   - "hash:${hashValue}"   otherwise
+   * 
+   * Value (stored as JSON string):
+   *   - For primitive selections: the primitive value itself
+   *   - For object selections: JSON object with nested oneOf recursively converted to $ref
+   *   
+   *   IMPORTANT: Nested oneOf/anyOf are NORMALIZED to $ref pointers:
+   *   Original:   { runs-on: "ubuntu-latest", timeout: 360 }
+   *   Stored as:  { runs-on: {"$ref": "#/$defs/GitHubHosted"}, timeout: 360 }
+   *   
+   *   This ensures:
+   *   ✓ Nested selections are schema-aware and explicit
+   *   ✓ Data survives schema structure changes
+   *   ✓ All variant references are recoverable from $ref pointers
+   *   ✓ Storage is normalized and deterministic
+   * 
+   * Default-Skipping Optimization:
+   * ──────────────────────────────
+   * Values that equal their schema default are NOT stored
+   * Storage entry removed if all variants reverted to defaults
+   * 
+   * Example Storage Content:
+   * ────────────────────────
+   * localStorage['json-instance-variants:v1:flattened:WorkflowSchema'] = JSON.stringify({
+   *   "$ref:#/$defs/Workflow": {
+   *     name: "build",
+   *     jobs: {
+   *       build: {
+   *         "runs-on": {"$ref": "#/$defs/GitHubHosted"},
+   *         "timeout-minutes": 360
+   *       }
+   *     }
+   *   },
+   *   "$ref:#/$defs/AnotherWorkflow": {...}
+   * });
+   * 
+   * Retrieval Flow:
+   * ───────────────
+   * 1. Load from localStorage using flattenedVariantKey
+   * 2. Parse JSON entries
+   * 3. Unflatten back to actual nested structures
+   * 4. Resolve $ref pointers to variant selections
+   * 5. Reconstruct complete value for rendering
+   */
+
   const min = (schema.minimum as number | undefined) ?? undefined;
   const max = (schema.maximum as number | undefined) ?? undefined;
   const step = (schema.multipleOf as number | undefined) ?? undefined;
@@ -511,6 +678,8 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     onChange(newValue);
     // Save the variant selection with default-skipping optimization
     saveVariantOnToggle([idx]);
+    // Also save to flattened storage for nested variant resilience
+    saveFlattenedVariants(newValue);
   };
 
   const deepEqual = (a: any, b: any) => {
@@ -658,6 +827,8 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     onChange(newValue);
     // Save the variant selection with default-skipping optimization
     saveVariantOnToggle(uniqueIdxs);
+    // Also save to flattened storage for nested variant resilience
+    saveFlattenedVariants(newValue);
   };
 
   // Initialize anyOf selection from incoming value when schema or value changes
