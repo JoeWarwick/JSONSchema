@@ -1047,7 +1047,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                   return (
                     <Tooltip key={i} delayDuration={0}>
                       <TooltipTrigger asChild>{chip}</TooltipTrigger>
-                      <TooltipContent>{labelData.description}</TooltipContent>
+                      <TooltipContent>{renderTooltipContentChildren(labelData.description)}</TooltipContent>
                     </Tooltip>
                   );
                 }

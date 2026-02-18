@@ -14,6 +14,7 @@ import styles from "./schema-editor-form.module.css";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./ui/tooltip/tooltip";
 import { Badge } from "./ui/badge/badge";
 import { Popover, PopoverTrigger, PopoverContent } from "./ui/popover/popover";
+import { renderTooltipContentChildren } from './tooltip-utils';
 
 import Select from "react-select";
 import CreatableSelect from "react-select/creatable";
@@ -544,7 +545,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                         <TooltipContent>
                           <div style={{ maxWidth: '300px', padding: '4px' }}>
                             <div style={{ fontWeight: 800, fontSize: '9px', textTransform: 'uppercase', marginBottom: '2px', color: 'var(--color-neutral-10)' }}>IDENTIFIER / SOURCE</div>
-                            <div style={{ fontSize: '11px', fontFamily: 'monospace', wordBreak: 'break-all', background: 'var(--color-neutral-3)', padding: '4px', borderRadius: '4px', color: 'var(--color-neutral-12)' }}>{labelData.description}</div>
+                            <div style={{ fontSize: '11px', fontFamily: 'monospace', wordBreak: 'break-all', background: 'var(--color-neutral-3)', padding: '4px', borderRadius: '4px', color: 'var(--color-neutral-12)' }}>{renderTooltipContentChildren(labelData.description)}</div>
                           </div>
                         </TooltipContent>
                       </Tooltip>

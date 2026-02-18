@@ -3,7 +3,7 @@ import useAsyncMemo from "~/hooks/useAsyncMemo";
 import { Sparkles, Copy, Check, X, Link as LinkIcon, Download, FileUp } from "lucide-react";
 import styles from "./workbench.module.css";
 import { generateSchema, isValidJSON } from "~/utils/schema-generator";
-import schemaReducer, { initialSchemaState, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, ensureResolved, getPersistableSource, getEditorSchema } from "~/state/schemaReducer";
+import schemaReducer, { initialSchemaState, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, ensureResolved, getPersistableSource, getEditorSchema, getResolvedSource } from "~/state/schemaReducer";
 
 // Utility to rename a property in an object (shallow)
 function renamePropertyInObject(obj: any, oldName: string, newName: string) {
@@ -399,6 +399,21 @@ export default function Workbench() {
     URL.revokeObjectURL(url);
   };
 
+  const handleSaveResolvedSchema = () => {
+    const toSave = getResolvedSource(state);
+    if (!toSave) return;
+
+    const blob = new Blob([JSON.stringify(toSave, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'schema-resolved.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const handleSaveJson = () => {
     if (!jsonInput.trim()) return;
 
@@ -551,14 +566,24 @@ export default function Workbench() {
                 Load File
               </button>
               {state.resolvedCache && (
-                <button 
-                  className={styles.controlButton}
-                  onClick={handleSaveSchema}
-                  title="Save schema to file"
-                >
-                  <Download size={16} />
-                  Save Schema
-                </button>
+                <div className={styles.saveButtonRow}>
+                  <button 
+                    className={styles.controlButton}
+                    onClick={handleSaveSchema}
+                    title="Save schema to file"
+                  >
+                    <Download size={16} />
+                    Save Schema
+                  </button>
+                  <button 
+                    className={styles.controlButton}
+                    onClick={handleSaveResolvedSchema}
+                    title="Save intermediate hydrated schema (dereferenced)"
+                  >
+                    <Sparkles size={16} />
+                    Save Intermediate
+                  </button>
+                </div>
               )}
               <div className={styles.urlInputGroup}>
                 <input
@@ -754,10 +779,16 @@ export default function Workbench() {
               <div className={styles.headerActions}>
                 {state.source && (
                   <>
-                    <button className={styles.actionButton} onClick={handleSaveSchema} title="Save schema">
-                      <Download size={16} />
-                      Save
-                    </button>
+                    <div className={styles.saveButtonRow}>
+                      <button className={styles.actionButton} onClick={handleSaveSchema} title="Save schema">
+                        <Download size={16} />
+                        Save
+                      </button>
+                      <button className={styles.actionButton} onClick={handleSaveResolvedSchema} title="Save intermediate hydrated schema (dereferenced)">
+                        <Sparkles size={16} />
+                        Save Intermediate
+                      </button>
+                    </div>
                     <button className={`${styles.actionButton} ${copied ? styles.copied : ""}`} onClick={handleCopy}>
                       {copied ? (
                         <>

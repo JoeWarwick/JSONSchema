@@ -658,6 +658,16 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
   return resolved;
 }
 
+// Return the fully resolved (dereferenced) schema from the cache.
+export function getResolvedSource(state: SchemaState): Schema {
+  try {
+    if (!state || !state.resolvedCache) return null;
+    return canonicalizeForPersist(state.resolvedCache as Schema);
+  } catch (_) {
+    return state.resolvedCache as Schema;
+  }
+}
+
 // Return a canonical schema suitable for persisting: rehydrate resolved edits into source when available.
 export function getPersistableSource(state: SchemaState): Schema {
   try {
