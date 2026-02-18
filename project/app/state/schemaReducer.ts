@@ -5,6 +5,8 @@ export const APPLY_SOURCE_UPDATE = "APPLY_SOURCE_UPDATE";
 export const APPLY_RESOLVED_EDIT = "APPLY_RESOLVED_EDIT";
 export const SET_DEREF_IN_PROGRESS = "SET_DEREF_IN_PROGRESS";
 export const SET_RESOLVED_CACHE = "SET_RESOLVED_CACHE";
+export const MERGE_RESOLVED_PATH = "MERGE_RESOLVED_PATH";
+export const MERGE_RESOLVED_ALL_PATHS = "MERGE_RESOLVED_ALL_PATHS";
 
 export type Schema = Record<string, unknown> | null;
 
@@ -20,7 +22,9 @@ export type SchemaAction =
   | { type: typeof APPLY_SOURCE_UPDATE; payload: Schema }
   | { type: typeof APPLY_RESOLVED_EDIT; payload: Schema }
   | { type: typeof SET_DEREF_IN_PROGRESS; payload: boolean }
-  | { type: typeof SET_RESOLVED_CACHE; payload: Schema };
+  | { type: typeof SET_RESOLVED_CACHE; payload: Schema }
+  | { type: typeof MERGE_RESOLVED_PATH; payload: { path: string[], schema: Schema } }
+  | { type: typeof MERGE_RESOLVED_ALL_PATHS; payload: { path: string[], schema: Schema }[] };
 
 // Helper: determine whether a source schema should be treated as an object-rooted
 // schema for editor normalization purposes.
@@ -84,10 +88,14 @@ function rewriteExampleComRefs(schema: Schema): Schema {
 }
 
 export function initialSchemaState(initialSource: Schema): SchemaState {
-  const isObj = isObjectSchema(initialSource);
+  // Use a permissive object schema as the default starting point when no
+  // persisted schema is found. This allows immediate use of the instance
+  // editor even for undocumented JSON structures.
+  const source = initialSource ?? { type: 'object', additionalProperties: true };
+  const isObj = isObjectSchema(source);
   return {
-    source: initialSource ?? null,
-    resolvedCache: produceResolvedCache(initialSource ?? null, isObj, initialSource),
+    source,
+    resolvedCache: produceResolvedCache(source, isObj, source),
     derefInProgress: false,
     sourceIsObject: isObj,
   };
@@ -154,6 +162,70 @@ export default function schemaReducer(state: SchemaState, action: SchemaAction):
       // When an async resolution completes, normalize it so UI layers never
       // receive a top-level `$defs` structure — the reducer owns conversion.
       return { ...state, resolvedCache: produceResolvedCache(action.payload, state.sourceIsObject, state.source), derefInProgress: false };
+    case MERGE_RESOLVED_PATH: {
+      const { path, schema } = action.payload;
+      if (!state.resolvedCache || !path || path.length === 0) return state;
+      
+      const newCache = JSON.parse(JSON.stringify(state.resolvedCache));
+      let current = newCache;
+      
+      // Navigate to the target node
+      for (let i = 0; i < path.length; i++) {
+        const p = path[i];
+        // Smart navigation: if the path expects 'properties' but we are at a map-root
+        // that doesn't have a 'properties' key (common in hoisted/dereferenced views),
+        // we skip the 'properties' segment.
+        if (p === 'properties' && !current.properties && !current.type && !current.$ref && Object.keys(current).length > 0) {
+          continue;
+        }
+        
+        if (!current[p] || typeof current[p] !== 'object') {
+          current[p] = {};
+        }
+        current = current[p];
+      }
+      
+      // Deep merge the new resolved schema part into the target node
+      if (schema && typeof schema === 'object') {
+        Object.assign(current, schema);
+      }
+
+      return {
+        ...state,
+        resolvedCache: produceResolvedCache(newCache, state.sourceIsObject, state.source)
+      };
+    }
+    case MERGE_RESOLVED_ALL_PATHS: {
+      const updates = action.payload;
+      if (!state.resolvedCache || !updates || updates.length === 0) return state;
+      
+      const newCache = JSON.parse(JSON.stringify(state.resolvedCache));
+      
+      for (const { path, schema } of updates) {
+        if (!path || path.length === 0) continue;
+        let current = newCache;
+        for (let i = 0; i < path.length; i++) {
+          const p = path[i];
+          // Smart navigation: skip 'properties' if at a map root
+          if (p === 'properties' && !current.properties && !current.type && !current.$ref && Object.keys(current).length > 0) {
+            continue;
+          }
+
+          if (!current[p] || typeof current[p] !== 'object') {
+            current[p] = {};
+          }
+          current = current[p];
+        }
+        if (schema && typeof schema === 'object') {
+          Object.assign(current, schema);
+        }
+      }
+
+      return {
+        ...state,
+        resolvedCache: produceResolvedCache(newCache, state.sourceIsObject, state.source)
+      };
+    }
     default:
       return state;
   }
@@ -175,29 +247,34 @@ export function getEditorSchema(state: SchemaState): Schema {
 export function isSchemaImported(schemaOrState: Schema | SchemaState | null, path?: string[]): boolean {
   try {
     if (!schemaOrState) return false;
-    // If caller passed the reducer state, prefer the reducer-produced
-    // editor schema (rehydrated/normalized) so we can inspect object-shaped
-    // nodes for provenance markers like `__from` or inline `$ref` entries.
+    // If we're at a node that has structural content, it's NOT an "unresolved import"
+    // regardless of where it came from.
+    const isStructural = (n: any) => {
+      if (!n || typeof n !== 'object') return false;
+      return !!(n.type || n.properties || n.items || n.oneOf || n.anyOf || n.allOf || n.enum || n.const);
+    };
+
     let root: any = schemaOrState as any;
     if (root && typeof root === 'object' && ('source' in root)) {
-      // Prefer rehydrating back to a $ref/$defs-bearing shape so the
-      // matched node can be inspected for original $ref markers. Fall
-      // back to the editor-normalized schema if rehydration fails.
+      // Use the normalized editor-view for provenance checks so we
+      // can inspect correctly mapped nodes for `__from` or `$ref`.
       try {
         const st = root as SchemaState;
-        if (st.source && st.resolvedCache) {
-          try {
-            root = rehydrateSchema(st.source as Record<string, any>, st.resolvedCache as Record<string, any>);
-          } catch (_) {
-            root = getEditorSchema(st);
-          }
-        } else {
-          root = getEditorSchema(st);
-        }
+        root = getEditorSchema(st);
       } catch (_) {
-        root = getEditorSchema(root as SchemaState);
+        root = (root as any).resolvedCache || (root as any).source || root;
       }
     }
+    
+    // Check if the current node itself (if path not provided) is already structural
+    if ((!path || path.length === 0) && isStructural(root)) {
+      // It might have a $ref but if it already has properties/type, we don't 
+      // treat it as an unexpanded "import placeholder".
+      if (typeof root.$ref === 'string' && Object.keys(root).length === 1) return true;
+      if (root.__from && !root.properties && !root.type && !root.items && !root.oneOf && !root.anyOf && !root.allOf) return true;
+      return false;
+    }
+
     if (!root || typeof root !== 'object') return false;
 
     // walk to path inside the authoritative source when provided
@@ -205,23 +282,41 @@ export function isSchemaImported(schemaOrState: Schema | SchemaState | null, pat
     if (Array.isArray(path) && path.length > 0) {
       for (const p of path) {
         if (!node || typeof node !== 'object') return false;
-        if (node.type === 'object' && node.properties && Object.prototype.hasOwnProperty.call(node.properties, p)) {
+        // In the editor-normalized view, properties are usually hoisted
+        if (node.properties && Object.prototype.hasOwnProperty.call(node.properties, p)) {
           node = node.properties[p];
-        } else if (node.type === 'array' && node.items && node.items.type === 'object' && node.items.properties && Object.prototype.hasOwnProperty.call(node.items.properties, p)) {
+        } else if (node.type === 'array' && node.items && node.items.properties && Object.prototype.hasOwnProperty.call(node.items.properties, p)) {
           node = node.items.properties[p];
+        } else if (node.items) {
+          // Fall through items
+          node = node.items;
         } else {
-          // fall back: try direct property access
-          node = (node.properties && node.properties[p]) || (node.items && node.items.properties && node.items.properties[p]) || null;
+          // Fall back: direct property access or nested key
+          node = (node.properties && node.properties[p]) || (node.items && node.items.properties && node.items.properties[p]) || node[p] || null;
         }
       }
     }
 
     // Only inspect the matched source node itself for direct provenance.
     if (!node || typeof node !== 'object') return false;
-    if (typeof node.$ref === 'string') return true;
-    if (Array.isArray(node.allOf) && node.allOf.some((e: any) => e && typeof e.$ref === 'string')) return true;
-    if (node.__from) return true;
-    return false;
+    
+    const nodeIsImported = !!(typeof node.$ref === 'string' || (Array.isArray(node.allOf) && node.allOf.some((e: any) => e && e.$ref)) || node.__from);
+    if (!nodeIsImported) return false;
+
+    // If it is imported, check if it's STILL just a placeholder or if it has content now
+    if (isStructural(node)) {
+      // If it still ONLY has a $ref, it's an unexpanded import
+      if (typeof node.$ref === 'string' && Object.keys(node).length === 1) return true;
+      // If it's an allOf that ONLY has a $ref, it's an unexpanded import
+      if (Array.isArray(node.allOf) && node.allOf.length === 1 && node.allOf[0] && typeof node.allOf[0].$ref === 'string' && Object.keys(node).length === 1) return true;
+      // If it was tagged with __from but is otherwise empty, it's an import placeholder
+      if (node.__from && !node.properties && !node.type && !node.items && !node.oneOf && !node.anyOf && !node.allOf) return true;
+      
+      // Otherwise, it has content! Even if it came from elsewhere, we want to see it.
+      return false;
+    }
+    
+    return true;
   } catch (_) {
     return false;
   }
@@ -348,9 +443,16 @@ function normalizeResolved(s: Schema, source?: Schema): Schema {
           if (pv && typeof pv === 'object' && ('$anchor' in pv)) {
             continue;
           }
-          // Also prune definitions that are NOT in the source and are likely internal helpers
-          const isSourceProp = sourceProps.length === 0 || sourceProps.includes(pk);
-          if (!isSourceProp && pk !== 'type' && pk !== 'properties') {
+          // Prune properties that aren't in the authoritative source and aren't
+          // standard top-level JSON schema keywords/facets. This prevents internal 
+          // resolver noise from leaking into the editor view.
+          const isStandardKey = [
+            'type', 'properties', 'items', 'definitions', '$defs', '$id', '$schema', 
+            'oneOf', 'anyOf', 'allOf', 'oneOnly', 'title', 'description', 'default', 
+            'required', 'enum', 'patternProperties', 'additionalProperties'
+          ].includes(pk);
+          const isSourceProp = sourceProps.length === 0 || sourceProps.includes(pk) || isStandardKey;
+          if (!isSourceProp) {
             continue;
           }
 
@@ -367,6 +469,11 @@ function normalizeResolved(s: Schema, source?: Schema): Schema {
     }
     const keys = Object.keys(s as Record<string, unknown>);
     if (keys.length > 0) {
+      // If it's already a schema-like node, don't wrap it in more properties
+      if ('properties' in s || 'items' in s || 'type' in s || 'oneOf' in s || 'anyOf' in s || 'allOf' in s) {
+        return augmentSchemaForKnownIssues(s) as Schema;
+      }
+
       let looksLikeDefs = true;
       for (const k of keys) {
         const v = (s as any)[k];
@@ -466,40 +573,24 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
         const hasProps = resObj.properties && typeof resObj.properties === 'object';
         const isPoly = Array.isArray(resObj.oneOf) || Array.isArray(resObj.anyOf) || Array.isArray(resObj.allOf);
 
-        if (hasProps || isPoly) {
-          let hasConcrete = false;
-          if (hasProps) {
-            for (const v of Object.values(resObj.properties)) {
-              if (v && typeof v === 'object' && ('properties' in (v as any) || 'type' in (v as any) || Object.keys(v as any).length > 1)) {
-                hasConcrete = true; break;
-              }
-            }
-          }
-          if (!hasConcrete && isPoly) {
-            const variants = [...(resObj.oneOf || []), ...(resObj.anyOf || []), ...(resObj.allOf || [])];
-            for (const v of variants) {
-              if (v && typeof v === 'object' && ('properties' in (v as any) || 'type' in (v as any) || Object.keys(v as any).length > 1)) {
-                hasConcrete = true; break;
-              }
-            }
-          }
-
-          if (hasConcrete) {
-            // Annotate resolved inlined nodes with provenance (`__from`) when the
-            // authoritative `source` contained a $ref for that property. This ensures
-            // UI layers can reliably detect imported definitions even when remote
-            // or inlined by the resolver.
-            try {
+        // If the resolved payload has schema facets (props, poly, etc), it is
+        // considered a valid editor-ready view. Prefer it over deriving a new
+        // view from `source` every time to ensure our path-based merges persist.
+        if (hasProps || isPoly || resObj.type || resObj.items) {
+          // If we are in-browser, annotate from source if available
+          try {
+            if (typeof window !== 'undefined' && source && typeof source === 'object') {
               const annotateFrom = (resNode: any, srcNode: any) => {
                 if (!resNode || typeof resNode !== 'object') return;
                 if (!srcNode || typeof srcNode !== 'object') return;
-                // If source has a $ref or allOf containing a $ref, mark resolved node
+                // If source has a $ref or allOf containing a $ref, and the resolved
+                // node doesn't have its own concrete identity, mark the provenance.
                 try {
-                  if (typeof srcNode.$ref === 'string') {
+                  if (typeof srcNode.$ref === 'string' && !resNode.__from) {
                     try { (resNode as any).__from = srcNode.$ref; } catch (_) {
                       // ignore
                     }
-                  } else if (Array.isArray(srcNode.allOf) && srcNode.allOf.some((e: any) => e && typeof e.$ref === 'string')) {
+                  } else if (Array.isArray(srcNode.allOf) && srcNode.allOf.some((e: any) => e && typeof e.$ref === 'string') && !resNode.__from) {
                     const m = srcNode.allOf.find((e: any) => e && typeof e.$ref === 'string');
                     try { (resNode as any).__from = m && m.$ref ? m.$ref : undefined; } catch (_) {
                       // ignore
@@ -539,13 +630,11 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
                 });
               };
               annotateFrom(resolved, source || {});
-            } catch (_) {
-              // ignore
             }
+          } catch (_) {}
 
-            if ((resolved as any).$defs) delete (resolved as any).$defs;
-            return normalizeResolved(resolved, source);
-          }
+          if ((resolved as any).$defs) delete (resolved as any).$defs;
+          return normalizeResolved(resolved, source);
         }
       }
     } catch (_) {
@@ -652,6 +741,16 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
     // ignore
   }
   return resolved;
+}
+
+// Return the fully resolved (dereferenced) schema from the cache.
+export function getResolvedSource(state: SchemaState): Schema {
+  try {
+    if (!state || !state.resolvedCache) return null;
+    return canonicalizeForPersist(state.resolvedCache as Schema);
+  } catch (_) {
+    return state.resolvedCache as Schema;
+  }
 }
 
 // Return a canonical schema suitable for persisting: rehydrate resolved edits into source when available.

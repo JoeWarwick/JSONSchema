@@ -33,7 +33,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ items, position, onClo
         border: "1px solid #ccc",
         borderRadius: 8,
         boxShadow: "0 2px 12px rgba(0,0,0,0.12)",
-        zIndex: 1000,
+        zIndex: "var(--z-index-menu)" as any,
         minWidth: 160,
         padding: "6px 0",
       }}

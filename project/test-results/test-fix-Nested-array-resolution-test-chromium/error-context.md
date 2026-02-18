@@ -1,0 +1,232 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - heading "Schema Sculptor - JSON Schema Workbench" [level=4] [ref=e5]
+        - generic [ref=e6]:
+          - text: "Schema source:"
+          - generic [ref=e7]: resolved
+      - paragraph [ref=e8]: Generate and modify JSON schemas with an intuitive form-based editor
+    - generic [ref=e9]:
+      - button "JSON Input" [ref=e10] [cursor=pointer]
+      - button "Instance Editor" [ref=e11] [cursor=pointer]
+      - button "Schema Input" [ref=e12] [cursor=pointer]
+      - button "Schema Editor" [ref=e13] [cursor=pointer]
+    - generic [ref=e14]:
+      - generic [ref=e15]:
+        - button "Load File" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+          - text: Load File
+        - generic [ref=e21]:
+          - button "Save Schema" [ref=e22] [cursor=pointer]:
+            - img [ref=e23]
+            - text: Save Schema
+          - button "Save Intermediate" [ref=e26] [cursor=pointer]:
+            - img [ref=e27]
+            - text: Save Intermediate
+        - generic [ref=e30]:
+          - textbox "Enter schema URL..." [ref=e31]
+          - button "Load URL" [ref=e32] [cursor=pointer]:
+            - img [ref=e33]
+            - text: Load URL
+      - generic [ref=e36]:
+        - heading "Schema Input" [level=2] [ref=e38]
+        - generic [ref=e40]:
+          - generic [ref=e43]:
+            - button "Object" [ref=e44] [cursor=pointer]
+            - button "Array" [ref=e45] [cursor=pointer]
+            - button "+ poly" [ref=e46] [cursor=pointer]
+          - generic [ref=e47]:
+            - generic [ref=e48]:
+              - heading "Properties" [level=3] [ref=e49]
+              - generic [ref=e52]:
+                - generic [ref=e53]:
+                  - radio "additional-allow-root" [checked] [ref=e54]
+                  - generic [ref=e55]: Allow extra properties
+                - generic [ref=e56]:
+                  - radio "additional-block-root" [ref=e57]
+                  - generic [ref=e58]: Strict (no extra properties)
+                - generic [ref=e59]:
+                  - radio "additional-schema-root" [ref=e60]
+                  - generic [ref=e61]: Apply schema to extras
+              - generic [ref=e62]:
+                - button "Add Property" [ref=e63] [cursor=pointer]
+                - button "+ pattern property" [ref=e64] [cursor=pointer]
+            - generic [ref=e65]:
+              - generic [ref=e66]:
+                - button "Collapse" [ref=e67] [cursor=pointer]:
+                  - img [ref=e68]
+                - textbox [ref=e70]: jobs
+                - generic [ref=e71] [cursor=pointer]:
+                  - checkbox "Required" [ref=e72]
+                  - text: Required
+                - button "Remove" [ref=e73] [cursor=pointer]
+              - generic [ref=e74]:
+                - generic [ref=e75]: Description
+                - textbox "Add a description..." [ref=e76]
+              - generic [ref=e77]:
+                - generic [ref=e80]:
+                  - button "String" [ref=e81] [cursor=pointer]
+                  - button "Number" [ref=e82] [cursor=pointer]
+                  - button "Boolean" [ref=e83] [cursor=pointer]
+                  - button "Object" [ref=e84] [cursor=pointer]
+                  - button "Array" [ref=e85] [cursor=pointer]
+                  - button "Null" [ref=e86] [cursor=pointer]
+                  - button "Image" [ref=e87] [cursor=pointer]
+                  - button "+ poly" [ref=e88] [cursor=pointer]
+                - generic [ref=e89]:
+                  - generic [ref=e90]:
+                    - heading "Properties" [level=3] [ref=e91]
+                    - generic [ref=e94]:
+                      - generic [ref=e95]:
+                        - radio "additional-allow-properties-jobs" [checked] [ref=e96]
+                        - generic [ref=e97]: Allow extra properties
+                      - generic [ref=e98]:
+                        - radio "additional-block-properties-jobs" [ref=e99]
+                        - generic [ref=e100]: Strict (no extra properties)
+                      - generic [ref=e101]:
+                        - radio "additional-schema-properties-jobs" [ref=e102]
+                        - generic [ref=e103]: Apply schema to extras
+                    - generic [ref=e104]:
+                      - button "Add Property" [ref=e105] [cursor=pointer]
+                      - button "+ pattern property" [ref=e106] [cursor=pointer]
+                  - generic [ref=e107]:
+                    - generic [ref=e108]:
+                      - button "Collapse" [ref=e109] [cursor=pointer]:
+                        - img [ref=e110]
+                      - textbox [ref=e112]: build
+                      - generic [ref=e113] [cursor=pointer]:
+                        - checkbox "Required" [ref=e114]
+                        - text: Required
+                      - button "Remove" [ref=e115] [cursor=pointer]
+                    - generic [ref=e116]:
+                      - generic [ref=e117]: Description
+                      - textbox "Add a description..." [ref=e118]
+                    - generic [ref=e119]:
+                      - generic [ref=e122]:
+                        - button "String" [ref=e123] [cursor=pointer]
+                        - button "Number" [ref=e124] [cursor=pointer]
+                        - button "Boolean" [ref=e125] [cursor=pointer]
+                        - button "Object" [ref=e126] [cursor=pointer]
+                        - button "Array" [ref=e127] [cursor=pointer]
+                        - button "Null" [ref=e128] [cursor=pointer]
+                        - button "Image" [ref=e129] [cursor=pointer]
+                        - button "+ poly" [ref=e130] [cursor=pointer]
+                      - generic [ref=e131]:
+                        - generic [ref=e132]:
+                          - heading "Properties" [level=3] [ref=e133]
+                          - generic [ref=e136]:
+                            - generic [ref=e137]:
+                              - radio "additional-allow-properties-jobs-properties-build" [checked] [ref=e138]
+                              - generic [ref=e139]: Allow extra properties
+                            - generic [ref=e140]:
+                              - radio "additional-block-properties-jobs-properties-build" [ref=e141]
+                              - generic [ref=e142]: Strict (no extra properties)
+                            - generic [ref=e143]:
+                              - radio "additional-schema-properties-jobs-properties-build" [ref=e144]
+                              - generic [ref=e145]: Apply schema to extras
+                          - generic [ref=e146]:
+                            - button "Add Property" [ref=e147] [cursor=pointer]
+                            - button "+ pattern property" [ref=e148] [cursor=pointer]
+                        - generic [ref=e149]:
+                          - generic [ref=e150]:
+                            - button "Collapse" [ref=e151] [cursor=pointer]:
+                              - img [ref=e152]
+                            - textbox [ref=e154]: steps
+                            - generic [ref=e155] [cursor=pointer]:
+                              - checkbox "Required" [ref=e156]
+                              - text: Required
+                            - button "Remove" [ref=e157] [cursor=pointer]
+                          - generic [ref=e158]:
+                            - generic [ref=e159]: Description
+                            - textbox "Add a description..." [ref=e160]
+                          - generic [ref=e161]:
+                            - generic [ref=e164]:
+                              - button "String" [ref=e165] [cursor=pointer]
+                              - button "Number" [ref=e166] [cursor=pointer]
+                              - button "Boolean" [ref=e167] [cursor=pointer]
+                              - button "Object" [ref=e168] [cursor=pointer]
+                              - button "Array" [ref=e169] [cursor=pointer]
+                              - button "Null" [ref=e170] [cursor=pointer]
+                              - button "Image" [ref=e171] [cursor=pointer]
+                              - button "+ poly" [ref=e172] [cursor=pointer]
+                            - generic [ref=e173]:
+                              - generic [ref=e174]:
+                                - button "+ uniqueItems" [ref=e175] [cursor=pointer]
+                                - button "+ minItems" [ref=e176] [cursor=pointer]
+                                - button "+ maxItems" [ref=e177] [cursor=pointer]
+                                - button "+ default" [ref=e178] [cursor=pointer]
+                              - generic [ref=e179]:
+                                - checkbox "Enum (constrained values)" [ref=e180] [cursor=pointer]
+                                - generic [ref=e181] [cursor=pointer]: Enum (constrained values)
+                            - generic [ref=e183]:
+                              - generic [ref=e184]:
+                                - button "Collapse Items" [active] [ref=e185] [cursor=pointer]:
+                                  - img [ref=e186]
+                                - text: Array Items
+                                - generic "Imported items" [ref=e188]: "*"
+                              - generic [ref=e189]:
+                                - generic [ref=e192]:
+                                  - button "String" [ref=e193] [cursor=pointer]
+                                  - button "Number" [ref=e194] [cursor=pointer]
+                                  - button "Boolean" [ref=e195] [cursor=pointer]
+                                  - button "Object" [ref=e196] [cursor=pointer]
+                                  - button "Array" [ref=e197] [cursor=pointer]
+                                  - button "Null" [ref=e198] [cursor=pointer]
+                                  - button "Image" [ref=e199] [cursor=pointer]
+                                  - button "+ poly" [ref=e200] [cursor=pointer]
+                                - generic [ref=e201]:
+                                  - 'generic "Imported from #/definitions/step" [ref=e203]': step
+                                  - button "Override" [ref=e204] [cursor=pointer]
+                                - generic [ref=e205]:
+                                  - generic [ref=e206]:
+                                    - heading "Properties" [level=3] [ref=e207]
+                                    - generic [ref=e210]:
+                                      - generic [ref=e211]:
+                                        - radio "additional-allow-properties-jobs-properties-build-properties-steps-items" [checked] [ref=e212]
+                                        - generic [ref=e213]: Allow extra properties
+                                      - generic [ref=e214]:
+                                        - radio "additional-block-properties-jobs-properties-build-properties-steps-items" [ref=e215]
+                                        - generic [ref=e216]: Strict (no extra properties)
+                                      - generic [ref=e217]:
+                                        - radio "additional-schema-properties-jobs-properties-build-properties-steps-items" [ref=e218]
+                                        - generic [ref=e219]: Apply schema to extras
+                                    - generic [ref=e220]:
+                                      - button "Add Property" [ref=e221] [cursor=pointer]
+                                      - button "+ pattern property" [ref=e222] [cursor=pointer]
+                                  - generic [ref=e223]:
+                                    - generic [ref=e224]:
+                                      - button "Collapse" [ref=e225] [cursor=pointer]:
+                                        - img [ref=e226]
+                                      - textbox [ref=e228]: name
+                                      - generic [ref=e229] [cursor=pointer]:
+                                        - checkbox "Required" [ref=e230]
+                                        - text: Required
+                                      - button "Remove" [ref=e231] [cursor=pointer]
+                                    - generic [ref=e232]:
+                                      - generic [ref=e233]: Description
+                                      - textbox "Add a description..." [ref=e234]
+                                    - generic [ref=e235]:
+                                      - generic [ref=e238]:
+                                        - button "String" [ref=e239] [cursor=pointer]
+                                        - button "Number" [ref=e240] [cursor=pointer]
+                                        - button "Boolean" [ref=e241] [cursor=pointer]
+                                        - button "Object" [ref=e242] [cursor=pointer]
+                                        - button "Array" [ref=e243] [cursor=pointer]
+                                        - button "Null" [ref=e244] [cursor=pointer]
+                                        - button "Image" [ref=e245] [cursor=pointer]
+                                        - button "+ poly" [ref=e246] [cursor=pointer]
+                                      - generic [ref=e247]:
+                                        - generic [ref=e248]:
+                                          - button "+ format" [ref=e249] [cursor=pointer]
+                                          - button "+ pattern" [ref=e250] [cursor=pointer]
+                                          - button "+ default" [ref=e251] [cursor=pointer]
+                                        - generic [ref=e252]:
+                                          - checkbox "Enum (constrained values)" [ref=e253] [cursor=pointer]
+                                          - generic [ref=e254] [cursor=pointer]: Enum (constrained values)
+  - region "Notifications (F8)":
+    - list
+```

@@ -49,6 +49,7 @@ export async function resolveSchema(schema: Record<string, unknown> | null): Pro
             } catch (_) {
               // ignore
             }
+            clone.__from = node.$ref;
           }
           if (parent && typeof key !== 'undefined') parent[key] = clone;
           await walk(clone, parent, key);
@@ -98,6 +99,7 @@ export async function resolveSchema(schema: Record<string, unknown> | null): Pro
           } catch (_) {
             // ignore
           }
+          clone.__from = node.$ref;
           if (parent && typeof key !== 'undefined') parent[key] = clone;
           await replaceRemoteRefs(clone, parent, key);
           return;
@@ -181,7 +183,7 @@ export async function resolveSchema(schema: Record<string, unknown> | null): Pro
           if (target) {
             const clone = JSON.parse(JSON.stringify(target));
             if (clone && typeof clone === 'object') { delete clone.$anchor; delete clone.$id; delete clone.$schema; }
-            if (clone && typeof clone === 'object' && !clone.$ref) clone.$ref = ref;
+            if (clone && typeof clone === 'object' && !clone.__from) clone.__from = ref;
             if (parent && typeof key !== 'undefined') parent[key as any] = clone;
             walk(clone, parent, key, depth + 1);
             return;

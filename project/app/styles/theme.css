@@ -68,4 +68,10 @@ html {
   --color-success-11: var(--green-11);
   --color-success-12: var(--green-12);
   --color-success-contrast: var(--green-contrast);
+
+  /* Z-Index System */
+  --z-index-menu: 1000;
+  --z-index-popover: 10000;
+  --z-index-dropdown: 15000;
+  --z-index-tooltip: 20000;
 }
