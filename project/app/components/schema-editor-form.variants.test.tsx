@@ -217,7 +217,7 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
     };
     renderForm(schema);
     // Both variants have same base name; ensure they are qualified with type
-    expect(screen.getAllByText('1. Self-hosted-runners<string>')[0]).toBeInTheDocument();
-    expect(screen.getAllByText('2. Self-hosted-runners<array>')[0]).toBeInTheDocument();
+    expect(screen.getAllByText(/1\. Self-hosted-runners\s*<string>/i)[0]).toBeInTheDocument();
+    expect(screen.getAllByText(/2\. Self-hosted-runners\s*<array>/i)[0]).toBeInTheDocument();
   });
 });

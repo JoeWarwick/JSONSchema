@@ -1,5 +1,5 @@
 .content {
-  z-index: 9999;
+  z-index: var(--z-index-tooltip, 11000);
   border-radius: var(--radius-2);
   border: var(--border-size-1) solid var(--color-neutral-6);
   background: var(--color-neutral-3);

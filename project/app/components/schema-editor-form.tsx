@@ -12,6 +12,7 @@ import { validateSchema } from "../utils/schema-generator";
 import styles from "./schema-editor-form.module.css";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./ui/tooltip/tooltip";
 import { Badge } from "./ui/badge/badge";
+import { Popover, PopoverTrigger, PopoverContent } from "./ui/popover/popover";
 
 import Select from "react-select";
 import CreatableSelect from "react-select/creatable";
@@ -34,9 +35,43 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
   const [defaultError, setDefaultError] = useState<string | null>(null);
   const [editingDefault, setEditingDefault] = useState<string>(String(schema?.default ?? ""));
 
+  // Popover state for editing additionalProperties out-of-flow
+  const [apPopoverOpen, setApPopoverOpen] = useState(false);
+  // Guard to ensure the floating popover is only mounted after an explicit user action
+  const [apPopoverAllowed, setApPopoverAllowed] = useState(false);
+  const [localAdditionalSchema, setLocalAdditionalSchema] = useState<Record<string, unknown> | null>(schema.additionalProperties && typeof schema.additionalProperties === 'object' ? (schema.additionalProperties as Record<string, unknown>) : null);
+  // Controls visibility of the absolutely-positioned inline additionalProperties editor
+  // [apInlineOpen discarded in favor of floating popover only]
+
+  // Initialize local draft when the popover is opened programmatically
+  useEffect(() => {
+    if (apPopoverOpen) {
+      setLocalAdditionalSchema(schema.additionalProperties && typeof schema.additionalProperties === 'object' ? (schema.additionalProperties as Record<string, unknown>) : {});
+    }
+  }, [apPopoverOpen, schema.additionalProperties]);
+
+  // When a user action has allowed the popover, open it only after the parent schema contains an additionalProperties object
+  useEffect(() => {
+    if (apPopoverAllowed && schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+      setApPopoverOpen(true);
+    }
+  }, [apPopoverAllowed, schema.additionalProperties]);
+
+  // Extra guard: never allow the popover to remain open unless the user explicitly allowed it
+  useEffect(() => {
+    if (apPopoverOpen && !apPopoverAllowed) {
+      setApPopoverOpen(false);
+    }
+  }, [apPopoverOpen, apPopoverAllowed]);
+
   useEffect(() => {
     setEditingDefault(String(schema?.default ?? ""));
   }, [schema?.default]);
+
+  // Keep localAdditionalSchema in sync when parent schema changes externally
+  useEffect(() => {
+    setLocalAdditionalSchema(schema.additionalProperties && typeof schema.additionalProperties === 'object' ? (schema.additionalProperties as Record<string, unknown>) : null);
+  }, [schema.additionalProperties]);
 
   if (!schema) return null;
 
@@ -295,7 +330,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
   }
 
   return (
-    <TooltipProvider>
+    <>
       {validationError && (
         <div style={{ color: 'red', marginBottom: 8 }}>{validationError}</div>
       )}
@@ -305,8 +340,8 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
             Root node is unconfigured. Please select <strong>Object</strong> or <strong>Array</strong> to begin.
           </div>
         )}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             {['string', 'number', 'boolean', 'object', 'array', 'null', 'image']
               .filter(t => path.length > 0 || t === 'object' || t === 'array')
               .map((t) => {
@@ -346,26 +381,33 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
               );
             })}
             {!variants && (
-              <button
-                type="button"
-                className={styles.addSmall}
-                style={{ marginLeft: '4px', borderStyle: 'dashed' }}
-                onClick={() => {
-                  const { title, description, ...constraints } = schema;
-                  const branch1 = Object.keys(constraints).length > 0 ? constraints : { type: renderType || 'string' };
-                  onChange({
-                    ...(title ? { title } : {}),
-                    ...(description ? { description } : {}),
-                    oneOf: [branch1, { type: 'string' }]
-                  });
-                }}
-              >
-                + polymorphic
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className={styles.addSmall}
+                    style={{ marginLeft: '4px', borderStyle: 'dashed' }}
+                    onClick={() => {
+                      const { title, description, ...constraints } = schema;
+                      const branch1 = Object.keys(constraints).length > 0 ? constraints : { type: renderType || 'string' };
+                      onChange({
+                        ...(title ? { title } : {}),
+                        ...(description ? { description } : {}),
+                        oneOf: [branch1, { type: 'string' }]
+                      });
+                    }}
+                  >
+                    + poly
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Convert this field into a polymorphic choice. This wraps the current schema in a <code>oneOf</code>, <code>anyOf</code>, or <code>allOf</code> combiner, allowing you to define multiple valid structures for this property.
+                </TooltipContent>
+              </Tooltip>
             )}
           </div>
           <div style={{ fontSize: (schema.title ? 11 : 10), fontWeight: (schema.title ? 700 : 900), textTransform: (schema.title ? 'none' : 'uppercase'), color: (schema.title ? 'inherit' : 'var(--color-neutral-10)') }}>
-            {((schema.title as string) || (renderType ? 'Type' : 'Schema'))}
+            {(schema.title as string) || ''}
             {isImported && <span style={{ color: 'var(--color-accent-9)', marginLeft: 4 }} title="Imported from $ref">*</span>}
           </div>
           <div style={{ flex: 1 }} />
@@ -553,17 +595,42 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
             {/* Facet controls: hide for boolean/object/null */}
             <>
             {/* Addable string-specific properties: format / pattern / default */}
-            {(renderType === "string" && !schema.enum) && (
+
+            {/* Master "+ add" flow — all facet add-buttons for the current node live here (above the Enum field) */}
+            <div className={styles.inlineAdd} data-testid="facet-add-flow" style={{ marginBottom: 4, padding: '6px 12px' }}>
+              {(renderType === 'string' && !schema.enum) && (
+                <>
+                  {!('format' in schema) && (<button type="button" className={styles.addSmall} onClick={() => updateSchema({ format: 'date-time' })}>+ format</button>)}
+                  {!('pattern' in schema) && (<button type="button" className={styles.addSmall} onClick={() => updateSchema({ pattern: '^.*$' })}>+ pattern</button>)}
+                </>
+              )}
+
+              {(renderType === 'number' && !schema.enum) && (
+                <>
+                  {!('minimum' in schema) && (<button type="button" className={styles.addSmall} onClick={() => updateSchema({ minimum: 0 })}>+ minimum</button>)}
+                  {!('maximum' in schema) && (<button type="button" className={styles.addSmall} onClick={() => updateSchema({ maximum: 0 })}>+ maximum</button>)}
+                  {!('multipleOf' in schema) && (<button type="button" className={styles.addSmall} onClick={() => updateSchema({ multipleOf: 1 })}>+ multipleOf</button>)}
+                  {!('examples' in schema) && (<button type="button" className={styles.addSmall} onClick={() => { const example = renderType === 'number' ? [0] : ['example']; updateSchema({ examples: example }); }}>+ examples</button>)}
+                </>
+              )}
+
+              {(renderType === 'array') && (
+                <>
+                  {!('uniqueItems' in schema) && (<button type="button" className={styles.addSmall} onClick={() => updateSchema({ uniqueItems: true })}>+ uniqueItems</button>)}
+                  {!('minItems' in schema) && (<button type="button" className={styles.addSmall} onClick={() => updateSchema({ minItems: 0 })}>+ minItems</button>)}
+                  {!('maxItems' in schema) && (<button type="button" className={styles.addSmall} onClick={() => updateSchema({ maxItems: 0 })}>+ maxItems</button>)}
+                </>
+              )}
+
+              {/* Unified +default for all node types that support defaults (now lives in the master flow above Enum) */}
+              {!('default' in schema) && (renderType === 'string' || renderType === 'number' || renderType === 'array' || !schema.type) && (
+                <button type="button" className={styles.addSmall} onClick={() => { setDefaultError(null); const initialDefault = (renderType === 'array') ? [] : ''; setEditingDefault(String(initialDefault)); updateSchema({ default: initialDefault }); }}>+ default</button>
+              )}
+            </div>
+
+            {(renderType === "string" && !schema.enum && ('format' in schema || 'pattern' in schema)) && (
             <div className={styles.inlineAdd}>
-              {!('format' in schema) ? (
-                <button
-                  type="button"
-                  className={styles.addSmall}
-                  onClick={() => updateSchema({ format: 'date-time' })}
-                >
-                  + format
-                </button>
-              ) : (
+              {'format' in schema ? (
                 <div className={styles.fieldRow}>
                   <label className={styles.label}>Format</label>
                   <select
@@ -602,17 +669,9 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                     ⓘ
                   </button>
                 </div>
-              )}
+              ) : null}
 
-              {!('pattern' in schema) ? (
-                <button
-                  type="button"
-                  className={styles.addSmall}
-                  onClick={() => updateSchema({ pattern: '^.*$' })}
-                >
-                  + pattern
-                </button>
-              ) : (
+              {'pattern' in schema ? (
                 <div className={styles.fieldRow}>
                   <label className={styles.label}>Pattern</label>
                   <input
@@ -633,7 +692,8 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                     Remove
                   </button>
                 </div>
-              )}
+              ) : null}
+
             </div>
             )}
 
@@ -676,22 +736,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                 )}
 
                 {/* Default Values Editor */}
-                {!('default' in schema) ? (
-                  <div style={{ marginTop: '4px' }}>
-                    <button
-                      type="button"
-                      className={styles.addSmall}
-                      onClick={() => { 
-                        setDefaultError(null); 
-                        const initialDefault = renderType === 'array' ? [] : '';
-                        setEditingDefault(String(initialDefault)); 
-                        updateSchema({ default: initialDefault }); 
-                      }}
-                    >
-                      + default
-                    </button>
-                  </div>
-                ) : (
+                {!('default' in schema) ? null : (
                   <div className={styles.fieldRow} style={{ marginTop: '8px' }}>
                     <label className={styles.label}>Default Value</label>
                     {renderType === 'array' || Array.isArray(schema.enum) || (schema.items && typeof schema.items === 'object' && Array.isArray((schema.items as any).enum)) ? (
@@ -768,11 +813,9 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
             )}
 
           {/* Number-specific facets: minimum / maximum / multipleOf / examples */}
-          {(renderType === "number" && !schema.enum) && (
+          {(renderType === "number" && !schema.enum && ('minimum' in schema || 'maximum' in schema || 'multipleOf' in schema || 'examples' in schema)) && (
             <div className={styles.inlineAdd}>
-              {!('minimum' in schema) ? (
-                <button type="button" className={styles.addSmall} onClick={() => updateSchema({ minimum: 0 })}>+ minimum</button>
-              ) : (
+              {'minimum' in schema ? (
                 <div className={styles.fieldRow}>
                   <label className={styles.label}>Minimum</label>
                   <input
@@ -801,11 +844,9 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                   />
                   <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.minimum; onChange(next); }}>Remove</button>
                 </div>
-              )}
+              ) : null}
 
-              {!('maximum' in schema) ? (
-                <button type="button" className={styles.addSmall} onClick={() => updateSchema({ maximum: 0 })}>+ maximum</button>
-              ) : (
+              {'maximum' in schema ? (
                 <div className={styles.fieldRow}>
                   <label className={styles.label}>Maximum</label>
                   <input
@@ -834,11 +875,9 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                   />
                   <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.maximum; onChange(next); }}>Remove</button>
                 </div>
-              )}
+              ) : null}
 
-              {!('multipleOf' in schema) ? (
-                <button type="button" className={styles.addSmall} onClick={() => updateSchema({ multipleOf: 1 })}>+ multipleOf</button>
-              ) : (
+              {'multipleOf' in schema ? (
                 <div className={styles.fieldRow}>
                   <label className={styles.label}>multipleOf</label>
                   <input
@@ -868,11 +907,9 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                   />
                   <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.multipleOf; onChange(next); }}>Remove</button>
                 </div>
-              )}
+              ) : null}
 
-              {!('examples' in schema) ? (
-                <button type="button" className={styles.addSmall} onClick={() => { const example = renderType === 'number' ? [0] : ['example']; updateSchema({ examples: example }); }}>+ examples</button>
-              ) : (
+              {'examples' in schema ? (
                 <div className={styles.fieldRow}>
                   <label className={styles.label}>Examples</label>
                   <input
@@ -887,16 +924,14 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                   />
                   <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.examples; onChange(next); }}>Remove</button>
                 </div>
-              )}
+              ) : null}
             </div>
           )}
 
           {/* Array-specific facets: uniqueItems / minItems / maxItems */}
           {renderType === "array" && (
             <div className={styles.inlineAdd}>
-              {!('uniqueItems' in schema) ? (
-                <button type="button" className={styles.addSmall} onClick={() => updateSchema({ uniqueItems: true })}>+ uniqueItems</button>
-              ) : (
+              {'uniqueItems' in schema ? (
                 <div className={styles.fieldRow}>
                   <label className={styles.label}>uniqueItems</label>
                   <input
@@ -906,11 +941,9 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                   />
                   <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.uniqueItems; onChange(next); }}>Remove</button>
                 </div>
-              )}
+              ) : null}
 
-              {!('minItems' in schema) ? (
-                <button type="button" className={styles.addSmall} onClick={() => updateSchema({ minItems: 0 })}>+ minItems</button>
-              ) : (
+              {'minItems' in schema ? (
                 <div className={styles.fieldRow}>
                   <label className={styles.label}>minItems</label>
                   <input
@@ -939,11 +972,9 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                   />
                   <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.minItems; onChange(next); }}>Remove</button>
                 </div>
-              )}
+              ) : null}
 
-              {!('maxItems' in schema) ? (
-                <button type="button" className={styles.addSmall} onClick={() => updateSchema({ maxItems: 0 })}>+ maxItems</button>
-              ) : (
+              {'maxItems' in schema ? (
                 <div className={styles.fieldRow}>
                   <label className={styles.label}>maxItems</label>
                   <input
@@ -972,7 +1003,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                   />
                   <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.maxItems; onChange(next); }}>Remove</button>
                 </div>
-              )}
+              ) : null}
             </div>
           )}
             </>
@@ -983,45 +1014,162 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
           <div className={styles.nestedContainer}>
             <div className={styles.propertiesHeader}>
               <h3 className={styles.propertyTitle}>Properties</h3>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#666', marginBottom: 16, paddingLeft: "1.5rem" }}>
-                <input
-                  type="checkbox"
-                  checked={schema.additionalProperties === false}
-                  onChange={(e) => {
-                    const next = { ...schema };
-                    if (e.target.checked) next.additionalProperties = false;
-                    else delete next.additionalProperties;
-                    onChange(next);
-                  }}
-                />
-                Strict mode
-                {(schema.additionalProperties === false) && (!patternProperties || Object.keys(patternProperties).length === 0) && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span style={{ color: '#b71c1c', cursor: 'help', fontWeight: 'bold', marginLeft: 4 }} title="Blocked">ⓘ</span>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      Cannot add properties here because additionalProperties: false and no patternProperties are defined.
-                    </TooltipContent>
-                  </Tooltip>
-                )}
-              </label>
-              {!(schema.additionalProperties === false) && (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ position: 'relative' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: "0.25rem", color: '#666' }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                      <input
+                        aria-label={`additional-allow-${path.join('-') || 'root'}`}
+                        type="radio"
+                        name={`additional-${path.join('-') || 'root'}`}
+                        checked={!(schema.additionalProperties === false) && !(schema.additionalProperties && typeof schema.additionalProperties === 'object')}
+                        onChange={() => {
+                          const next = { ...schema } as Record<string, unknown>;
+                          // explicit 'allow' state represented as true
+                          next.additionalProperties = true;
+                          onChange(next);
+                          setApPopoverOpen(false);
+                          setApPopoverAllowed(false);
+                        }}
+                      />
+                      <span style={{ marginLeft: 6 }}>Allow extra properties</span>
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                      <input
+                        aria-label={`additional-block-${path.join('-') || 'root'}`}
+                        type="radio"
+                        name={`additional-${path.join('-') || 'root'}`}
+                        checked={schema.additionalProperties === false}
+                        onChange={() => {
+                          const next = { ...schema } as Record<string, unknown>;
+                          next.additionalProperties = false;
+                          onChange(next);
+                          setApPopoverOpen(false);
+                          setApPopoverAllowed(false);
+                        }}
+                      />
+                      <span style={{ marginLeft: 6 }}>Strict (no extra properties)</span>
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                      <input
+                        aria-label={`additional-schema-${path.join('-') || 'root'}`}
+                        type="radio"
+                        name={`additional-${path.join('-') || 'root'}`}
+                        checked={!!(schema.additionalProperties && typeof schema.additionalProperties === 'object')}
+                        onChange={() => {
+                          const next = { ...schema } as Record<string, unknown>;
+                          // default schema for extras is a simple string constraint for discoverability
+                          next.additionalProperties = { type: 'string' };
+                          // notify parent first — we don't open the floating editor automatically anymore
+                          onChange(next);
+                          // prepare local draft (popover may be opened via the Edit button)
+                          setLocalAdditionalSchema(next.additionalProperties as Record<string, unknown>);
+                          setApPopoverOpen(false);
+                          setApPopoverAllowed(false);
+                        }}
+                      />
+                      <span style={{ marginLeft: 6 }}>Apply schema to extras</span>
+                    </label>
+
+                    {schema.additionalProperties && typeof schema.additionalProperties === 'object' && (
+                      <Popover open={apPopoverOpen && apPopoverAllowed} onOpenChange={(open) => {
+                        if (!open) {
+                          const next = { ...schema } as Record<string, unknown>;
+                          if (!localAdditionalSchema || (Object.keys(localAdditionalSchema).length === 0)) delete next.additionalProperties;
+                          else next.additionalProperties = localAdditionalSchema;
+                          updateSchema(next as any);
+                        } else {
+                          setLocalAdditionalSchema(schema.additionalProperties && typeof schema.additionalProperties === 'object' ? (schema.additionalProperties as Record<string, unknown>) : {});
+                        }
+                        setApPopoverOpen(open);
+                        setApPopoverAllowed(open);
+                      }}>
+                        <PopoverTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={`edit-additional-properties-${path.join('-') || 'root'}`}
+                            className={styles.addSmall}
+                            style={{ 
+                              background: 'var(--color-primary-9)', 
+                              color: 'white', 
+                              fontWeight: 900, 
+                              marginLeft: 8,
+                              border: '1px solid var(--color-primary-10)',
+                              boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                            }}
+                            onClick={() => {
+                              setLocalAdditionalSchema(schema.additionalProperties as Record<string, unknown>);
+                              setApPopoverAllowed(true);
+                              setApPopoverOpen(true);
+                            }}
+                          >
+                            Edit extras
+                          </button>
+                        </PopoverTrigger>
+
+                        <PopoverContent simple style={{ width: 'min(90vw, 500px)', zIndex: 'var(--z-index-popover)' as any }}>
+                          <div data-testid="ap-popover-content" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div style={{ fontWeight: 800 }}>Schema for extra properties</div>
+                            <div style={{ background: 'var(--color-neutral-1)', padding: 12, borderRadius: 6, border: '1px solid var(--color-neutral-4)' }}>
+                              <SchemaEditorForm
+                                schema={localAdditionalSchema || {}}
+                                onChange={(newSub) => setLocalAdditionalSchema(newSub as Record<string, unknown> || null)}
+                                path={[...path, 'additionalProperties']}
+                                isSchemaImported={isSchemaImported}
+                                instanceData={instanceData}
+                                onPropertyRename={onPropertyRename}
+                              />
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                              <button
+                                type="button"
+                                className={styles.addSmall}
+                                onClick={() => {
+                                  const next = { ...schema } as Record<string, unknown>;
+                                  if (!localAdditionalSchema || (Object.keys(localAdditionalSchema).length === 0)) delete next.additionalProperties;
+                                  else next.additionalProperties = localAdditionalSchema;
+                                  updateSchema(next as any);
+                                  setApPopoverOpen(false);
+                                  setApPopoverAllowed(false);
+                                }}                            >Close</button>
+                            </div>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    )}
+                  </div>
+
+                  {(schema.additionalProperties === false) && (!patternProperties || Object.keys(patternProperties).length === 0) && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span style={{ color: '#b71c1c', cursor: 'help', fontWeight: 'bold', marginLeft: 4 }} title="Blocked">ⓘ</span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Named properties cannot be added while <code>additionalProperties: false</code>. You can still add <code>patternProperties</code> (use the <strong>+ pattern property</strong> button) to allow regex-keyed properties, or define an <code>additionalProperties</code> schema to constrain extra keys.
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {!(schema.additionalProperties === false) ? (
                   <button className={styles.addButton} onClick={addProperty}>
                     Add Property
                   </button>
-                  <button
-                    className={styles.addButton}
-                    onClick={() => {
-                      const next = addPatternPropertyToSchema(schema);
-                      updateSchema(next);
-                    }}
-                  >
-                    + pattern property
-                  </button>
-                </div>
-              )}
+                ) : null}
+                <button
+                  className={styles.addButton}
+                  onClick={() => {
+                    const next = addPatternPropertyToSchema(schema);
+                    updateSchema(next);
+                  }}
+                  title="Add a patternProperties entry (allowed even in Strict mode)"
+                >
+                  + pattern property
+                </button>
+              </div>
             </div>
 
             {/* Pattern Properties list */}
@@ -1053,6 +1201,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                   onUpdate={(newValue) => updateNestedProperty(propertyName, newValue)}
                   onToggleRequired={() => toggleRequired(propertyName)}
                   onRename={(newName) => updatePropertyName(propertyName, newName)}
+                  path={[...path, 'properties', propertyName]}
                 />
               ))}
           </div>
@@ -1077,7 +1226,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
           );
         })()}
       </div>
-    </TooltipProvider>
+    </>
   );
 }
 
@@ -1088,6 +1237,7 @@ interface PropertyEditorProps {
   onUpdate: (schema: Record<string, unknown>) => void;
   onToggleRequired: () => void;
   onRename: (newName: string) => void;
+  path?: string[];
 }
 
 function PropertyEditor({
@@ -1097,6 +1247,7 @@ function PropertyEditor({
   onUpdate,
   onToggleRequired,
   onRename,
+  path = [],
 }: PropertyEditorProps) {
   const [editingName, setEditingName] = useState(propertyName);
 
@@ -1140,7 +1291,7 @@ function PropertyEditor({
         />
       </div>
 
-      <SchemaEditorForm schema={propertySchema} onChange={onUpdate} />
+      <SchemaEditorForm schema={propertySchema} onChange={onUpdate} path={path} />
     </div>
   );
 }
@@ -1171,7 +1322,7 @@ const reactSelectStyles = {
     ...base,
     background: 'var(--color-neutral-1)',
     border: '1px solid var(--color-neutral-6)',
-    zIndex: 100,
+    zIndex: 'var(--z-index-menu)' as any,
   }),
   option: (base: any, state: { isFocused: boolean; isSelected: boolean }) => ({
     ...base,
@@ -1218,7 +1369,7 @@ const reactSelectStyles = {
   }),
   menuPortal: (base: any) => ({
     ...base,
-    zIndex: 9999,
+    zIndex: 'var(--z-index-dropdown)' as any,
   }),
 };
 
