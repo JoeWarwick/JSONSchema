@@ -1,4 +1,3 @@
-
 export interface LabelData {
   title: string;
   description: string | null;
@@ -45,7 +44,11 @@ export const getRefKey = (refOrSchema?: any): string | null => {
   if (!refOrSchema) return null;
   let refStr: string | undefined;
   if (typeof refOrSchema === 'string') refStr = refOrSchema;
-  else if (typeof refOrSchema === 'object') refStr = (refOrSchema.$ref || refOrSchema.$comment || refOrSchema.__from) as string | undefined;
+  else if (typeof refOrSchema === 'object') {
+    if (refOrSchema.$ref) refStr = refOrSchema.$ref;
+    else if (refOrSchema.__from) refStr = refOrSchema.__from;
+    else if (refOrSchema.$comment) refStr = refOrSchema.$comment;
+  }
   if (!refStr || typeof refStr !== 'string') return null;
   const [, fragment] = refStr.split('#');
   const target = fragment || refStr;
@@ -54,8 +57,7 @@ export const getRefKey = (refOrSchema?: any): string | null => {
   for (let i = parts.length - 1; i >= 0; i--) {
     let name = decodeURIComponent(parts[i]);
     name = name.replace(/\.(json|schema|yaml|yml)$/i, '');
-    if (!name || noise.has(name.toLowerCase()) || /^\d+$/.test(name)) continue;
-    return name;
+    if (name && !noise.has(name.toLowerCase()) && !/^\d+$/.test(name)) return name;
   }
   return null;
 };
