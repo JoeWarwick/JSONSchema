@@ -12,8 +12,17 @@ const noise = new Set([
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+const isLikelyRefStr = (s: string): boolean => {
+  if (!s) return false;
+  // Local $ref or $defs pointer
+  if (s.startsWith('#')) return true;
+  // Remote URL
+  if (/^https?:\/\//i.test(s)) return true;
+  return false;
+};
+
 const getFromRef = (ref?: any): string | null => {
-  if (!ref || typeof ref !== 'string') return null;
+  if (!ref || typeof ref !== 'string' || !isLikelyRefStr(ref)) return null;
   
   const [baseUrl, fragment] = ref.split('#');
   const target = fragment || baseUrl;
@@ -24,7 +33,17 @@ const getFromRef = (ref?: any): string | null => {
     let name = decodeURIComponent(parts[i]);
     if (name.includes(':') || /^\d+\.\d+\.\d+\.\d+$/.test(name) || name.toLowerCase().startsWith('localhost')) continue;
     name = name.replace(/\.(json|schema|yaml|yml)$/i, '');
-    if (name && !noise.has(name.toLowerCase()) && !/^\d+$/.test(name)) return capitalize(name);
+    
+    // GHA-specific cleanups: if the documentation anchor contains the parent key 'jobs' or 'steps'
+    // but isn't JUST that key, try to strip the prefix (e.g. jobsjob_id -> job_id)
+    if (name.toLowerCase().startsWith('jobsjob_id')) name = name.replace(/jobsjob_id/i, 'job_id');
+    if (name.toLowerCase().startsWith('jobs.')) name = name.replace(/jobs\./i, '');
+    if (name.toLowerCase().startsWith('steps.')) name = name.replace(/steps\./i, '');
+    if (name.toLowerCase().startsWith('on.')) name = name.replace(/on\./i, '');
+    if (name.toLowerCase().startsWith('runs-on_')) name = name.replace(/runs-on_/i, '');
+    if (!name) continue;
+
+    if (!noise.has(name.toLowerCase()) && !/^\d+$/.test(name)) return capitalize(name);
   }
   return null;
 };
@@ -34,8 +53,13 @@ export const getRefKey = (refOrSchema?: any): string | null => {
   if (!refOrSchema) return null;
   let refStr: string | undefined;
   if (typeof refOrSchema === 'string') refStr = refOrSchema;
-  else if (typeof refOrSchema === 'object') refStr = (refOrSchema.$ref || refOrSchema.$comment || refOrSchema.__from) as string | undefined;
-  if (!refStr || typeof refStr !== 'string') return null;
+  else if (typeof refOrSchema === 'object') {
+    // Only use $comment if it looks like a URL/Ref
+    if (refOrSchema.$ref) refStr = refOrSchema.$ref;
+    else if (refOrSchema.__from) refStr = refOrSchema.__from;
+    else if (refOrSchema.$comment && isLikelyRefStr(refOrSchema.$comment)) refStr = refOrSchema.$comment;
+  }
+  if (!refStr || typeof refStr !== 'string' || !isLikelyRefStr(refStr)) return null;
   const [, fragment] = refStr.split('#');
   const target = fragment || refStr;
   if (!target) return null;
@@ -43,7 +67,16 @@ export const getRefKey = (refOrSchema?: any): string | null => {
   for (let i = parts.length - 1; i >= 0; i--) {
     let name = decodeURIComponent(parts[i]);
     name = name.replace(/\.(json|schema|yaml|yml)$/i, '');
-    if (!name || noise.has(name.toLowerCase()) || /^\d+$/.test(name)) continue;
+    
+    // Cleanup GHA anchors
+    if (name.toLowerCase().startsWith('jobsjob_id')) name = name.replace(/jobsjob_id/i, 'job_id');
+    if (name.toLowerCase().startsWith('jobs.')) name = name.replace(/jobs\./i, '');
+    if (name.toLowerCase().startsWith('steps.')) name = name.replace(/steps\./i, '');
+    if (name.toLowerCase().startsWith('on.')) name = name.replace(/on\./i, '');
+    if (name.toLowerCase().startsWith('runs-on_')) name = name.replace(/runs-on_/i, '');
+    if (!name) continue;
+
+    if (noise.has(name.toLowerCase()) || /^\d+$/.test(name)) continue;
     return name;
   }
   return null;
@@ -51,12 +84,12 @@ export const getRefKey = (refOrSchema?: any): string | null => {
 
 const getBestName = (s: any): string | null => {
   if (!s || typeof s !== 'object') return null;
-  // Next, try to extract a compact fragment/key from $ref/$comment/__from without returning the whole URL
+  // 1. Prefer an explicit title when present. Titles are high-quality signals from schema authors.
+  if (s.title && typeof s.title === 'string' && !noise.has(s.title.toLowerCase())) return capitalize(s.title);
+  // 2. Next, try to extract a compact fragment/key from $ref/$comment/__from without returning the whole URL
   const rawKey = getRefKey(s.$ref) || getRefKey(s.$comment) || getRefKey(s.__from);
   if (rawKey) return capitalize(rawKey);
-  // Prefer an explicit title when present (fallback if no semantic $ref key)
-  if (s.title && typeof s.title === 'string' && !noise.has(s.title.toLowerCase())) return capitalize(s.title);
-  // Fallback to the older heuristic that extracts a readable name from the ref/fragment
+  // 3. Fallback to the older heuristic that extracts a readable name from the ref/fragment
   const name = getFromRef(s.$ref) || getFromRef(s.$comment) || getFromRef(s.__from);
   if (name) return name;
   if (Array.isArray(s.allOf)) {
