@@ -52,25 +52,34 @@ const generateDefaultInstance = (schema: Record<string, unknown>): unknown => {
   
   const type = schema.type;
   
-  if (type === 'object' && schema.properties && typeof schema.properties === 'object') {
+  if (type === 'object') {
     const result: Record<string, unknown> = {};
-    for (const [key, propSchema] of Object.entries(schema.properties)) {
-      if (typeof propSchema === 'object' && propSchema !== null) {
-        result[key] = generateDefaultInstance(propSchema as Record<string, unknown>);
+    if (schema.properties && typeof schema.properties === 'object') {
+      for (const [key, propSchema] of Object.entries(schema.properties as Record<string, unknown>)) {
+        if (typeof propSchema === 'object' && propSchema !== null) {
+          result[key] = generateDefaultInstance(propSchema as Record<string, unknown>);
+        }
       }
     }
     return result;
   }
   
-  if (type === 'array' && schema.items) {
-    if (Array.isArray(schema.items)) {
-      return schema.items.map(item => 
-        typeof item === 'object' && item !== null 
-          ? generateDefaultInstance(item as Record<string, unknown>) 
-          : null
-      );
-    } else if (typeof schema.items === 'object') {
-      return [generateDefaultInstance(schema.items as Record<string, unknown>)];
+  if (type === 'array' || schema.items) {
+    if (schema.items) {
+      if (Array.isArray(schema.items)) {
+        return schema.items.map(item => 
+          typeof item === 'object' && item !== null 
+            ? generateDefaultInstance(item as Record<string, unknown>) 
+            : null
+        );
+      } else if (typeof schema.items === 'object') {
+        const itemRes = generateDefaultInstance(schema.items as Record<string, unknown>);
+        // For array types, we default to empty array unless items are present;
+        // if we have items, we start with an empty array unless it's a fixed-size tuple.
+        // But for "from scratch" it's cleaner to return an empty array []
+        // and let the user add items.
+        return [];
+      }
     }
     return [];
   }
@@ -124,6 +133,17 @@ export default function Workbench() {
           console.error('Failed to initialize jsonInput from saved instance:', err);
         }
       }
+      
+      // If no saved instance, prefer generating a blank skeleton from the persisted schema
+      // instead of using a generic sample JSON.
+      if (initialPersisted) {
+        try {
+          return JSON.stringify(generateDefaultInstance(initialPersisted), null, 2);
+        } catch (_) { /* ignore */ }
+      }
+      
+      // If no state is found in storage, start with an empty object for "from scratch"
+      return "{}";
     }
     return SAMPLE_JSON;
   });
@@ -709,11 +729,11 @@ export default function Workbench() {
             <div className={styles.panelHeader}>
               <h2 className={styles.panelTitle}>Instance Editor</h2>
             </div>
-            {editorSchema && instanceData !== null ? (
+            {editorSchema ? (
               <div className={styles.editorContainer}>
                 <JsonInstanceForm
                   schema={editorSchema as any}
-                  value={instanceData}
+                  value={instanceData ?? generateDefaultInstance(editorSchema)}
                   onChange={(newData) => {
                     setInstanceData(newData);
                     setJsonInput(JSON.stringify(newData, null, 2));

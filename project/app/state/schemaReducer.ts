@@ -84,10 +84,14 @@ function rewriteExampleComRefs(schema: Schema): Schema {
 }
 
 export function initialSchemaState(initialSource: Schema): SchemaState {
-  const isObj = isObjectSchema(initialSource);
+  // Use a permissive object schema as the default starting point when no
+  // persisted schema is found. This allows immediate use of the instance
+  // editor even for undocumented JSON structures.
+  const source = initialSource ?? { type: 'object', additionalProperties: true };
+  const isObj = isObjectSchema(source);
   return {
-    source: initialSource ?? null,
-    resolvedCache: produceResolvedCache(initialSource ?? null, isObj, initialSource),
+    source,
+    resolvedCache: produceResolvedCache(source, isObj, source),
     derefInProgress: false,
     sourceIsObject: isObj,
   };

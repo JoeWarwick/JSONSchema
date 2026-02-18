@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { validateValueAgainstSchema } from "../utils/validation";
 import {
   addPropertyToSchema,
+  removePropertyFromSchema,
   updateNestedPropertyInSchema,
   addPatternPropertyToSchema,
   removePatternPropertyFromSchema,
@@ -262,6 +263,11 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
     if (onPropertyRename) {
       onPropertyRename(oldName, newName, path);
     }
+  };
+
+  const handleDeleteProperty = (propertyName: string) => {
+    const nextSchema = removePropertyFromSchema(schema, propertyName);
+    updateSchema(nextSchema as any);
   };
 
   const patternProperties = schema.patternProperties as Record<string, unknown> | undefined;
@@ -1200,6 +1206,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                   onUpdate={(newValue) => updateNestedProperty(propertyName, newValue)}
                   onToggleRequired={() => toggleRequired(propertyName)}
                   onRename={(newName) => updatePropertyName(propertyName, newName)}
+                  onDelete={() => handleDeleteProperty(propertyName)}
                   path={[...path, 'properties', propertyName]}
                 />
               ))}
@@ -1236,6 +1243,7 @@ interface PropertyEditorProps {
   onUpdate: (schema: Record<string, unknown>) => void;
   onToggleRequired: () => void;
   onRename: (newName: string) => void;
+  onDelete: () => void;
   path?: string[];
 }
 
@@ -1246,6 +1254,7 @@ function PropertyEditor({
   onUpdate,
   onToggleRequired,
   onRename,
+  onDelete,
   path = [],
 }: PropertyEditorProps) {
   const [editingName, setEditingName] = useState(propertyName);
@@ -1277,6 +1286,14 @@ function PropertyEditor({
           />
           Required
         </label>
+        <button
+          type="button"
+          className={styles.removeSmall}
+          onClick={onDelete}
+          title="Remove this property"
+        >
+          Remove
+        </button>
       </div>
 
       <div className={styles.fieldRow}>

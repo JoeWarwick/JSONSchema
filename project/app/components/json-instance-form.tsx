@@ -7,6 +7,7 @@ import { getAdditionalPropertiesSchema } from "./schema-behaviors";
 import { getVariantLabel } from "../utils/labels";
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip/tooltip";
 import { flattenValueByVariants, filterOutDefaults, toStorageFormat } from "../utils/schema-flattener";
+import { Trash2, Edit } from "lucide-react";
 
 import { renderTooltipContentChildren } from './tooltip-utils';
 
@@ -1481,14 +1482,11 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
           // Render required properties, and also render non-required properties if they already exist in the value
           if (!isRequired && !(key in objectValue)) return null;
 
-          // Decide whether to show the description inline (for explicit object schemas without variants)
-
-
           return (
             <div key={key} className={styles.propertyGroup}>
               <div className={styles.propertyHeader}>
                 {(() => {
-                  const propertyName = (
+                  const propertyLabel = (
                     <span className={styles.propertyName} tabIndex={0}>
                       {displayLabel(key)}
                       {isRequired && <span className={styles.requiredMark}>*</span>}
@@ -1502,12 +1500,12 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                       {propSchema && (propSchema.description as string) ? (
                         <Tooltip delayDuration={0}>
                           <TooltipTrigger asChild>
-                            {propertyName}
+                            {propertyLabel}
                           </TooltipTrigger>
                           <TooltipContent>{renderTooltipContentChildren(propSchema.description)}</TooltipContent>
                         </Tooltip>
                       ) : (
-                        propertyName
+                        propertyLabel
                       )}
 
                       {!isRequired && (
@@ -1517,7 +1515,9 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                               const rest = { ...objectValue };
                               delete rest[key];
                               onChange(rest);
-                            }}>×</button>
+                            }}>
+                              <Trash2 size={14} />
+                            </button>
                           </TooltipTrigger>
                           <TooltipContent>{`Delete ${displayLabel(key)}?`}</TooltipContent>
                         </Tooltip>
@@ -1543,24 +1543,77 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
           const basePropSchema = getSchemaForProperty(key);
           const propSchema = basePropSchema ? resolveSchemaNode(basePropSchema) : null;
           if (!propSchema) {
+            const isRenaming = creatingPropKey === key;
             return (
-              <div key={key} className={styles.propertyGroup} style={{ border: '1px solid #ffcdd2' }}>
-                <div className={styles.propertyHeader}>
-                  <span className={styles.propertyName} style={{ color: '#d32f2f' }}>{displayLabel(key)} (unexpected)</span>
-                  <Tooltip delayDuration={0}>
-                    <TooltipTrigger asChild>
-                      <button aria-label={`Delete ${displayLabel(key)}?`} className={styles.removeButton} type="button" onClick={() => {
-                        const rest = { ...objectValue };
-                        delete rest[key];
-                        onChange(rest);
-                      }}>×</button>
-                    </TooltipTrigger>
-                    <TooltipContent>{`Delete ${displayLabel(key)}?`}</TooltipContent>
-                  </Tooltip>
+              <div key={key} className={`${styles.propertyGroup} ${styles.unexpectedContainer}`}>
+                <div className={styles.propertyHeader} style={{ padding: '8px 12px' }}>
+                  {isRenaming ? (
+                    <>
+                      <input
+                        ref={(el) => { if (el) { renameInputRef.current = el; el.focus(); } }}
+                        className={styles.input}
+                        style={{ width: 160, height: 28, fontSize: 13 }}
+                        placeholder="New property name..."
+                        value={renameDraft}
+                        onChange={(e) => setRenameDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') setCreatingPropKey(null);
+                          if (e.key === 'Enter') {
+                            const newName = renameDraft.trim();
+                            if (newName && newName !== key && !(newName in objectValue)) {
+                              const moved = { ...objectValue } as Record<string, unknown>;
+                              moved[newName] = moved[key];
+                              delete moved[key];
+                              onChange(moved);
+                            }
+                            setCreatingPropKey(null);
+                          }
+                        }}
+                      />
+                      <div style={{ fontSize: 11, color: '#666', marginLeft: 8 }}>Enter to confirm — Esc to cancel</div>
+                    </>
+                  ) : (
+                    <>
+                      <span className={styles.unexpectedName}>{displayLabel(key)} (unexpected)</span>
+                      <div className={styles.headerActions} style={{ display: 'flex', gap: 4 }}>
+                        <Tooltip delayDuration={0}>
+                          <TooltipTrigger asChild>
+                            <button 
+                              aria-label={`Rename ${key}`} 
+                              className={styles.removeButton} 
+                              type="button" 
+                              onClick={() => {
+                                setRenameDraft(key);
+                                setCreatingPropKey(key);
+                                setTimeout(() => renameInputRef.current?.focus(), 0);
+                              }}
+                            >
+                              <Edit size={14} />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>{`Rename ${key}`}</TooltipContent>
+                        </Tooltip>
+                        <Tooltip delayDuration={0}>
+                          <TooltipTrigger asChild>
+                            <button aria-label={`Delete ${displayLabel(key)}?`} className={styles.removeButton} type="button" onClick={() => {
+                              const rest = { ...objectValue };
+                              delete rest[key];
+                              onChange(rest);
+                            }}>
+                              <Trash2 size={14} />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>{`Delete ${displayLabel(key)}?`}</TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </>
+                  )}
                 </div>
-                <div style={{ fontSize: 12, color: '#d32f2f', padding: '4px 8px' }}>
-                  Property not allowed by schema (additionalProperties: false)
-                </div>
+                {!isRenaming && (
+                  <div className={styles.unexpectedText}>
+                    Property not allowed by schema (additionalProperties: false)
+                  </div>
+                )}
               </div>
             );
           }
@@ -1570,9 +1623,9 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                 {creatingPropKey === key ? (
                   <>
                     <input
-                      ref={(el) => { renameInputRef.current = el; }}
+                      ref={(el) => { if (el) { renameInputRef.current = el; el.focus(); } }}
                       className={styles.input}
-                      style={{ width: 160, height: 32, fontSize: 13 }}
+                      style={{ width: 160, height: 28, fontSize: 13 }}
                       placeholder="New property name..."
                       value={renameDraft}
                       onChange={(e) => setRenameDraft(e.target.value)}
@@ -1591,11 +1644,8 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                           setCreatingPropKey(null);
                         }
                       }}
-                      onBlur={() => {
-                        // keep UI while renaming; blur does not cancel
-                      }}
                     />
-                    <div data-testid="rename-hint" style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>Press Enter to confirm — Esc to cancel</div>
+                    <div data-testid="rename-hint" style={{ fontSize: 11, color: '#666', marginLeft: 8 }}>Press Enter — Esc to cancel</div>
                   </>
                 ) : (
                   <>
@@ -1610,7 +1660,9 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                           const rest = { ...objectValue };
                           delete rest[key];
                           onChange(rest);
-                        }}>×</button>
+                        }}>
+                          <Trash2 size={14} />
+                        </button>
                       </TooltipTrigger>
                       <TooltipContent>{`Delete ${displayLabel(key)}?`}</TooltipContent>
                     </Tooltip>

@@ -78,9 +78,13 @@ export function schemaNodeDataToSchema(node: SchemaNodeData): Record<string, unk
  */
 export function addPropertyToSchema(schema: Record<string, unknown>): Record<string, unknown> {
   const properties = (schema.properties as Record<string, unknown>) || {};
-  // Count only visible properties (ignore internal markers)
-  const visibleCount = Object.keys(properties).filter(k => !k.startsWith('__')).length;
-  const newPropertyName = `newProperty${visibleCount + 1}`;
+  
+  let i = 1;
+  while (properties[`newProperty${i}`]) {
+    i++;
+  }
+  const newPropertyName = `newProperty${i}`;
+  
   return {
     ...schema,
     properties: {

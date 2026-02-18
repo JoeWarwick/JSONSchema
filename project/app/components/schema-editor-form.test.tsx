@@ -289,4 +289,34 @@ describe('SchemaEditorForm UI', () => {
     const pop = await screen.findByTestId('ap-popover-content');
     expect(pop).toBeInTheDocument();
   });
+
+  it('allows adding and removing properties', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        prop1: { type: 'string' }
+      }
+    } as any;
+    const handleChange = jest.fn();
+
+    render(
+      <TooltipProvider>
+        <SchemaEditorForm schema={schema} onChange={handleChange} />
+      </TooltipProvider>
+    );
+
+    // Initial check
+    expect(screen.getByDisplayValue('prop1')).toBeInTheDocument();
+
+    // Find and click Remove button
+    const prop1Group = screen.getByTestId('prop-prop1');
+    const removeBtn = within(prop1Group).getByRole('button', { name: /Remove/i });
+    
+    fireEvent.click(removeBtn);
+
+    // After clicking remove, handleChange should be called with properties: {}
+    expect(handleChange).toHaveBeenCalled();
+    const lastCall = handleChange.mock.calls[handleChange.mock.calls.length - 1][0];
+    expect(lastCall.properties).toEqual({});
+  });
 });
