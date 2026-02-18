@@ -23,7 +23,6 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     { value: 'number', label: 'number' },
     { value: 'boolean', label: 'boolean' },
     { value: 'null', label: 'null' },
-    { value: 'image', label: 'image' },
   ];
   // Root node is always required
   const isRoot = node.id === '1';
@@ -208,11 +207,6 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     // support additionalProperties
     if (override && Object.prototype.hasOwnProperty.call(override, 'additionalProperties')) (base as any).additionalProperties = override.additionalProperties;
     else (base as any).additionalProperties = (data as any).additionalProperties;
-    // If this node is the internal image type, ensure we include sensible defaults
-    if (base.type === 'image') {
-      if (!base.format) base.format = base.format ?? 'data-url';
-      if (!base.contentMediaType) base.contentMediaType = base.contentMediaType ?? 'image/*';
-    }
     return base;
   };
 
@@ -497,7 +491,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
         </>
       )}
       {/* Image preview only (no upload) for schema editor; instance form handles uploads */}
-      {((format === 'data-url') || (contentMediaType && String(contentMediaType).startsWith('image')) || type === 'image') && defaultValue && typeof defaultValue === 'string' && /^data:image\//i.test(defaultValue) && (
+      {((format === 'data-url') || (contentMediaType && String(contentMediaType).startsWith('image'))) && defaultValue && typeof defaultValue === 'string' && /^data:image\//i.test(defaultValue) && (
         <div style={{ marginTop: 10, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <img src={defaultValue} alt="preview" style={{ maxWidth: 240, maxHeight: 160, border: '1px solid #ddd', borderRadius: 6 }} />

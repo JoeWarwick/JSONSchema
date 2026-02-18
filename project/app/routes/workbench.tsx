@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useReducer } from "react";
 import useAsyncMemo from "~/hooks/useAsyncMemo";
 import { Sparkles, Copy, Check, X, Link as LinkIcon, Download, FileUp } from "lucide-react";
+import { TooltipProvider } from "@radix-ui/react-tooltip";
 import styles from "./workbench.module.css";
 import { generateSchema, isValidJSON } from "~/utils/schema-generator";
 import schemaReducer, { initialSchemaState, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, MERGE_RESOLVED_PATH, MERGE_RESOLVED_ALL_PATHS, ensureResolved, getPersistableSource, getEditorSchema, getResolvedSource } from "~/state/schemaReducer";
@@ -74,7 +75,7 @@ const generateDefaultInstance = (schema: Record<string, unknown>): unknown => {
             : null
         );
       } else if (typeof schema.items === 'object') {
-        const itemRes = generateDefaultInstance(schema.items as Record<string, unknown>);
+        generateDefaultInstance(schema.items as Record<string, unknown>);
         // For array types, we default to empty array unless items are present;
         // if we have items, we start with an empty array unless it's a fixed-size tuple.
         // But for "from scratch" it's cleaner to return an empty array []
@@ -531,6 +532,7 @@ export default function Workbench() {
   }, [editorSchema]);
 
   return (
+    <TooltipProvider>
     <div className={styles.container}>
       <header className={styles.header}>
         <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
@@ -940,6 +942,7 @@ export default function Workbench() {
         )}
       </div>
     </div>
+    </TooltipProvider>
   );
 }
 

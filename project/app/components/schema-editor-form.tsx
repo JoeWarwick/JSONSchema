@@ -243,7 +243,6 @@ export function SchemaEditorForm({
   })();
   const renderType = (schema.type as string) ?? inferredRootType ?? (path.length === 0 ? 'object' : null);
   const activeType = (() => {
-    if (schema.format === 'data-url' || (schema.contentMediaType && String(schema.contentMediaType).startsWith('image'))) return 'image';
     if (renderType === 'array' && (schema.items as any)?.enum) return 'string';
     const isArrayItem = path[path.length - 1] === 'items';
     return renderType || (path.length === 0 ? 'object' : (isImported || isArrayItem ? null : 'string'));
@@ -358,13 +357,10 @@ export function SchemaEditorForm({
                   IMPORT
                 </button>
               )}
-              {['string', 'number', 'boolean', 'object', 'array', 'null', 'image']
+              {['string', 'number', 'boolean', 'object', 'array', 'null']
                 .filter(t => path.length > 0 || t === 'object' || t === 'array')
                 .map((t) => {
-              const targetType = t === 'image' ? 'string' : t;
-              const targetFormat = t === 'image' ? 'data-url' : undefined;
-              
-              const isSelected = variants ? (variants.some(v => v.type === targetType && (targetFormat ? v.format === targetFormat : true))) : (activeType === t);
+              const isSelected = variants ? (variants.some(v => v.type === t)) : (activeType === t);
               // In building mode, we don't have a single "active" variant if showing all, 
               // but we can highlight the pill if this type is present in the choices.
               const isActive = !variants && (activeType === t);
@@ -375,11 +371,7 @@ export function SchemaEditorForm({
                   type="button"
                   onClick={() => {
                     if (activeType === t) return; // already this type, no-op
-                    if (t === 'image') {
-                      updateSchema({ type: 'string', format: 'data-url' });
-                    } else {
-                      updateSchema({ type: t });
-                    }
+                    updateSchema({ type: t });
                   }}
                   style={{
                     padding: '4px 12px',

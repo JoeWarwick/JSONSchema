@@ -3,14 +3,9 @@
  */
 export function schemaNodeDataToSchema(node: SchemaNodeData): Record<string, unknown> {
   const schema: Record<string, unknown> = {
-    type: node.type === 'image' ? 'string' : node.type,
+    type: node.type,
     title: node.label,
   };
-  // Default annotations for internal `image` node type
-  if (node.type === 'image') {
-    if (node.format === undefined) schema.format = 'data-url';
-    if (node.contentMediaType === undefined) schema.contentMediaType = 'image/*';
-  }
   if (node.format !== undefined) schema.format = node.format;
   if (node.contentMediaType !== undefined) schema.contentMediaType = node.contentMediaType;
   if (node.pattern !== undefined) schema.pattern = node.pattern;

@@ -309,10 +309,10 @@ export function isSchemaImported(schemaOrState: Schema | SchemaState | null, pat
       if (typeof node.$ref === 'string' && Object.keys(node).length === 1) return true;
       // If it's an allOf that ONLY has a $ref, it's an unexpanded import
       if (Array.isArray(node.allOf) && node.allOf.length === 1 && node.allOf[0] && typeof node.allOf[0].$ref === 'string' && Object.keys(node).length === 1) return true;
-      // If it was tagged with __from but is otherwise empty, it's an import placeholder
-      if (node.__from && !node.properties && !node.type && !node.items && !node.oneOf && !node.anyOf && !node.allOf) return true;
+      // If it has __from, it means it came from an import (regardless of content)
+      if (node.__from) return true;
       
-      // Otherwise, it has content! Even if it came from elsewhere, we want to see it.
+      // Otherwise, it has content but no import provenance
       return false;
     }
     
@@ -529,6 +529,22 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
   // Use the boolean discriminator `sourceIsObject` (set on schema load)
   // to decide whether to normalize the resolved view for editors.
   try {
+    // Make a working clone if we're going to mutate resolved
+    let resolvedForMutation = resolved;
+    const needsClone = resolved && typeof resolved === 'object' && (
+      (resolved as any).$defs || 
+      (resolved as any).properties ||
+      (resolved as any).type ||
+      (resolved as any).items
+    );
+    if (needsClone) {
+      try {
+        resolvedForMutation = JSON.parse(JSON.stringify(resolved));
+      } catch (_) {
+        resolvedForMutation = resolved;
+      }
+    }
+    
     // In browser dev, rewrite refs that point to other local dev ports
     // (for example `http://localhost:5174/...`) to the current origin so
     // the app uses same-origin static files under `/schemas/` and avoids
@@ -569,7 +585,7 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
     // to the editors instead of deriving a view from the original `source`.
     try {
       if (resolved && typeof resolved === 'object') {
-        const resObj = resolved as any;
+        const resObj = resolvedForMutation as any;
         const hasProps = resObj.properties && typeof resObj.properties === 'object';
         const isPoly = Array.isArray(resObj.oneOf) || Array.isArray(resObj.anyOf) || Array.isArray(resObj.allOf);
 
@@ -577,64 +593,83 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
         // considered a valid editor-ready view. Prefer it over deriving a new
         // view from `source` every time to ensure our path-based merges persist.
         if (hasProps || isPoly || resObj.type || resObj.items) {
-          // If we are in-browser, annotate from source if available
-          try {
-            if (typeof window !== 'undefined' && source && typeof source === 'object') {
-              const annotateFrom = (resNode: any, srcNode: any) => {
-                if (!resNode || typeof resNode !== 'object') return;
-                if (!srcNode || typeof srcNode !== 'object') return;
-                // If source has a $ref or allOf containing a $ref, and the resolved
-                // node doesn't have its own concrete identity, mark the provenance.
-                try {
-                  if (typeof srcNode.$ref === 'string' && !resNode.__from) {
-                    try { (resNode as any).__from = srcNode.$ref; } catch (_) {
-                      // ignore
+          // But if the properties are just $refs to $defs, it's not yet resolved
+          let shouldInlineRefs = false;
+          if (hasProps && resObj.$defs) {
+            // Check if all/most properties are just $refs (unresolved placeholders)
+            const props = resObj.properties as Record<string, any>;
+            const refCount = Object.values(props).filter((v: any) => v && typeof v === 'object' && typeof v.$ref === 'string' && Object.keys(v).length === 1).length;
+            shouldInlineRefs = refCount === Object.keys(props).length || (refCount > 0 && refCount === Object.keys(props).length);
+          }
+          
+          if (!shouldInlineRefs) {
+            // If we are in-browser, annotate from source if available
+            try {
+              if (typeof window !== 'undefined' && source && typeof source === 'object') {
+                const annotateFrom = (resNode: any, srcNode: any) => {
+                  if (!resNode || typeof resNode !== 'object') return;
+                  if (!srcNode || typeof srcNode !== 'object') return;
+                  // If source has a $ref or allOf containing a $ref, and the resolved
+                  // node doesn't have its own concrete identity, mark the provenance.
+                  try {
+                    if (typeof srcNode.$ref === 'string' && !resNode.__from) {
+                      try { (resNode as any).__from = srcNode.$ref; } catch (_) {
+                        // ignore
+                      }
+                    } else if (Array.isArray(srcNode.allOf) && srcNode.allOf.some((e: any) => e && typeof e.$ref === 'string') && !resNode.__from) {
+                      const m = srcNode.allOf.find((e: any) => e && typeof e.$ref === 'string');
+                      try { (resNode as any).__from = m && m.$ref ? m.$ref : undefined; } catch (_) {
+                        // ignore
+                      }
                     }
-                  } else if (Array.isArray(srcNode.allOf) && srcNode.allOf.some((e: any) => e && typeof e.$ref === 'string') && !resNode.__from) {
-                    const m = srcNode.allOf.find((e: any) => e && typeof e.$ref === 'string');
-                    try { (resNode as any).__from = m && m.$ref ? m.$ref : undefined; } catch (_) {
-                      // ignore
+                    // Also handle case where resolved node has a $ref but source doesn't match
+                    else if (typeof resNode.$ref === 'string' && !resNode.__from && (!srcNode || Object.keys(srcNode).length === 0)) {
+                      try { (resNode as any).__from = resNode.$ref; } catch (_) {
+                        // ignore
+                      }
                     }
+                  } catch (_) {
+                    // ignore
                   }
-                } catch (_) {
-                  // ignore
-                }
 
-                // Recurse into properties
-                if (resNode.properties && typeof resNode.properties === 'object') {
-                  const resProps = resNode.properties as Record<string, any>;
-                  const srcProps = srcNode.properties && typeof srcNode.properties === 'object' ? srcNode.properties as Record<string, any> : null;
-                  for (const k of Object.keys(resProps)) {
-                    try {
-                      const childRes = resProps[k];
-                      const childSrc = srcProps && Object.prototype.hasOwnProperty.call(srcProps, k) ? srcProps[k] : null;
-                      annotateFrom(childRes, childSrc || {});
-                    } catch (_) {
-                      // ignore
+                  // Recurse into properties
+                  if (resNode.properties && typeof resNode.properties === 'object') {
+                    const resProps = resNode.properties as Record<string, any>;
+                    const srcProps = srcNode.properties && typeof srcNode.properties === 'object' ? srcNode.properties as Record<string, any> : null;
+                    for (const k of Object.keys(resProps)) {
+                      try {
+                        const childRes = resProps[k];
+                        const childSrc = srcProps && Object.prototype.hasOwnProperty.call(srcProps, k) ? srcProps[k] : null;
+                        annotateFrom(childRes, childSrc || {});
+                      } catch (_) {
+                        // ignore
+                      }
                     }
                   }
-                }
-                // Recurse into items for arrays
-                if (resNode.items && typeof resNode.items === 'object') {
-                  const resItems = resNode.items;
-                  const srcItems = srcNode.items && typeof srcNode.items === 'object' ? srcNode.items : null;
-                  annotateFrom(resItems, srcItems || {});
-                }
-                // Recurse into polymorphic branches
-                ['oneOf', 'anyOf', 'allOf'].forEach((key) => {
-                  if (Array.isArray(resNode[key])) {
-                    const resArr = resNode[key] as any[];
-                    const srcArr = Array.isArray(srcNode[key]) ? (srcNode[key] as any[]) : [];
-                    resArr.forEach((v, i) => annotateFrom(v, srcArr[i] || {}));
+                  // Recurse into items for arrays
+                  if (resNode.items && typeof resNode.items === 'object') {
+                    const resItems = resNode.items;
+                    const srcItems = srcNode.items && typeof srcNode.items === 'object' ? srcNode.items : null;
+                    annotateFrom(resItems, srcItems || {});
                   }
-                });
-              };
-              annotateFrom(resolved, source || {});
+                  // Recurse into polymorphic branches
+                  ['oneOf', 'anyOf', 'allOf'].forEach((key) => {
+                    if (Array.isArray(resNode[key])) {
+                      const resArr = resNode[key] as any[];
+                      const srcArr = Array.isArray(srcNode[key]) ? (srcNode[key] as any[]) : [];
+                      resArr.forEach((v, i) => annotateFrom(v, srcArr[i] || {}));
+                    }
+                  });
+                };
+                annotateFrom(resolvedForMutation, source || {});
+              }
+            } catch (_) {
+              // ignore
             }
-          } catch (_) {}
 
-          if ((resolved as any).$defs) delete (resolved as any).$defs;
-          return normalizeResolved(resolved, source);
+            if ((resolvedForMutation as any).$defs) delete (resolvedForMutation as any).$defs;
+            return normalizeResolved(resolvedForMutation, source);
+          }
         }
       }
     } catch (_) {

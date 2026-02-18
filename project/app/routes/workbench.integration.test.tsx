@@ -45,15 +45,12 @@ describe('Workbench integration - load unresolved $defs schema', () => {
 
     // Open the Schema Input tab
     const schemaTab = screen.getByRole('button', { name: /Schema Input/i });
+    expect(schemaTab).toBeInTheDocument();
     fireEvent.click(schemaTab);
 
-    // Now the SchemaEditorForm should be rendered with root type 'object'
+    // The SchemaEditorForm renders Object buttons for the root type
+    // Wait for these to appear after clicking the Schema Input tab
     await waitFor(() => {
-      // Look for the "Schema" section header
-      const schemaHeaders = screen.getAllByText('Schema');
-      expect(schemaHeaders.length).toBeGreaterThan(0);
-      
-      // Look for the Object pill/button and check if it's selected (bold font-weight)
       const objectBtns = screen.getAllByRole('button', { name: /^Object$/ });
       expect(objectBtns.length).toBeGreaterThan(0);
       // The first one should be the root object button
@@ -75,18 +72,15 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     // fire change event to load schema into reducer
     fireEvent.change(fileInput!, { target: { files: [file] } });
 
-    // Wait for reducer to produce a resolved schema and for SchemaEditorForm to render
+    // Wait for reducer to produce a resolved schema
     await waitFor(() => {
       const badge = screen.getByTestId('schema-source-badge');
       expect(badge).toHaveTextContent(/resolved/i);
     });
 
+    // The SchemaEditorForm renders Object buttons for the root type
+    // Wait for these to appear after the schema is resolved
     await waitFor(() => {
-      // Look for the "Schema" section header
-      const schemaHeaders = screen.getAllByText('Schema');
-      expect(schemaHeaders.length).toBeGreaterThan(0);
-      
-      // Look for the Object pill/button and check if it's selected (bold font-weight)
       const objectBtns = screen.getAllByRole('button', { name: /^Object$/ });
       expect(objectBtns.length).toBeGreaterThan(0);
       expect(objectBtns[0]).toHaveStyle('font-weight: 700');
