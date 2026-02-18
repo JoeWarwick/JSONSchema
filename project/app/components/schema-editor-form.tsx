@@ -1137,7 +1137,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                           </div>
                         </PopoverContent>
                       </Popover>
-                    )}
+                    ) as any} 
                   </div>
 
                   {(schema.additionalProperties === false) && (!patternProperties || Object.keys(patternProperties).length === 0) && (
