@@ -29,6 +29,7 @@ interface SchemaEditorFormProps {
 
 import { generateSchema } from "../utils/schema-generator";
 import { getVariantLabel } from "../utils/labels";
+import { RegexInput } from "./RegexInput";
 
 export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename, isSchemaImported, instanceData }: SchemaEditorFormProps) {
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -291,13 +292,12 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16, gap: 16 }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', color: 'var(--color-neutral-11)', marginBottom: 6 }}>Regex Pattern</div>
-            <input 
+            <RegexInput 
               aria-label={`pattern-key-${patternKey}`} 
               value={keyState} 
-              onChange={(e) => setKeyState(e.target.value)} 
+              onChange={(val) => setKeyState(val)} 
               onBlur={handleKeyBlur} 
               className={styles.input} 
-              style={{ width: '100%', maxWidth: '500px', background: 'var(--color-neutral-1)' }}
             />
             {keyError && <div style={{ color: '#b71c1c', fontSize: 11, marginTop: 4, fontWeight: 700 }}>{keyError}</div>}
           </div>
@@ -674,10 +674,9 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
               {'pattern' in schema ? (
                 <div className={styles.fieldRow}>
                   <label className={styles.label}>Pattern</label>
-                  <input
-                    className={styles.input}
+                  <RegexInput
                     value={String((schema.pattern as string) || '')}
-                    onChange={(e) => updateSchema({ pattern: e.target.value })}
+                    onChange={(val) => updateSchema({ pattern: val })}
                     placeholder="Regex pattern"
                   />
                   <button
