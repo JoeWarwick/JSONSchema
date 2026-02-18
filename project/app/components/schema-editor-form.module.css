@@ -42,6 +42,38 @@
   gap: var(--space-2);
 }
 
+.toggleButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: var(--color-neutral-3);
+  color: var(--color-neutral-11);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-1);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.toggleButton:hover {
+  background: var(--color-neutral-4);
+  color: var(--color-neutral-12);
+  border-color: var(--color-neutral-7);
+}
+
+.loadingSpinner {
+  animation: spin 1s linear infinite;
+  color: var(--color-accent-9);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .label {
   font: var(--font-caption);
   font-weight: 500;

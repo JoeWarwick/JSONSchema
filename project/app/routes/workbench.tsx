@@ -3,7 +3,8 @@ import useAsyncMemo from "~/hooks/useAsyncMemo";
 import { Sparkles, Copy, Check, X, Link as LinkIcon, Download, FileUp } from "lucide-react";
 import styles from "./workbench.module.css";
 import { generateSchema, isValidJSON } from "~/utils/schema-generator";
-import schemaReducer, { initialSchemaState, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, ensureResolved, getPersistableSource, getEditorSchema, getResolvedSource } from "~/state/schemaReducer";
+import schemaReducer, { initialSchemaState, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, MERGE_RESOLVED_PATH, MERGE_RESOLVED_ALL_PATHS, ensureResolved, getPersistableSource, getEditorSchema, getResolvedSource } from "~/state/schemaReducer";
+import { resolveSchema } from "~/utils/schema-resolver";
 
 // Utility to rename a property in an object (shallow)
 function renamePropertyInObject(obj: any, oldName: string, newName: string) {
@@ -157,6 +158,12 @@ export default function Workbench() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const schemaFileInputRef = useRef<HTMLInputElement>(null);
   const [compactJsonView, setCompactJsonView] = useState<boolean>(false);
+  const resolutionCache = useRef<Map<string, any>>(new Map());
+
+  // Clear cache if source changes
+  useEffect(() => {
+    resolutionCache.current.clear();
+  }, [state.source]);
 
   const truncateString = (s: string, max = 120) => {
     if (s.length <= max) return s;
@@ -476,11 +483,35 @@ export default function Workbench() {
   }, [state.resolvedCache, state.sourceIsObject, state.source], null);
 
   // Helper: determine whether a schema node should be treated as imported.
-  // Rely exclusively on the reducer-attached `__from` provenance marker.
-  const isSchemaImported = (schemaNode: Record<string, unknown> | null | undefined): boolean => {
+  // Rely on the reducer-attached `__from` provenance marker or inspection of the rehydrated source.
+  const isSchemaImported = (schemaNode: Record<string, unknown> | null | undefined, path?: string[]): boolean => {
     try {
       if (!schemaNode || typeof schemaNode !== 'object') return false;
-      return !!(schemaNode as any).__from;
+
+      // 1. Direct inspection of the node provided (e.g. from local editor state)
+      if ((schemaNode as any).__from) return true;
+      if (typeof (schemaNode as any).$ref === 'string') return true;
+      if (Array.isArray((schemaNode as any).allOf) && (schemaNode as any).allOf.some((e: any) => e && (e.$ref || e.__from))) return true;
+
+      // 2. Fallback: Check the rehydrated editor schema using the provided path
+      // This helps identify array items that might not have provenance on the leaf node itself
+      if (path && editorSchema) {
+        let node: any = editorSchema;
+        for (const p of path) {
+          if (!node || typeof node !== 'object') break;
+          // Standard navigation: properties or direct access for logic branches/items
+          if (node.properties && node.properties[p]) node = node.properties[p];
+          else if (node.type === 'array' && p === 'items' && node.items) node = node.items;
+          else if (node.items && node.items.properties && node.items.properties[p]) node = node.items.properties[p];
+          else node = node[p];
+        }
+        if (node && typeof node === 'object') {
+          if (node.__from || node.$ref) return true;
+          if (Array.isArray(node.allOf) && node.allOf.some((e: any) => e && (e.$ref || e.__from))) return true;
+        }
+      }
+
+      return false;
     } catch (_) {
       return false;
     }
@@ -620,6 +651,93 @@ export default function Workbench() {
                     isSchemaImported={isSchemaImported}
                     instanceData={instanceData}
                     onViewSource={() => setShowSchemaSource(true)}
+                    onResolve={async (path) => {
+                      // Dynamically resolve a sub-path of the schema
+                      let node: any = state.resolvedCache;
+                      if (!node) return;
+
+                      // Navigate to the target node in the resolved schema to get the $ref
+                      for (const p of path) {
+                        // Smart navigation: skip 'properties' if current node is a flat map (defs root)
+                        if (p === 'properties' && !node.properties && !node.type && !node.$ref && Object.keys(node).length > 0) {
+                          continue;
+                        }
+
+                        if (node.properties && node.properties[p]) {
+                          node = node.properties[p];
+                        } else if (node.items) {
+                          node = node.items;
+                        } else {
+                          node = node[p];
+                        }
+                        if (!node) break;
+                      }
+
+                      if (node && (node.$ref || (node.allOf && node.allOf.some((e: any) => e.$ref)))) {
+                        const targetRef = node.$ref || (Array.isArray(node.allOf) && node.allOf.find((e: any) => e.$ref)?.$ref);
+                        const nodeKey = JSON.stringify(node);
+
+                        try {
+                          let resolved: any = null;
+                          if (resolutionCache.current.has(nodeKey)) {
+                            resolved = resolutionCache.current.get(nodeKey);
+                          } else {
+                            // If node has local ref but no definitions, we might need to attach them
+                            // from the root source so the resolver can perform standard dereference.
+                            let toResolve = node;
+                            const targetRef = node.$ref || (Array.isArray(node.allOf) && node.allOf.find((e: any) => e.$ref)?.$ref);
+                            if (targetRef && targetRef.startsWith('#') && state.source && typeof state.source === 'object') {
+                              const src = state.source as any;
+                              const defs = src.$defs || src.definitions;
+                              if (defs) {
+                                toResolve = { ...node, [src.$defs ? '$defs' : 'definitions']: defs };
+                              }
+                            }
+                            resolved = await resolveSchema(toResolve);
+                            if (resolved) resolutionCache.current.set(nodeKey, resolved);
+                          }
+
+                          if (resolved) {
+                            // If this node represents a shared reference (targetRef), find ALL other 
+                            // occurrences in the tree and update them in one batch. 
+                            // This ensures "load once, resolve everywhere" behavior.
+                            if (targetRef) {
+                              const updates: { path: string[]; schema: any }[] = [];
+                              const scanTree = (curr: any, currPath: string[]) => {
+                                if (!curr || typeof curr !== 'object') return;
+                                const r = curr.$ref || (Array.isArray(curr.allOf) && curr.allOf.find((e: any) => e.$ref)?.$ref);
+                                if (r === targetRef) {
+                                  updates.push({ path: currPath, schema: resolved });
+                                }
+                                if (curr.properties) {
+                                  for (const k of Object.keys(curr.properties)) {
+                                    scanTree(curr.properties[k], [...currPath, 'properties', k]);
+                                  }
+                                }
+                                if (curr.patternProperties) {
+                                  for (const k of Object.keys(curr.patternProperties)) {
+                                    scanTree(curr.patternProperties[k], [...currPath, 'patternProperties', k]);
+                                  }
+                                }
+                                if (curr.items) scanTree(curr.items, [...currPath, 'items']);
+                                if (Array.isArray(curr.oneOf)) curr.oneOf.forEach((v: any, i: number) => scanTree(v, [...currPath, 'oneOf', String(i)]));
+                                if (Array.isArray(curr.anyOf)) curr.anyOf.forEach((v: any, i: number) => scanTree(v, [...currPath, 'anyOf', String(i)]));
+                                if (Array.isArray(curr.allOf)) curr.allOf.forEach((v: any, i: number) => scanTree(v, [...currPath, 'allOf', String(i)]));
+                              };
+
+                              scanTree(state.resolvedCache, []);
+                              if (updates.length > 0) {
+                                dispatch({ type: MERGE_RESOLVED_ALL_PATHS, payload: updates });
+                                return;
+                              }
+                            }
+                            dispatch({ type: MERGE_RESOLVED_PATH, payload: { path, schema: resolved } });
+                          }
+                        } catch (e) {
+                          console.error("Failed to resolve path:", path, e);
+                        }
+                      }
+                    }}
                     onPropertyRename={(oldName, newName, path = []) => {
                     if (!instanceData) return;
                     if (path.length > 0) {

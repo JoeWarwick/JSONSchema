@@ -15,6 +15,7 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./ui/t
 import { Badge } from "./ui/badge/badge";
 import { Popover, PopoverTrigger, PopoverContent } from "./ui/popover/popover";
 import { renderTooltipContentChildren } from './tooltip-utils';
+import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 
 import Select from "react-select";
 import CreatableSelect from "react-select/creatable";
@@ -27,13 +28,23 @@ interface SchemaEditorFormProps {
   path?: string[];
   onViewSource?: () => void;
   onPropertyRename?: (oldName: string, newName: string, path?: string[]) => void;
+  onResolve?: (path: string[]) => Promise<void>;
 }
 
 import { generateSchema } from "../utils/schema-generator";
 import { getVariantLabel } from "../utils/labels";
 import { RegexInput } from "./RegexInput";
 
-export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename, isSchemaImported, instanceData }: SchemaEditorFormProps) {
+export function SchemaEditorForm({ 
+  schema, 
+  onChange, 
+  path = [], 
+  onPropertyRename, 
+  isSchemaImported, 
+  instanceData,
+  onViewSource,
+  onResolve
+}: SchemaEditorFormProps) {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [defaultError, setDefaultError] = useState<string | null>(null);
   const [editingDefault, setEditingDefault] = useState<string>(String(schema?.default ?? ""));
@@ -43,8 +54,24 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
   // Guard to ensure the floating popover is only mounted after an explicit user action
   const [apPopoverAllowed, setApPopoverAllowed] = useState(false);
   const [localAdditionalSchema, setLocalAdditionalSchema] = useState<Record<string, unknown> | null>(schema.additionalProperties && typeof schema.additionalProperties === 'object' ? (schema.additionalProperties as Record<string, unknown>) : null);
-  // Controls visibility of the absolutely-positioned inline additionalProperties editor
-  // [apInlineOpen discarded in favor of floating popover only]
+  const [isResolving, setIsResolving] = useState(false);
+
+  // Inferences for UI state
+  const checkImported = (s: any, p?: string[]) => {
+    if (isSchemaImported) return !!isSchemaImported(s, p);
+    return !!(s.$ref || s.__from || (Array.isArray(s.allOf) && s.allOf.some((e: any) => e && (e.$ref || e.__from))));
+  };
+
+  const isImported = checkImported(schema, path);
+  const isRoot = path.length === 0;
+
+  const itemsSchema = (schema.items && typeof schema.items === "object" && !Array.isArray(schema.items))
+    ? (schema.items as Record<string, unknown>)
+    : null;
+  
+  const isItemsImported = itemsSchema ? checkImported(itemsSchema, [...path, 'items']) : false;
+  const [itemsExpanded, setItemsExpanded] = useState(!isItemsImported);
+  const [isResolvingItems, setIsResolvingItems] = useState(false);
 
   // Initialize local draft when the popover is opened programmatically
   useEffect(() => {
@@ -78,7 +105,6 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
 
   if (!schema) return null;
 
-  const isRoot = path.length === 0;
   const variants = (schema.oneOf || schema.anyOf || schema.allOf) as Record<string, unknown>[] | undefined;
   const logicType = schema.oneOf ? 'oneOf' : (schema.anyOf ? 'anyOf' : (schema.allOf ? 'allOf' : undefined));
 
@@ -186,6 +212,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
 
     if (schema.properties) return 'object';
     if (schema.items) return 'array';
+    if (schema.oneOf || schema.anyOf || schema.allOf || schema.oneOnly) return 'object'; // logical container
     
     if (schema.$ref && (schema.$defs || schema.definitions) && typeof schema.$ref === 'string') {
       const defsKey = schema.$defs ? '$defs' : 'definitions';
@@ -218,18 +245,10 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
   const activeType = (() => {
     if (schema.format === 'data-url' || (schema.contentMediaType && String(schema.contentMediaType).startsWith('image'))) return 'image';
     if (renderType === 'array' && (schema.items as any)?.enum) return 'string';
-    return renderType || (path.length === 0 ? 'object' : 'string');
+    const isArrayItem = path[path.length - 1] === 'items';
+    return renderType || (path.length === 0 ? 'object' : (isImported || isArrayItem ? null : 'string'));
   })();
   
-  const defaultIsImported = (node: Record<string, unknown> | null | undefined) => {
-    try {
-      if (!node || typeof node !== 'object') return false;
-      return !!(node as any).$ref;
-    } catch (_) { return false; }
-  };
-
-  const isImported = (isSchemaImported || defaultIsImported)(schema as Record<string, unknown>);
-
   const addProperty = () => {
     const nextSchema = addPropertyToSchema(schema);
     updateSchema(nextSchema as any);
@@ -273,69 +292,6 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
 
   const patternProperties = schema.patternProperties as Record<string, unknown> | undefined;
 
-  function PatternPropertyRow({ patternKey, subschema }: { patternKey: string; subschema: Record<string, unknown> }) {
-    const [keyState, setKeyState] = useState<string>(patternKey);
-    const [keyError, setKeyError] = useState<string | null>(null);
-
-    const handleKeyBlur = () => {
-      const newKey = keyState;
-      // Validate regex
-      try {
-        // eslint-disable-next-line no-new
-        new RegExp(newKey);
-        setKeyError(null);
-      } catch (err) {
-        setKeyError('Invalid regular expression');
-        return;
-      }
-      if (newKey !== patternKey) {
-        const next = renamePatternPropertyInSchema(schema, patternKey, newKey);
-        updateSchema(next);
-      }
-    };
-
-    return (
-      <div key={patternKey} style={{ marginBottom: 24, padding: 16, background: 'var(--color-neutral-3)', borderRadius: 8, border: '1px solid var(--color-neutral-6)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16, gap: 16 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', color: 'var(--color-neutral-11)', marginBottom: 6 }}>Regex Pattern</div>
-            <RegexInput 
-              aria-label={`pattern-key-${patternKey}`} 
-              value={keyState} 
-              onChange={(val) => setKeyState(val)} 
-              onBlur={handleKeyBlur} 
-              className={styles.input} 
-            />
-            {keyError && <div style={{ color: '#b71c1c', fontSize: 11, marginTop: 4, fontWeight: 700 }}>{keyError}</div>}
-          </div>
-          <button
-            type="button"
-            className={styles.removeSmall}
-            onClick={() => {
-              const next = removePatternPropertyFromSchema(schema, patternKey);
-              updateSchema(next);
-            }}
-          >
-            Remove Pattern
-          </button>
-        </div>
-        <div style={{ background: 'var(--color-neutral-1)', padding: 16, borderRadius: 8, border: '1px solid var(--color-neutral-4)', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.05)' }}>
-          <SchemaEditorForm
-            schema={subschema}
-            onChange={(newSub) => {
-              const updated = updatePatternPropertyInSchema(schema, patternKey, newSub);
-              updateSchema(updated);
-            }}
-            path={[...path, "patternProperties", patternKey]}
-            isSchemaImported={isSchemaImported}
-            instanceData={instanceData}
-            onPropertyRename={onPropertyRename}
-          />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <>
       {validationError && (
@@ -347,11 +303,64 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
             Root node is unconfigured. Please select <strong>Object</strong> or <strong>Array</strong> to begin.
           </div>
         )}
+        
+        {isImported && !renderType && (
+          <div style={{ marginBottom: 16, padding: '12px 16px', background: 'var(--color-accent-2)', border: '1px solid var(--color-accent-6)', borderRadius: 8, color: 'var(--color-accent-12)', fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+              <button
+                type="button"
+                className={styles.toggleButton}
+                onClick={async () => {
+                  setIsResolving(true);
+                  try { if (onResolve) await onResolve(path); } finally { setIsResolving(false); }
+                }}
+                style={{ background: 'var(--color-accent-9)', color: 'white', border: 'none', flexShrink: 0 }}
+                title="Resolve Reference"
+              >
+                {isResolving ? <Loader2 className={styles.loadingSpinner} size={14} /> : <ChevronRight size={14} />}
+              </button>
+              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ fontWeight: 800, fontSize: '10px', textTransform: 'uppercase', marginRight: 8, opacity: 0.8 }}>Imported Ref:</span>
+                <code>{String((schema as any).$ref || (schema as any).allOf?.find((e: any) => e.$ref)?.$ref || 'External')}</code>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-            {['string', 'number', 'boolean', 'object', 'array', 'null', 'image']
-              .filter(t => path.length > 0 || t === 'object' || t === 'array')
-              .map((t) => {
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              {isImported && !activeType && !variants && (
+                <button
+                  type="button"
+                  data-testid="resolve-import-button"
+                  onClick={async () => {
+                    setIsResolving(true);
+                    try { if (onResolve) await onResolve(path); } finally { setIsResolving(false); }
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '4px 12px',
+                    fontSize: '11px',
+                    borderRadius: '16px',
+                    border: '1px solid var(--color-accent-7)',
+                    background: 'var(--color-accent-9)',
+                    color: 'white',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                  }}
+                  title="Resolve imported reference"
+                >
+                  {isResolving ? <Loader2 size={12} className={styles.loadingSpinner} /> : <ChevronRight size={14} />}
+                  IMPORT
+                </button>
+              )}
+              {['string', 'number', 'boolean', 'object', 'array', 'null', 'image']
+                .filter(t => path.length > 0 || t === 'object' || t === 'array')
+                .map((t) => {
               const targetType = t === 'image' ? 'string' : t;
               const targetFormat = t === 'image' ? 'data-url' : undefined;
               
@@ -413,72 +422,96 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
               </Tooltip>
             )}
           </div>
-          <div style={{ fontSize: (schema.title ? 11 : 10), fontWeight: (schema.title ? 700 : 900), textTransform: (schema.title ? 'none' : 'uppercase'), color: (schema.title ? 'inherit' : 'var(--color-neutral-10)') }}>
-            {(schema.title as string) || ''}
-            {isImported && <span style={{ color: 'var(--color-accent-9)', marginLeft: 4 }} title="Imported from $ref">*</span>}
-          </div>
-          <div style={{ flex: 1 }} />
-          {isImported && renderType === 'object' && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => {
-                    // build a local allOf override referencing the original $ref when available
-                    let refStr: string | null = null;
-                    try {
-                      if (typeof (schema as any).$ref === 'string') refStr = (schema as any).$ref;
-                      else if (Array.isArray((schema as any).allOf)) {
-                        const m = ((schema as any).allOf as any[]).find((e: any) => e && typeof e.$ref === 'string');
-                        if (m) refStr = m.$ref;
-                      }
-                    } catch (e) {
-                      // ignore
-                    }
-                    if (!refStr) return;
+        </div>
+      </div>
 
-                    // If instance data is available, attempt to use instance keys at the current path
-                    // to pre-populate property schemas so we don't add arbitrary fields like "username".
-                    const localProperties: Record<string, unknown> = {};
-                    try {
-                      if (instanceData && typeof instanceData === 'object') {
-                        // Traverse instanceData according to the editor path to find the relevant object
-                        let node: any = instanceData as any;
-                        for (const p of path) {
-                          if (!node || typeof node !== 'object') { node = null; break; }
-                          node = node[p];
-                        }
-                        if (node && typeof node === 'object' && !Array.isArray(node)) {
-                          for (const [k, v] of Object.entries(node)) {
-                            try {
-                              // generate a schema for the instance value to make the override valid
-                              const gen = generateSchema(v as any);
-                              localProperties[k] = gen;
-                            } catch (_) {
-                              // fallback: mark as string
-                              localProperties[k] = { type: 'string' };
-                            }
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
+        <div style={{ fontSize: (schema.title ? 11 : 10), fontWeight: (schema.title ? 700 : 900), textTransform: (schema.title ? 'none' : 'uppercase'), color: (schema.title ? 'inherit' : 'var(--color-neutral-10)') }}>
+          {(schema.title as string) || ''}
+          {isImported && (
+            <Badge 
+              variant="outline" 
+              style={{ 
+                fontSize: '9px', 
+                padding: '0 6px', 
+                height: '16px', 
+                marginLeft: 6, 
+                color: 'var(--color-accent-10)', 
+                borderColor: 'var(--color-accent-6)', 
+                background: 'var(--color-accent-2)' 
+              }}
+              title={`Imported from ${(schema as any).$ref || (Array.isArray(schema.allOf) && (schema.allOf as any[]).find((e: any) => e.$ref)?.$ref) || 'source'}`}
+            >
+              {(() => {
+                const ref = (schema as any).$ref || (Array.isArray(schema.allOf) && (schema.allOf as any[]).find((e: any) => e.$ref)?.$ref);
+                if (typeof ref === 'string') return ref.split('/').pop() || 'REF';
+                return 'REF';
+              })()}
+            </Badge>
+          )}
+        </div>
+        <div style={{ flex: 1 }} />
+        {isImported && renderType === 'object' && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => {
+                  // build a local allOf override referencing the original $ref when available
+                  let refStr: string | null = null;
+                  try {
+                    if (typeof (schema as any).$ref === 'string') refStr = (schema as any).$ref;
+                    else if (Array.isArray((schema as any).allOf)) {
+                      const m = ((schema as any).allOf as any[]).find((e: any) => e && typeof e.$ref === 'string');
+                      if (m) refStr = m.$ref;
+                    }
+                  } catch (e) {
+                    // ignore
+                  }
+                  if (!refStr) return;
+
+                  // If instance data is available, attempt to use instance keys at the current path
+                  // to pre-populate property schemas so we don't add arbitrary fields like "username".
+                  const localProperties: Record<string, unknown> = {};
+                  try {
+                    if (instanceData && typeof instanceData === 'object') {
+                      // Traverse instanceData according to the editor path to find the relevant object
+                      let node: any = instanceData as any;
+                      for (const p of path) {
+                        if (!node || typeof node !== 'object') { node = null; break; }
+                        node = node[p];
+                      }
+                      if (node && typeof node === 'object' && !Array.isArray(node)) {
+                        for (const [k, v] of Object.entries(node)) {
+                          try {
+                            // generate a schema for the instance value to make the override valid
+                            const gen = generateSchema(v as any);
+                            localProperties[k] = gen;
+                          } catch (_) {
+                            // fallback: mark as string
+                            localProperties[k] = { type: 'string' };
                           }
                         }
                       }
-                    } catch (_) { /* ignore */ }
+                    }
+                  } catch (_) { /* ignore */ }
 
-                    const overrideObj: Record<string, unknown> = { type: 'object', properties: localProperties };
-                    const next: Record<string, unknown> = { allOf: [{ $ref: refStr }, overrideObj] };
-                    if (schema.title) next.title = schema.title as string;
-                    onChange(next);
-                  }}
-                  className={styles.addSmall}
-                >
-                  Override
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                Create a local <code>allOf</code> extension. This keeps the original <code>$ref</code> definition as a base but allows you to add specific constraints (like pattern, minLength, or extra properties) to just this instance.
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </div>
+                  const overrideObj: Record<string, unknown> = { type: 'object', properties: localProperties };
+                  const next: Record<string, unknown> = { allOf: [{ $ref: refStr }, overrideObj] };
+                  if (schema.title) next.title = schema.title as string;
+                  onChange(next);
+                }}
+                className={styles.addSmall}
+              >
+                Override
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Create a local <code>allOf</code> extension. This keeps the original <code>$ref</code> definition as a base but allows you to add specific constraints (like pattern, minLength, or extra properties) to just this instance.
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
 
         {variants && variants.length > 0 && (
           <div className={styles.variantsWrapper} style={{ border: '2px solid var(--color-accent-6)', background: 'var(--color-accent-1)', padding: '16px' }}>
@@ -527,72 +560,27 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
               if (!v) return <div key={i} style={{ color: 'red', padding: 10 }}>Error: Variant {i} is null</div>;
               
               const labelData = getVariantLabel(v, i, variants);
+              const variantPath = [...path, logicType!, String(i)];
+              const isImportedVariant = !!isSchemaImported?.(v, variantPath);
 
               return (
-              <div key={i} className={styles.variantItem} style={{ border: '1px solid var(--color-accent-4)', marginBottom: 16, background: 'var(--color-neutral-1)' }}>
-                <div className={styles.variantItemHeader} style={{ background: 'var(--color-accent-2)', padding: '4px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div className={styles.variantItemTitle} style={{ color: 'var(--color-accent-11)', fontWeight: 700, flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ cursor: labelData.description ? 'help' : 'default' }}>
-                      {`${i + 1}. ${labelData.title}`}
-                    </span>
-                    {labelData.description && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button type="button" style={{ background: 'none', border: 'none', padding: 0, cursor: 'help', opacity: 0.6, display: 'flex' }}>
-                            <Badge variant="outline" style={{ fontSize: '9px', padding: '0 4px', height: '14px', lineHeight: '14px', color: 'var(--color-neutral-10)', borderColor: 'var(--color-neutral-6)' }}>REF</Badge>
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <div style={{ maxWidth: '300px', padding: '4px' }}>
-                            <div style={{ fontWeight: 800, fontSize: '9px', textTransform: 'uppercase', marginBottom: '2px', color: 'var(--color-neutral-10)' }}>IDENTIFIER / SOURCE</div>
-                            <div style={{ fontSize: '11px', fontFamily: 'monospace', wordBreak: 'break-all', background: 'var(--color-neutral-3)', padding: '4px', borderRadius: '4px', color: 'var(--color-neutral-12)' }}>{renderTooltipContentChildren(labelData.description)}</div>
-                          </div>
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    className={styles.removeSmall}
-                    style={{ marginLeft: '12px' }}
-                    title="Remove this branch"
-                    onClick={() => {
-                      const next = variants.filter((_, idx) => idx !== i);
-                      if (next.length === 0) {
-                        const rest = { ...schema } as any;
-                        delete rest.oneOf; delete rest.anyOf; delete rest.allOf; delete rest.oneOnly;
-                        onChange({ ...rest, type: 'string' });
-                      } else if (next.length === 1) {
-                        const { title, description } = schema as any;
-                        const flattened = {
-                          ...(title ? { title } : {}),
-                          ...(description ? { description } : {}),
-                          ...next[0]
-                        };
-                        onChange(flattened);
-                      } else {
-                        updateSchema({ [logicType!]: next });
-                      }
-                    }}
-                  >
-                    Remove
-                  </button>
-                </div>
-                <div style={{ padding: '8px 12px' }}>
-                  <SchemaEditorForm
-                    schema={v}
-                    onChange={(newSub) => {
-                      const newVariants = [...variants];
-                      newVariants[i] = newSub;
-                      updateSchema({ [logicType!]: newVariants });
-                    }}
-                    path={[...path, logicType!, String(i)]}
-                    isSchemaImported={isSchemaImported}
-                    instanceData={instanceData}
-                    onPropertyRename={onPropertyRename}
-                  />
-                </div>
-              </div>
+              <VariantItem
+                key={i}
+                index={i}
+                variant={v}
+                variants={variants}
+                logicType={logicType!}
+                path={path}
+                isImported={isImportedVariant}
+                labelData={labelData}
+                schema={schema}
+                onChange={onChange}
+                updateSchema={updateSchema}
+                isSchemaImported={isSchemaImported}
+                instanceData={instanceData}
+                onPropertyRename={onPropertyRename}
+                onResolve={onResolve}
+              />
             );})}
           </div>
         )}
@@ -1126,6 +1114,7 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                                 isSchemaImported={isSchemaImported}
                                 instanceData={instanceData}
                                 onPropertyRename={onPropertyRename}
+                                onResolve={onResolve}
                               />
                             </div>
                             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -1183,7 +1172,18 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
               <div style={{ marginTop: 12 }}>
                 <div className={styles.propertyTitle} style={{ marginBottom: 8, color: 'var(--color-neutral-11)' }}>Pattern properties</div>
                 {Object.entries(patternProperties).map(([pat, subschema]) => (
-                  <PatternPropertyRow key={pat} patternKey={pat} subschema={subschema as Record<string, unknown>} />
+                  <PatternPropertyRow 
+                    key={pat} 
+                    patternKey={pat} 
+                    subschema={subschema as Record<string, unknown>}
+                    schema={schema}
+                    updateSchema={updateSchema}
+                    path={path}
+                    isSchemaImported={isSchemaImported}
+                    instanceData={instanceData}
+                    onPropertyRename={onPropertyRename}
+                    onResolve={onResolve}
+                  />
                 ))}
               </div>
             )}
@@ -1209,6 +1209,9 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
                   onRename={(newName) => updatePropertyName(propertyName, newName)}
                   onDelete={() => handleDeleteProperty(propertyName)}
                   path={[...path, 'properties', propertyName]}
+                  isImported={isSchemaImported?.(propertySchema as Record<string, unknown>, [...path, 'properties', propertyName])}
+                  isSchemaImported={isSchemaImported}
+                  onResolve={onResolve}
                 />
               ))}
           </div>
@@ -1216,24 +1219,153 @@ export function SchemaEditorForm({ schema, onChange, path = [], onPropertyRename
 
         {/* Show array item controls if not handled by a root-level enum filter */}
         {renderType === "array" && !((schema.items as any)?.enum) && (() => {
-          const itemsSchema = (schema.items && typeof schema.items === "object" && !Array.isArray(schema.items))
-            ? (schema.items as Record<string, unknown>)
-            : { type: "string" };
+          const itemsSchemaNode = itemsSchema || {};
           return (
             <div className={styles.nestedContainer}>
-              <div style={{ fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', color: 'var(--color-accent-10)', marginBottom: '8px' }}>
-                Array Items
+              <div 
+                style={{ 
+                  fontSize: '10px', 
+                  fontWeight: 900, 
+                  textTransform: 'uppercase', 
+                  color: 'var(--color-accent-10)', 
+                  marginBottom: '8px', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '8px' 
+                }}
+              >
+                <button
+                  type="button"
+                  className={styles.toggleButton}
+                  onClick={async () => {
+                    const nextExpanded = !itemsExpanded;
+                    if (nextExpanded && onResolve && itemsSchema && isItemsImported) {
+                      const s = itemsSchema as any;
+                      const hasContent = s.properties || s.items || s.type || s.oneOf || s.anyOf || s.allOf;
+                      if (!hasContent && (s.$ref || s.allOf?.some((e: any) => e.$ref))) {
+                        setIsResolvingItems(true);
+                        try {
+                          await onResolve([...path, 'items']);
+                        } catch (e) {
+                          console.error("Failed to resolve array items:", e);
+                        } finally {
+                          setIsResolvingItems(false);
+                        }
+                      }
+                    }
+                    setItemsExpanded(nextExpanded);
+                  }}
+                  title={itemsExpanded ? "Collapse Items" : "Expand Items"}
+                >
+                  {isResolvingItems ? (
+                    <Loader2 className={styles.loadingSpinner} size={14} />
+                  ) : itemsExpanded ? (
+                    <ChevronDown size={14} />
+                  ) : (
+                    <ChevronRight size={14} />
+                  )}
+                </button>
+                Array Items {isItemsImported && <span style={{ color: 'var(--color-accent-9)', marginLeft: 4 }} title="Imported items">*</span>}
               </div>
-              <SchemaEditorForm
-                schema={itemsSchema}
-                onChange={(newItems) => updateSchema({ items: newItems })}
-                path={[...path, "items"]}
-              />
+              {itemsExpanded && (
+                <SchemaEditorForm
+                  schema={itemsSchemaNode}
+                  onChange={(newItems) => updateSchema({ items: newItems })}
+                  path={[...path, "items"]}
+                  isSchemaImported={isSchemaImported}
+                  instanceData={instanceData}
+                  onResolve={onResolve}
+                />
+              )}
             </div>
           );
         })()}
       </div>
     </>
+  );
+}
+
+function PatternPropertyRow({ 
+  patternKey, 
+  subschema, 
+  schema, 
+  updateSchema, 
+  path, 
+  isSchemaImported, 
+  instanceData, 
+  onPropertyRename, 
+  onResolve 
+}: { 
+  patternKey: string; 
+  subschema: Record<string, unknown>; 
+  schema: Record<string, unknown>;
+  updateSchema: (updates: Partial<Record<string, unknown>>) => void;
+  path: string[];
+  isSchemaImported?: (schema: Record<string, unknown>, path?: string[]) => boolean;
+  instanceData?: unknown;
+  onPropertyRename?: (oldName: string, newName: string, path?: string[]) => void;
+  onResolve?: (path: string[]) => Promise<void>;
+}) {
+  const [keyState, setKeyState] = useState<string>(patternKey);
+  const [keyError, setKeyError] = useState<string | null>(null);
+
+  const handleKeyBlur = () => {
+    const newKey = keyState;
+    // Validate regex
+    try {
+      // eslint-disable-next-line no-new
+      new RegExp(newKey);
+      setKeyError(null);
+    } catch (err) {
+      setKeyError('Invalid regular expression');
+      return;
+    }
+    if (newKey !== patternKey) {
+      const next = renamePatternPropertyInSchema(schema, patternKey, newKey);
+      updateSchema(next);
+    }
+  };
+
+  return (
+    <div key={patternKey} style={{ marginBottom: 24, padding: 16, background: 'var(--color-neutral-3)', borderRadius: 8, border: '1px solid var(--color-neutral-6)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16, gap: 16 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', color: 'var(--color-neutral-11)', marginBottom: 6 }}>Regex Pattern</div>
+          <RegexInput 
+            aria-label={`pattern-key-${patternKey}`} 
+            value={keyState} 
+            onChange={(val) => setKeyState(val)} 
+            onBlur={handleKeyBlur} 
+            className={styles.input} 
+          />
+          {keyError && <div style={{ color: '#b71c1c', fontSize: 11, marginTop: 4, fontWeight: 700 }}>{keyError}</div>}
+        </div>
+        <button
+          type="button"
+          className={styles.removeSmall}
+          onClick={() => {
+            const next = removePatternPropertyFromSchema(schema, patternKey);
+            updateSchema(next);
+          }}
+        >
+          Remove Pattern
+        </button>
+      </div>
+      <div style={{ background: 'var(--color-neutral-1)', padding: 16, borderRadius: 8, border: '1px solid var(--color-neutral-4)', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.05)' }}>
+        <SchemaEditorForm
+          schema={subschema}
+          onChange={(newSub) => {
+            const updated = updatePatternPropertyInSchema(schema, patternKey, newSub);
+            updateSchema(updated);
+          }}
+          path={[...path, "patternProperties", patternKey]}
+          isSchemaImported={isSchemaImported}
+          instanceData={instanceData}
+          onPropertyRename={onPropertyRename}
+          onResolve={onResolve}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -1246,6 +1378,9 @@ interface PropertyEditorProps {
   onRename: (newName: string) => void;
   onDelete: () => void;
   path?: string[];
+  isImported?: boolean;
+  isSchemaImported?: (schema: Record<string, unknown>, path?: string[]) => boolean;
+  onResolve?: (path: string[]) => Promise<void>;
 }
 
 function PropertyEditor({
@@ -1257,14 +1392,53 @@ function PropertyEditor({
   onRename,
   onDelete,
   path = [],
+  isImported,
+  isSchemaImported,
+  onResolve,
 }: PropertyEditorProps) {
   const [editingName, setEditingName] = useState(propertyName);
+  const [isExpanded, setIsExpanded] = useState(!isImported);
+  const [isResolving, setIsResolving] = useState(false);
 
   if (!propertySchema) return null;
 
+  const handleToggleExpand = async () => {
+    if (!isExpanded && onResolve && isImported) {
+      // Check if it's "unresolved" (has a $ref but no content)
+      const hasProps = !!propertySchema.properties;
+      const hasItems = !!propertySchema.items;
+      const hasType = !!propertySchema.type;
+      const isCombiner = !!(propertySchema.oneOf || propertySchema.anyOf || propertySchema.allOf);
+      
+      if (!hasProps && !hasItems && !hasType && !isCombiner && (propertySchema.$ref || (propertySchema as any).allOf?.some((e: any) => e.$ref))) {
+        setIsResolving(true);
+        try {
+          await onResolve(path);
+        } finally {
+          setIsResolving(false);
+        }
+      }
+    }
+    setIsExpanded(!isExpanded);
+  };
+
   return (
     <div className={styles.fieldGroup} data-testid={`prop-${propertyName}`}>
-      <div className={styles.propertyHeader}>
+      <div className={styles.propertyHeader} style={{ gap: '8px' }}>
+        <button
+          type="button"
+          className={styles.toggleButton}
+          onClick={handleToggleExpand}
+          title={isExpanded ? "Collapse" : "Expand"}
+        >
+          {isResolving ? (
+            <Loader2 className={styles.loadingSpinner} size={14} />
+          ) : isExpanded ? (
+            <ChevronDown size={14} />
+          ) : (
+            <ChevronRight size={14} />
+          )}
+        </button>
         <input
           className={styles.input}
           style={{ flex: 1 }}
@@ -1278,6 +1452,26 @@ function PropertyEditor({
             }
           }}
         />
+        {isImported && (
+          <Badge 
+            variant="outline" 
+            style={{ 
+              fontSize: '9px', 
+              padding: '0 6px', 
+              height: '16px', 
+              color: 'var(--color-accent-10)', 
+              borderColor: 'var(--color-accent-6)', 
+              background: 'var(--color-accent-2)' 
+            }}
+            title={`Imported property: ${(propertySchema as any).$ref || (Array.isArray((propertySchema as any).allOf) && (propertySchema as any).allOf.find((e: any) => e.$ref)?.$ref) || 'source'}`}
+          >
+            {(() => {
+              const ref = (propertySchema as any).$ref || (Array.isArray((propertySchema as any).allOf) && (propertySchema as any).allOf.find((e: any) => e.$ref)?.$ref);
+              if (typeof ref === 'string') return ref.split('/').pop() || 'REF';
+              return 'REF';
+            })()}
+          </Badge>
+        )}
         <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--color-neutral-11)", cursor: "pointer" }}>
           <input
             type="checkbox"
@@ -1297,18 +1491,188 @@ function PropertyEditor({
         </button>
       </div>
 
-      <div className={styles.fieldRow}>
-        <label className={styles.label} style={{ fontSize: "11px", marginBottom: "4px" }}>Description</label>
-        <textarea
-          className={styles.textarea}
-          style={{ minHeight: "60px" }}
-          value={(propertySchema.description as string) || ""}
-          onChange={(e) => onUpdate({ ...propertySchema, description: e.target.value })}
-          placeholder="Add a description..."
-        />
-      </div>
+      {isExpanded && (
+        <>
+          <div className={styles.fieldRow}>
+            <label className={styles.label} style={{ fontSize: "11px", marginBottom: "4px" }}>Description</label>
+            <textarea
+              className={styles.textarea}
+              style={{ minHeight: "60px" }}
+              value={(propertySchema.description as string) || ""}
+              onChange={(e) => onUpdate({ ...propertySchema, description: e.target.value })}
+              placeholder="Add a description..."
+            />
+          </div>
 
-      <SchemaEditorForm schema={propertySchema} onChange={onUpdate} path={path} />
+          <SchemaEditorForm 
+            schema={propertySchema} 
+            onChange={onUpdate} 
+            path={path} 
+            isSchemaImported={isSchemaImported} // child inherits imported status if it's the same ref
+            onResolve={onResolve}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+function VariantItem({
+  index,
+  variant,
+  variants,
+  logicType,
+  path,
+  isImported,
+  labelData,
+  schema,
+  onChange,
+  updateSchema,
+  isSchemaImported,
+  instanceData,
+  onPropertyRename,
+  onResolve,
+}: {
+  index: number;
+  variant: Record<string, unknown>;
+  variants: Record<string, unknown>[];
+  logicType: string;
+  path: string[];
+  isImported: boolean;
+  labelData: any;
+  schema: Record<string, unknown>;
+  onChange: (schema: Record<string, unknown>) => void;
+  updateSchema: (updates: Partial<Record<string, unknown>>) => void;
+  isSchemaImported?: (schema: Record<string, unknown>, path?: string[]) => boolean;
+  instanceData?: unknown;
+  onPropertyRename?: (oldName: string, newName: string, path?: string[]) => void;
+  onResolve?: (path: string[]) => Promise<void>;
+}) {
+  const [isExpanded, setIsExpanded] = useState(!isImported);
+  const [isResolving, setIsResolving] = useState(false);
+  const variantPath = [...path, logicType, String(index)];
+
+  const handleToggleExpand = async () => {
+    const nextExpanded = !isExpanded;
+    if (nextExpanded && onResolve && isImported) {
+      const s = variant as any;
+      const hasContent = s.properties || s.items || s.type || s.oneOf || s.anyOf || s.allOf;
+      if (!hasContent && (s.$ref || s.allOf?.some((e: any) => e.$ref))) {
+        setIsResolving(true);
+        try {
+          await onResolve(variantPath);
+        } catch (e) {
+          console.error("Failed to resolve variant:", e);
+        } finally {
+          setIsResolving(false);
+        }
+      }
+    }
+    setIsExpanded(nextExpanded);
+  };
+
+  return (
+    <div className={styles.variantItem} style={{ border: '1px solid var(--color-accent-4)', marginBottom: 16, background: 'var(--color-neutral-1)' }}>
+      <div className={styles.variantItemHeader} style={{ background: 'var(--color-accent-2)', padding: '4px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+        <button
+          type="button"
+          className={styles.toggleButton}
+          onClick={handleToggleExpand}
+          title={isExpanded ? "Collapse" : "Expand"}
+        >
+          {isResolving ? (
+            <Loader2 className={styles.loadingSpinner} size={14} />
+          ) : isExpanded ? (
+            <ChevronDown size={14} />
+          ) : (
+            <ChevronRight size={14} />
+          )}
+        </button>
+        <div className={styles.variantItemTitle} style={{ color: 'var(--color-accent-11)', fontWeight: 700, flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ cursor: labelData.description ? 'help' : 'default' }}>
+            {`${index + 1}. ${labelData.title}`}
+          </span>
+          {labelData.description && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" style={{ background: 'none', border: 'none', padding: 0, cursor: 'help', opacity: 0.6, display: 'flex' }}>
+                  <Badge variant="outline" style={{ fontSize: '9px', padding: '0 4px', height: '14px', lineHeight: '14px', color: 'var(--color-neutral-10)', borderColor: 'var(--color-neutral-6)' }}>REF</Badge>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <div style={{ maxWidth: '300px', padding: '4px' }}>
+                  <div style={{ fontWeight: 800, fontSize: '9px', textTransform: 'uppercase', marginBottom: '2px', color: 'var(--color-neutral-10)' }}>IDENTIFIER / SOURCE</div>
+                  <div style={{ fontSize: '11px', fontFamily: 'monospace', wordBreak: 'break-all', background: 'var(--color-neutral-3)', padding: '4px', borderRadius: '4px', color: 'var(--color-neutral-12)' }}>{renderTooltipContentChildren(labelData.description)}</div>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {isImported && (
+            <Badge 
+              variant="outline" 
+              style={{ 
+                fontSize: '9px', 
+                padding: '0 6px', 
+                height: '16px', 
+                marginLeft: 6, 
+                color: 'var(--color-accent-10)', 
+                borderColor: 'var(--color-accent-6)', 
+                background: 'var(--color-accent-2)' 
+              }}
+              title={`Imported variant: ${(variant as any).$ref || (Array.isArray((variant as any).allOf) && (variant as any).allOf.find((e: any) => e.$ref)?.$ref) || 'source'}`}
+            >
+              {(() => {
+                const ref = (variant as any).$ref || (Array.isArray((variant as any).allOf) && (variant as any).allOf.find((e: any) => e.$ref)?.$ref);
+                if (typeof ref === 'string') return ref.split('/').pop() || 'REF';
+                return 'REF';
+              })()}
+            </Badge>
+          )}
+        </div>
+        <button
+          type="button"
+          className={styles.removeSmall}
+          style={{ marginLeft: '12px' }}
+          title="Remove this branch"
+          onClick={() => {
+            const next = variants.filter((_, idx) => idx !== index);
+            if (next.length === 0) {
+              const rest = { ...schema } as any;
+              delete rest.oneOf; delete rest.anyOf; delete rest.allOf; delete rest.oneOnly;
+              onChange({ ...rest, type: 'string' });
+            } else if (next.length === 1) {
+              const { title, description } = schema as any;
+              const flattened = {
+                ...(title ? { title } : {}),
+                ...(description ? { description } : {}),
+                ...next[0]
+              };
+              onChange(flattened);
+            } else {
+              updateSchema({ [logicType]: next });
+            }
+          }}
+        >
+          Remove
+        </button>
+      </div>
+      {isExpanded && (
+        <div style={{ padding: '8px 12px' }}>
+          <SchemaEditorForm
+            schema={variant}
+            onChange={(newSub) => {
+              const newVariants = [...variants];
+              newVariants[index] = newSub;
+              updateSchema({ [logicType]: newVariants });
+            }}
+            path={variantPath}
+            isSchemaImported={isSchemaImported}
+            instanceData={instanceData}
+            onPropertyRename={onPropertyRename}
+            onResolve={onResolve}
+          />
+        </div>
+      )}
     </div>
   );
 }
