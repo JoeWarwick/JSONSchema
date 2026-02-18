@@ -7,10 +7,21 @@ export interface LabelData {
 const noise = new Set([
   'schema', 'root', 'item', 'items', 'object', 'string', 'number', 'boolean', 'array', 'null', 'any', 
   'property', 'properties', 'definitions', '$defs', 'components', 'schemas', 'type', 'types', 'oneof', 'anyof', 'allof',
-  'variant', 'variants', 'choice', 'choices'
+  'variant', 'variants', 'choice', 'choices', 'call', 'job'
 ]);
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+const camelCaseToTitleLabel = (s: string): string | null => {
+  if (!s) return null;
+  
+  // Remove "Call" as a structural word in definitions (e.g., "reusableWorkflowCallJob" -> "reusableWorkflowJob")
+  const cleaned = s.replace(/Call([A-Z])/g, '$1'); // Remove "Call" before uppercase letters
+  if (!cleaned) return null;
+  
+  // Simply capitalize the first letter for camelCase identifiers
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+};
 
 const getFromRef = (ref?: any): string | null => {
   if (!ref || typeof ref !== 'string') return null;
@@ -24,7 +35,7 @@ const getFromRef = (ref?: any): string | null => {
     let name = decodeURIComponent(parts[i]);
     if (name.includes(':') || /^\d+\.\d+\.\d+\.\d+$/.test(name) || name.toLowerCase().startsWith('localhost')) continue;
     name = name.replace(/\.(json|schema|yaml|yml)$/i, '');
-    if (name && !noise.has(name.toLowerCase()) && !/^\d+$/.test(name)) return capitalize(name);
+    if (name && !noise.has(name.toLowerCase()) && !/^\d+$/.test(name)) return name; // Return raw name for refs, don't capitalize
   }
   return null;
 };
@@ -49,19 +60,78 @@ export const getRefKey = (refOrSchema?: any): string | null => {
   return null;
 };
 
-const getBestName = (s: any): string | null => {
+const getBestName = (s: any, propName?: string): string | null => {
   if (!s || typeof s !== 'object') return null;
-  // Next, try to extract a compact fragment/key from $ref/$comment/__from without returning the whole URL
-  const rawKey = getRefKey(s.$ref) || getRefKey(s.$comment) || getRefKey(s.__from);
-  if (rawKey) return capitalize(rawKey);
-  // Prefer an explicit title when present (fallback if no semantic $ref key)
+  
+  // Priority 1: $ref endpoint (if unresolved) - extract the definition name
+  const refName = getFromRef(s.$ref);
+  if (refName) {
+    // Try to convert camelCase identifier to Title Label (e.g., "event" -> "Event", "reusableWorkflowCallJob" -> "ReusableWorkflowJob")
+    const titleFromCamelCase = camelCaseToTitleLabel(refName);
+    if (titleFromCamelCase) return titleFromCamelCase;
+    return capitalize(refName);
+  }
+  
+  // Priority 2: Property name (if available)
+  if (propName && !noise.has(propName.toLowerCase())) {
+    // Try to convert camelCase identifier to Title Label (e.g., "reusableWorkflowCallJob" -> "ReusableWorkflowJob")
+    const titleFromCamelCase = camelCaseToTitleLabel(propName);
+    if (titleFromCamelCase) return titleFromCamelCase;
+    return capitalize(propName);
+  }
+  
+  // Priority 3: __from endpoint (if available) - metadata about where schema was inlined from
+  if (s.__from && typeof s.__from === 'string') {
+    const fromName = getFromRef(s.__from);
+    if (fromName) {
+      // Try to convert camelCase identifier to Title Label
+      const titleFromCamelCase = camelCaseToTitleLabel(fromName);
+      if (titleFromCamelCase) return titleFromCamelCase;
+      return capitalize(fromName);
+    }
+  }
+  
+  // Priority 4: $comment endpoint (if available and is a URL) - extract the last segment
+  if (s.$comment && typeof s.$comment === 'string' && (s.$comment.startsWith('http://') || s.$comment.startsWith('https://'))) {
+    // Use same fragment extraction logic as getFromRef for consistency
+    const [, fragment] = s.$comment.split('#');
+    const target = fragment || s.$comment;
+    
+    const parts = target.split('/').filter((p: string) => p && p !== '#');
+    for (let i = parts.length - 1; i >= 0; i--) {
+      let name = decodeURIComponent(parts[i]);
+      name = name.replace(/\.(json|schema|yaml|yml)$/i, '');
+      if (!name || noise.has(name.toLowerCase()) || /^\d+$/.test(name)) continue;
+      // Try to convert camelCase identifier to Title Label
+      const titleFromCamelCase = camelCaseToTitleLabel(name);
+      if (titleFromCamelCase) return titleFromCamelCase;
+      return capitalize(name);
+    }
+  }
+  
+  // Priority 5: Infer from other sources
+  // - Explicit title when present
   if (s.title && typeof s.title === 'string' && !noise.has(s.title.toLowerCase())) return capitalize(s.title);
-  // Fallback to the older heuristic that extracts a readable name from the ref/fragment
-  const name = getFromRef(s.$ref) || getFromRef(s.$comment) || getFromRef(s.__from);
-  if (name) return name;
+  
+  // - Try to extract from $ref key (fallback for non-hydrated schemas)
+  const refKey = getRefKey(s.$ref);
+  if (refKey) {
+    // Try to convert camelCase identifier to Title Label (e.g., "reusableWorkflowCallJob" -> "ReusableWorkflowJob")
+    const titleFromCamelCase = camelCaseToTitleLabel(refKey);
+    if (titleFromCamelCase) return titleFromCamelCase;
+    return capitalize(refKey);
+  }
+  
+  // - For hydrated schemas without $ref, infer from required properties (common pattern for job types)
+  if (Array.isArray(s.required)) {
+    if (s.required.includes('uses')) return 'ReusableWorkflowJob';
+    if (s.required.includes('runs-on')) return 'NormalJob';
+  }
+  
+  // - Recurse through allOf
   if (Array.isArray(s.allOf)) {
     for (const branch of s.allOf) {
-      const sub = getBestName(branch);
+      const sub = getBestName(branch, propName);
       if (sub) return sub;
     }
   }
