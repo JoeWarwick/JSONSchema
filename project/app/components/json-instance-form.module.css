@@ -21,6 +21,8 @@
   font-size: 0.875rem;
   font-family: var(--font-body);
   transition: border-color 0.2s;
+  display: inline-flex;
+  align-items: center;
 }
 
 .input:focus,
@@ -181,7 +183,6 @@
   transition: background 0.2s;
   display: inline-flex;
   align-items: center;
-  height: 32px; /* explicit height to match remove button */
 }
 
 .addButton:hover {
@@ -201,7 +202,6 @@
   transition: background 0.12s, transform 0.08s;
   display: inline-flex;
   align-items: center;
-  height: 32px; /* match other buttons */
   margin-top: var(--space-3); /* align with + buttons */
   line-height: 1;
   vertical-align: middle;
