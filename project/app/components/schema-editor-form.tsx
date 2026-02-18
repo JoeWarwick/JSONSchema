@@ -514,8 +514,8 @@ export function SchemaEditorForm({
       </div>
 
         {variants && variants.length > 0 && (
-          <div className={styles.variantsWrapper} style={{ border: '2px solid var(--color-accent-6)', background: 'var(--color-accent-1)', padding: '16px' }}>
-            <div className={styles.variantsLabel} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--color-accent-6)', padding: '6px 12px', borderRadius: '4px 4px 0 0', color: 'white', borderBottom: '1px solid var(--color-accent-7)', margin: '-16px -16px 16px -16px' }}>
+          <div className={styles.variantsWrapper}>
+            <div className={styles.variantsLabel}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontWeight: 800, opacity: 0.9 }}>COMBINER:</span>
                 <select 
@@ -526,17 +526,7 @@ export function SchemaEditorForm({
                     delete rest.oneOf; delete rest.anyOf; delete rest.allOf;
                     onChange({ ...rest, [nextType]: variants });
                   }}
-                  style={{ 
-                    background: 'rgba(255,255,255,0.15)', 
-                    color: 'white', 
-                    border: '1px solid rgba(255,255,255,0.3)', 
-                    borderRadius: '4px', 
-                    padding: '1px 4px', 
-                    fontWeight: 900, 
-                    fontSize: '10px', 
-                    cursor: 'pointer',
-                    outline: 'none'
-                  }}
+                  className={styles.combinerSelect}
                 >
                   <option value="oneOf" style={{ color: 'black' }}>oneOf (Choice)</option>
                   <option value="anyOf" style={{ color: 'black' }}>anyOf (Optional Mix)</option>
@@ -546,14 +536,14 @@ export function SchemaEditorForm({
               <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
                 <button
                   type="button"
-                  style={{ fontSize: '10px', fontWeight: 900, background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.4)', color: 'white', cursor: 'pointer' }}
+                  className={styles.addVariantButton}
                   onClick={() => {
                     updateSchema({ [logicType!]: [...variants, { type: 'string' }] });
                   }}
                 >
                   + ADD VARIANT
                 </button>
-                <span style={{ fontSize: '10px', fontWeight: 900, background: 'rgba(255,255,255,0.2)', padding: '2px 6px', borderRadius: '10px' }}>{variants.length} OPTIONS DEFINED</span>
+                <span className={styles.variantsCountBadge}>{variants.length} OPTIONS DEFINED</span>
               </div>
             </div>
             {variants.map((v, i) => {
@@ -1009,9 +999,9 @@ export function SchemaEditorForm({
             <div className={styles.propertiesHeader}>
               <h3 className={styles.propertyTitle}>Properties</h3>
               <div style={{ position: 'relative' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: "0.25rem", color: '#666' }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingLeft: "0.25rem", color: 'var(--color-neutral-11)' }}>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
                       <input
                         aria-label={`additional-allow-${path.join('-') || 'root'}`}
                         type="radio"
@@ -1026,10 +1016,10 @@ export function SchemaEditorForm({
                           setApPopoverAllowed(false);
                         }}
                       />
-                      <span style={{ marginLeft: 6 }}>Allow extra properties</span>
+                      <span>Allow Extras</span>
                     </label>
 
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
                       <input
                         aria-label={`additional-block-${path.join('-') || 'root'}`}
                         type="radio"
@@ -1043,10 +1033,10 @@ export function SchemaEditorForm({
                           setApPopoverAllowed(false);
                         }}
                       />
-                      <span style={{ marginLeft: 6 }}>Strict (no extra properties)</span>
+                      <span>Strict</span>
                     </label>
 
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
                       <input
                         aria-label={`additional-schema-${path.join('-') || 'root'}`}
                         type="radio"
@@ -1064,7 +1054,7 @@ export function SchemaEditorForm({
                           setApPopoverAllowed(false);
                         }}
                       />
-                      <span style={{ marginLeft: 6 }}>Apply schema to extras</span>
+                      <span>Schema Extras</span>
                     </label>
 
                     {schema.additionalProperties && typeof schema.additionalProperties === 'object' && (
