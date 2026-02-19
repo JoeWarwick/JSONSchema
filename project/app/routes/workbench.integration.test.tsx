@@ -86,4 +86,78 @@ describe('Workbench integration - load unresolved $defs schema', () => {
       expect(objectBtns[0]).toHaveStyle('font-weight: 700');
     });
   });
+
+  it('Save Intermediate includes definition maps in downloaded schema', async () => {
+    const draft7WithDefinitions = {
+      $schema: 'http://json-schema.org/draft-07/schema#',
+      type: 'object',
+      properties: {
+        concurrency: { $ref: '#/definitions/concurrency' }
+      },
+      definitions: {
+        concurrency: {
+          type: 'object',
+          properties: {
+            group: { type: 'string' }
+          },
+          required: ['group']
+        }
+      }
+    } as any;
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(draft7WithDefinitions));
+
+    const OriginalBlob = (global as any).Blob;
+    class MockBlob {
+      private readonly textValue: string;
+      readonly type: string;
+      readonly size: number;
+      constructor(parts: any[], options?: { type?: string }) {
+        this.textValue = (parts || []).map((p) => (typeof p === 'string' ? p : String(p))).join('');
+        this.type = options?.type || '';
+        this.size = this.textValue.length;
+      }
+      text() {
+        return Promise.resolve(this.textValue);
+      }
+    }
+    (global as any).Blob = MockBlob as any;
+
+    const originalAnchorClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = jest.fn();
+
+    const originalCreateObjectURL = (URL as any).createObjectURL;
+    const originalRevokeObjectURL = (URL as any).revokeObjectURL;
+    const createObjectURLSpy = jest.fn(() => 'blob:mock-schema');
+    const revokeObjectURLSpy = jest.fn(() => {});
+    (URL as any).createObjectURL = createObjectURLSpy;
+    (URL as any).revokeObjectURL = revokeObjectURLSpy;
+
+    render(<Workbench />);
+
+    await waitFor(() => {
+      const badge = screen.getByTestId('schema-source-badge');
+      expect(badge).toHaveTextContent(/resolved/i);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Schema Input/i }));
+
+    const saveIntermediate = await screen.findByRole('button', { name: /Save Intermediate/i });
+    fireEvent.click(saveIntermediate);
+
+    await waitFor(async () => {
+      expect(createObjectURLSpy).toHaveBeenCalled();
+      const firstArg = createObjectURLSpy.mock.calls[0]?.[0] as Blob | undefined;
+      expect(firstArg).toBeDefined();
+      const text = await firstArg!.text();
+      expect(text).toContain('"definitions"');
+      expect(text).toContain('"concurrency"');
+    });
+
+    (URL as any).createObjectURL = originalCreateObjectURL;
+    (URL as any).revokeObjectURL = originalRevokeObjectURL;
+    HTMLAnchorElement.prototype.click = originalAnchorClick;
+    (global as any).Blob = OriginalBlob;
+  });
+
 });

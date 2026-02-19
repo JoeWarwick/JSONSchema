@@ -653,6 +653,7 @@ export default function Workbench() {
                     isSchemaImported={isSchemaImported}
                     instanceData={instanceData}
                     onViewSource={() => setShowSchemaSource(true)}
+                    rootSchema={state.resolvedCache as any}
                     onResolve={async (path) => {
                       // Dynamically resolve a sub-path of the schema
                       let node: any = state.resolvedCache;

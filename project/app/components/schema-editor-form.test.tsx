@@ -172,6 +172,50 @@ describe('SchemaEditorForm UI', () => {
     expect(within(parent).getByRole('button', { name: '+ default' })).toBeInTheDocument();
   });
 
+  it('renders ref buttons in the type control row even when no local definitions exist', async () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        child: { type: 'string' }
+      }
+    } as any;
+
+    render(
+      <TooltipProvider>
+        <SchemaEditorForm schema={schema} onChange={() => {}} />
+      </TooltipProvider>
+    );
+
+    const refButtons = screen.getAllByRole('button', { name: /^ref/i });
+    expect(refButtons.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('keeps root $defs available for nested ref dropdowns when rootSchema is not explicitly passed', async () => {
+    const schema = {
+      type: 'object',
+      $defs: {
+        SharedType: {
+          type: 'string'
+        }
+      },
+      properties: {
+        child: { type: 'string' }
+      }
+    } as any;
+
+    render(
+      <TooltipProvider>
+        <SchemaEditorForm schema={schema} onChange={() => {}} />
+      </TooltipProvider>
+    );
+
+    const refButtons = screen.getAllByRole('button', { name: /^ref/i });
+    expect(refButtons.length).toBeGreaterThanOrEqual(2);
+
+    fireEvent.click(refButtons[1]);
+    expect(await screen.findByRole('button', { name: 'SharedType' })).toBeInTheDocument();
+  });
+
   it('renders number facet + buttons above the Enum checkbox', async () => {
     const schema = { type: 'number' } as any;
     render(
@@ -318,5 +362,50 @@ describe('SchemaEditorForm UI', () => {
     expect(handleChange).toHaveBeenCalled();
     const lastCall = handleChange.mock.calls[handleChange.mock.calls.length - 1][0];
     expect(lastCall.properties).toEqual({});
+  });
+
+  it('displays ref button in nested property when root schema has definitions', async () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        userId: { type: 'string' },
+        metadata: {
+          type: 'object',
+          properties: {
+            created: { type: 'string' }
+          }
+        }
+      },
+      $defs: {
+        user: { type: 'object', properties: { name: { type: 'string' } } }
+      }
+    } as any;
+
+    const handleChange = jest.fn();
+
+    render(
+      <TooltipProvider>
+        <SchemaEditorForm schema={schema} onChange={handleChange} />
+      </TooltipProvider>
+    );
+
+    // Ref button should be visible at root level
+    const refButtons = screen.queryAllByRole('button', { name: /^ref/ });
+    expect(refButtons.length).toBeGreaterThan(0);
+    // Verify it's actually a button element, not just text
+    expect(refButtons[0]).toBeInstanceOf(HTMLButtonElement);
+
+    // Now expand the nested property
+    const metadataGroup = screen.getByTestId('prop-metadata');
+    // Find the expand toggle button (first button in the group)
+    const expandBtn = within(metadataGroup).getAllByRole('button')[0];
+    fireEvent.click(expandBtn);
+
+    // Wait for nested form to render and check for ref button
+    const nestedRefButtons = screen.queryAllByRole('button', { name: /^ref/ });
+    // Should have ref button visibility propagated to nested form
+    expect(nestedRefButtons.length).toBeGreaterThan(0);
+    // Verify it's actually a button element
+    expect(nestedRefButtons.some(btn => btn instanceof HTMLButtonElement)).toBe(true);
   });
 });

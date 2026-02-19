@@ -1,0 +1,4 @@
+{
+  "persisted": "{\"$id\":\"https://example.com/health-record.schema.json\",\"type\":\"object\",\"properties\":{\"emergencyContact\":{\"$ref\":\"https://example.com/user-profile.schema.json\"}}}",
+  "ts": 1771481967475
+}

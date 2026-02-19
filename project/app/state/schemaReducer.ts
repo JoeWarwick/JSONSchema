@@ -122,7 +122,7 @@ export default function schemaReducer(state: SchemaState, action: SchemaAction):
       const resolved = action.payload;
       // Map the edited resolved schema back into the canonical source structure.
       // Only attempt rehydration when the current `source` appears to be
-      // a $defs/$ref-based document; when the source is already a
+      // a definitions/$defs/$ref-based document; when the source is already a
       // concrete root-object, prefer assigning the edited resolved schema
       // directly to avoid heuristic/partial rehydration replacing a fully
       // processed schema.
@@ -131,7 +131,7 @@ export default function schemaReducer(state: SchemaState, action: SchemaAction):
         const rawSrc = state.source as Schema;
         const src = rewriteExampleComRefs(rawSrc) as Schema;
         const srcObj = src as Record<string, any>;
-        if (srcObj.$defs || typeof srcObj.$ref === 'string') {
+        if (srcObj.$defs || srcObj.definitions || typeof srcObj.$ref === 'string') {
           newSource = rehydrateSchema(src as Record<string, any>, resolved as Record<string, any>);
         } else {
           newSource = resolved;
@@ -236,7 +236,23 @@ export default function schemaReducer(state: SchemaState, action: SchemaAction):
 // never need to call resolver utilities or inspect `$defs` structure.
 export function getEditorSchema(state: SchemaState): Schema {
   try {
-    return produceResolvedCache(state.resolvedCache, state.sourceIsObject, state.source);
+    const schema = produceResolvedCache(state.resolvedCache, state.sourceIsObject, state.source);
+    // ALWAYS return a safe copy to avoid mutations affecting the cached state
+    // Remove top-level definitions from editor view - they should not be exposed to UI layers
+    // The definitions are preserved in resolvedCache for features like the ref button,
+    // but the editor view should present a clean interface without internal definitions
+    if (schema && typeof schema === 'object') {
+      const clean = { ...schema } as any;
+      // Remove both $defs and definitions when they exist with properties
+      if (clean.properties) {
+        if (clean.$defs) delete clean.$defs;
+        if (clean.definitions) delete clean.definitions;
+      }
+      // Return the safe copy even if we didn't delete anything
+      // to ensure we never return a direct reference to state.resolvedCache
+      return clean;
+    }
+    return schema;
   } catch (_) {
     return state.resolvedCache || state.source;
   }
@@ -461,8 +477,8 @@ function normalizeResolved(s: Schema, source?: Schema): Schema {
         const out = { ...s, properties: cleaned };
         // Ensure editor view is object-rooted when properties exist
         if (!(out as any).type) (out as any).type = 'object';
-        // Ensure we never expose a top-level $defs on the normalized view
-        if ((out as any).$defs) delete (out as any).$defs;
+        // Preserve $defs in the normalized view so editors can still reference definitions
+        // (especially for the ref button in SchemaEditorForm)
         return augmentSchemaForKnownIssues(out) as Schema;
       }
       return s;
@@ -525,7 +541,7 @@ function normalizeResolved(s: Schema, source?: Schema): Schema {
   return augmentSchemaForKnownIssues(s) as Schema;
 }
 
-function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source?: Schema): Schema {
+export function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source?: Schema): Schema {
   // Use the boolean discriminator `sourceIsObject` (set on schema load)
   // to decide whether to normalize the resolved view for editors.
   try {
@@ -667,8 +683,22 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
               // ignore
             }
 
-            if ((resolvedForMutation as any).$defs) delete (resolvedForMutation as any).$defs;
-            return normalizeResolved(resolvedForMutation, source);
+            // Preserve $defs in the resolved view so editors can still reference definitions
+            // (especially for the ref button in SchemaEditorForm)
+            const normalized = normalizeResolved(resolvedForMutation, source);
+            // After normalization removes $defs, add them back if source has them
+            // This is critical for the ref button to access available definitions
+            if (normalized && typeof normalized === 'object' && source && typeof source === 'object') {
+              const srcObj = source as any;
+              // Always preserve $defs from source, regardless of whether result has properties
+              if (srcObj.$defs && !(normalized as any).$defs) {
+                // Make a proper copy to avoid mutating shared references
+                const result = { ...normalized } as any;
+                result.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
+                return result;
+              }
+            }
+            return normalized;
           }
         }
       }
@@ -682,7 +712,19 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
     try {
       if ((!resolved || resolved === null) && sourceIsObject && source && typeof source === 'object') {
         const fromSource = (source as any).properties && typeof (source as any).properties === 'object' ? { type: 'object', properties: (source as any).properties } : { type: 'object', properties: source };
-        return normalizeResolved(fromSource as Schema);
+        const normalized = normalizeResolved(fromSource as Schema, source);
+        // Preserve $defs after normalization for ref button access
+        if (normalized && typeof normalized === 'object' && source && typeof source === 'object') {
+          const srcObj = source as any;
+          // Always preserve $defs from source, regardless of whether result has properties
+          if (!(normalized as any).$defs && srcObj.$defs) {
+            // Make a proper copy to avoid mutating shared references
+            const result = { ...normalized } as any;
+            result.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
+            return result;
+          }
+        }
+        return normalized;
       }
     } catch (_) {
       // ignore
@@ -693,8 +735,13 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
     if (source && typeof source === 'object') {
       const srcObj = source as Record<string, any>;
       try {
-        if (srcObj.$defs && typeof srcObj.$defs === 'object') {
-          return normalizeResolved(srcObj.$defs as Schema);
+        if (srcObj.$defs && typeof srcObj.$defs === 'object' && !srcObj.properties) {
+          const result = normalizeResolved(srcObj.$defs as Schema) as any;
+          // Preserve $defs even for definitions-only schemas
+          if (!result.$defs && srcObj.$defs) {
+            result.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
+          }
+          return result;
         }
       } catch (_) {
         // ignore
@@ -760,18 +807,72 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
               }
             }
             const cleanedResolved = { ...(resolved as any), properties: cleaned } as Schema;
-            if ((cleanedResolved as any).$defs) delete (cleanedResolved as any).$defs;
-            return normalizeResolved(cleanedResolved, source);
+            // Preserve $defs for editor access (especially for ref button)
+            // Also copy $defs from source if it has them and resolved doesn't
+            try {
+              if (source && typeof source === 'object' && (source as any).$defs && !(cleanedResolved as any).$defs) {
+                (cleanedResolved as any).$defs = (source as any).$defs;
+              }
+            } catch (_) {
+              // ignore
+            }
+            const normalized = normalizeResolved(cleanedResolved, source);
+            // Always preserve $defs after normalization for ref button access
+            if (normalized && typeof normalized === 'object' && source && typeof source === 'object') {
+              const srcObj = source as any;
+              // Always preserve $defs from source, regardless of whether result has properties
+              if (!(normalized as any).$defs && srcObj.$defs) {
+                // Make a proper copy to avoid mutating shared references
+                const result = { ...normalized } as any;
+                result.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
+                return result;
+              }
+            }
+            return normalized;
           }
         } catch (_) {
-          // ignore
+          // ignore - return fallback on error
         }
-        return normalizeResolved(resolved, source);
+        // Fallback if try block failed
+        if (resolved && typeof resolved === 'object' && source && typeof source === 'object') {
+          const resObj = resolved as any;
+          const srcObj = source as any;
+          if (!resObj.$defs && srcObj.$defs) {
+            resObj.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
+          }
+        }
+        return resolved;
+      }
+    } catch (_) {
+      // ignore
+    }
+    // If resolved doesn't have $defs but source does, copy them over for editor access
+    try {
+      if (resolved && typeof resolved === 'object' && source && typeof source === 'object') {
+        const resObj = resolved as any;
+        const srcObj = source as any;
+        if (!resObj.$defs && srcObj.$defs) {
+          resObj.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
+        }
+        if (!resObj.definitions && srcObj.definitions) {
+          resObj.definitions = JSON.parse(JSON.stringify(srcObj.definitions));
+        }
       }
     } catch (_) {
       // ignore
     }
     return resolved;
+  } catch (_) {
+    // ignore
+  }
+  // FINAL SAFETY: Ensure source $defs are preserved on the result
+  try {
+    if (source && typeof source === 'object' && (source as any).$defs && resolved && typeof resolved === 'object') {
+      const srcDefs = (source as any).$defs;
+      if (!(resolved as any).$defs) {
+        (resolved as any).$defs = srcDefs;
+      }
+    }
   } catch (_) {
     // ignore
   }
@@ -782,7 +883,32 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
 export function getResolvedSource(state: SchemaState): Schema {
   try {
     if (!state || !state.resolvedCache) return null;
-    return canonicalizeForPersist(state.resolvedCache as Schema);
+    
+    const resolved = state.resolvedCache as Record<string, any>;
+    const source = state.source as Record<string, any> | null;
+    
+    // Start with canonicalized resolved cache
+    const result = canonicalizeForPersist(resolved) as Record<string, any>;
+    
+    // Preserve definitions from source if they exist and aren't already in result.
+    // This ensures downloaded intermediate schemas still include definition maps
+    // required by ref pickers in the editor.
+    if (source && source.$defs && !result.$defs) {
+      try {
+        result.$defs = JSON.parse(JSON.stringify(source.$defs));
+      } catch (_) {
+        // ignore if can't copy
+      }
+    }
+    if (source && source.definitions && !result.definitions) {
+      try {
+        result.definitions = JSON.parse(JSON.stringify(source.definitions));
+      } catch (_) {
+        // ignore if can't copy
+      }
+    }
+    
+    return result;
   } catch (_) {
     return state.resolvedCache as Schema;
   }
