@@ -147,9 +147,9 @@ describe('Workbench integration - load unresolved $defs schema', () => {
 
     await waitFor(async () => {
       expect(createObjectURLSpy).toHaveBeenCalled();
-      const firstArg = createObjectURLSpy.mock.calls[0]?.[0] as Blob | undefined;
+      const firstArg = (createObjectURLSpy.mock.calls[0] as any)[0] as Blob;
       expect(firstArg).toBeDefined();
-      const text = await firstArg!.text();
+      const text = await firstArg?.text();
       expect(text).toContain('"definitions"');
       expect(text).toContain('"concurrency"');
     });

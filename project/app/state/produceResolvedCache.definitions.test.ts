@@ -1,9 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import schemaReducer, { 
-  initialSchemaState,
-  APPLY_SOURCE_UPDATE,
-  produceResolvedCache
-} from './schemaReducer';
+import { produceResolvedCache } from './schemaReducer';
 
 describe('produceResolvedCache - Definitions Preservation', () => {
   it('preserves $defs from source when resolving with async resolver', async () => {
@@ -37,7 +33,7 @@ describe('produceResolvedCache - Definitions Preservation', () => {
     const sourceIsObject = true;
     const source = workflow;
 
-    const result = produceResolvedCache(resolved, sourceIsObject, source);
+    const result = produceResolvedCache(resolved, sourceIsObject, source) as any;
 
     // The key test: result should have $defs preserved
     expect(result).toBeDefined();
@@ -68,7 +64,7 @@ describe('produceResolvedCache - Definitions Preservation', () => {
     const sourceIsObject = true;
     const source = legacySchema;
 
-    const result = produceResolvedCache(resolved, sourceIsObject, source);
+    const result = produceResolvedCache(resolved, sourceIsObject, source) as any;
 
     expect(result).toBeDefined();
     expect(result.definitions).toBeDefined();
@@ -94,7 +90,7 @@ describe('produceResolvedCache - Definitions Preservation', () => {
     const resolved = null;
     const sourceIsObject = true;
 
-    const result = produceResolvedCache(resolved, sourceIsObject, source);
+    const result = produceResolvedCache(resolved, sourceIsObject, source) as any;
 
     expect(result).toBeDefined();
     expect(result.$defs).toBeDefined();
@@ -130,7 +126,7 @@ describe('produceResolvedCache - Definitions Preservation', () => {
 
     const sourceIsObject = true;
 
-    const result = produceResolvedCache(resolved, sourceIsObject, source);
+    const result = produceResolvedCache(resolved, sourceIsObject, source) as any;
 
     expect(result).toBeDefined();
     expect(result.$defs).toBeDefined();
@@ -157,7 +153,7 @@ describe('produceResolvedCache - Definitions Preservation', () => {
     const resolved = { ...source };
     const sourceIsObject = true;
 
-    const result = produceResolvedCache(resolved, sourceIsObject, source);
+    const result = produceResolvedCache(resolved, sourceIsObject, source) as any;
 
     // Result should have $defs
     expect(result.$defs).toBeDefined();

@@ -1,5 +1,5 @@
 import { getEditorSchema } from './schemaReducer';
-import { SchemaState } from './schemaReducer';
+import type { SchemaState } from './schemaReducer';
 
 /**
  * Test for mutation issue where getEditorSchema would cause state.resolvedCache
@@ -43,22 +43,23 @@ describe('schemaReducer - mutation prevention', () => {
 
     // Call getEditorSchema multiple times (simulate re-renders)
     for (let i = 0; i < 3; i++) {
-      const editorSchema = getEditorSchema(state);
+      const editorSchema = getEditorSchema(state) as any;
+      const rootSchema = state.resolvedCache as any;
 
       // Verify editorSchema does NOT have $defs
       expect(editorSchema.$defs).toBeUndefined();
       expect(editorSchema.properties).toBeDefined();
 
       // Verify state.resolvedCache STILL HAS $defs (not mutated)
-      expect(state.resolvedCache.$defs).toBeDefined();
-      expect(state.resolvedCache.$defs).toEqual(resolvedCacheWithDefs.$defs);
+      expect(rootSchema.$defs).toBeDefined();
+      expect(rootSchema.$defs).toEqual(resolvedCacheWithDefs.$defs);
 
       // Verify the $defs content is unchanged
-      expect(JSON.stringify(state.resolvedCache.$defs)).toBe(originalDefsJson);
+      expect(JSON.stringify(rootSchema.$defs)).toBe(originalDefsJson);
 
       // Verify we didn't accidentally share references
       expect((editorSchema as any) === state.resolvedCache).toBe(false);
-      expect((editorSchema as any).properties === (state.resolvedCache as any).properties).toBe(false);
+      expect((editorSchema as any).properties === rootSchema.properties).toBe(false);
     }
 
     // Triple-check: original ref should still have $defs
@@ -88,7 +89,8 @@ describe('schemaReducer - mutation prevention', () => {
       derefInProgress: false
     };
 
-    const editorSchema = getEditorSchema(state);
+    const editorSchema = getEditorSchema(state) as any;
+    const rootSchema = state.resolvedCache as any;
 
     // Both should be objects
     expect(editorSchema).toEqual(expect.objectContaining({ type: 'object' }));
@@ -101,8 +103,8 @@ describe('schemaReducer - mutation prevention', () => {
     expect(editorSchema.$defs).toBeUndefined();
 
     // rootSchema SHOULD have $defs
-    expect(state.resolvedCache.$defs).toBeDefined();
-    expect(state.resolvedCache.$defs.Event).toBeDefined();
+    expect(rootSchema.$defs).toBeDefined();
+    expect(rootSchema.$defs.Event).toBeDefined();
 
     // Mutating editorSchema should not affect resolved cache
     (editorSchema as any).mutated = true;
@@ -135,24 +137,25 @@ describe('schemaReducer - mutation prevention', () => {
     // Simulate multiple render cycles
     const editorSchemas = [];
     for (let i = 0; i < 5; i++) {
-      editorSchemas.push(getEditorSchema(state));
+      editorSchemas.push(getEditorSchema(state) as any);
     }
 
     // Check all editor schemas
-    editorSchemas.forEach((schema, index) => {
+    editorSchemas.forEach((schema) => {
       expect(schema.$defs).toBeUndefined();
       expect(schema.properties?.user).toBeDefined();
     });
 
     // Check state.resolvedCache still intact
-    expect(state.resolvedCache.$defs).toBeDefined();
-    expect(state.resolvedCache.$defs.User).toBeDefined();
-    expect(state.resolvedCache.properties.user).toBeDefined();
+    const rootSchema = state.resolvedCache as any;
+    expect(rootSchema.$defs).toBeDefined();
+    expect(rootSchema.$defs.User).toBeDefined();
+    expect(rootSchema.properties.user).toBeDefined();
 
     // Verify all editor schemas differ from state
-    editorSchemas.forEach((schema, index) => {
+    editorSchemas.forEach((schema) => {
       expect(schema).not.toBe(state.resolvedCache);
-      expect(schema.properties).not.toBe(state.resolvedCache.properties);
+      expect(schema.properties).not.toBe(rootSchema.properties);
     });
   });
 });
