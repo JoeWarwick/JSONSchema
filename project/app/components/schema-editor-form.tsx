@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { validateValueAgainstSchema } from "../utils/validation";
 import {
   addPropertyToSchema,
@@ -80,6 +80,7 @@ export function SchemaEditorForm({
   const [newDefName, setNewDefName] = useState('');
   const [customRefUri, setCustomRefUri] = useState('');
   const [showRefDropdown, setShowRefDropdown] = useState(false);
+  const refDropdownRef = useRef<HTMLDivElement>(null);
 
   // Initialize local draft when the popover is opened programmatically
   useEffect(() => {
@@ -110,6 +111,23 @@ export function SchemaEditorForm({
   useEffect(() => {
     setLocalAdditionalSchema(schema.additionalProperties && typeof schema.additionalProperties === 'object' ? (schema.additionalProperties as Record<string, unknown>) : null);
   }, [schema.additionalProperties]);
+
+  // Handle clicks outside the ref dropdown to close it
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (refDropdownRef.current && !refDropdownRef.current.contains(event.target as Node)) {
+        setShowRefDropdown(false);
+      }
+    };
+
+    if (showRefDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showRefDropdown]);
 
   if (!schema) return null;
 
@@ -463,6 +481,72 @@ export function SchemaEditorForm({
               );
             })}
             {!variants && path.length > 0 && (
+              <div style={{ position: 'relative' }} ref={refDropdownRef}>
+                <button
+                  type="button"
+                  className={styles.addSmall}
+                  onClick={() => setShowRefDropdown(!showRefDropdown)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+                >
+                  ref <ChevronDown size={12} />
+                </button>
+                {showRefDropdown && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      background: 'var(--color-neutral-1)',
+                      border: '1px solid var(--color-neutral-6)',
+                      borderRadius: '4px',
+                      display: 'inline-block',
+                      maxHeight: '200px',
+                      overflow: 'auto',
+                      overflowX: 'hidden',
+                      zIndex: 1000,
+                      marginTop: '4px',
+                      boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                    }}
+                  >
+                    {definitionNames.length === 0 ? (
+                      <div style={{ padding: '8px 12px', fontSize: '11px', color: 'var(--color-neutral-10)' }}>
+                        No local definitions found
+                      </div>
+                    ) : (
+                      definitionNames.map(defName => (
+                        <button
+                          key={defName}
+                          type="button"
+                          onClick={() => {
+                            const defsKey = getDefsKey();
+                            updateSchema({ $ref: `#/${defsKey}/${defName}` });
+                            setShowRefDropdown(false);
+                          }}
+                          style={{
+                            display: 'block',
+                            padding: '8px 12px',
+                            textAlign: 'left',
+                            fontSize: '11px',
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: 'var(--color-neutral-12)',
+                            borderBottom: '1px solid var(--color-neutral-4)',
+                            whiteSpace: 'nowrap',
+                            overflowX: 'hidden',
+                          }}
+                          onMouseOver={(e) => (e.currentTarget.style.background = 'var(--color-primary-4)')}
+                          onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}
+                        >
+                          {defName}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            {!variants && path.length > 0 && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -486,70 +570,6 @@ export function SchemaEditorForm({
                   Convert this field into a polymorphic choice. This wraps the current schema in a <code>oneOf</code>, <code>anyOf</code>, or <code>allOf</code> combiner, allowing you to define multiple valid structures for this property.
                 </TooltipContent>
               </Tooltip>
-            )}
-            {!variants && path.length > 0 && (
-              <div style={{ position: 'relative' }}>
-                <button
-                  type="button"
-                  className={styles.addSmall}
-                  onClick={() => setShowRefDropdown(!showRefDropdown)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-                >
-                  ref <ChevronDown size={12} />
-                </button>
-                {showRefDropdown && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '100%',
-                      left: 0,
-                      background: 'var(--color-neutral-1)',
-                      border: '1px solid var(--color-neutral-6)',
-                      borderRadius: '4px',
-                      minWidth: '150px',
-                      maxHeight: '200px',
-                      overflowY: 'auto',
-                      zIndex: 1000,
-                      marginTop: '4px',
-                      boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
-                    }}
-                  >
-                    {definitionNames.length === 0 ? (
-                      <div style={{ padding: '8px 12px', fontSize: '11px', color: 'var(--color-neutral-10)' }}>
-                        No local definitions found
-                      </div>
-                    ) : (
-                      definitionNames.map(defName => (
-                        <button
-                          key={defName}
-                          type="button"
-                          onClick={() => {
-                            const defsKey = getDefsKey();
-                            updateSchema({ $ref: `#/${defsKey}/${defName}` });
-                            setShowRefDropdown(false);
-                          }}
-                          style={{
-                            display: 'block',
-                            width: '100%',
-                            padding: '8px 12px',
-                            textAlign: 'left',
-                            fontSize: '11px',
-                            background: 'transparent',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: 'var(--color-neutral-12)',
-                            borderBottom: '1px solid var(--color-neutral-4)'
-                          }}
-                          onMouseOver={(e) => (e.currentTarget.style.background = 'var(--color-primary-4)')}
-                          onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}
-                        >
-                          {defName}
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
             )}
             <div style={{ flex: 1 }} />
             {isImported && renderType === 'object' && (
