@@ -462,7 +462,7 @@ export function SchemaEditorForm({
                 </button>
               );
             })}
-            {!variants && (
+            {!variants && path.length > 0 && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -487,7 +487,7 @@ export function SchemaEditorForm({
                 </TooltipContent>
               </Tooltip>
             )}
-            {!variants && (
+            {!variants && path.length > 0 && (
               <div style={{ position: 'relative' }}>
                 <button
                   type="button"

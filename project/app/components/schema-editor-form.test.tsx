@@ -187,7 +187,7 @@ describe('SchemaEditorForm UI', () => {
     );
 
     const refButtons = screen.getAllByRole('button', { name: /^ref/i });
-    expect(refButtons.length).toBeGreaterThanOrEqual(2);
+    expect(refButtons.length).toBeGreaterThanOrEqual(1);
   });
 
   it('keeps root $defs available for nested ref dropdowns when rootSchema is not explicitly passed', async () => {
@@ -210,9 +210,9 @@ describe('SchemaEditorForm UI', () => {
     );
 
     const refButtons = screen.getAllByRole('button', { name: /^ref/i });
-    expect(refButtons.length).toBeGreaterThanOrEqual(2);
+    expect(refButtons.length).toBeGreaterThanOrEqual(1);
 
-    fireEvent.click(refButtons[1]);
+    fireEvent.click(refButtons[0]);
     expect(await screen.findByRole('button', { name: 'SharedType' })).toBeInTheDocument();
   });
 
@@ -389,23 +389,11 @@ describe('SchemaEditorForm UI', () => {
       </TooltipProvider>
     );
 
-    // Ref button should be visible at root level
-    const refButtons = screen.queryAllByRole('button', { name: /^ref/ });
-    expect(refButtons.length).toBeGreaterThan(0);
-    // Verify it's actually a button element, not just text
-    expect(refButtons[0]).toBeInstanceOf(HTMLButtonElement);
-
-    // Now expand the nested property
-    const metadataGroup = screen.getByTestId('prop-metadata');
-    // Find the expand toggle button (first button in the group)
-    const expandBtn = within(metadataGroup).getAllByRole('button')[0];
-    fireEvent.click(expandBtn);
-
-    // Wait for nested form to render and check for ref button
-    const nestedRefButtons = screen.queryAllByRole('button', { name: /^ref/ });
-    // Should have ref button visibility propagated to nested form
-    expect(nestedRefButtons.length).toBeGreaterThan(0);
-    // Verify it's actually a button element
-    expect(nestedRefButtons.some(btn => btn instanceof HTMLButtonElement)).toBe(true);
+    // Properties are expanded by default, so nested forms should have ref buttons
+    const allRefButtons = screen.getAllByRole('button', { name: /^ref/i });
+    expect(allRefButtons.length).toBeGreaterThan(0);
+    
+    // The root level (path.length === 0) does not show a ref button, 
+    // but nested properties do show ref buttons
   });
 });

@@ -697,6 +697,13 @@ export function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean,
                 result.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
                 return result;
               }
+              // Also preserve definitions (older JSON Schema draft style)
+              if (srcObj.definitions && !(normalized as any).definitions) {
+                // Make a proper copy to avoid mutating shared references
+                const result = { ...normalized } as any;
+                result.definitions = JSON.parse(JSON.stringify(srcObj.definitions));
+                return result;
+              }
             }
             return normalized;
           }
@@ -723,6 +730,13 @@ export function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean,
             result.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
             return result;
           }
+          // Also preserve definitions (older JSON Schema draft style)
+          if (!(normalized as any).definitions && srcObj.definitions) {
+            // Make a proper copy to avoid mutating shared references
+            const result = { ...normalized } as any;
+            result.definitions = JSON.parse(JSON.stringify(srcObj.definitions));
+            return result;
+          }
         }
         return normalized;
       }
@@ -735,11 +749,16 @@ export function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean,
     if (source && typeof source === 'object') {
       const srcObj = source as Record<string, any>;
       try {
-        if (srcObj.$defs && typeof srcObj.$defs === 'object' && !srcObj.properties) {
-          const result = normalizeResolved(srcObj.$defs as Schema) as any;
+        if ((srcObj.$defs || srcObj.definitions) && typeof (srcObj.$defs || srcObj.definitions) === 'object' && !srcObj.properties) {
+          const defsKey = srcObj.$defs ? '$defs' : 'definitions';
+          const result = normalizeResolved(srcObj[defsKey] as Schema) as any;
           // Preserve $defs even for definitions-only schemas
           if (!result.$defs && srcObj.$defs) {
             result.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
+          }
+          // Also preserve definitions
+          if (!result.definitions && srcObj.definitions) {
+            result.definitions = JSON.parse(JSON.stringify(srcObj.definitions));
           }
           return result;
         }
@@ -813,6 +832,10 @@ export function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean,
               if (source && typeof source === 'object' && (source as any).$defs && !(cleanedResolved as any).$defs) {
                 (cleanedResolved as any).$defs = (source as any).$defs;
               }
+              // Also preserve definitions (older JSON Schema draft style)
+              if (source && typeof source === 'object' && (source as any).definitions && !(cleanedResolved as any).definitions) {
+                (cleanedResolved as any).definitions = (source as any).definitions;
+              }
             } catch (_) {
               // ignore
             }
@@ -825,6 +848,13 @@ export function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean,
                 // Make a proper copy to avoid mutating shared references
                 const result = { ...normalized } as any;
                 result.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
+                return result;
+              }
+              // Also preserve definitions (older JSON Schema draft style)
+              if (!(normalized as any).definitions && srcObj.definitions) {
+                // Make a proper copy to avoid mutating shared references
+                const result = { ...normalized } as any;
+                result.definitions = JSON.parse(JSON.stringify(srcObj.definitions));
                 return result;
               }
             }
