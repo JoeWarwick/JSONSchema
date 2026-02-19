@@ -11,11 +11,10 @@ import {
 } from "./schema-behaviors";
 import { validateSchema } from "../utils/schema-generator";
 import styles from "./schema-editor-form.module.css";
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./ui/tooltip/tooltip";
+import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip/tooltip";
 import { Badge } from "./ui/badge/badge";
 import { Popover, PopoverTrigger, PopoverContent } from "./ui/popover/popover";
-import { renderTooltipContentChildren } from './tooltip-utils';
-import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, Trash2 } from "lucide-react";
 
 import Select from "react-select";
 import CreatableSelect from "react-select/creatable";
@@ -42,7 +41,6 @@ export function SchemaEditorForm({
   onPropertyRename, 
   isSchemaImported, 
   instanceData,
-  onViewSource,
   onResolve
 }: SchemaEditorFormProps) {
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -413,6 +411,68 @@ export function SchemaEditorForm({
                 </TooltipContent>
               </Tooltip>
             )}
+            <div style={{ flex: 1 }} />
+            {isImported && renderType === 'object' && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // build a local allOf override referencing the original $ref when available
+                      let refStr: string | null = null;
+                      try {
+                        if (typeof (schema as any).$ref === 'string') refStr = (schema as any).$ref;
+                        else if (Array.isArray((schema as any).allOf)) {
+                          const m = ((schema as any).allOf as any[]).find((e: any) => e && typeof e.$ref === 'string');
+                          if (m) refStr = m.$ref;
+                        }
+                      } catch (e) {
+                        // ignore
+                      }
+                      if (!refStr) return;
+
+                      // If instance data is available, attempt to use instance keys at the current path
+                      // to pre-populate property schemas so we don't add arbitrary fields like "username".
+                      const localProperties: Record<string, unknown> = {};
+                      try {
+                        if (instanceData && typeof instanceData === 'object') {
+                          // Traverse instanceData according to the editor path to find the relevant object
+                          let node: any = instanceData as any;
+                          for (const p of path) {
+                            if (!node || typeof node !== 'object') { node = null; break; }
+                            node = node[p];
+                          }
+                          if (node && typeof node === 'object' && !Array.isArray(node)) {
+                            for (const [k, v] of Object.entries(node)) {
+                              try {
+                                // generate a schema for the instance value to make the override valid
+                                const gen = generateSchema(v as any);
+                                localProperties[k] = gen;
+                              } catch (_) {
+                                // fallback: mark as string
+                                localProperties[k] = { type: 'string' };
+                              }
+                            }
+                          }
+                        }
+                      } catch (_) { /* ignore */ }
+
+                      const overrideObj: Record<string, unknown> = { type: 'object', properties: localProperties };
+                      const next: Record<string, unknown> = { allOf: [{ $ref: refStr }, overrideObj] };
+                      if (schema.title) next.title = schema.title as string;
+                      onChange(next);
+                    }}
+                    className={styles.addSmall}
+                    style={{ background: '#5b21b6', borderColor: '#6d28d9', color: 'white' }}
+                  >
+                    Override
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Create a local <code>allOf</code> extension. This keeps the original <code>$ref</code> definition as a base but allows you to add specific constraints (like pattern, minLength, or extra properties) to just this instance.
+                </TooltipContent>
+              </Tooltip>
+            )}
           </div>
         </div>
       </div>
@@ -420,89 +480,8 @@ export function SchemaEditorForm({
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
         <div style={{ fontSize: (schema.title ? 11 : 10), fontWeight: (schema.title ? 700 : 900), textTransform: (schema.title ? 'none' : 'uppercase'), color: (schema.title ? 'inherit' : 'var(--color-neutral-10)') }}>
           {(schema.title as string) || ''}
-          {isImported && (
-            <Badge 
-              variant="outline" 
-              style={{ 
-                fontSize: '9px', 
-                padding: '0 6px', 
-                height: '16px', 
-                marginLeft: 6, 
-                color: 'var(--color-accent-10)', 
-                borderColor: 'var(--color-accent-6)', 
-                background: 'var(--color-accent-2)' 
-              }}
-              title={`Imported from ${(schema as any).$ref || (Array.isArray(schema.allOf) && (schema.allOf as any[]).find((e: any) => e.$ref)?.$ref) || 'source'}`}
-            >
-              {(() => {
-                const ref = (schema as any).$ref || (Array.isArray(schema.allOf) && (schema.allOf as any[]).find((e: any) => e.$ref)?.$ref);
-                if (typeof ref === 'string') return ref.split('/').pop() || 'REF';
-                return 'REF';
-              })()}
-            </Badge>
-          )}
         </div>
         <div style={{ flex: 1 }} />
-        {isImported && renderType === 'object' && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => {
-                  // build a local allOf override referencing the original $ref when available
-                  let refStr: string | null = null;
-                  try {
-                    if (typeof (schema as any).$ref === 'string') refStr = (schema as any).$ref;
-                    else if (Array.isArray((schema as any).allOf)) {
-                      const m = ((schema as any).allOf as any[]).find((e: any) => e && typeof e.$ref === 'string');
-                      if (m) refStr = m.$ref;
-                    }
-                  } catch (e) {
-                    // ignore
-                  }
-                  if (!refStr) return;
-
-                  // If instance data is available, attempt to use instance keys at the current path
-                  // to pre-populate property schemas so we don't add arbitrary fields like "username".
-                  const localProperties: Record<string, unknown> = {};
-                  try {
-                    if (instanceData && typeof instanceData === 'object') {
-                      // Traverse instanceData according to the editor path to find the relevant object
-                      let node: any = instanceData as any;
-                      for (const p of path) {
-                        if (!node || typeof node !== 'object') { node = null; break; }
-                        node = node[p];
-                      }
-                      if (node && typeof node === 'object' && !Array.isArray(node)) {
-                        for (const [k, v] of Object.entries(node)) {
-                          try {
-                            // generate a schema for the instance value to make the override valid
-                            const gen = generateSchema(v as any);
-                            localProperties[k] = gen;
-                          } catch (_) {
-                            // fallback: mark as string
-                            localProperties[k] = { type: 'string' };
-                          }
-                        }
-                      }
-                    }
-                  } catch (_) { /* ignore */ }
-
-                  const overrideObj: Record<string, unknown> = { type: 'object', properties: localProperties };
-                  const next: Record<string, unknown> = { allOf: [{ $ref: refStr }, overrideObj] };
-                  if (schema.title) next.title = schema.title as string;
-                  onChange(next);
-                }}
-                className={styles.addSmall}
-              >
-                Override
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              Create a local <code>allOf</code> extension. This keeps the original <code>$ref</code> definition as a base but allows you to add specific constraints (like pattern, minLength, or extra properties) to just this instance.
-            </TooltipContent>
-          </Tooltip>
-        )}
       </div>
 
         {variants && variants.length > 0 && (
@@ -664,8 +643,9 @@ export function SchemaEditorForm({
                       delete next.pattern;
                       onChange(next);
                     }}
+                    title="Remove pattern"
                   >
-                    Remove
+                    <Trash2 size={16} color="#f59e0b" />
                   </button>
                 </div>
               ) : null}
@@ -753,7 +733,7 @@ export function SchemaEditorForm({
                         placeholder="Default value"
                       />
                     )}
-                    <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.default; onChange(next); }}>Remove</button>
+                    <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.default; onChange(next); }} title="Remove default"><Trash2 size={16} color="#f59e0b" /></button>
                   </div>
                 )}
                 {defaultError && <div style={{ color: 'red', marginTop: 6, fontSize: '11px' }}>{defaultError}</div>}
@@ -781,7 +761,7 @@ export function SchemaEditorForm({
                           reader.readAsDataURL(f);
                         }}
                       />
-                      <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.default; onChange(next); }}>Remove image</button>
+                      <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.default; onChange(next); }} title="Remove image"><Trash2 size={16} color="#f59e0b" /></button>
                     </div>
                   </div>
                 )}
@@ -818,7 +798,7 @@ export function SchemaEditorForm({
                     }}
                     placeholder="Minimum"
                   />
-                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.minimum; onChange(next); }}>Remove</button>
+                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.minimum; onChange(next); }} title="Remove minimum"><Trash2 size={16} color="#f59e0b" /></button>
                 </div>
               ) : null}
 
@@ -849,7 +829,7 @@ export function SchemaEditorForm({
                     }}
                     placeholder="Maximum"
                   />
-                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.maximum; onChange(next); }}>Remove</button>
+                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.maximum; onChange(next); }} title="Remove maximum"><Trash2 size={16} color="#f59e0b" /></button>
                 </div>
               ) : null}
 
@@ -881,7 +861,7 @@ export function SchemaEditorForm({
                     }}
                     placeholder="multipleOf"
                   />
-                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.multipleOf; onChange(next); }}>Remove</button>
+                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.multipleOf; onChange(next); }} title="Remove multipleOf"><Trash2 size={16} color="#f59e0b" /></button>
                 </div>
               ) : null}
 
@@ -898,7 +878,7 @@ export function SchemaEditorForm({
                     }}
                     placeholder="Comma-separated examples"
                   />
-                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.examples; onChange(next); }}>Remove</button>
+                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.examples; onChange(next); }} title="Remove examples"><Trash2 size={16} color="#f59e0b" /></button>
                 </div>
               ) : null}
             </div>
@@ -915,7 +895,7 @@ export function SchemaEditorForm({
                     checked={!!schema.uniqueItems}
                     onChange={(e) => updateSchema({ uniqueItems: e.target.checked })}
                   />
-                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.uniqueItems; onChange(next); }}>Remove</button>
+                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.uniqueItems; onChange(next); }} title="Remove uniqueItems"><Trash2 size={16} color="#f59e0b" /></button>
                 </div>
               ) : null}
 
@@ -946,7 +926,7 @@ export function SchemaEditorForm({
                     }}
                     placeholder="minItems"
                   />
-                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.minItems; onChange(next); }}>Remove</button>
+                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.minItems; onChange(next); }} title="Remove minItems"><Trash2 size={16} color="#f59e0b" /></button>
                 </div>
               ) : null}
 
@@ -977,7 +957,7 @@ export function SchemaEditorForm({
                     }}
                     placeholder="maxItems"
                   />
-                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.maxItems; onChange(next); }}>Remove</button>
+                  <button type="button" className={styles.removeSmall} onClick={() => { const next = { ...schema } as Record<string, unknown>; delete next.maxItems; onChange(next); }} title="Remove maxItems"><Trash2 size={16} color="#f59e0b" /></button>
                 </div>
               ) : null}
             </div>
@@ -1329,8 +1309,9 @@ function PatternPropertyRow({
             const next = removePatternPropertyFromSchema(schema, patternKey);
             updateSchema(next);
           }}
+          title="Remove pattern property"
         >
-          Remove Pattern
+          <Trash2 size={16} color="#f59e0b" />
         </button>
       </div>
       <div style={{ background: 'var(--color-neutral-1)', padding: 16, borderRadius: 8, border: '1px solid var(--color-neutral-4)', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.05)' }}>
@@ -1469,7 +1450,7 @@ function PropertyEditor({
           onClick={onDelete}
           title="Remove this property"
         >
-          Remove
+          <Trash2 size={16} color="#f59e0b" />
         </button>
       </div>
 
@@ -1574,21 +1555,6 @@ function VariantItem({
           <span style={{ cursor: labelData.description ? 'help' : 'default' }}>
             {`${index + 1}. ${labelData.title}`}
           </span>
-          {labelData.description && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button type="button" style={{ background: 'none', border: 'none', padding: 0, cursor: 'help', opacity: 0.6, display: 'flex' }}>
-                  <Badge variant="outline" style={{ fontSize: '9px', padding: '0 4px', height: '14px', lineHeight: '14px', color: 'var(--color-neutral-10)', borderColor: 'var(--color-neutral-6)' }}>REF</Badge>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <div style={{ maxWidth: '300px', padding: '4px' }}>
-                  <div style={{ fontWeight: 800, fontSize: '9px', textTransform: 'uppercase', marginBottom: '2px', color: 'var(--color-neutral-10)' }}>IDENTIFIER / SOURCE</div>
-                  <div style={{ fontSize: '11px', fontFamily: 'monospace', wordBreak: 'break-all', background: 'var(--color-neutral-3)', padding: '4px', borderRadius: '4px', color: 'var(--color-neutral-12)' }}>{renderTooltipContentChildren(labelData.description)}</div>
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          )}
           {isImported && (
             <Badge 
               variant="outline" 
@@ -1596,7 +1562,6 @@ function VariantItem({
                 fontSize: '9px', 
                 padding: '0 6px', 
                 height: '16px', 
-                marginLeft: 6, 
                 color: 'var(--color-accent-10)', 
                 borderColor: 'var(--color-accent-6)', 
                 background: 'var(--color-accent-2)' 
@@ -1635,7 +1600,7 @@ function VariantItem({
             }
           }}
         >
-          Remove
+          <Trash2 size={16} color="#f59e0b" />
         </button>
       </div>
       {isExpanded && (

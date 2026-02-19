@@ -115,8 +115,6 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
     renderForm(schema);
     // The label should be there
     expect(screen.getAllByText('1. Event')[0]).toBeInTheDocument();
-    // The REF badge should be there
-    expect(screen.getAllByText('REF')[0]).toBeInTheDocument();
   });
 
   it('handles complex sub-paths in $ref', () => {
