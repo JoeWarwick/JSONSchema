@@ -1977,7 +1977,7 @@ function VariantItem({
         <button
           type="button"
           className={styles.removeSmall}
-          style={{ marginLeft: '12px' }}
+          style={{ marginLeft: 'auto' }}
           title="Remove this branch"
           onClick={() => {
             const next = variants.filter((_, idx) => idx !== index);
