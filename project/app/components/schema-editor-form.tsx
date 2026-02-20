@@ -418,8 +418,8 @@ export function SchemaEditorForm({
           </div>
         )}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', width: '100%' }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               {isImported && !activeType && !variants && (
                 <button
@@ -571,78 +571,70 @@ export function SchemaEditorForm({
                 </TooltipContent>
               </Tooltip>
             )}
-            <div style={{ flex: 1 }} />
-            {isImported && renderType === 'object' && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // build a local allOf override referencing the original $ref when available
-                      let refStr: string | null = null;
-                      try {
-                        if (typeof (schema as any).$ref === 'string') refStr = (schema as any).$ref;
-                        else if (Array.isArray((schema as any).allOf)) {
-                          const m = ((schema as any).allOf as any[]).find((e: any) => e && typeof e.$ref === 'string');
-                          if (m) refStr = m.$ref;
-                        }
-                      } catch (e) {
-                        // ignore
+          </div>
+          <div style={{ flex: 1 }} />
+          {isImported && renderType === 'object' && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // build a local allOf override referencing the original $ref when available
+                    let refStr: string | null = null;
+                    try {
+                      if (typeof (schema as any).$ref === 'string') refStr = (schema as any).$ref;
+                      else if (Array.isArray((schema as any).allOf)) {
+                        const m = ((schema as any).allOf as any[]).find((e: any) => e && typeof e.$ref === 'string');
+                        if (m) refStr = m.$ref;
                       }
-                      if (!refStr) return;
+                    } catch (e) {
+                      // ignore
+                    }
+                    if (!refStr) return;
 
-                      // If instance data is available, attempt to use instance keys at the current path
-                      // to pre-populate property schemas so we don't add arbitrary fields like "username".
-                      const localProperties: Record<string, unknown> = {};
-                      try {
-                        if (instanceData && typeof instanceData === 'object') {
-                          // Traverse instanceData according to the editor path to find the relevant object
-                          let node: any = instanceData as any;
-                          for (const p of path) {
-                            if (!node || typeof node !== 'object') { node = null; break; }
-                            node = node[p];
-                          }
-                          if (node && typeof node === 'object' && !Array.isArray(node)) {
-                            for (const [k, v] of Object.entries(node)) {
-                              try {
-                                // generate a schema for the instance value to make the override valid
-                                const gen = generateSchema(v as any);
-                                localProperties[k] = gen;
-                              } catch (_) {
-                                // fallback: mark as string
-                                localProperties[k] = { type: 'string' };
-                              }
+                    // If instance data is available, attempt to use instance keys at the current path
+                    // to pre-populate property schemas so we don't add arbitrary fields like "username".
+                    const localProperties: Record<string, unknown> = {};
+                    try {
+                      if (instanceData && typeof instanceData === 'object') {
+                        // Traverse instanceData according to the editor path to find the relevant object
+                        let node: any = instanceData as any;
+                        for (const p of path) {
+                          if (!node || typeof node !== 'object') { node = null; break; }
+                          node = node[p];
+                        }
+                        if (node && typeof node === 'object' && !Array.isArray(node)) {
+                          for (const [k, v] of Object.entries(node)) {
+                            try {
+                              // generate a schema for the instance value to make the override valid
+                              const gen = generateSchema(v as any);
+                              localProperties[k] = gen;
+                            } catch (_) {
+                              // fallback: mark as string
+                              localProperties[k] = { type: 'string' };
                             }
                           }
                         }
-                      } catch (_) { /* ignore */ }
+                      }
+                    } catch (_) { /* ignore */ }
 
-                      const overrideObj: Record<string, unknown> = { type: 'object', properties: localProperties };
-                      const next: Record<string, unknown> = { allOf: [{ $ref: refStr }, overrideObj] };
-                      if (schema.title) next.title = schema.title as string;
-                      onChange(next);
-                    }}
-                    className={styles.addSmall}
-                    style={{ background: '#5b21b6', borderColor: '#6d28d9', color: 'white' }}
-                  >
-                    Override
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  Create a local <code>allOf</code> extension. This keeps the original <code>$ref</code> definition as a base but allows you to add specific constraints (like pattern, minLength, or extra properties) to just this instance.
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </div>
+                    const overrideObj: Record<string, unknown> = { type: 'object', properties: localProperties };
+                    const next: Record<string, unknown> = { allOf: [{ $ref: refStr }, overrideObj] };
+                    if (schema.title) next.title = schema.title as string;
+                    onChange(next);
+                  }}
+                  className={styles.addSmall}
+                  style={{ background: '#5b21b6', borderColor: '#6d28d9', color: 'white' }}
+                >
+                  Override
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Create a local <code>allOf</code> extension. This keeps the original <code>$ref</code> definition as a base but allows you to add specific constraints (like pattern, minLength, or extra properties) to just this instance.
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
-        <div style={{ fontSize: (schema.title ? 11 : 10), fontWeight: (schema.title ? 700 : 900), textTransform: (schema.title ? 'none' : 'uppercase'), color: (schema.title ? 'inherit' : 'var(--color-neutral-10)') }}>
-          {(schema.title as string) || ''}
-        </div>
-        <div style={{ flex: 1 }} />
-      </div>
 
         {variants && variants.length > 0 && (
           <div className={styles.variantsWrapper}>
@@ -1613,6 +1605,7 @@ export function SchemaEditorForm({
           </button>
         </div>
       )}
+      </div>
     </>
   );
 }
@@ -2135,9 +2128,6 @@ function CustomMultiSelect({ options, values, onChange, placeholder, creatable, 
             onChange(selected ? [selected.value] : []);
           }
         }}
-        placeholder={placeholder || (creatable ? "Type and press enter to add..." : "Select...")}
-        styles={reactSelectStyles as any}
-        menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
       />
     </div>
   );
