@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { validateValueAgainstSchema } from "../utils/validation";
 import {
   addPropertyToSchema,
@@ -1183,7 +1183,7 @@ export function SchemaEditorForm({
                     </label>
 
                     {schema.additionalProperties && typeof schema.additionalProperties === 'object' && (
-                      <Popover open={apPopoverOpen && apPopoverAllowed} onOpenChange={(open) => {
+                      <Popover open={!!(apPopoverOpen && apPopoverAllowed)} onOpenChange={(open) => {
                         if (!open) {
                           const next = { ...schema } as Record<string, unknown>;
                           if (!localAdditionalSchema || (Object.keys(localAdditionalSchema).length === 0)) delete next.additionalProperties;
@@ -1402,7 +1402,7 @@ export function SchemaEditorForm({
         })()}
       </div>
 
-      {/* Definition Dialog */}
+      // definitions editor
       {showDefDialog && (
         <div style={{
           position: 'fixed',
@@ -1571,8 +1571,8 @@ export function SchemaEditorForm({
         </div>
       )}
 
-      {/* Inline ref button - show when schema has $ref */}
-      {schema.$ref && typeof schema.$ref === 'string' && path.length > 0 && (
+      // Inline ref button - show when schema has $ref
+      {schema.$ref && typeof schema.$ref === 'string' && path.length > 0 ? (
         <div style={{ marginTop: 12, padding: '8px 12px', background: 'var(--color-accent-2)', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-accent-11)' }}>
             Ref: <code style={{ fontFamily: 'monospace', fontSize: '10px' }}>{schema.$ref}</code>
@@ -1604,7 +1604,7 @@ export function SchemaEditorForm({
             Inline
           </button>
         </div>
-      )}
+      ) : null}
       </div>
     </>
   );
@@ -2025,74 +2025,6 @@ interface CustomMultiSelectProps {
   isMulti?: boolean;
 }
 
-const reactSelectStyles = {
-  // ... (keeping existing styles)
-  control: (base: any) => ({
-    ...base,
-    background: 'var(--color-neutral-1)',
-    borderColor: 'var(--color-neutral-6)',
-    '&:hover': {
-      borderColor: 'var(--color-neutral-7)',
-    },
-    minHeight: '38px',
-    borderRadius: '6px',
-    boxShadow: 'none',
-  }),
-  menu: (base: any) => ({
-    ...base,
-    background: 'var(--color-neutral-1)',
-    border: '1px solid var(--color-neutral-6)',
-    zIndex: 'var(--z-index-menu)' as any,
-  }),
-  option: (base: any, state: { isFocused: boolean; isSelected: boolean }) => ({
-    ...base,
-    background: state.isSelected 
-      ? 'var(--color-accent-9)' 
-      : state.isFocused 
-        ? 'var(--color-neutral-3)' 
-        : 'transparent',
-    color: 'var(--color-neutral-12)',
-    cursor: 'pointer',
-    '&:active': {
-      background: 'var(--color-accent-10)',
-    },
-  }),
-  multiValue: (base: any) => ({
-    ...base,
-    background: 'var(--color-neutral-3)',
-    borderRadius: '4px',
-    border: '1px solid var(--color-neutral-6)',
-  }),
-  multiValueLabel: (base: any) => ({
-    ...base,
-    color: 'var(--color-neutral-12)',
-  }),
-  multiValueRemove: (base: any) => ({
-    ...base,
-    color: 'var(--color-neutral-11)',
-    '&:hover': {
-      background: 'var(--color-accent-3)',
-      color: 'var(--color-accent-11)',
-    },
-  }),
-  input: (base: any) => ({
-    ...base,
-    color: 'var(--color-neutral-12)',
-  }),
-  placeholder: (base: any) => ({
-    ...base,
-    color: 'var(--color-neutral-8)',
-  }),
-  singleValue: (base: any) => ({
-    ...base,
-    color: 'var(--color-neutral-12)',
-  }),
-  menuPortal: (base: any) => ({
-    ...base,
-    zIndex: 'var(--z-index-dropdown)' as any,
-  }),
-};
-
 function CustomMultiSelect({ options, values, onChange, placeholder, creatable, isMulti = true }: CustomMultiSelectProps) {
   const selectOptions = (options || []).map(opt => ({ 
     label: String(opt.label), 
@@ -2120,6 +2052,7 @@ function CustomMultiSelect({ options, values, onChange, placeholder, creatable, 
         isMulti={isMulti}
         options={creatable ? [] : selectOptions}
         value={isMulti ? selectedValues : selectedValues[0]}
+        placeholder={placeholder}
         onChange={(selected: any) => {
           if (isMulti) {
             const newValues = selected ? selected.map((s: any) => s.value) : [];
