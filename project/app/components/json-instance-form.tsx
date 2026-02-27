@@ -162,6 +162,9 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     ? (schema.oneOnly as Record<string, unknown>[])
     : Array.isArray(schema.oneOf)
     ? (schema.oneOf as Record<string, unknown>[])
+    // Synthesize oneOf-style variants when type is a union array (e.g. ["boolean","number","string"])
+    : Array.isArray(schema.type) && (schema.type as string[]).length > 1 && !schema.anyOf
+    ? (schema.type as string[]).map(t => ({ type: t } as Record<string, unknown>))
     : null;
   const oneVariants = useMemo(
     () => oneVariantsRaw ? oneVariantsRaw.map((vs) => resolveSchemaNode(vs)) : null,
@@ -1004,7 +1007,14 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
   if (hasVariants) {
     const isAnyType = !!anyVariants && anyVariants.length > 0;
     const label = (schema.title as string) || (isAnyType ? "Choose the options" : "Choose an option");
-    const matchesAny = renderVariants!.some((vs) => validateValueAgainstSchema(value, vs) === null);
+    const matchesAny = renderVariants!.some((vs) => {
+      if (value === null) {
+        // null only matches a variant that explicitly declares type: "null"
+        const t = vs.type as string | string[] | undefined;
+        return t === 'null' || (Array.isArray(t) && t.includes('null'));
+      }
+      return validateValueAgainstSchema(value, vs) === null;
+    });
     const showHeader = renderVariants!.length > 1;
 
     return (
@@ -1076,7 +1086,11 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
             )}
           </>
         )}
-          {selectedVariantIndex < 0 && !matchesAny && value !== undefined && showHeader && <div style={{ color: 'red', marginTop: 6 }}>Value does not match any option</div>}
+          {selectedVariantIndex < 0 && !matchesAny && showHeader && (
+            <div style={{ color: (value === undefined || value === null) ? 'orange' : 'red', marginTop: 6 }}>
+              {(value === undefined || value === null) ? 'Please select an option' : 'Value does not match any option'}
+            </div>
+          )}
           {selectedVariantIndex >= 0 && oneVariants && value !== undefined && validateValueAgainstSchema(value, oneVariants[selectedVariantIndex]) !== null && (
             <div style={{ color: 'red', marginTop: 6, marginBottom: 6 }}>Ref suggests object but data is primitive</div>
           )}
@@ -1220,7 +1234,6 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
             <input
               ref={stringInputRef}
               className={styles.input}
-              // Use format hints to pick an input type when appropriate
               type={writeOnlyAttr ? 'password' : (format === 'email' ? 'email' : format === 'uri' ? 'url' : format === 'date' ? 'date' : format === 'date-time' ? 'datetime-local' : 'text')}
               value={(value as string) || ""}
               onChange={(e) => {
@@ -1239,8 +1252,22 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
             {autoFocus && (
               <FocusStringInputEffect inputRef={stringInputRef} />
             )}
+            {patternAttr && (
+              <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <code style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--color-neutral-3, #1e1e1e)', color: 'var(--color-warning-11, #ce9178)', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                  {patternAttr}
+                </code>
+                {typeof value === 'string' && value !== '' && (() => {
+                  try {
+                    return new RegExp(patternAttr).test(value as string)
+                      ? <span style={{ color: 'var(--color-success-11, #4caf50)', fontSize: 12, whiteSpace: 'nowrap' }}>✓ matches</span>
+                      : <span style={{ color: 'var(--color-error-11, #f44336)', fontSize: 12, whiteSpace: 'nowrap' }}>✗ must match pattern</span>;
+                  } catch { return null; }
+                })()}
+              </div>
+            )}
             {deprecatedFlag && <div style={{ color: '#b07', marginTop: 6, fontSize: 12 }}>Deprecated</div>}
-            {inputError && <div style={{ color: 'red', marginTop: 6 }}>{inputError}</div>}
+            {inputError && !patternAttr && <div style={{ color: 'red', marginTop: 6 }}>{inputError}</div>}
           </>
         </div>
       );

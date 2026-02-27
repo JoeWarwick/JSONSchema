@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import styles from './regex-input.module.css';
-import { Badge } from './ui/badge/badge';
 
 interface RegexInputProps {
   value: string;
