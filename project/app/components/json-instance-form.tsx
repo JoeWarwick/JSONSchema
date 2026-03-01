@@ -665,6 +665,22 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     const mem = getVariantMemory();
     const vs = variants[idx];
 
+    // Save the current value under the departing variant index so switching back restores it.
+    const previousIdx = oneVariants ? selectedVariantIndex : (selectedAnyIndices[0] ?? -1);
+    if (previousIdx >= 0 && previousIdx !== idx && previousIdx < variants.length) {
+      const prevVs = variants[previousIdx];
+      const currentIsValid = value !== undefined && value !== null && value !== '';
+      const valueToStore = currentIsValid ? value : getDefaultValue(prevVs, rootSchemaRef);
+      const updatedMem = { ...mem, [previousIdx]: valueToStore };
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(variantMemoryKey, JSON.stringify(updatedMem));
+        }
+      } catch { /* ignore */ }
+      // Re-read mem so the block below sees the just-saved departed value
+      Object.assign(mem, { [previousIdx]: valueToStore });
+    }
+
     // Determine the new value to pass to onChange
     let newValue: unknown;
     if (Object.prototype.hasOwnProperty.call(mem, idx)) {
@@ -680,8 +696,15 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     }
 
     onChange(newValue);
-    // Save the variant selection with default-skipping optimization
-    saveVariantOnToggle([idx]);
+    // Persist newValue (not the stale `value`) for the arriving variant, merging with existing memory
+    // so the departing variant's value (saved above) is not lost.
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const latestMem = getVariantMemory();
+        latestMem[idx] = newValue;
+        localStorage.setItem(variantMemoryKey, JSON.stringify(latestMem));
+      }
+    } catch { /* ignore */ }
     // Also save to flattened storage for nested variant resilience
     saveFlattenedVariants(newValue);
   };
@@ -1090,9 +1113,6 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
             <div style={{ color: (value === undefined || value === null) ? 'orange' : 'red', marginTop: 6 }}>
               {(value === undefined || value === null) ? 'Please select an option' : 'Value does not match any option'}
             </div>
-          )}
-          {selectedVariantIndex >= 0 && oneVariants && value !== undefined && validateValueAgainstSchema(value, oneVariants[selectedVariantIndex]) !== null && (
-            <div style={{ color: 'red', marginTop: 6, marginBottom: 6 }}>Ref suggests object but data is primitive</div>
           )}
           <div style={{ marginTop: showHeader ? 8 : 0 }}>
 
