@@ -357,13 +357,24 @@ export const CombinerNode = ({ data }: { data: any }) => {
   // Close on outside click
   React.useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as unknown as HTMLElement)) {
+    const handler = (e: Event) => {
+      const target = e.target as globalThis.Node | null;
+      if (dropdownRef.current && target && !dropdownRef.current.contains(target)) {
         setOpen(false);
       }
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    const keyHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    // Capture phase makes this resilient even when inner layers stop propagation.
+    document.addEventListener('pointerdown', handler, true);
+    document.addEventListener('mousedown', handler, true);
+    document.addEventListener('keydown', keyHandler, true);
+    return () => {
+      document.removeEventListener('pointerdown', handler, true);
+      document.removeEventListener('mousedown', handler, true);
+      document.removeEventListener('keydown', keyHandler, true);
+    };
   }, [open]);
 
   return (

@@ -250,7 +250,7 @@
 /* ── Combiner node (mirrors .variantsLabel from schema-editor-form) ─────── */
 /* ── Combiner node — compact visual node ─────────────── */
 .combinerNode {
-  background: var(--color-neutral-1, #1e1e2e);
+  background: var(--color-neutral-2, #2a2f45);
   border: 1.5px solid var(--color-accent-7, #7c3aed);
   border-radius: 8px;
   min-width: 0;
@@ -381,27 +381,27 @@
   display: flex;
   align-items: center;
   gap: 3px;
-  background: rgba(124,58,237,0.25);
+  background: var(--color-neutral-1, #1e1e2e);
   border: 1px solid var(--color-accent-7, #7c3aed);
   border-radius: 6px;
   padding: 3px 5px;
   cursor: pointer;
-  color: var(--color-accent-4, #c4b5fd);
+  color: var(--color-accent-11, #93c5fd);
   transition: background 0.12s;
 }
 .combinerTypeDropdownTrigger:hover {
-  background: rgba(124,58,237,0.45);
+  background: var(--color-neutral-2, #2a2f45);
 }
 
 .combinerDropdownIcon {
   display: flex;
   align-items: center;
-  color: var(--color-accent-4, #c4b5fd);
+  color: var(--color-accent-11, #93c5fd);
 }
 
 .combinerDropdownChevron {
   font-size: 9px;
-  color: var(--color-accent-5, #a78bfa);
+  color: var(--color-accent-10, #60a5fa);
   line-height: 1;
 }
 
@@ -463,7 +463,7 @@
 
 /* ── Variant node ──────────────────────────────────────────────────────────── */
 .variantNode {
-  background: var(--color-neutral-1, #1a1a2e);
+  background: var(--color-neutral-2, #2a2f45);
   border: 1.5px solid var(--color-accent-6, #6d28d9);
   border-radius: 8px;
   width: fit-content;
@@ -482,7 +482,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(109,40,217,0.18);
+  background: rgba(124,58,237,0.28);
   padding: 5px 8px;
   border-radius: 6px 6px 0 0;
 }

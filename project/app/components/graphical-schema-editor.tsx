@@ -1837,6 +1837,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
                 style={{ width: '100%', height: explicitHeight ? `${explicitHeight}px` : '100%' }}
                 nodes={nodes}
                 edges={edges.map(e => ({ ...e, style: { stroke: '#00e676', strokeWidth: 3 } }))}
+                minZoom={0.16}
                 onNodesChange={handleNodesChange}
                 onEdgesChange={handleEdgesChange}
                 onConnect={onConnect}
