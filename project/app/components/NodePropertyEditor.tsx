@@ -6,6 +6,24 @@ import type { NodeData, NodePropertyEditorProps } from './types';
 export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, onChange }) => {
   if (!node) return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a node to edit its properties.</div>;
   const { data } = node;
+  const getEffectiveAdditionalProperties = (): unknown => {
+    if ((data as any).additionalProperties !== undefined) return (data as any).additionalProperties;
+    const variantSchema = (data as any).variantSchema;
+    if (variantSchema && typeof variantSchema === 'object' && !Array.isArray(variantSchema)) {
+      return (variantSchema as any).additionalProperties;
+    }
+    return undefined;
+  };
+  const deriveAdditionalPropertiesMode = (value: unknown, isAdditionalPropertiesNode: boolean): 'false' | 'true' | 'schema' => {
+    if (isAdditionalPropertiesNode) return 'schema';
+    if (value === false) return 'false';
+    if (value && typeof value === 'object' && !Array.isArray(value)) return 'schema';
+    return 'true';
+  };
+  const isNonDefaultSchemaObject = (value: unknown): value is Record<string, unknown> => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    return Object.keys(value as Record<string, unknown>).length > 0;
+  };
   const [label, setLabel] = React.useState<string>(data.label || '');
   const formRef = React.useRef<HTMLFormElement | null>(null);
   const nameInputRef = React.useRef<HTMLInputElement>(null);
@@ -47,12 +65,20 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
   const [maxItems, setMaxItems] = React.useState<number | undefined>(data.maxItems);
   const [readOnlyFlag, setReadOnlyFlag] = React.useState<boolean | undefined>(data.readOnly);
   const [deprecatedFlag, setDeprecatedFlag] = React.useState<boolean | undefined>(data.deprecated);
+  const [additionalPropertiesMode, setAdditionalPropertiesMode] = React.useState<'false' | 'true' | 'schema'>(
+    deriveAdditionalPropertiesMode(getEffectiveAdditionalProperties(), Boolean((data as any).isAdditionalProperties))
+  );
+  const rememberedAdditionalPropertiesSchemaRef = React.useRef<Record<string, unknown> | null>(null);
   // validation errors
   const [minMaxLengthError, setMinMaxLengthError] = React.useState<string | null>(null);
   const [minMaxItemsError, setMinMaxItemsError] = React.useState<string | null>(null);
   const [multipleOfError, setMultipleOfError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
+    const effectiveAdditionalProperties = getEffectiveAdditionalProperties();
+    if (isNonDefaultSchemaObject(effectiveAdditionalProperties)) {
+      rememberedAdditionalPropertiesSchemaRef.current = { ...effectiveAdditionalProperties };
+    }
     setLabel(data.label || '');
     setType(data.type || '');
     setOfType(data.ofType || '');
@@ -72,6 +98,9 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     setMaxItems(data.maxItems);
     setReadOnlyFlag(data.readOnly);
     setDeprecatedFlag(data.deprecated);
+    setAdditionalPropertiesMode(
+      deriveAdditionalPropertiesMode(effectiveAdditionalProperties, Boolean((data as any).isAdditionalProperties))
+    );
     setContentMediaType(data.contentMediaType);
     setMinMaxLengthError(null);
     setMinMaxItemsError(null);
@@ -397,14 +426,44 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
       {type === 'object' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input
-              type="checkbox"
-              checked={data.additionalProperties === false}
+            <span style={{ fontSize: 13, minWidth: 130 }}>additionalProperties</span>
+            <select
+              aria-label="additionalProperties"
+              value={additionalPropertiesMode}
               onChange={e => {
-                onChange(buildPatchWithAnnotations({ additionalProperties: e.target.checked ? false : undefined }));
+                const nextMode = e.target.value as 'false' | 'true' | 'schema';
+                setAdditionalPropertiesMode(nextMode);
+                const currentVariantSchema = ((data as any).variantSchema && typeof (data as any).variantSchema === 'object' && !Array.isArray((data as any).variantSchema))
+                  ? ({ ...(data as any).variantSchema } as Record<string, unknown>)
+                  : null;
+                const currentAdditionalProperties = getEffectiveAdditionalProperties();
+                if (isNonDefaultSchemaObject(currentAdditionalProperties)) {
+                  rememberedAdditionalPropertiesSchemaRef.current = { ...currentAdditionalProperties };
+                }
+                const emitAdditionalProperties = (nextAdditionalProperties: unknown) => {
+                  const patch: Partial<NodeData> = { additionalProperties: nextAdditionalProperties };
+                  if (currentVariantSchema) {
+                    patch.variantSchema = { ...currentVariantSchema, additionalProperties: nextAdditionalProperties };
+                  }
+                  onChange(buildPatchWithAnnotations(patch));
+                };
+                if (nextMode === 'false') {
+                  emitAdditionalProperties(false);
+                  return;
+                }
+                if (nextMode === 'true') {
+                  emitAdditionalProperties(true);
+                  return;
+                }
+                const remembered = rememberedAdditionalPropertiesSchemaRef.current;
+                emitAdditionalProperties(remembered ? { ...remembered } : {});
               }}
-            />
-            <span style={{ fontSize: 13 }}>additionalProperties</span>
+              style={{ width: '100%', marginTop: 2, padding: 4, borderRadius: 4, border: '1px solid #ccc' }}
+            >
+              <option value="false">false</option>
+              <option value="true">true</option>
+              <option value="schema">Schema</option>
+            </select>
           </label>
           {comment === undefined ? (
             <button type="button" onClick={() => { setComment(''); onChange(buildPatchWithAnnotations({ $comment: '' })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6, width: 'fit-content' }}>+ Comment</button>

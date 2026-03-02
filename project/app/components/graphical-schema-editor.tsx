@@ -222,6 +222,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       if (obj.multipleOf !== undefined) nodeData.multipleOf = obj.multipleOf;
       if (obj.minItems !== undefined) nodeData.minItems = obj.minItems;
       if (obj.maxItems !== undefined) nodeData.maxItems = obj.maxItems;
+      if (obj.additionalProperties !== undefined) nodeData.additionalProperties = obj.additionalProperties;
       if (obj.uniqueItems !== undefined) nodeData.uniqueItems = obj.uniqueItems;
       if (obj.readOnly !== undefined) nodeData.readOnly = obj.readOnly;
       if (obj.writeOnly !== undefined) nodeData.writeOnly = obj.writeOnly;
@@ -289,6 +290,21 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
             propY += 140;
           }
         }
+
+        // additionalProperties schema (object form) — render as a synthetic child so
+        // combiners like additionalProperties.oneOf become visible/editable in the graph.
+        if (obj.additionalProperties && typeof obj.additionalProperties === 'object' && !Array.isArray(obj.additionalProperties)) {
+          const additionalPropertiesSchema = {
+            ...(obj.additionalProperties as Record<string, unknown>),
+            __autoExpandVariants: true,
+          } as Record<string, unknown>;
+          const additionalId = walkSchema(additionalPropertiesSchema, id, 'additionalProperties', x + 250, propY, obj.required || []);
+          const additionalNode = nodes.find(n => n.id === additionalId);
+          if (additionalNode) {
+            (additionalNode.data as any).isAdditionalProperties = true;
+          }
+          propY += 140;
+        }
       }
       // If array of objects, walk into properties of items, but do not create a subnode for 'items'
       if (type === 'array' && obj.items && ((Array.isArray(obj.items.type) && obj.items.type.includes('object')) || obj.items.type === 'object' || obj.items.properties)) {
@@ -311,6 +327,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       if (rawCombinerKey) {
         const variantsArray = (obj[rawCombinerKey] as any[]) || [];
         const combinerId = `${id}.__combiner`;
+        const autoExpandVariants = Boolean((obj as any).__autoExpandVariants);
 
         // Derive a display label for a variant entry using shared label utilities
 
@@ -324,6 +341,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
             type: 'string' as any,
             combinerType: rawCombinerKey,
             variantCount: variantsArray.length,
+            variantsExpanded: autoExpandVariants,
             parent: id,
             // handler callbacks are injected later via injectHandlers()
           } as any,
@@ -336,6 +354,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
           const variantId = `${combinerId}.v${i}`;
           const varLabel = getVariantLabel(variant as Record<string, unknown>, i, variantsArray as Record<string, unknown>[]).title;
           const variantRef = (variant && typeof variant.$ref === 'string') ? variant.$ref : undefined;
+          const variantItems = (variant && typeof variant === 'object' && !Array.isArray(variant) && (variant as any).items && typeof (variant as any).items === 'object')
+            ? ((variant as any).items as Record<string, unknown>)
+            : undefined;
+          const variantOfType = variantItems
+            ? (Array.isArray((variantItems as any).type) ? (variantItems as any).type[0] : (variantItems as any).type)
+            : undefined;
           nodes.push({
             id: variantId,
             type: 'variant',
@@ -343,8 +367,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
               id: variantId,
               label: varLabel,
               type: getVariantSchemaType(variant) as any,
+              ...(variantItems ? { items: variantItems } : {}),
+              ...(variantOfType ? { ofType: variantOfType } : {}),
               isCombinerVariant: true,
-              variantIndex: i + 1,
+              variantIndex: i,
               variantRef,
               variantResolved: false,
               variantExpanded: false,
@@ -353,14 +379,14 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
               // handler callbacks injected later
             } as any,
             position: { x: x + 600, y: y + i * 60 },
-            hidden: true,
+            hidden: !autoExpandVariants,
           });
           edges.push({
             id: `e${combinerId}-${variantId}`,
             source: combinerId,
             target: variantId,
             type: 'default',
-            hidden: true,
+            hidden: !autoExpandVariants,
           });
         });
       }
@@ -600,8 +626,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
           if (child.data && child.data.parent === node.id) {
             const key = child.data.label;
             const patternKey = (child.data as any).patternKey;
+            const isAdditionalProperties = Boolean((child.data as any).isAdditionalProperties);
             if (patternKey) {
               patternProps[patternKey] = buildNodeSchema(child);
+            } else if (isAdditionalProperties) {
+              base.additionalProperties = buildNodeSchema(child);
             } else {
               if (key) props[key] = buildNodeSchema(child);
               if (child.data && (child.data as any).required) {
@@ -1198,7 +1227,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     // Only patch the targeted node
     setNodes((prevNodes: Node<SchemaNodeData>[]) => {
       // Apply the patch to the node list, and if id changed, update child parent refs
-      const updatedNodes = prevNodes.map((node: Node<SchemaNodeData>) => {
+      let updatedNodes = prevNodes.map((node: Node<SchemaNodeData>) => {
         // Update the node being patched
         if (node.id === oldId) {
           const newData = { ...node.data, ...patch } as SchemaNodeData;
@@ -1215,6 +1244,60 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         }
         return node;
       });
+
+      const additionalPropertiesPatch = patch.additionalProperties;
+      const isBooleanAdditionalPropertiesPatch = additionalPropertiesPatch === true || additionalPropertiesPatch === false;
+      const removedNodeIds = new Set<string>();
+
+      if (isBooleanAdditionalPropertiesPatch) {
+        const updatedTargetId = idChanged ? newId : oldId;
+        const updatedTargetNode = updatedNodes.find((node) => node.id === updatedTargetId);
+
+        if (updatedTargetNode?.data?.isAdditionalProperties) {
+          const ownerId = updatedTargetNode.data.parent;
+          if (ownerId) {
+            const queue = [updatedTargetId];
+            while (queue.length > 0) {
+              const currentId = queue.shift() as string;
+              if (removedNodeIds.has(currentId)) continue;
+              removedNodeIds.add(currentId);
+              const childIds = updatedNodes
+                .filter((node) => node.data?.parent === currentId)
+                .map((node) => node.id);
+              queue.push(...childIds);
+            }
+
+            updatedNodes = updatedNodes
+              .filter((node) => !removedNodeIds.has(node.id))
+              .map((node) => {
+                if (node.id !== ownerId) return node;
+                return {
+                  ...node,
+                  data: { ...node.data, additionalProperties: additionalPropertiesPatch as boolean },
+                };
+              });
+          }
+        } else {
+          const queue = updatedNodes
+            .filter((node) => node.data?.parent === updatedTargetId && node.data?.isAdditionalProperties)
+            .map((node) => node.id);
+
+          while (queue.length > 0) {
+            const currentId = queue.shift() as string;
+            if (removedNodeIds.has(currentId)) continue;
+            removedNodeIds.add(currentId);
+            const childIds = updatedNodes
+              .filter((node) => node.data?.parent === currentId)
+              .map((node) => node.id);
+            queue.push(...childIds);
+          }
+
+          if (removedNodeIds.size > 0) {
+            updatedNodes = updatedNodes.filter((node) => !removedNodeIds.has(node.id));
+          }
+        }
+      }
+
       // If id changed, also update edges referencing the old id
       if (idChanged) {
         setEdges(prevEdges => prevEdges.map(e => {
@@ -1224,6 +1307,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
           if (t === oldId) t = newId;
           return { ...e, id: `e${s}-${t}`, source: s, target: t } as Edge;
         }));
+      }
+      if (removedNodeIds.size > 0) {
+        setEdges(prevEdges => prevEdges.filter(e => !removedNodeIds.has(e.source) && !removedNodeIds.has(e.target)));
       }
 
       // After node patching (rename or other edits), derive the authoritative
@@ -1928,14 +2014,22 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       })(),
     });
 
+    const ctxNode = nodes.find(n => n.id === contextMenu?.nodeId);
+
     items.push({
-      label: 'Delete Property',
-      onClick: handleDeleteProperty,
+      label: ctxNode?.type === 'variant' ? 'Delete Variant' : 'Delete Property',
+      onClick: () => {
+        if (ctxNode?.type === 'variant') {
+          handleDeleteVariant(ctxNode.id);
+          setContextMenu(null);
+          return;
+        }
+        handleDeleteProperty();
+      },
       disabled: false,
     });
 
     // Combiner-specific items
-    const ctxNode = nodes.find(n => n.id === contextMenu?.nodeId);
     if (ctxNode?.type === 'combiner') {
       items.push({
         label: 'Add Variant',
@@ -1944,10 +2038,13 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       });
     }
 
-    // Allow wrapping any property/root node in a combiner if it doesn't already have one
-    if (ctxNode && (ctxNode.type === 'property' || ctxNode.type === 'root' || ctxNode.type === 'enum')) {
+    // Allow Add Combiner on combiner nodes, variant nodes, and object nodes only.
+    // Exclude primitive/array schema nodes.
+    if (ctxNode) {
+      const isObjectNode = ctxNode.data?.type === 'object';
+      const canAddCombiner = ctxNode.type === 'combiner' || ctxNode.type === 'variant' || isObjectNode;
       const alreadyHasCombiner = nodes.some(n => n.type === 'combiner' && (n.data as any)?.parent === ctxNode.id);
-      if (!alreadyHasCombiner) {
+      if (canAddCombiner && !alreadyHasCombiner) {
         items.push({
           label: 'Add Combiner',
           onClick: () => ctxNode && handleAddCombinerToNode(ctxNode.id),

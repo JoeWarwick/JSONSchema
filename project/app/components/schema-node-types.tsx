@@ -237,7 +237,7 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
         {renderBadges(badges)}
         {Object.entries(data).map(([key, value]) => {
           if (value === undefined) return null;
-          const hidden = ['label', 'id', 'parent', 'type', 'ofType', 'required', 'enum', 'items', 'default', 'title', 'description', '$comment', 'patternKey', 'typeUnion'];
+          const hidden = ['label', 'id', 'parent', 'type', 'ofType', 'required', 'enum', 'items', 'default', 'title', 'description', '$comment', 'patternKey', 'typeUnion', 'isAdditionalProperties', 'additionalProperties'];
           if (hidden.includes(key)) return null;
           if (key === 'format') {
             return (
@@ -446,6 +446,12 @@ const isExpandableVariant = (data: any): boolean => {
   if (data.variantRef) return true;
   const s = data.variantSchema;
   if (!s || typeof s !== 'object') return false;
+
+  // Array variants are edited in the RHS NodePropertyEditor; no inline expansion.
+  if (s.type === 'array' || (Array.isArray(s.type) && s.type.includes('array')) || s.items !== undefined) {
+    return false;
+  }
+
   // Primitive type with no children
   if (PRIMITIVE_TYPES.has(s.type) &&
       !s.properties && !s.items && !s.oneOf && !s.anyOf && !s.allOf && !s.$ref) return false;
