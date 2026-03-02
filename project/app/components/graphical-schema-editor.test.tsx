@@ -911,6 +911,82 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     expect(await screen.findByText('inner')).toBeInTheDocument();
   });
 
+  it('hydrates $ref variant nodes under the correct parent rank', async () => {
+    const testSchema = {
+      type: 'object',
+      definitions: {
+        permissionEvent: {
+          type: 'object',
+          properties: {
+            permissions: {
+              type: 'object',
+              properties: {
+                read: { type: 'boolean' },
+                write: { type: 'boolean' }
+              }
+            }
+          }
+        }
+      },
+      properties: {
+        event: {
+          oneOf: [
+            { $ref: '#/definitions/permissionEvent' }
+          ]
+        }
+      }
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => { }} />);
+
+    const combinerToggle = await screen.findByTitle('Expand variants');
+    fireEvent.click(combinerToggle);
+
+    const variantToggle = await screen.findByTitle('Expand variant');
+    fireEvent.click(variantToggle);
+
+    await screen.findByText('permissions');
+    await screen.findByText('read');
+    await screen.findByText('write');
+
+    const variantId = '1.event.__combiner.v0';
+    const permissionsId = `${variantId}.__1.permissions`;
+    const readId = `${permissionsId}.read`;
+    const writeId = `${permissionsId}.write`;
+
+    // Hydrated nodes should exist under deterministic hydrated IDs
+    const variantNode = document.querySelector(`[data-testid="rf__node-${variantId}"]`) as HTMLElement | null;
+    const permissionsNode = document.querySelector(`[data-testid="rf__node-${permissionsId}"]`) as HTMLElement | null;
+    const readNode = document.querySelector(`[data-testid="rf__node-${readId}"]`) as HTMLElement | null;
+    const writeNode = document.querySelector(`[data-testid="rf__node-${writeId}"]`) as HTMLElement | null;
+
+    expect(variantNode).toBeTruthy();
+    expect(permissionsNode).toBeTruthy();
+    expect(readNode).toBeTruthy();
+    expect(writeNode).toBeTruthy();
+
+    const getTranslateX = (el: HTMLElement) => {
+      const transform = el.style.transform || '';
+      const match = transform.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/);
+      return match ? Number(match[1]) : Number.NaN;
+    };
+
+    const variantX = getTranslateX(variantNode!);
+    const permissionsX = getTranslateX(permissionsNode!);
+    const readX = getTranslateX(readNode!);
+    const writeX = getTranslateX(writeNode!);
+
+    expect(Number.isNaN(variantX)).toBe(false);
+    expect(Number.isNaN(permissionsX)).toBe(false);
+    expect(Number.isNaN(readX)).toBe(false);
+    expect(Number.isNaN(writeX)).toBe(false);
+
+    // Parent rank ordering: variant -> permissions -> leaf properties
+    expect(permissionsX).toBeGreaterThan(variantX);
+    expect(readX).toBeGreaterThan(permissionsX);
+    expect(writeX).toBeGreaterThan(permissionsX);
+  });
+
   it('loads a reduced Schemastore GitHub workflow fixture and maps object children/patternProperties', async () => {
     // Use a reduced fixture resembling https://www.schemastore.org/github-workflow.json
     const fixture = schemastoreWorkflow;

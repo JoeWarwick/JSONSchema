@@ -26,6 +26,10 @@ import "reactflow/dist/style.css";
 import styles from "./graphical-schema-editor.module.css";
 
 export function GraphicalSchemaEditor({ schema, onChange, useTestData }: GraphicalSchemaEditorProps) {
+  type ExpansionState = {
+    combiners: Record<string, boolean>;
+    variants: Record<string, boolean>;
+  };
 
   // Ref to store label of selected node before graph rebuild
   const selectedNodeLabelRef = React.useRef<string | null>(null);
@@ -664,6 +668,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const nodesRef = React.useRef<Node<SchemaNodeData>[]>(nodes);
+  nodesRef.current = nodes;
   // Ref that always holds the latest edges so async callbacks can read them
   const edgesRef = React.useRef(edges);
   edgesRef.current = edges;
@@ -672,6 +678,45 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
   // syncing back from the `schema` prop for that single change to avoid
   // tearing down and rebuilding nodes (which causes selection loss).
   const skipSchemaSyncRef = React.useRef(false);
+  const expansionStateRef = React.useRef<ExpansionState>((() => {
+    const runtime = globalThis as typeof globalThis & { __graphicalSchemaExpansionState?: ExpansionState };
+    if (!runtime.__graphicalSchemaExpansionState) {
+      runtime.__graphicalSchemaExpansionState = { combiners: {}, variants: {} };
+    }
+    return runtime.__graphicalSchemaExpansionState;
+  })());
+  const pendingLocalSchemaFingerprintRef = React.useRef<string | null>(null);
+  const writeExpansionState = React.useCallback((nextState: ExpansionState) => {
+    expansionStateRef.current = nextState;
+    const runtime = globalThis as typeof globalThis & { __graphicalSchemaExpansionState?: ExpansionState };
+    runtime.__graphicalSchemaExpansionState = nextState;
+  }, []);
+  const setVariantExpandedPersisted = React.useCallback((variantId: string, expanded: boolean) => {
+    const current = expansionStateRef.current;
+    const nextVariants = { ...current.variants };
+    if (expanded) nextVariants[variantId] = true;
+    else delete nextVariants[variantId];
+    writeExpansionState({ combiners: { ...current.combiners }, variants: nextVariants });
+  }, [writeExpansionState]);
+  const setCombinerExpandedPersisted = React.useCallback((combinerId: string, expanded: boolean) => {
+    const current = expansionStateRef.current;
+    const nextCombiners = { ...current.combiners };
+    if (expanded) nextCombiners[combinerId] = true;
+    else delete nextCombiners[combinerId];
+    writeExpansionState({ combiners: nextCombiners, variants: { ...current.variants } });
+  }, [writeExpansionState]);
+  const fingerprintSchema = React.useCallback((value: unknown): string | null => {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return null;
+    }
+  }, []);
+  const emitLocalSchemaUpdate = React.useCallback((nextSchema: Record<string, unknown>) => {
+    pendingLocalSchemaFingerprintRef.current = fingerprintSchema(nextSchema);
+    skipSchemaSyncRef.current = true;
+    onChange(nextSchema);
+  }, [fingerprintSchema, onChange]);
 
   // ──────────────────────────────────────────────────────────────────────
   // Combiner / variant handler infrastructure
@@ -684,7 +729,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
   const injectHandlers = React.useCallback((inputNodes: Node<SchemaNodeData>[]) =>
     inputNodes.map(n =>
       (n.type === 'combiner' || n.type === 'variant')
-        ? { ...n, data: { ...n.data, ...nodeHandlersRef.current } }
+        ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } }
         : n
     ), []);
 
@@ -712,6 +757,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       if (!variantNode) return prev;
       const vData = variantNode.data as any;
       const willExpand = !vData.variantExpanded;
+      setVariantExpandedPersisted(variantId, willExpand);
+      if (typeof vData.parent === 'string' && willExpand) {
+        setCombinerExpandedPersisted(vData.parent, true);
+      }
 
       // Run relayout+handler-inject synchronously so there is only one committed
       // state (no flash from un-snapped positions on an intermediate render).
@@ -721,7 +770,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         const laid = relayoutNodes(ns, es);
         return laid.map(n =>
           (n.type === 'combiner' || n.type === 'variant')
-            ? { ...n, data: { ...n.data, ...nodeHandlersRef.current } }
+            ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } }
             : n
         );
       };
@@ -760,16 +809,19 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
             } as SchemaNodeData,
           }));
 
+        const subNodeIds = new Set(subNodes.map((n: Node<SchemaNodeData>) => n.id));
+
         const repairedSubNodes: Node<SchemaNodeData>[] = subNodes.map((sn: Node<SchemaNodeData>) => {
           const parent = (sn.data as any)?.parent as string | undefined;
-          if (parent) return sn;
+          const parentIsValid = parent === variantId || (parent ? subNodeIds.has(parent) : false);
+          if (parentIsValid) return sn;
           return {
             ...sn,
             data: { ...sn.data, parent: variantId } as SchemaNodeData,
           };
         });
 
-        const subNodeIds = new Set(repairedSubNodes.map((n: Node<SchemaNodeData>) => n.id));
+        const repairedSubNodeIds = new Set(repairedSubNodes.map((n: Node<SchemaNodeData>) => n.id));
 
         const subEdgesFromGraph: Edge[] = subGraph.edges
           .filter((se: Edge) => se.target !== '1')
@@ -783,7 +835,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
           .map((n: Node<SchemaNodeData>) => {
             const parentId = (n.data as any)?.parent as string | undefined;
             if (!parentId) return null;
-            if (parentId !== variantId && !subNodeIds.has(parentId)) return null;
+            if (parentId !== variantId && !repairedSubNodeIds.has(parentId)) return null;
             return {
               id: `e${parentId}-${n.id}`,
               source: parentId,
@@ -848,7 +900,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         return n;
       }), collapseEdges);
     });
-  }, [edgesRef, injectHandlers, nodeHandlersRef, resolveRefInSchema, schemaToGraph, relayoutNodes, setEdges, setNodes]);
+  }, [edgesRef, injectHandlers, nodeHandlersRef, resolveRefInSchema, schemaToGraph, relayoutNodes, setEdges, setNodes, setVariantExpandedPersisted, setCombinerExpandedPersisted]);
 
   // Add a new blank variant to a combiner node
   const handleAddVariant = React.useCallback((combinerId: string) => {
@@ -863,6 +915,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         type: 'variant',
         position: { x: 0, y: 0 },
         data: {
+          id: newVariantId,
           label: `Variant ${newIdx + 1}`,
           type: 'object',
           parent: combinerId,
@@ -895,11 +948,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         newVariant,
       ];
       const newSchema = buildSchemaFromNodes(updated);
-      skipSchemaSyncRef.current = true;
-      onChange(newSchema);
+      emitLocalSchemaUpdate(newSchema);
       return updated;
     });
-  }, [onChange]);
+  }, [emitLocalSchemaUpdate]);
 
   // Change combiner type (oneOf / anyOf / allOf)
   const handleChangeCombinerType = React.useCallback((combinerId: string, newType: string) => {
@@ -908,11 +960,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         n.id === combinerId ? { ...n, data: { ...n.data, combinerType: newType } as any } : n
       );
       const newSchema = buildSchemaFromNodes(updated);
-      skipSchemaSyncRef.current = true;
-      onChange(newSchema);
+      emitLocalSchemaUpdate(newSchema);
       return updated;
     });
-  }, [onChange]);
+  }, [emitLocalSchemaUpdate]);
 
   // Delete a variant (and possibly its combiner if it was the last one)
   const handleDeleteVariant = React.useCallback((variantId: string) => {
@@ -973,27 +1024,18 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         prevEdges.filter((e: Edge) => !toRemove.has(e.source) && !toRemove.has(e.target))
       );
       const newSchema = buildSchemaFromNodes(updated);
-      skipSchemaSyncRef.current = true;
-      onChange(newSchema);
+      emitLocalSchemaUpdate(newSchema);
       return updated;
     });
-  }, [onChange]);
-
-  // Always reflect current closures (runs every render)
-  nodeHandlersRef.current = {
-    onToggleVariant: handleToggleVariant,
-    onAddVariant: handleAddVariant,
-    onChangeCombinerType: handleChangeCombinerType,
-    onDeleteVariant: handleDeleteVariant,
-    onToggleVariants: handleToggleCombinerVariants,
-  };
+  }, [emitLocalSchemaUpdate]);
 
   // Expand/collapse all variants of a combiner node at once
-  function handleToggleCombinerVariants(combinerId: string) {
+  const handleToggleCombinerVariants = React.useCallback((combinerId: string) => {
     setNodes((prev: Node<SchemaNodeData>[]) => {
       const combiner = prev.find(n => n.id === combinerId);
       if (!combiner) return prev;
       const willExpand = !(combiner.data as any).variantsExpanded;
+      setCombinerExpandedPersisted(combinerId, willExpand);
       const variantIds = new Set(
         prev.filter(n => n.type === 'variant' && (n.data as any)?.parent === combinerId).map(n => n.id)
       );
@@ -1013,11 +1055,62 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       const laid = relayoutNodes(next, toggledEdges);
       return laid.map(n =>
         (n.type === 'combiner' || n.type === 'variant')
-          ? { ...n, data: { ...n.data, ...nodeHandlersRef.current } }
+          ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } }
           : n
       );
     });
-  }
+  }, [relayoutNodes, setCombinerExpandedPersisted]);
+
+  const restoreExpandedStateRecursively = React.useCallback((state: ExpansionState) => {
+    let attempts = 0;
+    const maxAttempts = 12;
+
+    const runPass = () => {
+      attempts += 1;
+      const currentNodes = nodesRef.current;
+
+      const combinersToExpand = currentNodes
+        .filter((n) => n.type === 'combiner')
+        .map((n) => n.id)
+        .filter((id) => {
+          const node = currentNodes.find((n) => n.id === id);
+          if (!node) return false;
+          const shouldExpand = Boolean(state.combiners[id]);
+          const isExpanded = Boolean((node.data as any)?.variantsExpanded);
+          return shouldExpand && !isExpanded;
+        });
+
+      const variantsToExpand = currentNodes
+        .filter((n) => n.type === 'variant')
+        .map((n) => n.id)
+        .filter((id) => {
+          const node = currentNodes.find((n) => n.id === id);
+          if (!node) return false;
+          const shouldExpand = Boolean(state.variants[id]);
+          const isExpanded = Boolean((node.data as any)?.variantExpanded);
+          return shouldExpand && !isExpanded;
+        });
+
+      combinersToExpand.forEach((combinerId) => handleToggleCombinerVariants(combinerId));
+      variantsToExpand.forEach((variantId) => handleToggleVariant(variantId));
+
+      const madeProgress = combinersToExpand.length > 0 || variantsToExpand.length > 0;
+      if (madeProgress && attempts < maxAttempts) {
+        setTimeout(runPass, 0);
+      }
+    };
+
+    setTimeout(runPass, 0);
+  }, [handleToggleCombinerVariants, handleToggleVariant]);
+
+  // Always reflect current closures (runs every render)
+  nodeHandlersRef.current = {
+    onToggleVariant: handleToggleVariant,
+    onAddVariant: handleAddVariant,
+    onChangeCombinerType: handleChangeCombinerType,
+    onDeleteVariant: handleDeleteVariant,
+    onToggleVariants: handleToggleCombinerVariants,
+  };
 
   // Wrap an existing property node in a new oneOf combiner
   const handleAddCombinerToNode = React.useCallback((nodeId: string) => {
@@ -1033,6 +1126,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         type: 'combiner',
         position: { x: 0, y: 0 },
         data: {
+          id: combinerId,
           label: '__combiner',
           type: 'object',
           parent: nodeId,
@@ -1046,6 +1140,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         type: 'variant',
         position: { x: 0, y: 0 },
         data: {
+          id: variant0Id,
           label: 'Variant 1',
           type: 'object',
           parent: combinerId,
@@ -1066,11 +1161,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       ]);
       const updated = [...prev, combinerNode, variant0];
       const newSchema = buildSchemaFromNodes(updated);
-      skipSchemaSyncRef.current = true;
-      onChange(newSchema);
+      emitLocalSchemaUpdate(newSchema);
       return updated;
     });
-  }, [onChange]);
+  }, [emitLocalSchemaUpdate]);
 
   // Find the selected node from nodes and selectedNodeId
   const selectedNode = React.useMemo(() => {
@@ -1136,8 +1230,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       // schema from the updated graph state (using nodes collection) and emit it once.
       const newSchema = buildSchemaFromNodes(updatedNodes);
       if (newSchema) {
-        skipSchemaSyncRef.current = true;
-        onChange(newSchema);
+        emitLocalSchemaUpdate(newSchema);
       }
       return updatedNodes;
     });
@@ -1161,8 +1254,13 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     // skip syncing back from the `schema` prop for this change to avoid
     // tearing down and rebuilding nodes (which causes selection loss).
     if (skipSchemaSyncRef.current) {
+      const incomingFingerprint = fingerprintSchema(schema);
+      const pendingFingerprint = pendingLocalSchemaFingerprintRef.current;
       skipSchemaSyncRef.current = false;
-      return;
+      pendingLocalSchemaFingerprintRef.current = null;
+      if (pendingFingerprint && incomingFingerprint === pendingFingerprint) {
+        return;
+      }
     }
     if (useTestData) return;
     const activeSchema = schema;
@@ -1198,12 +1296,41 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     };
     const schemaForGraph = normalizeForGraph(activeSchema);
     const rawGraph = schemaToGraph(schemaForGraph);
-    const nodes = relayoutNodes(rawGraph.nodes, rawGraph.edges).map(n =>
+    const restoredExpansionState = expansionStateRef.current;
+    const nodesWithRestoredExpansion = rawGraph.nodes.map((n) => {
+      if (n.type === 'combiner') {
+        const expanded = Boolean(restoredExpansionState.combiners[n.id]);
+        if (expanded) {
+          return { ...n, data: { ...n.data, variantsExpanded: true } as any };
+        }
+      }
+      return n;
+    }).map((n) => {
+      if (n.type !== 'variant') return n;
+      const parentId = (n.data as any)?.parent as string | undefined;
+      const parentExpanded = parentId ? Boolean(restoredExpansionState.combiners[parentId]) : false;
+      return {
+        ...n,
+        hidden: !parentExpanded,
+      };
+    });
+
+    const edgesWithRestoredExpansion = rawGraph.edges.map((e) => {
+      const src = nodesWithRestoredExpansion.find((n) => n.id === e.source);
+      const tgt = nodesWithRestoredExpansion.find((n) => n.id === e.target);
+      if (src?.type === 'combiner' && tgt?.type === 'variant') {
+        const expanded = Boolean(restoredExpansionState.combiners[src.id]);
+        return { ...e, hidden: !expanded };
+      }
+      return e;
+    });
+
+    const nodes = relayoutNodes(nodesWithRestoredExpansion, edgesWithRestoredExpansion).map(n =>
       (n.type === 'combiner' || n.type === 'variant')
-        ? { ...n, data: { ...n.data, ...nodeHandlersRef.current } }
+        ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } }
         : n
     );
-    const edges = rawGraph.edges;
+    const edges = edgesWithRestoredExpansion;
     // Only rebuild nodes/edges if the count changes (structural change)
     // Store label of selected node before graph rebuild
     setNodes(prevNodes => {
@@ -1216,6 +1343,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     if ((nodes.length !== prevNodeCount.current) || (edges.length !== prevEdgeCount.current)) {
       setNodes(nodes);
       setEdges(edges);
+      const hasPersistedExpansion =
+        Object.keys(restoredExpansionState.combiners).length > 0 ||
+        Object.keys(restoredExpansionState.variants).length > 0;
+      if (hasPersistedExpansion) {
+        restoreExpandedStateRecursively(restoredExpansionState);
+      }
       // Try to preserve selected node if possible
       setSelectedNodeId(prevSelected => {
         if (!prevSelected) return nodes.length > 0 ? nodes[0].id : null;
@@ -1263,7 +1396,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       setEdges(edges);
     }
     // Otherwise, do not reset selection (preserve selection and form)
-  }, [schema, setNodes, setEdges, useTestData, schemaToGraph]);
+  }, [schema, setNodes, setEdges, useTestData, schemaToGraph, fingerprintSchema, relayoutNodes, restoreExpandedStateRecursively]);
 
   // Note: dereferencing is handled by the top-level reducer/workbench.
 
@@ -1437,7 +1570,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     // Rebuild graph from emitted schema
     const rawRebuilt = schemaToGraph(emittedSchema as Record<string, unknown>);
     const rebuiltNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
-      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, ...nodeHandlersRef.current } } : n
+      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
     );
     const rebuiltEdges = rawRebuilt.edges as Edge[];
     setNodes(rebuiltNodes);
@@ -1536,7 +1669,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     // Rebuild graph from emitted schema
     const rawRebuilt = schemaToGraph(emittedSchema as Record<string, unknown>);
     const rebuiltNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
-      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, ...nodeHandlersRef.current } } : n
+      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
     );
     const rebuiltEdges = rawRebuilt.edges as Edge[];
     setNodes(rebuiltNodes);
@@ -1662,13 +1795,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     }
 
     // Emit the edited resolved schema so reducer will rehydrate into source
-    skipSchemaSyncRef.current = true;
-    onChange(baseSchema);
+    emitLocalSchemaUpdate(baseSchema);
 
     // Rebuild graph from emitted schema and select the new node if present
     const rawRebuilt = schemaToGraph(baseSchema as Record<string, unknown>);
     const rebuiltNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
-      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, ...nodeHandlersRef.current } } : n
+      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
     );
     const rebuiltEdges = rawRebuilt.edges as Edge[];
     setNodes(rebuiltNodes);
