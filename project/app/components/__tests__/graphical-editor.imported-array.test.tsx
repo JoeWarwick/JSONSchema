@@ -27,9 +27,10 @@ describe('GraphicalSchemaEditor imported array context menu', () => {
     };
     const onChange = jest.fn();
     render(<GraphicalSchemaEditor schema={schema as any} onChange={onChange} />);
-    // The nodes are rendered into the reactflow mock; look for '*' marker via title
-    const star = screen.getAllByTitle(/Imported/i)[0];
-    expect(star).toBeTruthy();
-    // Since context menu is interactive and requires DOM context, we can assert that the node data was marked imported by ensuring star exists
+    const contactsNode = screen.getByText('contacts');
+    const contactsContainer = contactsNode.closest('[data-testid^="rf__node-"]') as HTMLElement;
+    const importedIcon = contactsContainer.querySelector('svg.lucide-link-2');
+    expect(importedIcon).toBeTruthy();
+    // Since context menu is interactive and requires DOM context, assert imported provenance by icon marker
   });
 });

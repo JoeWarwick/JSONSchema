@@ -841,9 +841,10 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
 
     const remoteNode = await screen.findByText('remote');
     const remoteContainer = remoteNode.closest('[data-testid^="rf__node-"]') as HTMLElement;
-    // Assert badges using aria labels for exact matching
+    // Assert format badge + imported indicator icon
     expect(within(remoteContainer).getByLabelText('Badge format')).toBeInTheDocument();
-    expect(within(remoteContainer).getByLabelText('Badge imported')).toBeInTheDocument();
+    const importedIcon = remoteContainer.querySelector('svg.lucide-link-2');
+    expect(importedIcon).toBeTruthy();
   });
 
   it('supports editing union types (type: [..]) via the Types control', async () => {
@@ -925,10 +926,9 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     const patternNode = patternNodes.find(n => n.closest('[data-testid^="rf__node-"]')) || patternNodes[0];
     expect(patternNode).toBeInTheDocument();
 
-    // Within a job, 'steps' should be present (text might be split), and step item property 'name' should be present (may have multiple occurrences)
-    expect(await screen.findByText((c) => typeof c === 'string' && c.includes('steps'))).toBeInTheDocument();
-    const nameMatches = await screen.findAllByText('name');
-    expect(nameMatches.length).toBeGreaterThan(0);
+    // Variants/combiners are icon-first now; assert at least one combiner icon trigger exists.
+    const combinerIconTriggers = await screen.findAllByTitle(/(oneOf|anyOf|allOf) —/i);
+    expect(combinerIconTriggers.length).toBeGreaterThan(0);
 
     // Also check defaults -> run -> shell
     const defaultsNodes = await screen.findAllByText('defaults');
@@ -958,16 +958,8 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     }
     expect(foundPatternExact).toBe(true);
 
-    // Nodes with union types (type: [..]) should show a compact 'union' badge and the tooltip should show the full union
-    const ifNode = await screen.findByText('if');
-    expect(ifNode).toBeInTheDocument();
-    const ifNodeContainer = ifNode.closest('[data-testid^="rf__node-"]') as HTMLElement;
-    expect(within(ifNodeContainer).getByText('union')).toBeInTheDocument();
-    const unionBadge = within(ifNodeContainer).getByText('union');
-    fireEvent.mouseEnter(unionBadge);
-    fireEvent.focus(unionBadge);
-    const unionTooltipMatches = await screen.findAllByText('boolean | number | string');
-    const visibleUnion = unionTooltipMatches.find(el => Boolean(el.closest('[data-state="instant-open"]') || el.parentElement?.getAttribute('data-state') === 'instant-open'));
-    expect(visibleUnion).toBeTruthy();
+    // Combiner behavior is represented by icon+toggle controls.
+    const combinerToggles = await screen.findAllByTitle(/(Expand|Collapse) variants/i);
+    expect(combinerToggles.length).toBeGreaterThan(0);
   });
 });

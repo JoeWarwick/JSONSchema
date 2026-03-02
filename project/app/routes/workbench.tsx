@@ -787,29 +787,24 @@ export default function Workbench() {
         <button className={activeTab === 'graph' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('graph')}>Schema Editor</button>
       </div>
 
-      <div className={styles.tabPanel}>
+      <div className={`${styles.tabPanel}${activeTab === 'graph' ? ` ${styles.tabPanelFlush}` : ''}`}>
         {activeTab === 'graph' && (
-          <div className={styles.panel}>
-            <div className={styles.panelHeader}>
-              <h2 className={styles.panelTitle}>Graphical Schema Editor</h2>
-            </div>
-            <div className={styles.editorContainer}>
-              {editorSchema ? (
-                <GraphicalSchemaEditor
-                  schema={editorSchema as any}
-                  onChange={(newSchema) => {
-                    // Editor emits edits to the resolved view; reducer will rehydrate into source
-                    dispatch({ type: APPLY_RESOLVED_EDIT, payload: newSchema });
-                    setInstanceData((prev: unknown) => prev == null ? generateDefaultInstance(newSchema) : prev);
-                  }}
-                />
-              ) : state.source ? (
-                <div className={styles.emptyState}>Resolving schema&hellip;</div>
-              ) : (
-                <div className={styles.emptyState}>Load or generate a schema to begin editing</div>
-              )}
-            </div>
-          </div>
+          <>
+            {editorSchema ? (
+              <GraphicalSchemaEditor
+                schema={editorSchema as any}
+                onChange={(newSchema) => {
+                  // Editor emits edits to the resolved view; reducer will rehydrate into source
+                  dispatch({ type: APPLY_RESOLVED_EDIT, payload: newSchema });
+                  setInstanceData((prev: unknown) => prev == null ? generateDefaultInstance(newSchema) : prev);
+                }}
+              />
+            ) : state.source ? (
+              <div className={styles.emptyState}>Resolving schema&hellip;</div>
+            ) : (
+              <div className={styles.emptyState}>Load or generate a schema to begin editing</div>
+            )}
+          </>
         )}
         {activeTab === 'schema' && (
           <>

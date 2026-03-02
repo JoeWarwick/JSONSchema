@@ -1,4 +1,5 @@
 import React from 'react';
+import * as dagreLib from 'dagre';
 import { MemoizedNodePropertyEditor } from './NodePropertyEditor';
 import { ContextMenu } from "./ContextMenu";
 import {
@@ -16,6 +17,7 @@ import ReactFlow, {
   useEdgesState,
 } from "reactflow";
 import { TooltipProvider } from "./ui/tooltip/tooltip";
+import { getVariantLabel } from '../utils/labels';
 import type { Connection, Edge, Node, OnConnect } from "reactflow"
 import type { SchemaNodeData } from "./schema-behaviors";
 import type { NodeData, GraphicalSchemaEditorProps } from './types';
@@ -29,6 +31,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
   const selectedNodeLabelRef = React.useRef<string | null>(null);
   const initialLoadRef = React.useRef(true);
   const flowWrapperRef = React.useRef<HTMLDivElement | null>(null);
+  const pendingCenterRef = React.useRef(false);
   // Only render ReactFlow when the wrapper has a measured non-zero height.
   // This avoids React Flow error #004 when the parent container has no height
   // at initial render (e.g. due to CSS/layout timing).
@@ -125,12 +128,28 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     const nodes: Node<SchemaNodeData>[] = [];
     const edges: Edge[] = [];
 
+    // Derive the schema type for a variant entry, resolving local $refs via definitions
+    function getVariantSchemaType(v: any): string {
+      if (!v || typeof v !== 'object') return 'string';
+      if (typeof v.type === 'string') return v.type;
+      if (Array.isArray(v.type) && v.type.length > 0) return v.type[0];
+      if (v.properties || v.patternProperties) return 'object';
+      if (v.items !== undefined) return 'array';
+      if (Array.isArray(v.enum)) return 'string';
+      if (typeof v.$ref === 'string' && v.$ref.startsWith('#/definitions/')) {
+        const defName = v.$ref.replace('#/definitions/', '');
+        const def = (schema as any).definitions?.[defName];
+        if (def) return getVariantSchemaType(def);
+      }
+      return 'string';
+    }
+
     function walkSchema(obj: any, parentId?: string, label?: string, x = 0, y = 0, parentRequired?: string[]): string {
       const id = makeId(parentId, label);
       // Resolve local $ref and oneOf refs that reference definitions within the schema so we can traverse referenced definitions
       const resolveLocalRef = (candidate: any): any => {
         if (!candidate || typeof candidate !== 'object') return candidate;
-        // Direct $ref to local definition
+        // Direct $ref to local definition — resolve and merge
         if (typeof candidate.$ref === 'string' && candidate.$ref.startsWith('#/')) {
           const path = candidate.$ref.replace(/^#\//, '').split('/');
           let target: any = schema;
@@ -145,35 +164,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
           }
           return candidate;
         }
-        // Handle oneOf: prefer the first resolvable entry (either a $ref or inline object)
-        if (Array.isArray(candidate.oneOf) && candidate.oneOf.length > 0) {
-          for (const e of candidate.oneOf) {
-            if (!e) continue;
-            if (typeof e.$ref === 'string' && e.$ref.startsWith('#/')) {
-              const path = e.$ref.replace(/^#\//, '').split('/');
-              let target: any = schema;
-              for (const p of path) {
-                if (target && typeof target === 'object') target = target[p];
-                else { target = null; break; }
-              }
-              if (target && typeof target === 'object') {
-                const clone = JSON.parse(JSON.stringify({ ...target }));
-                for (const [k, v] of Object.entries(candidate)) {
-                  if (k === 'oneOf') continue;
-                  (clone as any)[k] = v;
-                }
-                return clone;
-              }
-            } else if (typeof e === 'object') {
-              const clone = JSON.parse(JSON.stringify({ ...e }));
-              for (const [k, v] of Object.entries(candidate)) {
-                if (k === 'oneOf') continue;
-                (clone as any)[k] = v;
-              }
-              return clone;
-            }
-          }
-        }
+        // NOTE: oneOf/anyOf/allOf are NO LONGER flattened here.
+        // They are handled by the combiner node creation logic in walkSchema below.
         return candidate;
       };
       obj = resolveLocalRef(obj);
@@ -302,25 +294,187 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
           propY += 140;
         }
       }
+
+      // ── Combiner detection: oneOf / anyOf / allOf ─────────────────────────
+      // allOf is only treated as a combiner when there is no outer $ref (otherwise
+      // it is an import-marker and is handled by the imported detection above).
+      const rawCombinerKey: 'oneOf' | 'anyOf' | 'allOf' | null =
+        obj.oneOf ? 'oneOf'
+        : obj.anyOf ? 'anyOf'
+        : (obj.allOf && !obj.$ref && !(obj as any).__from) ? 'allOf'
+        : null;
+
+      if (rawCombinerKey) {
+        const variantsArray = (obj[rawCombinerKey] as any[]) || [];
+        const combinerId = `${id}.__combiner`;
+
+        // Derive a display label for a variant entry using shared label utilities
+
+        // Combiner node
+        nodes.push({
+          id: combinerId,
+          type: 'combiner',
+          data: {
+            id: combinerId,
+            label: rawCombinerKey,
+            type: 'string' as any,
+            combinerType: rawCombinerKey,
+            variantCount: variantsArray.length,
+            parent: id,
+            // handler callbacks are injected later via injectHandlers()
+          } as any,
+          position: { x: x + 300, y },
+        });
+        edges.push({ id: `e${id}-${combinerId}`, source: id, target: combinerId, type: 'default' });
+
+        // Variant placeholder nodes (start hidden; expanded lazily)
+        variantsArray.forEach((variant: any, i: number) => {
+          const variantId = `${combinerId}.v${i}`;
+          const varLabel = getVariantLabel(variant as Record<string, unknown>, i, variantsArray as Record<string, unknown>[]).title;
+          const variantRef = (variant && typeof variant.$ref === 'string') ? variant.$ref : undefined;
+          nodes.push({
+            id: variantId,
+            type: 'variant',
+            data: {
+              id: variantId,
+              label: varLabel,
+              type: getVariantSchemaType(variant) as any,
+              isCombinerVariant: true,
+              variantIndex: i + 1,
+              variantRef,
+              variantResolved: false,
+              variantExpanded: false,
+              variantSchema: variant,
+              parent: combinerId,
+              // handler callbacks injected later
+            } as any,
+            position: { x: x + 600, y: y + i * 60 },
+            hidden: true,
+          });
+          edges.push({
+            id: `e${combinerId}-${variantId}`,
+            source: combinerId,
+            target: variantId,
+            type: 'default',
+            hidden: true,
+          });
+        });
+      }
+      // ── end combiner detection ─────────────────────────────────────────────
+
       return id;
     }
     walkSchema(schema, undefined, 'Root', 0, 200);
     return { nodes, edges };
   }, []);
 
-  // Relayout nodes into a vertical tree. Use `dagre` when available to compute
-  // positions using measured node widths from the DOM. If `dagre` is not
+  // Relayout nodes into a horizontal tree. Use `dagre` when available to compute
+  // positions using measured node heights from the DOM. If `dagre` is not
   // available, fall back to a heuristic layout that estimates widths.
   const relayoutNodes = React.useCallback((inputNodes: Node<SchemaNodeData>[], inputEdges: Edge[]) => {
     if (!Array.isArray(inputNodes) || inputNodes.length === 0) return inputNodes;
 
-    const nodeMap = new Map<string, Node<SchemaNodeData>>();
-    for (const n of inputNodes) if (n && n.id) nodeMap.set(n.id, n);
+    const visibleNodes = inputNodes.filter(n => !n.hidden);
+    const hiddenNodes = inputNodes.filter(n => n.hidden);
+    if (visibleNodes.length === 0) return inputNodes;
 
-    // Build children map by parent id (prefer data.parent)
+    const NODE_HEIGHT = 64;
+    const COMBINER_HEIGHT = 48;  // compact: just type-label + picker buttons
+    const VARIANT_HEIGHT = 52;   // header row + title row
+    const CHAR_WIDTH = 8;
+    const MIN_WIDTH = 180;
+    const H_PADDING = 40;
+
+    const estimateWidth = (n: Node<SchemaNodeData>) => {
+      const lbl = (n.data && (n.data.label as string)) || '';
+      // Combiner/variant nodes render fit-content and are compact; use a smaller minimum.
+      const minW = (n.type === 'combiner' || n.type === 'variant') ? 80 : MIN_WIDTH;
+      return Math.max(minW, lbl.length * CHAR_WIDTH + H_PADDING);
+    };
+
+    const estimateHeight = (n: Node<SchemaNodeData>) => {
+      if (n.type === 'combiner') return COMBINER_HEIGHT;
+      if (n.type === 'variant') return VARIANT_HEIGHT;
+      return NODE_HEIGHT;
+    };
+
+    // Try dagre
+    if (dagreLib) {
+      try {
+        const g = new dagreLib.graphlib.Graph();
+        g.setGraph({ rankdir: 'LR', nodesep: 32, ranksep: 80 });
+        g.setDefaultEdgeLabel(() => ({}));
+
+        // All visible nodes go into dagre — let it handle spacing for
+        // combiner and variant nodes using normal edge lengths.
+        for (const n of visibleNodes) {
+          g.setNode(n.id, { width: estimateWidth(n), height: estimateHeight(n) });
+        }
+
+        const visibleIds = new Set(visibleNodes.map(n => n.id));
+        for (const e of (inputEdges || [])) {
+          if (e.source && e.target && !e.hidden && visibleIds.has(e.source) && visibleIds.has(e.target)) {
+            g.setEdge(e.source, e.target);
+          }
+        }
+
+        dagreLib.layout(g);
+
+        const finalLaid = visibleNodes.map(n => {
+          const dn = g.node(n.id);
+          if (!dn) return n;
+          return { ...n, position: { x: dn.x - dn.width / 2, y: dn.y - dn.height / 2 } };
+        });
+
+        // Post-process: snap combiner x to sit tight against its parent property node,
+        // then snap variant x tight against its (now-snapped) combiner.
+        // Dagre's y is kept in both cases so vertical layout is undisturbed.
+        const NODE_GAP = 16;
+        const laidMap = new Map(finalLaid.map(n => [n.id, n]));
+        const withSnappedCombiners = finalLaid.map(n => {
+          if (n.type !== 'combiner') return n;
+          const parentId = (n.data as any)?.parent as string | undefined;
+          const parentNode = parentId ? laidMap.get(parentId) : undefined;
+          if (!parentNode) return n;
+          const dn = g.node(parentNode.id);
+          const pw = dn ? dn.width : estimateWidth(parentNode);
+          return { ...n, position: { x: parentNode.position.x + pw + NODE_GAP, y: n.position.y } };
+        });
+
+        const VARIANT_V_GAP = 8;
+        const snappedCombinerMap = new Map(withSnappedCombiners.map(n => [n.id, n]));
+        const withSnappedVariants = withSnappedCombiners.map(n => {
+          if (n.type !== 'variant') return n;
+          const parentId = (n.data as any)?.parent as string | undefined;
+          const parentNode = parentId ? snappedCombinerMap.get(parentId) : undefined;
+          if (!parentNode) return n;
+          const dn = g.node(parentNode.id);
+          const pw = dn ? dn.width : estimateWidth(parentNode);
+          // Stack variants tightly, centered on their combiner's y
+          const siblings = withSnappedCombiners.filter(s => s.type === 'variant' && (s.data as any)?.parent === parentId);
+          const idx = siblings.findIndex(s => s.id === n.id);
+          const VARIANT_H = estimateHeight(n);
+          const totalH = siblings.length * VARIANT_H + (siblings.length - 1) * VARIANT_V_GAP;
+          const startY = parentNode.position.y + (estimateHeight(parentNode) / 2) - totalH / 2;
+          return {
+            ...n,
+            position: {
+              x: parentNode.position.x + pw + NODE_GAP + 5,
+              y: startY + idx * (VARIANT_H + VARIANT_V_GAP),
+            },
+          };
+        });
+
+        return [...withSnappedVariants, ...hiddenNodes];
+      } catch (err) {
+        // fall through to heuristic
+      }
+    }
+
+    // Heuristic fallback — simple left-to-right tree layout
     const children = new Map<string, string[]>();
-    for (const n of inputNodes) {
-      const pid = n.data && (n.data.parent as string | undefined);
+    for (const n of visibleNodes) {
+      const pid = n.data?.parent as string | undefined;
       if (pid) {
         const arr = children.get(pid) || [];
         arr.push(n.id);
@@ -328,191 +482,54 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       }
     }
 
-    const NODE_HEIGHT = 84;
     const V_SPACING = 20;
-    const START_Y = 60;
-
-    // Estimate widths as fallback
-    const CHAR_WIDTH = 8;
-    const MIN_WIDTH = 120;
-    const H_PADDING = 40;
-    const H_SPACING = 40;
-    const estimateWidth = (n: Node<SchemaNodeData>) => {
-      const lbl = (n.data && (n.data.label as string)) || '';
-      return Math.max(MIN_WIDTH, lbl.length * CHAR_WIDTH + H_PADDING);
-    };
-
-    // Try to load dagre dynamically (allow optional dependency)
-    let dagreLib: any = null;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      dagreLib = require('dagre');
-    } catch (e) {
-      // try window global (if loaded externally)
-      if (typeof window !== 'undefined' && (window as any).dagre) dagreLib = (window as any).dagre;
-    }
-
-    if (dagreLib) {
-      try {
-        const g = new dagreLib.graphlib.Graph();
-        g.setGraph({ rankdir: 'LR', nodesep: 20, ranksep: 40 });
-        g.setDefaultEdgeLabel(() => ({}));
-
-        // Add nodes with measured or estimated sizes
-        for (const n of inputNodes) {
-          let w = estimateWidth(n);
-          let h = NODE_HEIGHT;
-          try {
-            // Try to measure DOM node if present
-            if (typeof document !== 'undefined') {
-              const el = document.querySelector(`.react-flow__node[data-id="${n.id}"]`) as HTMLElement | null
-                || document.querySelector(`[data-id="${n.id}"]`) as HTMLElement | null;
-              if (el) {
-                const r = el.getBoundingClientRect();
-                if (r.width > 0) w = Math.max(w, r.width);
-                if (r.height > 0) h = r.height;
-              }
-            }
-          } catch (m) {
-            // ignore measurement errors
-          }
-          g.setNode(n.id, { width: w, height: h });
-        }
-
-        // Add edges from inputEdges (use source->target)
-        for (const e of inputEdges || []) {
-          if (e && (e as any).source && (e as any).target) g.setEdge((e as any).source, (e as any).target);
-        }
-
-        dagreLib.layout(g);
-
-        const positions = new Map<string, { x: number; y: number }>();
-        g.nodes().forEach((id: string) => {
-          const n = g.node(id);
-          // dagre gives center x,y; convert to top-left for React Flow
-          positions.set(id, { x: n.x - n.width / 2, y: n.y - n.height / 2 });
-        });
-
-        // Ensure root is far left and leaves are far right: compute min/max x and
-        // scale so leaves reach container width from root.
-        const containerWidth = flowWrapperRef.current?.getBoundingClientRect().width || 1400;
-        const TARGET_WIDTH = containerWidth - 40; // leave some margin
-        const LEFT_MARGIN = 20;
-        const rootPos = positions.get('1');
-        const xs: number[] = [];
-        const leafIds: string[] = [];
-        for (const n of inputNodes) {
-          const pos = positions.get(n.id);
-          if (pos) xs.push(pos.x);
-          // leaf: has no children (or no outgoing edges)
-          const ch = children.get(n.id) || [];
-          if (!ch || ch.length === 0) leafIds.push(n.id);
-        }
-        if (!rootPos || xs.length === 0) {
-          return inputNodes.map(n => {
-            const pos = positions.get(n.id);
-            if (!pos) return n;
-            return { ...n, position: { x: pos.x, y: pos.y } };
-          });
-        }
-        const minX = Math.min(...xs);
-        const maxLeafX = Math.max(...leafIds.map(id => positions.get(id)?.x ?? minX));
-        const rootX = rootPos.x;
-        const span = maxLeafX - rootX || 1;
-        const scale = TARGET_WIDTH / span;
-
-        return inputNodes.map(n => {
-          const pos = positions.get(n.id);
-          if (!pos) return n;
-          const newX = LEFT_MARGIN + (pos.x - rootX) * scale;
-          return { ...n, position: { x: newX, y: pos.y } };
-        });
-      } catch (err) {
-        // fall through to heuristic if dagre fails
-      }
-    }
-
-    // Fallback heuristic layout (estimates widths and stacks children)
+    const H_SPACING = 60;
     const widthMap = new Map<string, number>();
-    for (const n of inputNodes) widthMap.set(n.id, estimateWidth(n));
+    for (const n of visibleNodes) widthMap.set(n.id, estimateWidth(n));
 
-    const heightMemo = new Map<string, number>();
-    const computeHeight = (id: string): number => {
-      if (heightMemo.has(id)) return heightMemo.get(id)!;
+    const subtreeHeight = new Map<string, number>();
+    const nodeHeightMap = new Map<string, number>();
+    for (const n of visibleNodes) nodeHeightMap.set(n.id, estimateHeight(n));
+    const calcHeight = (id: string): number => {
+      if (subtreeHeight.has(id)) return subtreeHeight.get(id)!;
       const ch = children.get(id) || [];
-      if (ch.length === 0) {
-        heightMemo.set(id, NODE_HEIGHT);
-        return NODE_HEIGHT;
-      }
-      let total = 0;
-      for (let i = 0; i < ch.length; i++) {
-        total += computeHeight(ch[i]);
-        if (i < ch.length - 1) total += V_SPACING;
-      }
-      heightMemo.set(id, total);
-      return total;
+      const h = ch.length === 0
+        ? (nodeHeightMap.get(id) ?? NODE_HEIGHT)
+        : ch.reduce((s, c, i) => s + calcHeight(c) + (i > 0 ? V_SPACING : 0), 0);
+      subtreeHeight.set(id, h);
+      return h;
     };
 
     const positions = new Map<string, { x: number; y: number }>();
-    const assign = (id: string, centerX: number, yTop: number) => {
+    const assign = (id: string, left: number, yTop: number) => {
       const ch = children.get(id) || [];
+      const w = widthMap.get(id) || MIN_WIDTH;
       if (ch.length === 0) {
-        positions.set(id, { x: centerX, y: yTop + NODE_HEIGHT / 2 });
-        return computeHeight(id);
+        positions.set(id, { x: left, y: yTop });
+        return;
       }
-      const heights = ch.map(cid => computeHeight(cid));
       let curY = yTop;
-      const parentWidth = widthMap.get(id) || MIN_WIDTH;
-      for (let i = 0; i < ch.length; i++) {
-        const cid = ch[i];
-        const childWidth = widthMap.get(cid) || MIN_WIDTH;
-        const childCenterX = centerX + (parentWidth / 2) + H_SPACING + (childWidth / 2);
-        assign(cid, childCenterX, curY);
-        curY += heights[i] + V_SPACING;
+      for (const cid of ch) {
+        assign(cid, left + w + H_SPACING, curY);
+        curY += calcHeight(cid) + V_SPACING;
       }
       const first = positions.get(ch[0])!;
       const last = positions.get(ch[ch.length - 1])!;
-      const parentY = (first.y + last.y) / 2;
-      positions.set(id, { x: centerX, y: parentY });
-      return heights.reduce((s, h) => s + h, 0) + V_SPACING * (ch.length - 1);
+      positions.set(id, { x: left, y: (first.y + last.y) / 2 });
     };
 
-    const rootId = '1';
-    if (!nodeMap.has(rootId)) return inputNodes;
-    computeHeight(rootId);
-    assign(rootId, 0, START_Y);
+    const visibleIds = new Set(visibleNodes.map(n => n.id));
+    const rootId = visibleNodes.find(n => !n.data?.parent || !visibleIds.has(n.data.parent as string))?.id ?? visibleNodes[0].id;
+    calcHeight(rootId);
+    assign(rootId, 20, 20);
 
-    // Normalize fallback layout similarly: scale so leaves are pushed right
-    const containerWidth = flowWrapperRef.current?.getBoundingClientRect().width || 1400;
-    const TARGET_WIDTH = containerWidth - 40;
-    const LEFT_MARGIN = 20;
-    const xs: number[] = [];
-    const leafIds: string[] = [];
-    for (const n of inputNodes) {
-      const p = positions.get(n.id);
-      if (p) xs.push(p.x);
-      const ch = children.get(n.id) || [];
-      if (!ch || ch.length === 0) leafIds.push(n.id);
-    }
-    const rootPos = positions.get('1');
-    if (!rootPos || xs.length === 0) {
-      return inputNodes.map(n => {
-        const pos = positions.get(n.id);
-        if (!pos) return n;
-        return { ...n, position: { x: pos.x, y: pos.y - NODE_HEIGHT / 2 } };
-      });
-    }
-    const rootX = rootPos.x;
-    const maxLeafX = Math.max(...leafIds.map(id => positions.get(id)?.x ?? rootX));
-    const span = maxLeafX - rootX || 1;
-    const scale = TARGET_WIDTH / span;
-
-    return inputNodes.map(n => {
-      const pos = positions.get(n.id);
-      if (!pos) return n;
-      const newX = LEFT_MARGIN + (pos.x - rootX) * scale;
-      return { ...n, position: { x: newX, y: pos.y - NODE_HEIGHT / 2 } };
-    });
+    return [
+      ...visibleNodes.map(n => {
+        const p = positions.get(n.id);
+        return p ? { ...n, position: p } : n;
+      }),
+      ...hiddenNodes,
+    ];
   }, []);
 
   // Build a JSON Schema from the current nodes collection (authoritative)
@@ -522,12 +539,60 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
 
     // Recursive builder: assemble schema for a node by finding its children
     const buildNodeSchema = (node: Node<SchemaNodeData>): Record<string, unknown> => {
+      // Check if this node has a combiner child
+      const combinerChild = allNodes.find(n => n.type === 'combiner' && n.data && (n.data as any).parent === node.id);
+
+      if (combinerChild) {
+        // Build base with only metadata (no type — combiners replace the type)
+        const base: Record<string, unknown> = {};
+        if (node.data.description) base.description = node.data.description;
+        if ((node.data as any).$comment) base.$comment = (node.data as any).$comment;
+        if (node.data.label && node.id !== '1') base.title = node.data.label;
+        const combinerType = ((combinerChild.data as any).combinerType as string) || 'oneOf';
+        // Collect variant children in order
+        const variantChildren = allNodes
+          .filter(n => n.type === 'variant' && n.data && (n.data as any).parent === combinerChild.id)
+          .sort((a, b) => (((a.data as any).variantIndex) || 0) - (((b.data as any).variantIndex) || 0));
+        const variants = variantChildren.map(v => {
+          const vData = v.data as any;
+          // Not yet expanded: return the original raw variant schema
+          if (!vData.variantResolved || !vData.variantExpanded) {
+            return vData.variantSchema || (vData.variantRef ? { $ref: vData.variantRef } : { type: 'string' });
+          }
+          // Expanded and resolved: rebuild from child property nodes
+          const childProps = allNodes.filter(n =>
+            (n.type === 'property' || n.type === 'enum') && n.data && (n.data as any).parent === v.id
+          );
+          if (childProps.length === 0) {
+            return vData.variantSchema || { type: 'string' };
+          }
+          const props: Record<string, unknown> = {};
+          const required: string[] = [];
+          childProps.forEach(child => {
+            const key = child.data.label;
+            if (key && !key.startsWith('__')) {
+              props[key] = buildNodeSchema(child);
+              if ((child.data as any).required) required.push(key);
+            }
+          });
+          return {
+            type: 'object',
+            ...vData.variantSchema,
+            properties: props,
+            ...(required.length > 0 ? { required } : {}),
+          };
+        });
+        return { ...base, [combinerType]: variants };
+      }
+
       const base = schemaNodeDataToSchema(node.data as SchemaNodeData) as any;
       if (node.data.type === 'object') {
         const props: Record<string, unknown> = {};
         const patternProps: Record<string, unknown> = {};
         const requiredList: string[] = [];
         allNodes.forEach(child => {
+          // Skip combiner nodes — they are handled via the combinerChild path above
+          if (child.type === 'combiner' || child.type === 'variant') return;
           if (child.data && child.data.parent === node.id) {
             const key = child.data.label;
             const patternKey = (child.data as any).patternKey;
@@ -551,6 +616,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
           const itemProps: Record<string, unknown> = {};
           const itemRequired: string[] = [];
           allNodes.forEach(child => {
+            if (child.type === 'combiner' || child.type === 'variant') return;
             if (child.data && child.data.parent === node.id) {
               const key = child.data.label;
               if (key) itemProps[key] = buildNodeSchema(child);
@@ -573,12 +639,20 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       return base;
     };
 
+    // Check if root itself has a combiner child
+    const rootCombiner = allNodes.find(n => n.type === 'combiner' && n.data && (n.data as any).parent === root.id);
+    if (rootCombiner) {
+      return buildNodeSchema(root);
+    }
+
     const schema: Record<string, unknown> = { type: root.data.type, title: root.data.label };
     // Preserve root annotation fields (description and $comment)
     if (root.data && root.data.description !== undefined) schema.description = root.data.description as string;
     if (root.data && (root.data as any).$comment !== undefined) schema.$comment = (root.data as any).$comment;
     const props: Record<string, unknown> = {};
     allNodes.forEach(n => {
+      // Skip combiner/variant infrastructure nodes — they're rebuilt via buildNodeSchema above
+      if (n.type === 'combiner' || n.type === 'variant') return;
       if (n.data && n.data.parent === root.id) {
         const key = n.data.label;
         if (key) props[key] = buildNodeSchema(n);
@@ -590,11 +664,413 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  // Ref that always holds the latest edges so async callbacks can read them
+  const edgesRef = React.useRef(edges);
+  edgesRef.current = edges;
   const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null);
   // When we emit a schema update originating from this component, skip
   // syncing back from the `schema` prop for that single change to avoid
   // tearing down and rebuilding nodes (which causes selection loss).
   const skipSchemaSyncRef = React.useRef(false);
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Combiner / variant handler infrastructure
+  // ──────────────────────────────────────────────────────────────────────
+
+  // Live ref populated after all handlers are defined (avoids stale-closure issues)
+  const nodeHandlersRef = React.useRef<Record<string, (...args: any[]) => void>>({});
+
+  // Inject live handler functions into combiner/variant node data
+  const injectHandlers = React.useCallback((inputNodes: Node<SchemaNodeData>[]) =>
+    inputNodes.map(n =>
+      (n.type === 'combiner' || n.type === 'variant')
+        ? { ...n, data: { ...n.data, ...nodeHandlersRef.current } }
+        : n
+    ), []);
+
+  // Resolve a JSON $ref path (e.g. "#/definitions/Foo") from the current schema prop
+  const resolveRefInSchema = React.useCallback((ref: string): Record<string, unknown> | null => {
+    if (!schema || !ref.startsWith('#/')) return null;
+    const parts = ref.replace('#/', '').split('/');
+    let cur: any = schema;
+    for (const part of parts) {
+      if (cur == null || typeof cur !== 'object') return null;
+      cur = cur[part];
+    }
+    return (cur && typeof cur === 'object') ? cur : null;
+  }, [schema]);
+
+  // Toggle a variant node expand / collapse; lazily resolve $ref on first expand
+  const handleToggleVariant = React.useCallback((variantId: string) => {
+
+    // Use setNodes functional updater so we always read the freshest state.
+    // Any sub-graph computation that doesn't need prev-nodes is done eagerly here
+    // so we can also call setEdges synchronously before the React batch flushes.
+
+    setNodes(prev => {
+      const variantNode = prev.find(n => n.id === variantId);
+      if (!variantNode) return prev;
+      const vData = variantNode.data as any;
+      const willExpand = !vData.variantExpanded;
+
+      // Run relayout+handler-inject synchronously so there is only one committed
+      // state (no flash from un-snapped positions on an intermediate render).
+      // Accepts the edges that will apply after this update (not edgesRef.current
+      // which still reflects the pre-update state at this point in the batch).
+      const applyRelayout = (ns: Node<SchemaNodeData>[], es: Edge[]) => {
+        const laid = relayoutNodes(ns, es);
+        return laid.map(n =>
+          (n.type === 'combiner' || n.type === 'variant')
+            ? { ...n, data: { ...n.data, ...nodeHandlersRef.current } }
+            : n
+        );
+      };
+
+      if (willExpand && !vData.variantResolved) {
+        let resolved: Record<string, unknown> | null = null;
+        if (vData.variantRef) {
+          resolved = resolveRefInSchema(vData.variantRef);
+        } else if (vData.variantSchema && typeof vData.variantSchema === 'object') {
+          resolved = vData.variantSchema as Record<string, unknown>;
+        }
+        if (!resolved) {
+          return prev.map(n =>
+            n.id === variantId
+              ? { ...n, data: { ...n.data, variantExpanded: true, variantResolved: true, isResolving: false } as any }
+              : n
+          );
+        }
+
+        const subGraph = schemaToGraph(resolved as any);
+        const idMap: Record<string, string> = {};
+        subGraph.nodes.forEach((sn: Node<SchemaNodeData>) => { idMap[sn.id] = `${variantId}.__${sn.id}`; });
+
+        const subNodes: Node<SchemaNodeData>[] = subGraph.nodes
+          .filter((sn: Node<SchemaNodeData>) => sn.id !== '1')
+          .map((sn: Node<SchemaNodeData>) => ({
+            ...sn,
+            id: idMap[sn.id],
+            hidden: false,
+            data: {
+              ...sn.data,
+              id: idMap[sn.id],
+              parent: sn.data.parent === '1'
+                ? variantId
+                : (sn.data.parent ? (idMap[sn.data.parent] ?? `${variantId}.__${sn.data.parent}`) : variantId),
+            } as SchemaNodeData,
+          }));
+
+        const repairedSubNodes: Node<SchemaNodeData>[] = subNodes.map((sn: Node<SchemaNodeData>) => {
+          const parent = (sn.data as any)?.parent as string | undefined;
+          if (parent) return sn;
+          return {
+            ...sn,
+            data: { ...sn.data, parent: variantId } as SchemaNodeData,
+          };
+        });
+
+        const subNodeIds = new Set(repairedSubNodes.map((n: Node<SchemaNodeData>) => n.id));
+
+        const subEdgesFromGraph: Edge[] = subGraph.edges
+          .filter((se: Edge) => se.target !== '1')
+          .map((se: Edge) => {
+            const src = se.source === '1' ? variantId : (idMap[se.source] ?? se.source);
+            const tgt = idMap[se.target] ?? se.target;
+            return { ...se, id: `e${src}-${tgt}`, source: src, target: tgt, hidden: false };
+          });
+
+        const subEdgesFromParents: Edge[] = repairedSubNodes
+          .map((n: Node<SchemaNodeData>) => {
+            const parentId = (n.data as any)?.parent as string | undefined;
+            if (!parentId) return null;
+            if (parentId !== variantId && !subNodeIds.has(parentId)) return null;
+            return {
+              id: `e${parentId}-${n.id}`,
+              source: parentId,
+              target: n.id,
+              type: 'default',
+              hidden: false,
+            } as Edge;
+          })
+          .filter((e): e is Edge => Boolean(e));
+
+        const subEdgesMap = new Map<string, Edge>();
+        [...subEdgesFromGraph, ...subEdgesFromParents].forEach((e: Edge) => {
+          subEdgesMap.set(e.id, e);
+        });
+        const subEdges = Array.from(subEdgesMap.values());
+
+        // Compute new edges synchronously so applyRelayout sees them immediately
+        const newEdges: Edge[] = [
+          ...edgesRef.current.map((e: Edge) => e.target === variantId ? { ...e, hidden: false } : e),
+          ...subEdges,
+        ];
+        setEdges(() => newEdges);
+
+        return applyRelayout([
+          ...prev.map((n: Node<SchemaNodeData>) =>
+            n.id === variantId
+              ? { ...variantNode, data: { ...vData, variantExpanded: true, variantResolved: true, isResolving: false } as any }
+              : n
+          ),
+          ...injectHandlers(repairedSubNodes),
+        ], newEdges);
+      }
+
+      if (willExpand) {
+        const willExpand_edges = edgesRef.current.map((e: Edge) =>
+          e.source === variantId || e.target === variantId ? { ...e, hidden: false } : e
+        );
+        setEdges(() => willExpand_edges);
+        return applyRelayout(prev.map((n: Node<SchemaNodeData>) => {
+          if (n.id === variantId) return { ...n, data: { ...n.data, variantExpanded: true } as any };
+          if ((n.data as any)?.parent === variantId) return { ...n, hidden: false };
+          return n;
+        }), willExpand_edges);
+      }
+
+      // Collapse — hide all descendants recursively
+      const toHide = new Set<string>();
+      const collectDesc = (pid: string) => {
+        prev.forEach((n: Node<SchemaNodeData>) => {
+          if ((n.data as any)?.parent === pid) { toHide.add(n.id); collectDesc(n.id); }
+        });
+      };
+      collectDesc(variantId);
+      const collapseEdges = edgesRef.current.map((e: Edge) =>
+        toHide.has(e.source) || toHide.has(e.target) ? { ...e, hidden: true } : e
+      );
+      setEdges(() => collapseEdges);
+      pendingCenterRef.current = true;
+      return applyRelayout(prev.map((n: Node<SchemaNodeData>) => {
+        if (n.id === variantId) return { ...n, data: { ...n.data, variantExpanded: false } as any };
+        if (toHide.has(n.id)) return { ...n, hidden: true };
+        return n;
+      }), collapseEdges);
+    });
+  }, [edgesRef, injectHandlers, nodeHandlersRef, resolveRefInSchema, schemaToGraph, relayoutNodes, setEdges, setNodes]);
+
+  // Add a new blank variant to a combiner node
+  const handleAddVariant = React.useCallback((combinerId: string) => {
+    setNodes((prev: Node<SchemaNodeData>[]) => {
+      const combiner = prev.find(n => n.id === combinerId);
+      if (!combiner) return prev;
+      const existingVariants = prev.filter(n => n.type === 'variant' && (n.data as any)?.parent === combinerId);
+      const newIdx = existingVariants.length;
+      const newVariantId = `${combinerId}.v${newIdx}`;
+      const newVariant: Node<SchemaNodeData> = {
+        id: newVariantId,
+        type: 'variant',
+        position: { x: 0, y: 0 },
+        data: {
+          label: `Variant ${newIdx + 1}`,
+          type: 'object',
+          parent: combinerId,
+          variantIndex: newIdx,
+          variantRef: undefined,
+          variantResolved: false,
+          variantExpanded: false,
+          variantSchema: { type: 'string' },
+          isResolving: false,
+          ...nodeHandlersRef.current,
+        } as any,
+        hidden: false,
+      };
+      setEdges((prevEdges: Edge[]) => [
+        ...prevEdges,
+        {
+          id: `e${combinerId}-${newVariantId}`,
+          source: combinerId,
+          target: newVariantId,
+          type: 'smoothstep',
+          hidden: false,
+        } as Edge,
+      ]);
+      const updated = [
+        ...prev.map((n: Node<SchemaNodeData>) =>
+          n.id === combinerId
+            ? { ...n, data: { ...n.data, variantCount: ((n.data as any).variantCount || 0) + 1 } as any }
+            : n
+        ),
+        newVariant,
+      ];
+      const newSchema = buildSchemaFromNodes(updated);
+      skipSchemaSyncRef.current = true;
+      onChange(newSchema);
+      return updated;
+    });
+  }, [onChange]);
+
+  // Change combiner type (oneOf / anyOf / allOf)
+  const handleChangeCombinerType = React.useCallback((combinerId: string, newType: string) => {
+    setNodes((prev: Node<SchemaNodeData>[]) => {
+      const updated = prev.map((n: Node<SchemaNodeData>) =>
+        n.id === combinerId ? { ...n, data: { ...n.data, combinerType: newType } as any } : n
+      );
+      const newSchema = buildSchemaFromNodes(updated);
+      skipSchemaSyncRef.current = true;
+      onChange(newSchema);
+      return updated;
+    });
+  }, [onChange]);
+
+  // Delete a variant (and possibly its combiner if it was the last one)
+  const handleDeleteVariant = React.useCallback((variantId: string) => {
+    setNodes((prev: Node<SchemaNodeData>[]) => {
+      const variantNode = prev.find(n => n.id === variantId);
+      if (!variantNode) return prev;
+      const combinerId = (variantNode.data as any).parent as string;
+      const siblings = prev.filter(n => n.type === 'variant' && (n.data as any)?.parent === combinerId && n.id !== variantId);
+      // Collect all descendants to remove
+      const toRemove = new Set<string>([variantId]);
+      const collectDesc = (pid: string) => {
+        prev.forEach((n: Node<SchemaNodeData>) => {
+          if ((n.data as any)?.parent === pid) { toRemove.add(n.id); collectDesc(n.id); }
+        });
+      };
+      collectDesc(variantId);
+      let updated: Node<SchemaNodeData>[];
+      if (siblings.length === 0) {
+        // Last variant: remove combiner too, restore scalar on parent
+        const combiner = prev.find(n => n.id === combinerId);
+        const parentId = combiner ? (combiner.data as any).parent as string : null;
+        toRemove.add(combinerId);
+        updated = prev.filter((n: Node<SchemaNodeData>) => !toRemove.has(n.id));
+        if (parentId) {
+          updated = updated.map((n: Node<SchemaNodeData>) =>
+            n.id === parentId ? { ...n, data: { ...n.data, type: 'string' as any } } : n
+          );
+        }
+      } else if (siblings.length === 1) {
+        // One variant left: flatten its schema onto combiner's parent
+        const combiner = prev.find(n => n.id === combinerId);
+        const parentId = combiner ? (combiner.data as any).parent as string : null;
+        const remainingData = siblings[0].data as any;
+        const flatSchema = remainingData.variantSchema || { type: 'string' };
+        toRemove.add(combinerId);
+        toRemove.add(siblings[0].id);
+        updated = prev.filter((n: Node<SchemaNodeData>) => !toRemove.has(n.id));
+        if (parentId) {
+          updated = updated.map((n: Node<SchemaNodeData>) =>
+            n.id === parentId ? { ...n, data: { ...n.data, ...flatSchema } as any } : n
+          );
+        }
+      } else {
+        // Multiple variants remain: remove this one, renumber survivors
+        updated = prev.filter((n: Node<SchemaNodeData>) => !toRemove.has(n.id)).map((n: Node<SchemaNodeData>) => {
+          if (n.type === 'variant' && (n.data as any)?.parent === combinerId) {
+            const survivors = prev.filter(v => v.type === 'variant' && (v.data as any)?.parent === combinerId && !toRemove.has(v.id));
+            const newIdx = survivors.findIndex(v => v.id === n.id);
+            return { ...n, data: { ...n.data, variantIndex: newIdx } as any };
+          }
+          if (n.id === combinerId) {
+            return { ...n, data: { ...n.data, variantCount: (n.data as any).variantCount - 1 } as any };
+          }
+          return n;
+        });
+      }
+      setEdges((prevEdges: Edge[]) =>
+        prevEdges.filter((e: Edge) => !toRemove.has(e.source) && !toRemove.has(e.target))
+      );
+      const newSchema = buildSchemaFromNodes(updated);
+      skipSchemaSyncRef.current = true;
+      onChange(newSchema);
+      return updated;
+    });
+  }, [onChange]);
+
+  // Always reflect current closures (runs every render)
+  nodeHandlersRef.current = {
+    onToggleVariant: handleToggleVariant,
+    onAddVariant: handleAddVariant,
+    onChangeCombinerType: handleChangeCombinerType,
+    onDeleteVariant: handleDeleteVariant,
+    onToggleVariants: handleToggleCombinerVariants,
+  };
+
+  // Expand/collapse all variants of a combiner node at once
+  function handleToggleCombinerVariants(combinerId: string) {
+    setNodes((prev: Node<SchemaNodeData>[]) => {
+      const combiner = prev.find(n => n.id === combinerId);
+      if (!combiner) return prev;
+      const willExpand = !(combiner.data as any).variantsExpanded;
+      const variantIds = new Set(
+        prev.filter(n => n.type === 'variant' && (n.data as any)?.parent === combinerId).map(n => n.id)
+      );
+      const toggledEdges = edgesRef.current.map((e: Edge) =>
+        (e.source === combinerId && variantIds.has(e.target))
+          ? { ...e, hidden: !willExpand }
+          : e
+      );
+      setEdges(() => toggledEdges);
+      const next = prev.map((n: Node<SchemaNodeData>) => {
+        if (n.id === combinerId)
+          return { ...n, data: { ...n.data, variantsExpanded: willExpand } as any };
+        if (variantIds.has(n.id))
+          return { ...n, hidden: !willExpand };
+        return n;
+      });
+      const laid = relayoutNodes(next, toggledEdges);
+      return laid.map(n =>
+        (n.type === 'combiner' || n.type === 'variant')
+          ? { ...n, data: { ...n.data, ...nodeHandlersRef.current } }
+          : n
+      );
+    });
+  }
+
+  // Wrap an existing property node in a new oneOf combiner
+  const handleAddCombinerToNode = React.useCallback((nodeId: string) => {
+    setNodes((prev: Node<SchemaNodeData>[]) => {
+      const targetNode = prev.find(n => n.id === nodeId);
+      if (!targetNode) return prev;
+      const combinerId = `${nodeId}.__combiner`;
+      // Capture the current schema of the target node as the first variant
+      const existingVariantSchema = schemaNodeDataToSchema(targetNode.data as SchemaNodeData) as Record<string, unknown>;
+      const variant0Id = `${combinerId}.v0`;
+      const combinerNode: Node<SchemaNodeData> = {
+        id: combinerId,
+        type: 'combiner',
+        position: { x: 0, y: 0 },
+        data: {
+          label: '__combiner',
+          type: 'object',
+          parent: nodeId,
+          combinerType: 'oneOf',
+          variantCount: 1,
+          ...nodeHandlersRef.current,
+        } as any,
+      };
+      const variant0: Node<SchemaNodeData> = {
+        id: variant0Id,
+        type: 'variant',
+        position: { x: 0, y: 0 },
+        data: {
+          label: 'Variant 1',
+          type: 'object',
+          parent: combinerId,
+          variantIndex: 0,
+          variantRef: (existingVariantSchema as any).$ref,
+          variantResolved: false,
+          variantExpanded: false,
+          variantSchema: existingVariantSchema,
+          isResolving: false,
+          ...nodeHandlersRef.current,
+        } as any,
+        hidden: false,
+      };
+      setEdges((prevEdges: Edge[]) => [
+        ...prevEdges,
+        { id: `e${nodeId}-${combinerId}`, source: nodeId, target: combinerId, type: 'smoothstep' } as Edge,
+        { id: `e${combinerId}-${variant0Id}`, source: combinerId, target: variant0Id, type: 'smoothstep' } as Edge,
+      ]);
+      const updated = [...prev, combinerNode, variant0];
+      const newSchema = buildSchemaFromNodes(updated);
+      skipSchemaSyncRef.current = true;
+      onChange(newSchema);
+      return updated;
+    });
+  }, [onChange]);
 
   // Find the selected node from nodes and selectedNodeId
   const selectedNode = React.useMemo(() => {
@@ -679,6 +1155,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
   // Only reset selected node if the graph structure changes (add/remove), not for every property edit
   const prevNodeCount = React.useRef(0);
   const prevEdgeCount = React.useRef(0);
+  const reactFlowInstanceRef = React.useRef<any>(null);
   React.useMemo(() => {
     // If we recently emitted a schema update from inside this component,
     // skip syncing back from the `schema` prop for this change to avoid
@@ -721,7 +1198,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     };
     const schemaForGraph = normalizeForGraph(activeSchema);
     const rawGraph = schemaToGraph(schemaForGraph);
-    const nodes = relayoutNodes(rawGraph.nodes, rawGraph.edges);
+    const nodes = relayoutNodes(rawGraph.nodes, rawGraph.edges).map(n =>
+      (n.type === 'combiner' || n.type === 'variant')
+        ? { ...n, data: { ...n.data, ...nodeHandlersRef.current } }
+        : n
+    );
     const edges = rawGraph.edges;
     // Only rebuild nodes/edges if the count changes (structural change)
     // Store label of selected node before graph rebuild
@@ -751,12 +1232,34 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       });
       prevNodeCount.current = nodes.length;
       prevEdgeCount.current = edges.length;
+      // Set a fixed comfortable zoom and center the graph.
+      // fitView counteracts nodesep changes (bigger graph → more zoom-out → same density).
+      setTimeout(() => {
+        const rf = reactFlowInstanceRef.current;
+        if (!rf) return;
+        const allNodes = rf.getNodes();
+        if (allNodes.length === 0) return;
+        const ZOOM = 0.75;
+        const xs = allNodes.map((n: any) => n.position.x);
+        const ys = allNodes.map((n: any) => n.position.y);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs) + 200;
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys) + 64;
+        const graphCX = (minX + maxX) / 2;
+        const graphCY = (minY + maxY) / 2;
+        const wrapper = flowWrapperRef.current;
+        const containerW = wrapper?.offsetWidth ?? 800;
+        const containerH = wrapper?.offsetHeight ?? 600;
+        rf.setViewport({
+          x: containerW / 2 - graphCX * ZOOM,
+          y: containerH / 2 - graphCY * ZOOM,
+          zoom: ZOOM,
+        });
+      }, 150);
     } else {
-      // Only update nodes/edges data if the structure is the same (property edit)
-      setNodes(prevNodes => nodes.map(n => {
-        const prev = prevNodes.find(pn => pn.id === n.id);
-        return prev ? { ...n, position: prev.position } : n;
-      }));
+      // Structure unchanged (property edit) — update data and use freshly-computed positions.
+      setNodes(nodes);
       setEdges(edges);
     }
     // Otherwise, do not reset selection (preserve selection and form)
@@ -785,6 +1288,49 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     if (initialLoadRef.current || !isUserEdit) return;
     setIsUserEdit(false);
   }, [nodes, edges, schema, onChange, isUserEdit]);
+
+  // Re-centre the graph after a variant collapse — but only when the remaining
+  // visible graph has drifted outside the current viewport (user is "lost in space").
+  React.useEffect(() => {
+    if (!pendingCenterRef.current) return;
+    pendingCenterRef.current = false;
+    const rf = reactFlowInstanceRef.current;
+    if (!rf) return;
+    const allNodes = (rf.getNodes() as any[]).filter((n: any) => !n.hidden);
+    if (allNodes.length === 0) return;
+
+    const wrapper = flowWrapperRef.current;
+    const containerW = wrapper?.offsetWidth ?? 800;
+    const containerH = wrapper?.offsetHeight ?? 600;
+
+    // Bounding box of remaining visible nodes (add rough node size)
+    const xs = allNodes.map((n: any) => n.position.x);
+    const ys = allNodes.map((n: any) => n.position.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs) + 200;
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys) + 64;
+
+    // Current viewport in graph coordinates
+    const vp = rf.getViewport();
+    const vpLeft   =  -vp.x / vp.zoom;
+    const vpTop    =  -vp.y / vp.zoom;
+    const vpRight  = vpLeft + containerW / vp.zoom;
+    const vpBottom = vpTop  + containerH / vp.zoom;
+
+    // If the graph bbox still overlaps the viewport, the user can see it — no need to move
+    const inView = minX < vpRight && maxX > vpLeft && minY < vpBottom && maxY > vpTop;
+    if (inView) return;
+
+    const ZOOM = 0.75;
+    const graphCX = (minX + maxX) / 2;
+    const graphCY = (minY + maxY) / 2;
+    rf.setViewport({
+      x: containerW / 2 - graphCX * ZOOM,
+      y: containerH / 2 - graphCY * ZOOM,
+      zoom: ZOOM,
+    });
+  }, [nodes]);
 
   const onConnect: OnConnect = (params: Connection) => setEdges((eds: Edge[]) => addEdge(params, eds));
 
@@ -890,7 +1436,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
 
     // Rebuild graph from emitted schema
     const rawRebuilt = schemaToGraph(emittedSchema as Record<string, unknown>);
-    const rebuiltNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges);
+    const rebuiltNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, ...nodeHandlersRef.current } } : n
+    );
     const rebuiltEdges = rawRebuilt.edges as Edge[];
     setNodes(rebuiltNodes);
     setEdges(rebuiltEdges);
@@ -987,7 +1535,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
 
     // Rebuild graph from emitted schema
     const rawRebuilt = schemaToGraph(emittedSchema as Record<string, unknown>);
-    const rebuiltNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges);
+    const rebuiltNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, ...nodeHandlersRef.current } } : n
+    );
     const rebuiltEdges = rawRebuilt.edges as Edge[];
     setNodes(rebuiltNodes);
     setEdges(rebuiltEdges);
@@ -1117,7 +1667,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
 
     // Rebuild graph from emitted schema and select the new node if present
     const rawRebuilt = schemaToGraph(baseSchema as Record<string, unknown>);
-    const rebuiltNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges);
+    const rebuiltNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, ...nodeHandlersRef.current } } : n
+    );
     const rebuiltEdges = rawRebuilt.edges as Edge[];
     setNodes(rebuiltNodes);
     setEdges(rebuiltEdges);
@@ -1249,6 +1801,29 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       onClick: handleDeleteProperty,
       disabled: false,
     });
+
+    // Combiner-specific items
+    const ctxNode = nodes.find(n => n.id === contextMenu?.nodeId);
+    if (ctxNode?.type === 'combiner') {
+      items.push({
+        label: 'Add Variant',
+        onClick: () => ctxNode && handleAddVariant(ctxNode.id),
+        disabled: false,
+      });
+    }
+
+    // Allow wrapping any property/root node in a combiner if it doesn't already have one
+    if (ctxNode && (ctxNode.type === 'property' || ctxNode.type === 'root' || ctxNode.type === 'enum')) {
+      const alreadyHasCombiner = nodes.some(n => n.type === 'combiner' && (n.data as any)?.parent === ctxNode.id);
+      if (!alreadyHasCombiner) {
+        items.push({
+          label: 'Add Combiner',
+          onClick: () => ctxNode && handleAddCombinerToNode(ctxNode.id),
+          disabled: false,
+        });
+      }
+    }
+
     return items;
   })();
 
@@ -1266,7 +1841,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
                 onEdgesChange={handleEdgesChange}
                 onConnect={onConnect}
                 nodeTypes={nodeTypes}
-                fitView={true}
+                onInit={(instance) => {
+                  reactFlowInstanceRef.current = instance;
+                }}
                 onNodeClick={handleNodeClick}
                 onNodeContextMenu={handleNodeContextMenu}
               >
