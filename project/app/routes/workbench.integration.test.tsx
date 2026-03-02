@@ -140,9 +140,11 @@ describe('Workbench integration - load unresolved $defs schema', () => {
       expect(badge).toHaveTextContent(/resolved/i);
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /Schema Input/i }));
+    // Open the Schema menu in the menu bar via pointer interaction (Radix Menubar uses pointerdown)
+    const schemaTrigger = screen.getByRole('menuitem', { name: /^Schema$/ });
+    fireEvent.pointerDown(schemaTrigger, { bubbles: true, cancelable: true });
 
-    const saveIntermediate = await screen.findByRole('button', { name: /Save Intermediate/i });
+    const saveIntermediate = await screen.findByRole('menuitem', { name: /Save Intermediate/i });
     fireEvent.click(saveIntermediate);
 
     await waitFor(async () => {
