@@ -115,6 +115,42 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     });
   });
 
+  it('lays out root children in alphabetical top-to-bottom order', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        zeta: { type: 'string' },
+        alpha: { type: 'string' },
+        mu: { type: 'string' },
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => {}} />);
+
+    const parseY = (transform: string | null) => {
+      if (!transform) return 0;
+      const match = transform.match(/translate\([^,]+,\s*([-\d.]+)px\)/);
+      return match ? Number(match[1]) : 0;
+    };
+
+    await waitFor(() => {
+      expect(document.querySelector('.react-flow__node[data-id="1.alpha"]')).not.toBeNull();
+      expect(document.querySelector('.react-flow__node[data-id="1.mu"]')).not.toBeNull();
+      expect(document.querySelector('.react-flow__node[data-id="1.zeta"]')).not.toBeNull();
+    });
+
+    const alphaNode = document.querySelector('.react-flow__node[data-id="1.alpha"]') as HTMLElement;
+    const muNode = document.querySelector('.react-flow__node[data-id="1.mu"]') as HTMLElement;
+    const zetaNode = document.querySelector('.react-flow__node[data-id="1.zeta"]') as HTMLElement;
+
+    const alphaY = parseY(alphaNode.style.transform || null);
+    const muY = parseY(muNode.style.transform || null);
+    const zetaY = parseY(zetaNode.style.transform || null);
+
+    expect(alphaY).toBeLessThan(muY);
+    expect(muY).toBeLessThan(zetaY);
+  });
+
   it('does not show expand toggle for array variants with primitive items', async () => {
     const testSchema = {
       type: 'object',
@@ -137,6 +173,103 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
 
     expect(screen.queryByTitle('Expand variant')).toBeNull();
     expect(screen.queryByTitle('Collapse variant')).toBeNull();
+  });
+
+  it('shows Of Type as string for self-hosted-runners tuple array variant', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        'runs-on': {
+          anyOf: [
+            {
+              $comment: 'https://help.github.com/en/actions/automating-your-workflow-with-github-actions/workflow-syntax-for-github-actions#github-hosted-runners',
+              type: 'string',
+            },
+            {
+              $comment: 'https://help.github.com/en/actions/automating-your-workflow-with-github-actions/workflow-syntax-for-github-actions#self-hosted-runners',
+              type: 'array',
+              anyOf: [
+                {
+                  items: [{ type: 'string' }],
+                  minItems: 1,
+                  additionalItems: { type: 'string' },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => {}} />);
+
+    const combinerToggle = await screen.findByTitle(/(Expand|Collapse) variants/i);
+    fireEvent.click(combinerToggle);
+
+    const selfHostedVariant = await screen.findByText(/Self-hosted-runners/i);
+    fireEvent.click(selfHostedVariant);
+
+    expect(screen.getByLabelText('Type: array')).toBeChecked();
+    expect(screen.getByLabelText('Of Type')).toHaveValue('string');
+    expect(screen.queryByText('+ multipleOf')).toBeNull();
+  });
+
+  it('keeps RHS selected when changing self-hosted-runners variant type', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        'runs-on': {
+          anyOf: [
+            {
+              $comment: 'https://help.github.com/en/actions/automating-your-workflow-with-github-actions/workflow-syntax-for-github-actions#github-hosted-runners',
+              type: 'string',
+            },
+            {
+              $comment: 'https://help.github.com/en/actions/automating-your-workflow-with-github-actions/workflow-syntax-for-github-actions#self-hosted-runners',
+              type: 'array',
+              anyOf: [
+                {
+                  items: [{ type: 'string' }],
+                  minItems: 1,
+                  additionalItems: { type: 'string' },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    } as any;
+
+    let latestSchema = testSchema;
+    render(
+      <GraphicalSchemaEditor
+        schema={testSchema}
+        onChange={(next) => {
+          latestSchema = next as any;
+        }}
+      />
+    );
+
+    const combinerToggle = await screen.findByTitle(/(Expand|Collapse) variants/i);
+    fireEvent.click(combinerToggle);
+
+    const selfHostedVariant = await screen.findByText(/Self-hosted-runners/i);
+    fireEvent.click(selfHostedVariant);
+
+    const numberType = screen.getByLabelText('Type: number');
+    fireEvent.click(numberType);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Name')).toBeInTheDocument();
+      expect(screen.getByLabelText('Type: number')).toBeChecked();
+
+      const runsOnAnyOf = ((latestSchema as any)?.properties?.['runs-on']?.anyOf || []) as any[];
+      const hasNumericVariant = runsOnAnyOf.some((entry) => {
+        const emittedType = entry?.type;
+        return emittedType === 'number' || (Array.isArray(emittedType) && emittedType.includes('number'));
+      });
+      expect(hasNumericVariant).toBe(true);
+    });
   });
 
   it('removes synthetic additionalProperties node when set to false or true', async () => {
@@ -1283,5 +1416,21 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     // Combiner behavior is represented by icon+toggle controls.
     const combinerToggles = await screen.findAllByTitle(/(Expand|Collapse) variants/i);
     expect(combinerToggles.length).toBeGreaterThan(0);
+  });
+
+  it('shows jobs minProperties/maxProperties in NodePropertyEditor when selecting jobs node', async () => {
+    render(<GraphicalSchemaEditor schema={schemastoreWorkflow as any} onChange={() => { }} />);
+
+    const jobsNode = document.querySelector('[data-testid="rf__node-1.jobs"]') as HTMLElement | null;
+    expect(jobsNode).toBeTruthy();
+    // Keep this to ensure the label exists while selecting by deterministic node id
+    await screen.findByText('jobs');
+    fireEvent.click(jobsNode);
+
+    const minPropsInput = await screen.findByLabelText('Min Properties');
+    const maxPropsInput = await screen.findByLabelText('Max Properties');
+
+    expect((minPropsInput as HTMLInputElement).value).toBe('1');
+    expect((maxPropsInput as HTMLInputElement).value).toBe('1');
   });
 });

@@ -21,6 +21,8 @@ export function schemaNodeDataToSchema(node: SchemaNodeData): Record<string, unk
   if (node.multipleOf !== undefined) schema.multipleOf = node.multipleOf;
   if (node.minItems !== undefined) schema.minItems = node.minItems;
   if (node.maxItems !== undefined) schema.maxItems = node.maxItems;
+  if (node.minProperties !== undefined) (schema as any).minProperties = node.minProperties;
+  if (node.maxProperties !== undefined) (schema as any).maxProperties = node.maxProperties;
   if (node.uniqueItems !== undefined) schema.uniqueItems = node.uniqueItems;
   if (node.readOnly !== undefined) schema.readOnly = node.readOnly;
   if (node.writeOnly !== undefined) schema.writeOnly = node.writeOnly;
@@ -234,6 +236,8 @@ export interface SchemaNodeData {
   multipleOf?: number;
   minItems?: number;
   maxItems?: number;
+  minProperties?: number;
+  maxProperties?: number;
   uniqueItems?: boolean;
   readOnly?: boolean;
   writeOnly?: boolean;

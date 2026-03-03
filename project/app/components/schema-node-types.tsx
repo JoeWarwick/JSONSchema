@@ -237,7 +237,7 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
         {renderBadges(badges)}
         {Object.entries(data).map(([key, value]) => {
           if (value === undefined) return null;
-          const hidden = ['label', 'id', 'parent', 'type', 'ofType', 'required', 'enum', 'items', 'default', 'title', 'description', '$comment', 'patternKey', 'typeUnion', 'isAdditionalProperties', 'additionalProperties'];
+          const hidden = ['label', 'id', 'parent', 'type', 'ofType', 'required', 'enum', 'items', 'default', 'title', 'description', '$comment', 'patternKey', 'typeUnion', 'isAdditionalProperties', 'additionalProperties', 'minProperties', 'maxProperties'];
           if (hidden.includes(key)) return null;
           if (key === 'format') {
             return (

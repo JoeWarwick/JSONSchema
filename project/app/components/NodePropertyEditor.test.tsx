@@ -119,3 +119,90 @@ describe('NodePropertyEditor additionalProperties mode', () => {
     expect(onChange).toHaveBeenNthCalledWith(2, expect.objectContaining({ additionalProperties: { type: 'string' } }));
   });
 });
+
+describe('NodePropertyEditor min/max properties facets', () => {
+  const makeNode = (data: Record<string, unknown>) => ({
+    id: '1.test',
+    type: 'property',
+    position: { x: 0, y: 0 },
+    data,
+  } as any);
+
+  it('shows Min/Max Properties facet actions for object type only', () => {
+    const { unmount } = render(
+      <NodePropertyEditor
+        node={makeNode({
+          label: 'obj',
+          type: 'object',
+        })}
+        onChange={() => {}}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: '+ Min Properties' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '+ Max Properties' })).toBeInTheDocument();
+
+    unmount();
+    render(
+      <NodePropertyEditor
+        node={makeNode({
+          label: 'str',
+          type: 'string',
+        })}
+        onChange={() => {}}
+      />
+    );
+
+    expect(screen.queryByRole('button', { name: '+ Min Properties' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '+ Max Properties' })).toBeNull();
+  });
+
+  it('emits minProperties and maxProperties when facet actions are used', () => {
+    const onChange = jest.fn();
+    render(
+      <NodePropertyEditor
+        node={makeNode({
+          label: 'obj',
+          type: 'object',
+        })}
+        onChange={onChange}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Min Properties' }));
+    fireEvent.click(screen.getByRole('button', { name: '+ Max Properties' }));
+
+    expect(onChange).toHaveBeenNthCalledWith(1, expect.objectContaining({ minProperties: 0 }));
+    expect(onChange).toHaveBeenNthCalledWith(2, expect.objectContaining({ maxProperties: 0 }));
+  });
+
+  it('refreshes maxProperties input when selected node data updates with same id', () => {
+    const onChange = jest.fn();
+    const { rerender } = render(
+      <NodePropertyEditor
+        node={makeNode({
+          label: 'jobs',
+          type: 'object',
+          minProperties: 1,
+        })}
+        onChange={onChange}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: '+ Max Properties' })).toBeInTheDocument();
+
+    rerender(
+      <NodePropertyEditor
+        node={makeNode({
+          label: 'jobs',
+          type: 'object',
+          minProperties: 1,
+          maxProperties: 1,
+        })}
+        onChange={onChange}
+      />
+    );
+
+    expect(screen.getByRole('spinbutton', { name: 'Max Properties' })).toHaveValue(1);
+  });
+});

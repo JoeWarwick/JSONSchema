@@ -148,6 +148,76 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       return 'string';
     }
 
+    function inferArrayItemType(candidate: any): string | undefined {
+      const inferFromItems = (items: any): string | undefined => {
+        if (!items) return undefined;
+        if (Array.isArray(items)) {
+          for (const entry of items) {
+            const inferred = inferFromItems(entry);
+            if (inferred) return inferred;
+          }
+          return undefined;
+        }
+        if (typeof items !== 'object') return undefined;
+        if (typeof items.type === 'string') return items.type;
+        if (Array.isArray(items.type) && items.type.length > 0) return items.type[0];
+        if (items.properties || items.patternProperties) return 'object';
+        if (items.items !== undefined) return inferFromItems(items.items);
+        if (Array.isArray(items.oneOf)) {
+          for (const variant of items.oneOf) {
+            const inferred = inferFromItems(variant);
+            if (inferred) return inferred;
+          }
+        }
+        if (Array.isArray(items.anyOf)) {
+          for (const variant of items.anyOf) {
+            const inferred = inferFromItems(variant);
+            if (inferred) return inferred;
+          }
+        }
+        if (Array.isArray(items.allOf)) {
+          for (const variant of items.allOf) {
+            const inferred = inferFromItems(variant);
+            if (inferred) return inferred;
+          }
+        }
+        return undefined;
+      };
+
+      if (!candidate || typeof candidate !== 'object') return undefined;
+
+      if (candidate.items !== undefined) {
+        const direct = inferFromItems(candidate.items);
+        if (direct) return direct;
+      }
+
+      if (candidate.additionalItems && typeof candidate.additionalItems === 'object') {
+        const fromAdditionalItems = inferFromItems(candidate.additionalItems);
+        if (fromAdditionalItems) return fromAdditionalItems;
+      }
+
+      if (Array.isArray(candidate.oneOf)) {
+        for (const variant of candidate.oneOf) {
+          const inferred = inferArrayItemType(variant);
+          if (inferred) return inferred;
+        }
+      }
+      if (Array.isArray(candidate.anyOf)) {
+        for (const variant of candidate.anyOf) {
+          const inferred = inferArrayItemType(variant);
+          if (inferred) return inferred;
+        }
+      }
+      if (Array.isArray(candidate.allOf)) {
+        for (const variant of candidate.allOf) {
+          const inferred = inferArrayItemType(variant);
+          if (inferred) return inferred;
+        }
+      }
+
+      return undefined;
+    }
+
     function walkSchema(obj: any, parentId?: string, label?: string, x = 0, y = 0, parentRequired?: string[]): string {
       const id = makeId(parentId, label);
       // Resolve local $ref and oneOf refs that reference definitions within the schema so we can traverse referenced definitions
@@ -222,6 +292,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       if (obj.multipleOf !== undefined) nodeData.multipleOf = obj.multipleOf;
       if (obj.minItems !== undefined) nodeData.minItems = obj.minItems;
       if (obj.maxItems !== undefined) nodeData.maxItems = obj.maxItems;
+      if (obj.minProperties !== undefined) nodeData.minProperties = obj.minProperties;
+      if (obj.maxProperties !== undefined) nodeData.maxProperties = obj.maxProperties;
       if (obj.additionalProperties !== undefined) nodeData.additionalProperties = obj.additionalProperties;
       if (obj.uniqueItems !== undefined) nodeData.uniqueItems = obj.uniqueItems;
       if (obj.readOnly !== undefined) nodeData.readOnly = obj.readOnly;
@@ -233,7 +305,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       if (type === 'array' && obj.items) {
         const items = obj.items as any;
         // normalize ofType (handle arrays and infer object when properties present)
-        ofType = Array.isArray(items.type) ? items.type[0] : items.type || (items.properties ? 'object' : 'object');
+        ofType = inferArrayItemType({ type: 'array', items }) || (items.properties ? 'object' : undefined);
         nodeData.ofType = ofType;
         if (Array.isArray(items.enum)) {
           nodeType = 'enum';
@@ -357,9 +429,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
           const variantItems = (variant && typeof variant === 'object' && !Array.isArray(variant) && (variant as any).items && typeof (variant as any).items === 'object')
             ? ((variant as any).items as Record<string, unknown>)
             : undefined;
-          const variantOfType = variantItems
-            ? (Array.isArray((variantItems as any).type) ? (variantItems as any).type[0] : (variantItems as any).type)
-            : undefined;
+          const variantOfType = inferArrayItemType(variant);
           nodes.push({
             id: variantId,
             type: 'variant',
@@ -428,6 +498,27 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       return NODE_HEIGHT;
     };
 
+    const getSortLabel = (n: Node<SchemaNodeData>) => (((n.data as any)?.label as string) || '').toString();
+    const compareLayoutSiblings = (a: Node<SchemaNodeData>, b: Node<SchemaNodeData>) => {
+      const aParent = (((a.data as any)?.parent as string) || '');
+      const bParent = (((b.data as any)?.parent as string) || '');
+      const byParent = aParent.localeCompare(bParent, undefined, { numeric: true, sensitivity: 'base' });
+      if (byParent !== 0) return byParent;
+
+      if (a.type === 'variant' && b.type === 'variant') {
+        const aIndex = Number(((a.data as any)?.variantIndex ?? 0));
+        const bIndex = Number(((b.data as any)?.variantIndex ?? 0));
+        if (aIndex !== bIndex) return aIndex - bIndex;
+      }
+
+      const byLabel = getSortLabel(a).localeCompare(getSortLabel(b), undefined, { numeric: true, sensitivity: 'base' });
+      if (byLabel !== 0) return byLabel;
+      return a.id.localeCompare(b.id, undefined, { numeric: true, sensitivity: 'base' });
+    };
+
+    const orderedVisibleNodes = [...visibleNodes].sort(compareLayoutSiblings);
+    const visibleNodeById = new Map(orderedVisibleNodes.map((n) => [n.id, n]));
+
     // Try dagre
     if (dagreLib) {
       try {
@@ -437,15 +528,27 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
 
         // All visible nodes go into dagre — let it handle spacing for
         // combiner and variant nodes using normal edge lengths.
-        for (const n of visibleNodes) {
+        for (const n of orderedVisibleNodes) {
           g.setNode(n.id, { width: estimateWidth(n), height: estimateHeight(n) });
         }
 
-        const visibleIds = new Set(visibleNodes.map(n => n.id));
-        for (const e of (inputEdges || [])) {
-          if (e.source && e.target && !e.hidden && visibleIds.has(e.source) && visibleIds.has(e.target)) {
-            g.setEdge(e.source, e.target);
-          }
+        const visibleIds = new Set(orderedVisibleNodes.map(n => n.id));
+        const orderedVisibleEdges = (inputEdges || [])
+          .filter((e) => e.source && e.target && !e.hidden && visibleIds.has(e.source) && visibleIds.has(e.target))
+          .sort((a, b) => {
+            const bySource = (a.source || '').localeCompare((b.source || ''), undefined, { numeric: true, sensitivity: 'base' });
+            if (bySource !== 0) return bySource;
+            const aTargetNode = a.target ? visibleNodeById.get(a.target) : undefined;
+            const bTargetNode = b.target ? visibleNodeById.get(b.target) : undefined;
+            if (aTargetNode && bTargetNode) {
+              const byTargetNode = compareLayoutSiblings(aTargetNode, bTargetNode);
+              if (byTargetNode !== 0) return byTargetNode;
+            }
+            return (a.target || '').localeCompare((b.target || ''), undefined, { numeric: true, sensitivity: 'base' });
+          });
+
+        for (const e of orderedVisibleEdges) {
+          g.setEdge(e.source!, e.target!);
         }
 
         dagreLib.layout(g);
@@ -481,7 +584,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
           const dn = g.node(parentNode.id);
           const pw = dn ? dn.width : estimateWidth(parentNode);
           // Stack variants tightly, centered on their combiner's y
-          const siblings = withSnappedCombiners.filter(s => s.type === 'variant' && (s.data as any)?.parent === parentId);
+          const siblings = withSnappedCombiners
+            .filter(s => s.type === 'variant' && (s.data as any)?.parent === parentId)
+            .sort(compareLayoutSiblings);
           const idx = siblings.findIndex(s => s.id === n.id);
           const VARIANT_H = estimateHeight(n);
           const totalH = siblings.length * VARIANT_H + (siblings.length - 1) * VARIANT_V_GAP;
@@ -503,7 +608,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
 
     // Heuristic fallback — simple left-to-right tree layout
     const children = new Map<string, string[]>();
-    for (const n of visibleNodes) {
+    for (const n of orderedVisibleNodes) {
       const pid = n.data?.parent as string | undefined;
       if (pid) {
         const arr = children.get(pid) || [];
@@ -512,14 +617,23 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       }
     }
 
+    for (const [pid, ids] of children.entries()) {
+      children.set(pid, ids.sort((aId, bId) => {
+        const aNode = visibleNodeById.get(aId);
+        const bNode = visibleNodeById.get(bId);
+        if (!aNode || !bNode) return aId.localeCompare(bId, undefined, { numeric: true, sensitivity: 'base' });
+        return compareLayoutSiblings(aNode, bNode);
+      }));
+    }
+
     const V_SPACING = 20;
     const H_SPACING = 60;
     const widthMap = new Map<string, number>();
-    for (const n of visibleNodes) widthMap.set(n.id, estimateWidth(n));
+    for (const n of orderedVisibleNodes) widthMap.set(n.id, estimateWidth(n));
 
     const subtreeHeight = new Map<string, number>();
     const nodeHeightMap = new Map<string, number>();
-    for (const n of visibleNodes) nodeHeightMap.set(n.id, estimateHeight(n));
+    for (const n of orderedVisibleNodes) nodeHeightMap.set(n.id, estimateHeight(n));
     const calcHeight = (id: string): number => {
       if (subtreeHeight.has(id)) return subtreeHeight.get(id)!;
       const ch = children.get(id) || [];
@@ -548,8 +662,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       positions.set(id, { x: left, y: (first.y + last.y) / 2 });
     };
 
-    const visibleIds = new Set(visibleNodes.map(n => n.id));
-    const rootId = visibleNodes.find(n => !n.data?.parent || !visibleIds.has(n.data.parent as string))?.id ?? visibleNodes[0].id;
+    const visibleIds = new Set(orderedVisibleNodes.map(n => n.id));
+    const rootId = orderedVisibleNodes.find(n => !n.data?.parent || !visibleIds.has(n.data.parent as string))?.id ?? orderedVisibleNodes[0].id;
     calcHeight(rootId);
     assign(rootId, 20, 20);
 
@@ -1263,6 +1377,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         // Update the node being patched
         if (node.id === oldId) {
           const newData = { ...node.data, ...patch } as SchemaNodeData;
+          if (node.type === 'variant') {
+            const variantSchema = schemaNodeDataToSchema(newData as SchemaNodeData) as Record<string, unknown>;
+            (newData as any).variantSchema = variantSchema;
+            (newData as any).variantRef = undefined;
+          }
           const updatedNode: Node<SchemaNodeData> = {
             ...node,
             id: newId,
@@ -1285,7 +1404,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         const updatedTargetId = idChanged ? newId : oldId;
         const updatedTargetNode = updatedNodes.find((node) => node.id === updatedTargetId);
 
-        if (updatedTargetNode?.data?.isAdditionalProperties) {
+        if (updatedTargetNode?.data?.additionalProperties) {
           const ownerId = updatedTargetNode.data.parent;
           if (ownerId) {
             const queue = [updatedTargetId];
@@ -1311,7 +1430,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
           }
         } else {
           const queue = updatedNodes
-            .filter((node) => node.data?.parent === updatedTargetId && node.data?.isAdditionalProperties)
+            .filter((node) => node.data?.parent === updatedTargetId && node.data?.additionalProperties)
             .map((node) => node.id);
 
           while (queue.length > 0) {
@@ -1687,9 +1806,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
 
     // Rebuild graph from emitted schema
     const rawRebuilt = schemaToGraph(emittedSchema as Record<string, unknown>);
-    const rebuiltNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+    const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
       (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
     );
+    const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, parentNode.id);
     const rebuiltEdges = rawRebuilt.edges as Edge[];
     setNodes(rebuiltNodes);
     setEdges(rebuiltEdges);
@@ -1786,9 +1906,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
 
     // Rebuild graph from emitted schema
     const rawRebuilt = schemaToGraph(emittedSchema as Record<string, unknown>);
-    const rebuiltNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+    const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
       (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
     );
+    const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, parentNode.id);
     const rebuiltEdges = rawRebuilt.edges as Edge[];
     setNodes(rebuiltNodes);
     setEdges(rebuiltEdges);
@@ -1917,9 +2038,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
 
     // Rebuild graph from emitted schema and select the new node if present
     const rawRebuilt = schemaToGraph(baseSchema as Record<string, unknown>);
-    const rebuiltNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+    const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
       (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
     );
+    const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, parentNode.id);
     const rebuiltEdges = rawRebuilt.edges as Edge[];
     setNodes(rebuiltNodes);
     setEdges(rebuiltEdges);

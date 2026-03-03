@@ -455,6 +455,9 @@ function normalizeResolved(s: Schema, source?: Schema): Schema {
         const cleaned: Record<string, any> = {};
         for (const pk of Object.keys(props)) {
           const pv = props[pk];
+          const sourceProp = source && typeof source === 'object' && (source as any).properties && typeof (source as any).properties === 'object'
+            ? (source as any).properties[pk]
+            : undefined;
           // If a top-level property carried $anchor metadata, do not expose it to the editor
           if (pv && typeof pv === 'object' && ('$anchor' in pv)) {
             continue;
@@ -472,7 +475,14 @@ function normalizeResolved(s: Schema, source?: Schema): Schema {
             continue;
           }
 
-          cleaned[pk] = pv;
+          if (
+            sourceProp && typeof sourceProp === 'object' && !Array.isArray(sourceProp) &&
+            pv && typeof pv === 'object' && !Array.isArray(pv)
+          ) {
+            cleaned[pk] = { ...sourceProp, ...pv };
+          } else {
+            cleaned[pk] = pv;
+          }
         }
         const out = { ...s, properties: cleaned };
         // Ensure editor view is object-rooted when properties exist
@@ -813,7 +823,18 @@ export function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean,
                 : null;
               if (srcProps) {
                 for (const k of Object.keys(srcProps)) {
-                  if (Object.prototype.hasOwnProperty.call(resolvedProps, k)) cleaned[k] = resolvedProps[k];
+                  if (Object.prototype.hasOwnProperty.call(resolvedProps, k)) {
+                    const srcProp = srcProps[k];
+                    const resolvedProp = resolvedProps[k];
+                    if (
+                      srcProp && typeof srcProp === 'object' && !Array.isArray(srcProp) &&
+                      resolvedProp && typeof resolvedProp === 'object' && !Array.isArray(resolvedProp)
+                    ) {
+                      cleaned[k] = { ...srcProp, ...resolvedProp };
+                    } else {
+                      cleaned[k] = resolvedProp;
+                    }
+                  }
                 }
                 for (const k of Object.keys(resolvedProps)) if (!Object.prototype.hasOwnProperty.call(cleaned, k)) cleaned[k] = resolvedProps[k];
               } else {

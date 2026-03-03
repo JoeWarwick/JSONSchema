@@ -74,3 +74,5 @@ dist/
 
 # Optional: ignore test output
 /test-output/
+project/test-results
+/test-results
