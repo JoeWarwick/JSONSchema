@@ -563,6 +563,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         // then snap variant x tight against its (now-snapped) combiner.
         // Dagre's y is kept in both cases so vertical layout is undisturbed.
         const NODE_GAP = 16;
+        const ADDITIONAL_PROPERTIES_GAP = 60;
         const laidMap = new Map(finalLaid.map(n => [n.id, n]));
         const withSnappedCombiners = finalLaid.map(n => {
           if (n.type !== 'combiner') return n;
@@ -571,7 +572,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
           if (!parentNode) return n;
           const dn = g.node(parentNode.id);
           const pw = dn ? dn.width : estimateWidth(parentNode);
-          return { ...n, position: { x: parentNode.position.x + pw + NODE_GAP, y: n.position.y } };
+          const parentIsAdditionalProperties = Boolean((parentNode.data as any)?.isAdditionalProperties);
+          const combinerGap = parentIsAdditionalProperties ? ADDITIONAL_PROPERTIES_GAP : NODE_GAP;
+          return { ...n, position: { x: parentNode.position.x + pw + combinerGap, y: n.position.y } };
         });
 
         const VARIANT_V_GAP = 8;
@@ -600,7 +603,57 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
           };
         });
 
-        return [...withSnappedVariants, ...hiddenNodes];
+        const snappedVariantMap = new Map(withSnappedVariants.map(n => [n.id, n]));
+        const withSnappedAdditionalProperties = withSnappedVariants.map(n => {
+          if (!(n.data as any)?.isAdditionalProperties) return n;
+          const parentId = (n.data as any)?.parent as string | undefined;
+          const parentNode = parentId ? snappedVariantMap.get(parentId) : undefined;
+          if (!parentNode) return n;
+          const dn = g.node(parentNode.id);
+          const pw = dn ? dn.width : estimateWidth(parentNode);
+          return { ...n, position: { x: parentNode.position.x + pw + ADDITIONAL_PROPERTIES_GAP, y: n.position.y } };
+        });
+
+        // Re-snap combiners/variants after additionalProperties has moved so
+        // child combiners of additionalProperties don't keep stale far-right x.
+        const snappedAdditionalMap = new Map(withSnappedAdditionalProperties.map(n => [n.id, n]));
+        const withResnappedCombiners = withSnappedAdditionalProperties.map(n => {
+          if (n.type !== 'combiner') return n;
+          const parentId = (n.data as any)?.parent as string | undefined;
+          const parentNode = parentId ? snappedAdditionalMap.get(parentId) : undefined;
+          if (!parentNode) return n;
+          const dn = g.node(parentNode.id);
+          const pw = dn ? dn.width : estimateWidth(parentNode);
+          const parentIsAdditionalProperties = Boolean((parentNode.data as any)?.isAdditionalProperties);
+          const combinerGap = parentIsAdditionalProperties ? ADDITIONAL_PROPERTIES_GAP : NODE_GAP;
+          return { ...n, position: { x: parentNode.position.x + pw + combinerGap, y: n.position.y } };
+        });
+
+        const resnappedCombinerMap = new Map(withResnappedCombiners.map(n => [n.id, n]));
+        const withResnappedVariants = withResnappedCombiners.map(n => {
+          if (n.type !== 'variant') return n;
+          const parentId = (n.data as any)?.parent as string | undefined;
+          const parentNode = parentId ? resnappedCombinerMap.get(parentId) : undefined;
+          if (!parentNode) return n;
+          const dn = g.node(parentNode.id);
+          const pw = dn ? dn.width : estimateWidth(parentNode);
+          const siblings = withResnappedCombiners
+            .filter(s => s.type === 'variant' && (s.data as any)?.parent === parentId)
+            .sort(compareLayoutSiblings);
+          const idx = siblings.findIndex(s => s.id === n.id);
+          const VARIANT_H = estimateHeight(n);
+          const totalH = siblings.length * VARIANT_H + (siblings.length - 1) * VARIANT_V_GAP;
+          const startY = parentNode.position.y + (estimateHeight(parentNode) / 2) - totalH / 2;
+          return {
+            ...n,
+            position: {
+              x: parentNode.position.x + pw + NODE_GAP + 5,
+              y: startY + idx * (VARIANT_H + VARIANT_V_GAP),
+            },
+          };
+        });
+
+        return [...withResnappedVariants, ...hiddenNodes];
       } catch (err) {
         // fall through to heuristic
       }

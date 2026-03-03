@@ -388,6 +388,67 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     expect(await screen.findByRole('combobox', { name: 'additionalProperties' })).toHaveValue('false');
   });
 
+  it('places synthetic additionalProperties node one rank from its source node', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        env: {
+          oneOf: [
+            {
+              type: 'object',
+              additionalProperties: {
+                oneOf: [
+                  { type: 'string' },
+                  { type: 'number' },
+                ],
+              },
+            },
+            { type: 'string' },
+          ],
+        },
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => {}} />);
+
+    const combinerToggles = await screen.findAllByTitle(/(Expand|Collapse) variants/i);
+    fireEvent.click(combinerToggles[0]);
+
+    const variantExpandToggle = screen.queryByTitle('Expand variant');
+    if (variantExpandToggle) {
+      fireEvent.click(variantExpandToggle);
+    }
+
+    let additionalPropertiesNode: HTMLElement | null = null;
+    await waitFor(() => {
+      additionalPropertiesNode = document.querySelector('.react-flow__node[data-id$=".additionalProperties"]') as HTMLElement | null;
+      expect(additionalPropertiesNode).not.toBeNull();
+    });
+
+    const parseX = (transform: string | null) => {
+      if (!transform) return 0;
+      const match = transform.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/);
+      return match ? Number(match[1]) : 0;
+    };
+
+    const additionalNodeId = additionalPropertiesNode!.getAttribute('data-id') || '';
+    let sourceNode: HTMLElement | null = null;
+    const segments = additionalNodeId.split('.');
+    while (!sourceNode && segments.length > 1) {
+      segments.pop();
+      const candidateId = segments.join('.');
+      sourceNode = document.querySelector(`.react-flow__node[data-id="${candidateId}"]`) as HTMLElement | null;
+    }
+    expect(sourceNode).not.toBeNull();
+
+    const sourceX = parseX(sourceNode!.style.transform || null);
+    const additionalX = parseX(additionalPropertiesNode!.style.transform || null);
+    const rankDeltaX = additionalX - sourceX;
+
+    expect(rankDeltaX).toBeGreaterThan(80);
+    expect(rankDeltaX).toBeLessThan(400);
+  });
+
   it('resolves $defs and $ref and renders referenced properties', async () => {
     const testSchema = {
       $id: 'https://example.com/ecommerce.schema.json',

@@ -592,13 +592,13 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
           {isEnum && (
             <div>
               <div data-testid="enum-values-label" style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Enum Values</div>
-              <ul style={{ padding: 0, margin: '4px 0 8px 0', listStyle: 'none' }}>
+              <ul style={{ padding: 0, margin: '4px 0 8px 0', listStyle: 'none', display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
                 {enumValues.length === 0 ? (
                   <li style={{ color: '#888', fontStyle: 'italic', fontSize: 13 }}>No enum values yet.</li>
                 ) : (
                   enumValues.map((v: string, i: number) => (
-                    <li key={i} style={{ display: 'flex', alignItems: 'center', marginBottom: 2 }}>
-                      <span style={{ background: '#fffde7', border: '1px solid #ffe082', borderRadius: 6, padding: '2px 8px', fontSize: 13, marginRight: 6 }}>{v}</span>
+                    <li key={i} style={{ display: 'inline-flex', alignItems: 'center' }}>
+                      <span style={{ background: '#fffde7', border: '1px solid #ffe082', borderRadius: 6, padding: '2px 8px', fontSize: 13, marginRight: 4 }}>{v}</span>
                       <button
                         type="button"
                         onClick={() => handleRemoveEnum(v)}
