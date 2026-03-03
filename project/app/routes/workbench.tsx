@@ -56,6 +56,8 @@ const SAMPLE_JSON = `{
 
 const STORAGE_KEY = 'schema-sculptor-schema';
 const INSTANCE_STORAGE_KEY = 'schema-sculptor-instance';
+const DEREF_COMPLETE_STORAGE_KEY = 'schema-sculptor-deref-complete';
+const DEREF_ERROR_STORAGE_KEY = 'schema-sculptor-deref-error';
 
 // Helper function to generate default instance data
 const generateDefaultInstance = (schema: Record<string, unknown>): unknown => {
@@ -104,6 +106,7 @@ const generateDefaultInstance = (schema: Record<string, unknown>): unknown => {
 };
 
 export default function Workbench() {
+  const showDevStorageTools = typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
   // Initialize reducer with persisted canonical source when available so
   // editors receive the saved schema on first render (avoids e2e timing flakiness).
   let initialPersisted: Record<string, unknown> | null = null;
@@ -262,6 +265,24 @@ export default function Workbench() {
       }
       keysToRemove.forEach(key => localStorage.removeItem(key));
     } catch { /* ignore */ }
+  };
+
+  const handleClearLocalStorage = () => {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(INSTANCE_STORAGE_KEY);
+      localStorage.removeItem(DEREF_COMPLETE_STORAGE_KEY);
+      localStorage.removeItem(DEREF_ERROR_STORAGE_KEY);
+      clearVariantStorage();
+      dispatch({ type: APPLY_SOURCE_UPDATE, payload: { type: 'object', properties: {} } });
+      setInstanceData(null);
+      setJsonInput('{}');
+      setError(null);
+      toast.success('Local storage cleared');
+    } catch {
+      toast.error('Failed to clear local storage');
+    }
   };
 
   const handleGenerate = () => {
@@ -679,6 +700,15 @@ export default function Workbench() {
                   ? <><Check size={14} style={{ marginRight: 6 }} /> Copied!</>
                   : <><Copy size={14} style={{ marginRight: 6 }} /> Copy to Clipboard</>}
               </MenubarItem>
+              {showDevStorageTools && (
+                <>
+                  <MenubarSeparator />
+                  <MenubarItem onSelect={handleClearLocalStorage}>
+                    <X size={14} style={{ marginRight: 6 }} />
+                    Clear local storage (dev)
+                  </MenubarItem>
+                </>
+              )}
             </MenubarContent>
           </MenubarMenu>
 

@@ -26,13 +26,29 @@ describe('NodePropertyEditor additionalProperties mode', () => {
     expect(screen.getByRole('combobox', { name: 'additionalProperties' })).toHaveValue('schema');
   });
 
-  it('defaults to schema mode for synthetic additionalProperties nodes', () => {
+  it('defaults to false mode for synthetic additionalProperties nodes without explicit value', () => {
     render(
       <NodePropertyEditor
         node={makeNode({
           label: 'additionalProperties',
           type: 'object',
           isAdditionalProperties: true,
+        })}
+        onChange={() => {}}
+      />
+    );
+
+    expect(screen.getByRole('combobox', { name: 'additionalProperties' })).toHaveValue('false');
+  });
+
+  it('uses schema mode for synthetic additionalProperties nodes with explicit schema object', () => {
+    render(
+      <NodePropertyEditor
+        node={makeNode({
+          label: 'additionalProperties',
+          type: 'object',
+          isAdditionalProperties: true,
+          additionalProperties: { type: 'string' },
         })}
         onChange={() => {}}
       />

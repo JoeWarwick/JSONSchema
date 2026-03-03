@@ -562,6 +562,26 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     ];
   }, []);
 
+  const preserveAnchorY = React.useCallback((
+    nextNodes: Node<SchemaNodeData>[],
+    prevNodes: Node<SchemaNodeData>[],
+    anchorId?: string | null,
+  ) => {
+    if (!anchorId) return nextNodes;
+    const prevAnchor = prevNodes.find((n) => n.id === anchorId);
+    const nextAnchor = nextNodes.find((n) => n.id === anchorId);
+    if (!prevAnchor || !nextAnchor) return nextNodes;
+    const prevY = prevAnchor.position?.y;
+    const nextY = nextAnchor.position?.y;
+    if (typeof prevY !== 'number' || typeof nextY !== 'number') return nextNodes;
+    const deltaY = prevY - nextY;
+    if (Math.abs(deltaY) < 0.5) return nextNodes;
+    return nextNodes.map((n) => ({
+      ...n,
+      position: { ...n.position, y: (n.position?.y ?? 0) + deltaY },
+    }));
+  }, []);
+
   // Build a JSON Schema from the current nodes collection (authoritative)
   const buildSchemaFromNodes = (allNodes: Node<SchemaNodeData>[]) => {
     const root = allNodes.find(n => n.type === 'root') || allNodes.find(n => n.data && n.data.label === 'Root') || allNodes.find(n => n.id === '1');
@@ -598,19 +618,29 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
           }
           const props: Record<string, unknown> = {};
           const required: string[] = [];
+          let additionalPropertiesSchema: Record<string, unknown> | undefined;
           childProps.forEach(child => {
             const key = child.data.label;
+            const isAdditionalProperties = Boolean((child.data as any)?.isAdditionalProperties);
+            if (isAdditionalProperties) {
+              additionalPropertiesSchema = buildNodeSchema(child);
+              return;
+            }
             if (key && !key.startsWith('__')) {
               props[key] = buildNodeSchema(child);
               if ((child.data as any).required) required.push(key);
             }
           });
-          return {
+          const variantObjectSchema: Record<string, unknown> = {
             type: 'object',
             ...vData.variantSchema,
             properties: props,
             ...(required.length > 0 ? { required } : {}),
           };
+          if (additionalPropertiesSchema) {
+            variantObjectSchema.additionalProperties = additionalPropertiesSchema;
+          }
+          return variantObjectSchema;
         });
         return { ...base, [combinerType]: variants };
       }
@@ -797,7 +827,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       // which still reflects the pre-update state at this point in the batch).
       const applyRelayout = (ns: Node<SchemaNodeData>[], es: Edge[]) => {
         const laid = relayoutNodes(ns, es);
-        return laid.map(n =>
+        const anchored = preserveAnchorY(laid, prev, variantId);
+        return anchored.map(n =>
           (n.type === 'combiner' || n.type === 'variant')
             ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } }
             : n
@@ -929,7 +960,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         return n;
       }), collapseEdges);
     });
-  }, [edgesRef, injectHandlers, nodeHandlersRef, resolveRefInSchema, schemaToGraph, relayoutNodes, setEdges, setNodes, setVariantExpandedPersisted, setCombinerExpandedPersisted]);
+  }, [edgesRef, injectHandlers, nodeHandlersRef, resolveRefInSchema, schemaToGraph, relayoutNodes, preserveAnchorY, setEdges, setNodes, setVariantExpandedPersisted, setCombinerExpandedPersisted]);
 
   // Add a new blank variant to a combiner node
   const handleAddVariant = React.useCallback((combinerId: string) => {
@@ -1082,13 +1113,14 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         return n;
       });
       const laid = relayoutNodes(next, toggledEdges);
-      return laid.map(n =>
+      const anchored = preserveAnchorY(laid, prev, combinerId);
+      return anchored.map(n =>
         (n.type === 'combiner' || n.type === 'variant')
           ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } }
           : n
       );
     });
-  }, [relayoutNodes, setCombinerExpandedPersisted]);
+  }, [relayoutNodes, preserveAnchorY, setCombinerExpandedPersisted]);
 
   const restoreExpandedStateRecursively = React.useCallback((state: ExpansionState) => {
     let attempts = 0;

@@ -162,4 +162,28 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     (global as any).Blob = OriginalBlob;
   });
 
+  it('clears persisted local storage from dev schema menu action', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(unresolved));
+    localStorage.setItem('schema-sculptor-instance', JSON.stringify({ foo: 'bar' }));
+    localStorage.setItem('schema-sculptor-deref-complete', JSON.stringify({ ts: Date.now() }));
+    localStorage.setItem('schema-sculptor-deref-error', JSON.stringify({ message: 'x' }));
+    localStorage.setItem('json-instance-variants:v1:test', JSON.stringify({}));
+
+    render(<Workbench />);
+
+    const schemaTrigger = screen.getByRole('menuitem', { name: /^Schema$/ });
+    fireEvent.pointerDown(schemaTrigger, { bubbles: true, cancelable: true });
+
+    const clearStorageItem = await screen.findByRole('menuitem', { name: /Clear local storage \(dev\)/i });
+    fireEvent.click(clearStorageItem);
+
+    await waitFor(() => {
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+      expect(localStorage.getItem('schema-sculptor-instance')).toBeNull();
+      expect(localStorage.getItem('schema-sculptor-deref-complete')).toBeNull();
+      expect(localStorage.getItem('schema-sculptor-deref-error')).toBeNull();
+      expect(localStorage.getItem('json-instance-variants:v1:test')).toBeNull();
+    });
+  });
+
 });

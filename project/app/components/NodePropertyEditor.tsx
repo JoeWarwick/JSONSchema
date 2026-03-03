@@ -15,10 +15,10 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     return undefined;
   };
   const deriveAdditionalPropertiesMode = (value: unknown, isAdditionalPropertiesNode: boolean): 'false' | 'true' | 'schema' => {
-    if (isAdditionalPropertiesNode) return 'schema';
     if (value === false) return 'false';
+    if (value === true) return 'true';
     if (value && typeof value === 'object' && !Array.isArray(value)) return 'schema';
-    return 'true';
+    return isAdditionalPropertiesNode ? 'false' : 'true';
   };
   const isNonDefaultSchemaObject = (value: unknown): value is Record<string, unknown> => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;

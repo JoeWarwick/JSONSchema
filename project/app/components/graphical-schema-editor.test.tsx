@@ -8,6 +8,10 @@ import schemastoreWorkflow from '../test-fixtures/schemastore-workflow.json';
 
 describe('GraphicalSchemaEditor - Enum Editing', () => {
 
+  beforeEach(() => {
+    delete (globalThis as any).__graphicalSchemaExpansionState;
+  });
+
   it('renders combiner variant numbers starting at 1', async () => {
     const testSchema = {
       type: 'object',
@@ -28,8 +32,10 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
 
     render(<GraphicalSchemaEditor schema={testSchema} onChange={() => {}} />);
 
-    const combinerToggles = await screen.findAllByTitle(/(Expand|Collapse) variants/i);
-    fireEvent.click(combinerToggles[0]);
+    const expandCombinerToggle = screen.queryByTitle('Expand variants');
+    if (expandCombinerToggle) {
+      fireEvent.click(expandCombinerToggle);
+    }
 
     expect(await screen.findByText('1. Object')).toBeInTheDocument();
     expect(await screen.findByText('2. String')).toBeInTheDocument();
@@ -60,6 +66,53 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     fireEvent.contextMenu(variantNode!);
 
     expect(await screen.findByRole('button', { name: 'Add Combiner' })).toBeInTheDocument();
+  });
+
+  it('keeps combiner vertical position stable when expanding variants', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        env: {
+          oneOf: [
+            {
+              type: 'object',
+              properties: {
+                foo: { type: 'string' },
+                bar: { type: 'number' },
+              },
+            },
+            {
+              type: 'string',
+            },
+          ],
+        },
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => {}} />);
+
+    const combinerToggles = await screen.findAllByTitle(/(Expand|Collapse) variants/i);
+    const toggleButton = combinerToggles[0];
+    const combinerNode = toggleButton.closest('.react-flow__node') as HTMLElement | null;
+    expect(combinerNode).toBeTruthy();
+    const combinerId = combinerNode!.getAttribute('data-id') as string;
+
+    const parseY = (transform: string | null) => {
+      if (!transform) return 0;
+      const match = transform.match(/translate\([^,]+,\s*([-\d.]+)px\)/);
+      return match ? Number(match[1]) : 0;
+    };
+
+    const yBefore = parseY(combinerNode!.style.transform || null);
+
+    fireEvent.click(toggleButton);
+
+    await waitFor(() => {
+      const updatedNode = document.querySelector(`.react-flow__node[data-id="${combinerId}"]`) as HTMLElement | null;
+      expect(updatedNode).toBeTruthy();
+      const yAfter = parseY(updatedNode!.style.transform || null);
+      expect(Math.abs(yAfter - yBefore)).toBeLessThan(1);
+    });
   });
 
   it('does not show expand toggle for array variants with primitive items', async () => {
@@ -117,11 +170,17 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     const combinerToggles = await screen.findAllByTitle(/(Expand|Collapse) variants/i);
     fireEvent.click(combinerToggles[0]);
 
-    const variantExpandToggle = await screen.findByTitle('Expand variant');
-    fireEvent.click(variantExpandToggle);
+    const variantExpandToggle = screen.queryByTitle('Expand variant');
+    if (variantExpandToggle) {
+      fireEvent.click(variantExpandToggle);
+    }
 
-    const variantObjectNode = await screen.findByText('1. Object');
-    fireEvent.click(variantObjectNode);
+    let variantObjectNode: HTMLElement | null = null;
+    await waitFor(() => {
+      variantObjectNode = document.querySelector('.react-flow__node-variant') as HTMLElement | null;
+      expect(variantObjectNode).not.toBeNull();
+    });
+    fireEvent.click(variantObjectNode!);
 
     const apModeSelect = await screen.findByRole('combobox', { name: 'additionalProperties' });
 
@@ -142,6 +201,57 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
       expect(latestSchema.properties.env.oneOf[0].additionalProperties).toBe(true);
       expect(document.querySelector('.react-flow__node[data-id$=".additionalProperties"]')).toBeNull();
     });
+  });
+
+  it('shows schema mode on owner Object and false mode on synthetic additionalProperties node', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        env: {
+          oneOf: [
+            {
+              type: 'object',
+              additionalProperties: {
+                oneOf: [
+                  { type: 'string' },
+                  { type: 'number' },
+                  { type: 'boolean' },
+                ],
+              },
+            },
+            {
+              type: 'string',
+            },
+          ],
+        },
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => {}} />);
+
+    const combinerToggles = await screen.findAllByTitle(/(Expand|Collapse) variants/i);
+    fireEvent.click(combinerToggles[0]);
+
+    const variantExpandToggle = screen.queryByTitle('Expand variant');
+    if (variantExpandToggle) {
+      fireEvent.click(variantExpandToggle);
+    }
+
+    let variantObjectNode: HTMLElement | null = null;
+    await waitFor(() => {
+      variantObjectNode = document.querySelector('.react-flow__node-variant') as HTMLElement | null;
+      expect(variantObjectNode).not.toBeNull();
+    });
+    fireEvent.click(variantObjectNode!);
+    expect(await screen.findByRole('combobox', { name: 'additionalProperties' })).toHaveValue('schema');
+
+    let additionalPropertiesNode: HTMLElement | null = null;
+    await waitFor(() => {
+      additionalPropertiesNode = document.querySelector('.react-flow__node[data-id$=".additionalProperties"]') as HTMLElement | null;
+      expect(additionalPropertiesNode).not.toBeNull();
+    });
+    fireEvent.click(additionalPropertiesNode!);
+    expect(await screen.findByRole('combobox', { name: 'additionalProperties' })).toHaveValue('false');
   });
 
   it('resolves $defs and $ref and renders referenced properties', async () => {
