@@ -1,7 +1,7 @@
 import { getEditorSchema } from "~/state/schemaReducer";
 
 describe('produceResolvedCache direct case', () => {
-  test('resolved+source with $defs and $ref in properties is inlined to object schema', () => {
+  test('resolved+source with $defs and $ref in properties is inlined to object schema while retaining provenance', () => {
     const resolved = {
       $defs: {
         order: {
@@ -38,15 +38,15 @@ describe('produceResolvedCache direct case', () => {
 
     const state: any = { source, resolvedCache: resolved, derefInProgress: false, sourceIsObject: true };
     const editor = getEditorSchema(state) as any;
-    // debug output for investigation
-    // eslint-disable-next-line no-console
-    console.info('[test debug] editor view:', editor);
     expect(editor).toBeTruthy();
     expect(editor.type).toBe('object');
     expect(editor.properties).toBeTruthy();
-    // order should be an inlined object, not a $ref placeholder
-    expect(editor.properties.order.$ref).toBeUndefined();
+    // order should be an inlined object (not just a $ref placeholder)
+    // while retaining provenance for rehydration/import tracking.
+    expect(editor.properties.order.$ref).toBe('#/$defs/order');
     expect(editor.properties.order.type).toBe('object');
+    expect(editor.properties.order.__from).toBe('#/$defs/order');
+    expect(editor.properties.order.properties).toBeTruthy();
     // nested price.minimum preserved
     expect(editor.properties.order.properties.items.items.properties.price.minimum).toBe(0);
     // top-level $defs must not be present on editor view

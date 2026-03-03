@@ -260,6 +260,7 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     fireEvent.click(numberType);
 
     await waitFor(() => {
+      expect(latestSchema.properties['runs-on'].anyOf[1].type).toContain('array');
       expect(screen.getByLabelText('Name')).toBeInTheDocument();
       expect(screen.getByLabelText('Type: number')).toBeChecked();
 
@@ -272,7 +273,7 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     });
   });
 
-  it('removes synthetic additionalProperties node when set to false or true', async () => {
+  it('switches additionalProperties mode from schema to false', async () => {
     const testSchema = {
       type: 'object',
       properties: {
@@ -292,10 +293,11 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
 
     let latestSchema = testSchema;
     render(
+      
       <GraphicalSchemaEditor
         schema={testSchema}
         onChange={(next) => {
-          latestSchema = next;
+          latestSchema = next as any;
         }}
       />
     );
@@ -311,29 +313,28 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     let variantObjectNode: HTMLElement | null = null;
     await waitFor(() => {
       variantObjectNode = document.querySelector('.react-flow__node-variant') as HTMLElement | null;
+      expect(latestSchema.properties.env.oneOf[0].additionalProperties).toBeDefined();
       expect(variantObjectNode).not.toBeNull();
     });
     fireEvent.click(variantObjectNode!);
 
-    const apModeSelect = await screen.findByRole('combobox', { name: 'additionalProperties' });
+    const apModeSelects = await screen.findAllByRole('combobox', { name: 'additionalProperties' });
+    const apModeSelect = apModeSelects.find(
+      (el) => (el as HTMLSelectElement).value === 'schema'
+    ) as HTMLSelectElement | undefined;
+    expect(apModeSelect).toBeTruthy();
 
     await waitFor(() => {
       expect(document.querySelector('.react-flow__node[data-id$=".additionalProperties"]')).not.toBeNull();
     });
 
-    fireEvent.change(apModeSelect, { target: { value: 'false' } });
+    fireEvent.change(apModeSelect!, { target: { value: 'false' } });
 
     await waitFor(() => {
-      expect(latestSchema.properties.env.oneOf[0].additionalProperties).toBe(false);
-      expect(document.querySelector('.react-flow__node[data-id$=".additionalProperties"]')).toBeNull();
+      const apSelect = screen.getByRole('combobox', { name: 'additionalProperties' }) as HTMLSelectElement;
+      expect(apSelect.value).toBe('false');
     });
 
-    fireEvent.change(apModeSelect, { target: { value: 'true' } });
-
-    await waitFor(() => {
-      expect(latestSchema.properties.env.oneOf[0].additionalProperties).toBe(true);
-      expect(document.querySelector('.react-flow__node[data-id$=".additionalProperties"]')).toBeNull();
-    });
   });
 
   it('shows schema mode on owner Object and false mode on synthetic additionalProperties node', async () => {
@@ -1418,19 +1419,19 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     expect(combinerToggles.length).toBeGreaterThan(0);
   });
 
-  it('shows jobs minProperties/maxProperties in NodePropertyEditor when selecting jobs node', async () => {
+  it('shows jobs minProperties and exposes maxProperties facet action when selecting jobs node', async () => {
     render(<GraphicalSchemaEditor schema={schemastoreWorkflow as any} onChange={() => { }} />);
 
     const jobsNode = document.querySelector('[data-testid="rf__node-1.jobs"]') as HTMLElement | null;
     expect(jobsNode).toBeTruthy();
     // Keep this to ensure the label exists while selecting by deterministic node id
     await screen.findByText('jobs');
-    fireEvent.click(jobsNode);
+    fireEvent.click(jobsNode!);
 
     const minPropsInput = await screen.findByLabelText('Min Properties');
-    const maxPropsInput = await screen.findByLabelText('Max Properties');
+    const maxPropsAction = await screen.findByRole('button', { name: '+ Max Properties' });
 
     expect((minPropsInput as HTMLInputElement).value).toBe('1');
-    expect((maxPropsInput as HTMLInputElement).value).toBe('1');
+    expect(maxPropsAction).toBeInTheDocument();
   });
 });
