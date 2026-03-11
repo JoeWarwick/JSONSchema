@@ -43,7 +43,7 @@ describe('SchemaEditorForm with remote-ref resolved schema', () => {
 
     const resolved = await resolveSchema(unresolved as any);
     const handleChange = jest.fn();
-    const isSchemaImportedStub = (n: any) => !!(n && (n.$ref || n.__from || (Array.isArray(n?.allOf) && n.allOf.some((e: any) => e.$ref))));
+    const isSchemaImportedStub = (n: any) => !!(n && (n.$ref || n.__from || (Array.isArray(n?.allOf) && n.allOf.some((e: any) => e && typeof e === 'object' && e.$ref))));
     render(
       <TooltipProvider>
         <SchemaEditorForm schema={resolved as any} onChange={handleChange} isSchemaImported={isSchemaImportedStub} />

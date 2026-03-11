@@ -52,4 +52,50 @@ describe('schemaReducer produceResolvedCache normalization', () => {
     // no top-level $defs on editor view
     expect(editor.$defs).toBeUndefined();
   });
+
+  test('preserves source property facets when resolved property omits them', () => {
+    const source = {
+      type: 'object',
+      properties: {
+        jobs: {
+          type: 'object',
+          patternProperties: {
+            '^[_a-zA-Z][a-zA-Z0-9_-]*$': {
+              type: 'object'
+            }
+          },
+          minProperties: 1,
+          maxProperties: 1,
+          additionalProperties: false,
+        }
+      }
+    } as any;
+
+    const resolved = {
+      type: 'object',
+      properties: {
+        jobs: {
+          type: 'object',
+          patternProperties: {
+            '^[_a-zA-Z][a-zA-Z0-9_-]*$': {
+              type: 'object'
+            }
+          },
+          minProperties: 1,
+          additionalProperties: false,
+        }
+      }
+    } as any;
+
+    const state: any = {
+      source,
+      resolvedCache: resolved,
+      derefInProgress: false,
+      sourceIsObject: true,
+    };
+
+    const editor = getEditorSchema(state) as any;
+    expect(editor?.properties?.jobs?.minProperties).toBe(1);
+    expect(editor?.properties?.jobs?.maxProperties).toBe(1);
+  });
 });

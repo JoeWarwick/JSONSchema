@@ -137,6 +137,14 @@ const getBestName = (s: any, propName?: string): string | null => {
       if (sub) return sub;
     }
   }
+
+  // Infer semantic name for common expression-string shapes when ref metadata
+  // has been removed by prior hydration/merge steps.
+  if (s.type === 'string' && typeof s.pattern === 'string') {
+    const pattern = s.pattern.toLowerCase();
+    const hasGithubExpressionTokens = pattern.includes('\\$\\{\\{') && pattern.includes('\\}\\}');
+    if (hasGithubExpressionTokens) return 'StringContainingExpressionSyntax';
+  }
   return null;
 };
 

@@ -1,7 +1,16 @@
 import { useState, useRef, useEffect, useReducer } from "react";
 import useAsyncMemo from "~/hooks/useAsyncMemo";
-import { Sparkles, Copy, Check, X, Link as LinkIcon, Download, FileUp } from "lucide-react";
+import { Sparkles, Copy, Check, X, Link as LinkIcon, Download, FileUp, ShieldCheck } from "lucide-react";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
+import { toast } from "sonner";
+import { type MarkupLanguage, parseMarkup, serializeMarkup, fileExtension, mimeType, acceptAttr, markupLabel } from "~/utils/markup";
+import {
+  Menubar, MenubarMenu, MenubarTrigger, MenubarContent, MenubarItem,
+  MenubarSeparator, MenubarRadioGroup, MenubarRadioItem, MenubarLabel,
+} from "~/components/ui/menubar/menubar";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose,
+} from "~/components/ui/dialog/dialog";
 import styles from "./workbench.module.css";
 import { generateSchema, isValidJSON } from "~/utils/schema-generator";
 import schemaReducer, { initialSchemaState, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, MERGE_RESOLVED_PATH, MERGE_RESOLVED_ALL_PATHS, ensureResolved, getPersistableSource, getEditorSchema, getResolvedSource } from "~/state/schemaReducer";
@@ -47,6 +56,8 @@ const SAMPLE_JSON = `{
 
 const STORAGE_KEY = 'schema-sculptor-schema';
 const INSTANCE_STORAGE_KEY = 'schema-sculptor-instance';
+const DEREF_COMPLETE_STORAGE_KEY = 'schema-sculptor-deref-complete';
+const DEREF_ERROR_STORAGE_KEY = 'schema-sculptor-deref-error';
 
 // Helper function to generate default instance data
 const generateDefaultInstance = (schema: Record<string, unknown>): unknown => {
@@ -95,6 +106,7 @@ const generateDefaultInstance = (schema: Record<string, unknown>): unknown => {
 };
 
 export default function Workbench() {
+  const showDevStorageTools = typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
   // Initialize reducer with persisted canonical source when available so
   // editors receive the saved schema on first render (avoids e2e timing flakiness).
   let initialPersisted: Record<string, unknown> | null = null;
@@ -159,6 +171,9 @@ export default function Workbench() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const schemaFileInputRef = useRef<HTMLInputElement>(null);
   const [compactJsonView, setCompactJsonView] = useState<boolean>(false);
+  const [markupLanguage, setMarkupLanguage] = useState<MarkupLanguage>('json');
+  const [showMarkupUrlDialog, setShowMarkupUrlDialog] = useState(false);
+  const [showSchemaUrlDialog, setShowSchemaUrlDialog] = useState(false);
   const resolutionCache = useRef<Map<string, any>>(new Map());
 
   // Clear cache if source changes
@@ -252,6 +267,24 @@ export default function Workbench() {
     } catch { /* ignore */ }
   };
 
+  const handleClearLocalStorage = () => {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(INSTANCE_STORAGE_KEY);
+      localStorage.removeItem(DEREF_COMPLETE_STORAGE_KEY);
+      localStorage.removeItem(DEREF_ERROR_STORAGE_KEY);
+      clearVariantStorage();
+      dispatch({ type: APPLY_SOURCE_UPDATE, payload: { type: 'object', properties: {} } });
+      setInstanceData(null);
+      setJsonInput('{}');
+      setError(null);
+      toast.success('Local storage cleared');
+    } catch {
+      toast.error('Failed to clear local storage');
+    }
+  };
+
   const handleGenerate = () => {
     setError(null);
 
@@ -297,27 +330,31 @@ export default function Workbench() {
     const reader = new FileReader();
     reader.onload = (e) => {
       const content = e.target?.result as string;
-      setJsonInput(content);
-      setError(null);
-      // If valid JSON, set instanceData to the loaded document
       try {
-        const parsed = JSON.parse(content);
+        const parsed = parseMarkup(content, markupLanguage);
+        const asJson = JSON.stringify(parsed, null, 2);
+        setJsonInput(asJson);
         setInstanceData(parsed);
-        // Clear variant storage when loading fresh JSON (version 1 approach)
         clearVariantStorage();
-      } catch {
-        // invalid JSON
+        setError(null);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to parse file';
+        if (msg.toLowerCase().includes('coming soon')) {
+          toast.error(msg);
+        } else {
+          setError(msg);
+        }
       }
     };
     reader.onerror = () => {
-      setError("Failed to read file");
+      setError('Failed to read file');
     };
     reader.readAsText(file);
   };
 
   const handleLoadFromUrl = async () => {
     if (!jsonUrl.trim()) {
-      setError("Please enter a URL");
+      setError('Please enter a URL');
       return;
     }
 
@@ -329,14 +366,20 @@ export default function Workbench() {
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      const data = await response.json();
-      setJsonInput(JSON.stringify(data, null, 2));
-      setInstanceData(data);
-      // Clear variant storage when loading fresh JSON (version 1 approach)
+      const text = await response.text();
+      const parsed = parseMarkup(text, markupLanguage);
+      const asJson = JSON.stringify(parsed, null, 2);
+      setJsonInput(asJson);
+      setInstanceData(parsed);
       clearVariantStorage();
-      setJsonUrl("");
+      setJsonUrl('');
     } catch (err) {
-      setError(`Failed to load JSON from URL: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      if (msg.toLowerCase().includes('coming soon')) {
+        toast.error(msg);
+      } else {
+        setError(`Failed to load ${markupLabel[markupLanguage]} from URL: ${msg}`);
+      }
     } finally {
       setIsLoadingUrl(false);
     }
@@ -422,18 +465,66 @@ export default function Workbench() {
     URL.revokeObjectURL(url);
   };
 
-  const handleSaveJson = () => {
+  const handleSaveMarkup = () => {
     if (!jsonInput.trim()) return;
+    try {
+      let content: string;
+      if (markupLanguage === 'json') {
+        content = jsonInput;
+      } else {
+        const data = JSON.parse(jsonInput);
+        content = serializeMarkup(data, markupLanguage);
+      }
+      const blob = new Blob([content], { type: mimeType(markupLanguage) });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `data${fileExtension(markupLanguage)}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Save failed');
+    }
+  };
 
-    const blob = new Blob([jsonInput], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'data.json';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const handleValidate = () => {
+    if (!instanceData) {
+      toast.warning('No instance data to validate');
+      return;
+    }
+    if (!editorSchema) {
+      toast.warning('No schema loaded — generate or load a schema first');
+      return;
+    }
+    try {
+      // Dynamic import keeps Ajv out of the initial bundle
+      import('ajv').then(({ default: Ajv }) => {
+        import('ajv-formats').then(({ default: addFormats }) => {
+          const ajv = new Ajv({ allErrors: true });
+          addFormats(ajv);
+          let valid: boolean;
+          try {
+            const validate = ajv.compile(editorSchema as object);
+            valid = validate(instanceData) as boolean;
+            if (valid) {
+              toast.success('Valid ✓  — instance matches schema');
+            } else {
+              const errs = (validate.errors ?? []).slice(0, 3)
+                .map(e => `${e.instancePath || '/'} ${e.message}`)
+                .join(' · ');
+              const more = (validate.errors?.length ?? 0) > 3 ? ' …' : '';
+              toast.error(`Invalid — ${errs}${more}`, { duration: 8000 });
+            }
+          } catch (compileErr) {
+            toast.error('Schema compile error: ' + String(compileErr));
+          }
+        });
+      });
+    } catch (e) {
+      toast.error('Validation failed: ' + String(e));
+    }
   };
 
   // Tabbed UI state
@@ -534,110 +625,219 @@ export default function Workbench() {
   return (
     <TooltipProvider>
     <div className={styles.container}>
-      <header className={styles.header}>
-        <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
-          <h4 className={styles.title}>Schema Sculptor - JSON Schema Workbench</h4>
-          
-          {/* Debug badge: shows whether resolvedCache or source is used */}
-            <div style={{marginLeft: 8}}>
-            <small style={{color: '#999'}}>Schema source:</small>
-              <div suppressHydrationWarning style={{display: 'inline-block', marginLeft: 8, padding: '4px 8px', borderRadius: 12, background: '#1f2937', color: '#fff', fontSize: 12}} data-testid="schema-source-badge">
-                {state.resolvedCache ? 'resolved' : (state.source ? 'source' : 'none')}
-              </div>
+      {/* Hidden file inputs — top-level so menu items can trigger them from any active tab */}
+      <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept={acceptAttr(markupLanguage)} style={{ display: 'none' }} />
+      <input type="file" ref={schemaFileInputRef} onChange={handleSchemaFileUpload} accept=".json,application/json" style={{ display: 'none' }} />
+
+      {/* ── App menu bar ────────────────────────────────────────────── */}
+      <div className={styles.menuBar}>
+        <span className={styles.menuLogo}>Schema Sculptor</span>
+        <Menubar>
+          {/* Language selector */}
+          <MenubarMenu>
+            <MenubarTrigger>Language</MenubarTrigger>
+            <MenubarContent>
+              <MenubarRadioGroup value={markupLanguage} onValueChange={(v) => setMarkupLanguage(v as MarkupLanguage)}>
+                <MenubarRadioItem value="json">JSON</MenubarRadioItem>
+                <MenubarRadioItem value="yaml" disabled title="Coming soon">YAML</MenubarRadioItem>
+                <MenubarRadioItem value="xml" disabled title="Coming soon">XML</MenubarRadioItem>
+              </MenubarRadioGroup>
+            </MenubarContent>
+          </MenubarMenu>
+
+          {/* Markup document operations — label tracks selected language */}
+          <MenubarMenu>
+            <MenubarTrigger>{markupLabel[markupLanguage]}</MenubarTrigger>
+            <MenubarContent>
+              <MenubarItem onSelect={() => fileInputRef.current?.click()}>
+                <FileUp size={14} style={{ marginRight: 6 }} />
+                Open {markupLabel[markupLanguage]} file&hellip;
+              </MenubarItem>
+              <MenubarItem onSelect={handleSaveMarkup} disabled={!jsonInput.trim()}>
+                <Download size={14} style={{ marginRight: 6 }} />
+                Save {markupLabel[markupLanguage]}
+              </MenubarItem>
+              <MenubarItem onSelect={() => setShowMarkupUrlDialog(true)}>
+                <LinkIcon size={14} style={{ marginRight: 6 }} />
+                Load from URL&hellip;
+              </MenubarItem>
+              <MenubarSeparator />
+              <MenubarItem onSelect={handleGenerate}>
+                <Sparkles size={14} style={{ marginRight: 6 }} />
+                Generate Schema from {markupLabel[markupLanguage]}
+              </MenubarItem>
+              <MenubarSeparator />
+              <MenubarItem onSelect={handleValidate} disabled={!editorSchema}>
+                <ShieldCheck size={14} style={{ marginRight: 6 }} />
+                Validate against Schema
+              </MenubarItem>
+            </MenubarContent>
+          </MenubarMenu>
+
+          {/* Schema operations */}
+          <MenubarMenu>
+            <MenubarTrigger>Schema</MenubarTrigger>
+            <MenubarContent>
+              <MenubarItem onSelect={() => schemaFileInputRef.current?.click()}>
+                <FileUp size={14} style={{ marginRight: 6 }} />
+                Open Schema&hellip;
+              </MenubarItem>
+              <MenubarItem onSelect={handleSaveSchema} disabled={!state.source}>
+                <Download size={14} style={{ marginRight: 6 }} />
+                Save Schema
+              </MenubarItem>
+              <MenubarItem onSelect={handleSaveResolvedSchema} disabled={!state.resolvedCache}>
+                <Sparkles size={14} style={{ marginRight: 6 }} />
+                Save Intermediate
+              </MenubarItem>
+              <MenubarItem onSelect={() => setShowSchemaUrlDialog(true)}>
+                <LinkIcon size={14} style={{ marginRight: 6 }} />
+                Load from URL&hellip;
+              </MenubarItem>
+              <MenubarSeparator />
+              <MenubarItem onSelect={handleCopy} disabled={!state.source}>
+                {copied
+                  ? <><Check size={14} style={{ marginRight: 6 }} /> Copied!</>
+                  : <><Copy size={14} style={{ marginRight: 6 }} /> Copy to Clipboard</>}
+              </MenubarItem>
+              {showDevStorageTools && (
+                <>
+                  <MenubarSeparator />
+                  <MenubarItem onSelect={handleClearLocalStorage}>
+                    <X size={14} style={{ marginRight: 6 }} />
+                    Clear local storage (dev)
+                  </MenubarItem>
+                </>
+              )}
+            </MenubarContent>
+          </MenubarMenu>
+
+          {/* About */}
+          <MenubarMenu>
+            <MenubarTrigger>About</MenubarTrigger>
+            <MenubarContent>
+              <MenubarLabel>Schema Sculptor</MenubarLabel>
+              <MenubarLabel style={{ fontWeight: 'normal', fontSize: 11, color: 'var(--color-neutral-10)' }}>
+                JSON Schema Workbench
+              </MenubarLabel>
+              <MenubarSeparator />
+              <MenubarLabel style={{ fontWeight: 'normal', fontSize: 11, maxWidth: 220, whiteSpace: 'normal', lineHeight: 1.4, color: 'var(--color-neutral-9)', padding: '4px 8px' }}>
+                Generate and modify JSON schemas with an intuitive form&#8209;based editor.
+              </MenubarLabel>
+            </MenubarContent>
+          </MenubarMenu>
+        </Menubar>
+        <small className={styles.menuStatusBadge} suppressHydrationWarning data-testid="schema-source-badge">
+          Source: {state.resolvedCache ? 'resolved' : state.source ? 'source' : 'none'}
+        </small>
+      </div>
+
+      {/* ── URL load dialog — markup document ───────────────────────── */}
+      <Dialog open={showMarkupUrlDialog} onOpenChange={setShowMarkupUrlDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Load {markupLabel[markupLanguage]} from URL</DialogTitle>
+          </DialogHeader>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 0' }}>
+            <input
+              type="url"
+              className={styles.urlInput}
+              value={jsonUrl}
+              onChange={(e) => setJsonUrl(e.target.value)}
+              placeholder={`Enter ${markupLabel[markupLanguage]} URL\u2026`}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && jsonUrl.trim()) {
+                  handleLoadFromUrl();
+                  setShowMarkupUrlDialog(false);
+                }
+              }}
+              autoFocus
+            />
+            {error && <div className={styles.errorMessage}>{error}</div>}
           </div>
-        </div>
-        <p className={styles.subtitle}>Generate and modify JSON schemas with an intuitive form-based editor</p>
-      </header>
+          <DialogFooter>
+            <DialogClose asChild>
+              <button className={styles.controlButton}>Cancel</button>
+            </DialogClose>
+            <button
+              className={styles.generateButton}
+              onClick={() => { handleLoadFromUrl(); setShowMarkupUrlDialog(false); }}
+              disabled={isLoadingUrl || !jsonUrl.trim()}
+              style={{ padding: '8px 16px', fontSize: 13 }}
+            >
+              {isLoadingUrl ? 'Loading\u2026' : 'Load'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── URL load dialog — schema ─────────────────────────────────── */}
+      <Dialog open={showSchemaUrlDialog} onOpenChange={setShowSchemaUrlDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Load Schema from URL</DialogTitle>
+          </DialogHeader>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 0' }}>
+            <input
+              type="url"
+              className={styles.urlInput}
+              value={schemaUrl}
+              onChange={(e) => setSchemaUrl(e.target.value)}
+              placeholder="Enter schema URL\u2026"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && schemaUrl.trim()) {
+                  handleLoadSchemaFromUrl();
+                  setShowSchemaUrlDialog(false);
+                }
+              }}
+              autoFocus
+            />
+            {error && <div className={styles.errorMessage}>{error}</div>}
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <button className={styles.controlButton}>Cancel</button>
+            </DialogClose>
+            <button
+              className={styles.generateButton}
+              onClick={() => { handleLoadSchemaFromUrl(); setShowSchemaUrlDialog(false); }}
+              disabled={isLoadingSchemaUrl || !schemaUrl.trim()}
+              style={{ padding: '8px 16px', fontSize: 13 }}
+            >
+              {isLoadingSchemaUrl ? 'Loading\u2026' : 'Load'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className={styles.tabs}>
-        <button className={activeTab === 'json' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('json')}>JSON Input</button>
+        <button className={activeTab === 'json' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('json')}>{markupLabel[markupLanguage]} Input</button>
         <button className={activeTab === 'instance' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('instance')}>Instance Editor</button>
         <button className={activeTab === 'schema' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('schema')}>Schema Input</button>
         <button className={activeTab === 'graph' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('graph')}>Schema Editor</button>
       </div>
 
-      <div className={styles.tabPanel}>
+      <div className={`${styles.tabPanel}${activeTab === 'graph' ? ` ${styles.tabPanelFlush}` : ''}`}>
         {activeTab === 'graph' && (
-          <div className={styles.panel}>
-            <div className={styles.panelHeader}>
-              <h2 className={styles.panelTitle}>Graphical Schema Editor</h2>
-            </div>
-            <div className={styles.editorContainer}>
-              {editorSchema ? (
-                <GraphicalSchemaEditor
-                  schema={editorSchema as any}
-                  onChange={(newSchema) => {
-                    // Editor emits edits to the resolved view; reducer will rehydrate into source
-                    dispatch({ type: APPLY_RESOLVED_EDIT, payload: newSchema });
-                    setInstanceData((prev: unknown) => prev == null ? generateDefaultInstance(newSchema) : prev);
-                  }}
-                />
-              ) : state.source ? (
-                <div className={styles.emptyState}>Resolving schema&hellip;</div>
-              ) : (
-                <div className={styles.emptyState}>Load or generate a schema to begin editing</div>
-              )}
-            </div>
-          </div>
+          <>
+            {editorSchema ? (
+              <GraphicalSchemaEditor
+                schema={editorSchema as any}
+                onChange={(newSchema) => {
+                  // Editor emits edits to the resolved view; reducer will rehydrate into source
+                  dispatch({ type: APPLY_RESOLVED_EDIT, payload: newSchema });
+                  setInstanceData((prev: unknown) => prev == null ? generateDefaultInstance(newSchema) : prev);
+                }}
+              />
+            ) : state.source ? (
+              <div className={styles.emptyState}>Resolving schema&hellip;</div>
+            ) : (
+              <div className={styles.emptyState}>Load or generate a schema to begin editing</div>
+            )}
+          </>
         )}
         {activeTab === 'schema' && (
           <>
-            <div className={styles.inputControls}>
-              <input
-                type="file"
-                ref={schemaFileInputRef}
-                onChange={handleSchemaFileUpload}
-                accept=".json,application/json"
-                style={{ display: 'none' }}
-              />
-              <button 
-                className={styles.controlButton}
-                onClick={() => schemaFileInputRef.current?.click()}
-                title="Load schema from file"
-              >
-                <FileUp size={16} />
-                Load File
-              </button>
-              {state.resolvedCache && (
-                <div className={styles.saveButtonRow}>
-                  <button 
-                    className={styles.controlButton}
-                    onClick={handleSaveSchema}
-                    title="Save schema to file"
-                  >
-                    <Download size={16} />
-                    Save Schema
-                  </button>
-                  <button 
-                    className={styles.controlButton}
-                    onClick={handleSaveResolvedSchema}
-                    title="Save intermediate hydrated schema (dereferenced)"
-                  >
-                    <Sparkles size={16} />
-                    Save Intermediate
-                  </button>
-                </div>
-              )}
-              <div className={styles.urlInputGroup}>
-                <input
-                  type="url"
-                  className={styles.urlInput}
-                  value={schemaUrl}
-                  onChange={(e) => setSchemaUrl(e.target.value)}
-                  placeholder="Enter schema URL..."
-                  onKeyDown={(e) => e.key === 'Enter' && handleLoadSchemaFromUrl()}
-                />
-                <button 
-                  className={styles.controlButton}
-                  onClick={handleLoadSchemaFromUrl}
-                  disabled={isLoadingSchemaUrl}
-                  title="Load schema from URL"
-                >
-                  <LinkIcon size={16} />
-                  {isLoadingSchemaUrl ? 'Loading...' : 'Load URL'}
-                </button>
-              </div>
-            </div>
             <div className={styles.panel}>
               <div className={styles.panelHeader}>
                 <h2 className={styles.panelTitle}>Schema Input</h2>
@@ -780,51 +980,7 @@ export default function Workbench() {
           <>
             <div className={styles.panel}>
               <div className={styles.panelHeader}>
-                <h2 className={styles.panelTitle}>JSON Input</h2>
-              </div>
-              <div className={styles.inputControls}>
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileUpload}
-                  accept=".json,application/json"
-                  style={{ display: 'none' }}
-                />
-                <button 
-                  className={styles.controlButton}
-                  onClick={() => fileInputRef.current?.click()}
-                  title="Load JSON file"
-                >
-                  <FileUp size={16} />
-                  Load File
-                </button>
-                <button 
-                  className={styles.controlButton}
-                  onClick={handleSaveJson}
-                  title="Save JSON to file"
-                >
-                  <Download size={16} />
-                  Save JSON
-                </button>
-                <div className={styles.urlInputGroup}>
-                  <input
-                    type="url"
-                    className={styles.urlInput}
-                    value={jsonUrl}
-                    onChange={(e) => setJsonUrl(e.target.value)}
-                    placeholder="Enter JSON URL..."
-                    onKeyDown={(e) => e.key === 'Enter' && handleLoadFromUrl()}
-                  />
-                  <button 
-                    className={styles.controlButton}
-                    onClick={handleLoadFromUrl}
-                    disabled={isLoadingUrl}
-                    title="Load JSON from URL"
-                  >
-                    <LinkIcon size={16} />
-                    {isLoadingUrl ? 'Loading...' : 'Load URL'}
-                  </button>
-                </div>
+                <h2 className={styles.panelTitle}>{markupLabel[markupLanguage]} Input</h2>
               </div>
               <div style={{ marginTop: 12 }}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
@@ -863,10 +1019,6 @@ export default function Workbench() {
                 )}
               </div>
               {error && <div className={styles.errorMessage}>{error}</div>}
-              <button className={styles.generateButton} onClick={handleGenerate}>
-                <Sparkles size={18} />
-                Generate Schema
-              </button>
             </div>
           </>
         )}

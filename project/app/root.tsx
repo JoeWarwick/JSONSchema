@@ -2,6 +2,7 @@ import { isRouteErrorResponse, Links, Meta, Outlet, Scripts, ScrollRestoration }
 
 import type { Route } from "./+types/root";
 import { Toaster } from "./components/ui/toaster/toaster";
+import { Toaster as SonnerToaster } from "./components/ui/sonner/sonner";
 import { TooltipProvider } from "./components/ui/tooltip/tooltip";
 import colorSchemeApi from "@dazl/color-scheme/client?url";
 
@@ -51,6 +52,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {children}
         </TooltipProvider>
         <Toaster />
+        <SonnerToaster />
         <ScrollRestoration />
         <Scripts />
       </body>

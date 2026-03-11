@@ -3,7 +3,7 @@ import schemaReducer, {
   LOAD_SOURCE_SCHEMA,
   APPLY_RESOLVED_EDIT
 } from './schemaReducer';
-import { SchemaState } from './schemaReducer';
+import type { SchemaState } from './schemaReducer';
 
 // Import the workflow schema for realistic testing
 import workflowSchema from '../test-fixtures/schemastore-workflow.json';
@@ -30,7 +30,6 @@ describe('schemaReducer - full workflow lifecycle', () => {
     // PHASE 1: Load schema from URL (simulated)
     const workflowWithDefs = JSON.parse(JSON.stringify(workflowSchema));
     expect(workflowWithDefs.definitions).toBeDefined();
-    const defsBeforeLoad = JSON.stringify(workflowWithDefs.definitions);
 
     state = schemaReducer(state, {
       type: LOAD_SOURCE_SCHEMA,
@@ -77,7 +76,7 @@ describe('schemaReducer - full workflow lifecycle', () => {
     }
 
     // PHASE 4: Verify independence of objects
-    editorSchemas.forEach((editorSchema, index) => {
+    editorSchemas.forEach((editorSchema) => {
       // No editor schema should be the same object as rootSchema
       expect(editorSchema).not.toBe(state.resolvedCache);
 
@@ -126,15 +125,15 @@ describe('schemaReducer - full workflow lifecycle', () => {
     });
 
     // Get editor schema for rendering
-    const editorSchema1 = getEditorSchema(state);
-    expect((editorSchema1 as any).definitions).toBeUndefined();
-    expect((editorSchema1 as any).properties).toBeDefined();
+    const editorSchema1 = getEditorSchema(state) as any;
+    expect(editorSchema1.definitions).toBeUndefined();
+    expect(editorSchema1.properties).toBeDefined();
 
     // Simulate user making an edit to the schema
     const editedSchema = {
       ...editorSchema1,
       properties: {
-        ...editorSchema1.properties,
+        ...(editorSchema1.properties || {}),
         newProp: { type: 'boolean' }
       }
     };

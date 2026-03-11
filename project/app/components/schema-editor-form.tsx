@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { validateValueAgainstSchema } from "../utils/validation";
 import {
   addPropertyToSchema,
@@ -29,6 +30,7 @@ interface SchemaEditorFormProps {
   onPropertyRename?: (oldName: string, newName: string, path?: string[]) => void;
   onResolve?: (path: string[]) => Promise<void>;
   rootSchema?: Record<string, unknown>;
+  onUpdateRoot?: (updates: Partial<Record<string, unknown>>) => void;
 }
 
 import { generateSchema } from "../utils/schema-generator";
@@ -43,8 +45,10 @@ export function SchemaEditorForm({
   isSchemaImported, 
   instanceData,
   onResolve,
-  rootSchema
+  rootSchema,
+  onUpdateRoot
 }: SchemaEditorFormProps) {
+  onUpdateRoot = onUpdateRoot || onChange;
   const [validationError, setValidationError] = useState<string | null>(null);
   const [defaultError, setDefaultError] = useState<string | null>(null);
   const [editingDefault, setEditingDefault] = useState<string>(String(schema?.default ?? ""));
@@ -58,8 +62,9 @@ export function SchemaEditorForm({
 
   // Inferences for UI state
   const checkImported = (s: any, p?: string[]) => {
+    if (!s || s === null || typeof s !== 'object' || s.constructor !== Object) return false;
     if (isSchemaImported) return !!isSchemaImported(s, p);
-    return !!(s.$ref || s.__from || (Array.isArray(s.allOf) && s.allOf.some((e: any) => e && (e.$ref || e.__from))));
+    return !!(s.$ref || s.__from || (Array.isArray(s.allOf) && s.allOf.some((e: any) => e && typeof e === 'object' && (e.$ref || e.__from))));
   };
 
   const isImported = checkImported(schema, path);
@@ -81,6 +86,8 @@ export function SchemaEditorForm({
   const [customRefUri, setCustomRefUri] = useState('');
   const [showRefDropdown, setShowRefDropdown] = useState(false);
   const refDropdownRef = useRef<HTMLDivElement>(null);
+  const refButtonRef = useRef<HTMLButtonElement>(null);
+  const [refDropdownPos, setRefDropdownPos] = useState<{ top: number; left: number } | null>(null);
 
   // Initialize local draft when the popover is opened programmatically
   useEffect(() => {
@@ -241,9 +248,7 @@ export function SchemaEditorForm({
 
     const error = validateSchema(nextSchema);
     setValidationError(error);
-    if (!error && JSON.stringify(nextSchema) !== JSON.stringify(schema)) {
-      onChange(nextSchema);
-    }
+    onChange(nextSchema);
   };
 
   const variants = (schema.oneOf || schema.anyOf || schema.allOf) as Record<string, unknown>[] | undefined;
@@ -418,8 +423,8 @@ export function SchemaEditorForm({
           </div>
         )}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', width: '100%' }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               {isImported && !activeType && !variants && (
                 <button
@@ -463,7 +468,16 @@ export function SchemaEditorForm({
                   type="button"
                   onClick={() => {
                     if (activeType === t) return; // already this type, no-op
-                    updateSchema({ type: t });
+                    if (t === 'array') {
+                      // Always provide a default items schema so validation passes
+                      // and the enum multi-select renders immediately
+                      const existingItems = schema.items && typeof schema.items === 'object' && !Array.isArray(schema.items)
+                        ? schema.items as Record<string, unknown>
+                        : { type: 'string' };
+                      updateSchema({ type: 'array', items: existingItems });
+                    } else {
+                      updateSchema({ type: t });
+                    }
                   }}
                   style={{
                     padding: '4px 12px',
@@ -483,19 +497,26 @@ export function SchemaEditorForm({
             {!variants && path.length > 0 && (
               <div style={{ position: 'relative' }} ref={refDropdownRef}>
                 <button
+                  ref={refButtonRef}
                   type="button"
                   className={styles.addSmall}
-                  onClick={() => setShowRefDropdown(!showRefDropdown)}
+                  onClick={() => {
+                    if (!showRefDropdown && refButtonRef.current) {
+                      const rect = refButtonRef.current.getBoundingClientRect();
+                      setRefDropdownPos({ top: rect.bottom + 4, left: rect.left });
+                    }
+                    setShowRefDropdown(!showRefDropdown);
+                  }}
                   style={{ display: 'flex', alignItems: 'center', gap: 4 }}
                 >
                   ref <ChevronDown size={12} />
                 </button>
-                {showRefDropdown && (
+                {showRefDropdown && refDropdownPos && createPortal(
                   <div
                     style={{
-                      position: 'absolute',
-                      top: '100%',
-                      left: 0,
+                      position: 'fixed',
+                      top: refDropdownPos.top,
+                      left: refDropdownPos.left,
                       background: 'var(--color-neutral-1)',
                       border: '1px solid var(--color-neutral-6)',
                       borderRadius: '4px',
@@ -503,9 +524,9 @@ export function SchemaEditorForm({
                       maxHeight: '200px',
                       overflow: 'auto',
                       overflowX: 'hidden',
-                      zIndex: 1000,
-                      marginTop: '4px',
-                      boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                      zIndex: 99999,
+                      minWidth: '160px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
                     }}
                   >
                     {definitionNames.length === 0 ? (
@@ -524,6 +545,7 @@ export function SchemaEditorForm({
                           }}
                           style={{
                             display: 'block',
+                            width: '100%',
                             padding: '8px 12px',
                             textAlign: 'left',
                             fontSize: '11px',
@@ -533,7 +555,6 @@ export function SchemaEditorForm({
                             color: 'var(--color-neutral-12)',
                             borderBottom: '1px solid var(--color-neutral-4)',
                             whiteSpace: 'nowrap',
-                            overflowX: 'hidden',
                           }}
                           onMouseOver={(e) => (e.currentTarget.style.background = 'var(--color-primary-4)')}
                           onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}
@@ -542,7 +563,8 @@ export function SchemaEditorForm({
                         </button>
                       ))
                     )}
-                  </div>
+                  </div>,
+                  document.body
                 )}
               </div>
             )}
@@ -571,78 +593,70 @@ export function SchemaEditorForm({
                 </TooltipContent>
               </Tooltip>
             )}
-            <div style={{ flex: 1 }} />
-            {isImported && renderType === 'object' && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // build a local allOf override referencing the original $ref when available
-                      let refStr: string | null = null;
-                      try {
-                        if (typeof (schema as any).$ref === 'string') refStr = (schema as any).$ref;
-                        else if (Array.isArray((schema as any).allOf)) {
-                          const m = ((schema as any).allOf as any[]).find((e: any) => e && typeof e.$ref === 'string');
-                          if (m) refStr = m.$ref;
-                        }
-                      } catch (e) {
-                        // ignore
+          </div>
+          <div style={{ flex: 1 }} />
+          {isImported && renderType === 'object' && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // build a local allOf override referencing the original $ref when available
+                    let refStr: string | null = null;
+                    try {
+                      if (typeof (schema as any).$ref === 'string') refStr = (schema as any).$ref;
+                      else if (Array.isArray((schema as any).allOf)) {
+                        const m = ((schema as any).allOf as any[]).find((e: any) => e && typeof e.$ref === 'string');
+                        if (m) refStr = m.$ref;
                       }
-                      if (!refStr) return;
+                    } catch (e) {
+                      // ignore
+                    }
+                    if (!refStr) return;
 
-                      // If instance data is available, attempt to use instance keys at the current path
-                      // to pre-populate property schemas so we don't add arbitrary fields like "username".
-                      const localProperties: Record<string, unknown> = {};
-                      try {
-                        if (instanceData && typeof instanceData === 'object') {
-                          // Traverse instanceData according to the editor path to find the relevant object
-                          let node: any = instanceData as any;
-                          for (const p of path) {
-                            if (!node || typeof node !== 'object') { node = null; break; }
-                            node = node[p];
-                          }
-                          if (node && typeof node === 'object' && !Array.isArray(node)) {
-                            for (const [k, v] of Object.entries(node)) {
-                              try {
-                                // generate a schema for the instance value to make the override valid
-                                const gen = generateSchema(v as any);
-                                localProperties[k] = gen;
-                              } catch (_) {
-                                // fallback: mark as string
-                                localProperties[k] = { type: 'string' };
-                              }
+                    // If instance data is available, attempt to use instance keys at the current path
+                    // to pre-populate property schemas so we don't add arbitrary fields like "username".
+                    const localProperties: Record<string, unknown> = {};
+                    try {
+                      if (instanceData && typeof instanceData === 'object') {
+                        // Traverse instanceData according to the editor path to find the relevant object
+                        let node: any = instanceData as any;
+                        for (const p of path) {
+                          if (!node || typeof node !== 'object') { node = null; break; }
+                          node = node[p];
+                        }
+                        if (node && typeof node === 'object' && !Array.isArray(node)) {
+                          for (const [k, v] of Object.entries(node)) {
+                            try {
+                              // generate a schema for the instance value to make the override valid
+                              const gen = generateSchema(v as any);
+                              localProperties[k] = gen;
+                            } catch (_) {
+                              // fallback: mark as string
+                              localProperties[k] = { type: 'string' };
                             }
                           }
                         }
-                      } catch (_) { /* ignore */ }
+                      }
+                    } catch (_) { /* ignore */ }
 
-                      const overrideObj: Record<string, unknown> = { type: 'object', properties: localProperties };
-                      const next: Record<string, unknown> = { allOf: [{ $ref: refStr }, overrideObj] };
-                      if (schema.title) next.title = schema.title as string;
-                      onChange(next);
-                    }}
-                    className={styles.addSmall}
-                    style={{ background: '#5b21b6', borderColor: '#6d28d9', color: 'white' }}
-                  >
-                    Override
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  Create a local <code>allOf</code> extension. This keeps the original <code>$ref</code> definition as a base but allows you to add specific constraints (like pattern, minLength, or extra properties) to just this instance.
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </div>
+                    const overrideObj: Record<string, unknown> = { type: 'object', properties: localProperties };
+                    const next: Record<string, unknown> = { allOf: [{ $ref: refStr }, overrideObj] };
+                    if (schema.title) next.title = schema.title as string;
+                    onChange(next);
+                  }}
+                  className={styles.addSmall}
+                  style={{ background: '#5b21b6', borderColor: '#6d28d9', color: 'white' }}
+                >
+                  Override
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Create a local <code>allOf</code> extension. This keeps the original <code>$ref</code> definition as a base but allows you to add specific constraints (like pattern, minLength, or extra properties) to just this instance.
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
-        <div style={{ fontSize: (schema.title ? 11 : 10), fontWeight: (schema.title ? 700 : 900), textTransform: (schema.title ? 'none' : 'uppercase'), color: (schema.title ? 'inherit' : 'var(--color-neutral-10)') }}>
-          {(schema.title as string) || ''}
-        </div>
-        <div style={{ flex: 1 }} />
-      </div>
 
         {variants && variants.length > 0 && (
           <div className={styles.variantsWrapper}>
@@ -702,6 +716,7 @@ export function SchemaEditorForm({
                 onPropertyRename={onPropertyRename}
                 onResolve={onResolve}
                 rootSchema={effectiveRootSchema}
+                onUpdateRoot={onUpdateRoot}
               />
             );})}
           </div>
@@ -1046,7 +1061,7 @@ export function SchemaEditorForm({
           )}
 
           {/* Array-specific facets: uniqueItems / minItems / maxItems */}
-          {renderType === "array" && (
+          {renderType === "array" && ('uniqueItems' in schema || 'minItems' in schema || 'maxItems' in schema) && (
             <div className={styles.inlineAdd}>
               {'uniqueItems' in schema ? (
                 <div className={styles.fieldRow}>
@@ -1191,7 +1206,7 @@ export function SchemaEditorForm({
                     </label>
 
                     {schema.additionalProperties && typeof schema.additionalProperties === 'object' && (
-                      <Popover open={apPopoverOpen && apPopoverAllowed} onOpenChange={(open) => {
+                      <Popover open={!!(apPopoverOpen && apPopoverAllowed)} onOpenChange={(open) => {
                         if (!open) {
                           const next = { ...schema } as Record<string, unknown>;
                           if (!localAdditionalSchema || (Object.keys(localAdditionalSchema).length === 0)) delete next.additionalProperties;
@@ -1308,6 +1323,7 @@ export function SchemaEditorForm({
                     onPropertyRename={onPropertyRename}
                     onResolve={onResolve}
                     rootSchema={effectiveRootSchema}
+                    onUpdateRoot={onUpdateRoot}
                   />
                 ))}
               </div>
@@ -1338,6 +1354,7 @@ export function SchemaEditorForm({
                   isSchemaImported={isSchemaImported}
                   onResolve={onResolve}
                   rootSchema={effectiveRootSchema}
+                  onUpdateRoot={onUpdateRoot}
                 />
               ))}
           </div>
@@ -1403,6 +1420,7 @@ export function SchemaEditorForm({
                   instanceData={instanceData}
                   onResolve={onResolve}
                   rootSchema={effectiveRootSchema}
+                  onUpdateRoot={onUpdateRoot}
                 />
               )}
             </div>
@@ -1410,7 +1428,6 @@ export function SchemaEditorForm({
         })()}
       </div>
 
-      {/* Definition Dialog */}
       {showDefDialog && (
         <div style={{
           position: 'fixed',
@@ -1579,8 +1596,7 @@ export function SchemaEditorForm({
         </div>
       )}
 
-      {/* Inline ref button - show when schema has $ref */}
-      {schema.$ref && typeof schema.$ref === 'string' && path.length > 0 && (
+      {schema.$ref && typeof schema.$ref === 'string' && path.length > 0 ? (
         <div style={{ marginTop: 12, padding: '8px 12px', background: 'var(--color-accent-2)', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-accent-11)' }}>
             Ref: <code style={{ fontFamily: 'monospace', fontSize: '10px' }}>{schema.$ref}</code>
@@ -1612,7 +1628,8 @@ export function SchemaEditorForm({
             Inline
           </button>
         </div>
-      )}
+      ) : null}
+      </div>
     </>
   );
 }
@@ -1627,7 +1644,8 @@ function PatternPropertyRow({
   instanceData, 
   onPropertyRename, 
   onResolve,
-  rootSchema
+  rootSchema,
+  onUpdateRoot
 }: { 
   patternKey: string; 
   subschema: Record<string, unknown>; 
@@ -1639,6 +1657,7 @@ function PatternPropertyRow({
   onPropertyRename?: (oldName: string, newName: string, path?: string[]) => void;
   onResolve?: (path: string[]) => Promise<void>;
   rootSchema?: Record<string, unknown>;
+  onUpdateRoot?: (updates: Partial<Record<string, unknown>>) => void;
 }) {
   const [keyState, setKeyState] = useState<string>(patternKey);
   const [keyError, setKeyError] = useState<string | null>(null);
@@ -1699,6 +1718,7 @@ function PatternPropertyRow({
           onPropertyRename={onPropertyRename}
           onResolve={onResolve}
           rootSchema={rootSchema}
+          onUpdateRoot={onUpdateRoot}
         />
       </div>
     </div>
@@ -1718,6 +1738,7 @@ interface PropertyEditorProps {
   isSchemaImported?: (schema: Record<string, unknown>, path?: string[]) => boolean;
   onResolve?: (path: string[]) => Promise<void>;
   rootSchema?: Record<string, unknown>;
+  onUpdateRoot?: (updates: Partial<Record<string, unknown>>) => void;
 }
 
 function PropertyEditor({
@@ -1733,6 +1754,7 @@ function PropertyEditor({
   isSchemaImported,
   onResolve,
   rootSchema,
+  onUpdateRoot,
 }: PropertyEditorProps) {
   const [editingName, setEditingName] = useState(propertyName);
   const [isExpanded, setIsExpanded] = useState(!isImported);
@@ -1758,6 +1780,103 @@ function PropertyEditor({
       }
     }
     setIsExpanded(!isExpanded);
+  };
+
+  if (!propertySchema || propertySchema === null || typeof propertySchema !== 'object' || propertySchema.constructor !== Object) return null;
+
+  const [showExtractDialog, setShowExtractDialog] = useState(false);
+  const [extractName, setExtractName] = useState('');
+
+  const isRef = !!propertySchema.__from;
+
+  const getDefsKey = (schema: Record<string, unknown>): string => {
+    return schema.$defs ? '$defs' : (schema.definitions ? 'definitions' : '$defs');
+  };
+
+  const extractToDefinition = (
+    currentSchema: Record<string, unknown>,
+    defName: string,
+    rootSchema: Record<string, unknown>
+  ): { refSchema: Record<string, unknown>; newDefs: Record<string, unknown> } => {
+    const defsKey = getDefsKey(rootSchema);
+    const existingDefs = (rootSchema as any)[defsKey] || {};
+    const newDefs = { ...existingDefs, [defName]: currentSchema };
+    const refSchema = { $ref: `#/${defsKey}/${defName}` };
+    return { refSchema, newDefs };
+  };
+
+  const inlineDefinition = (
+    refValue: string,
+    rootSchema: Record<string, unknown>
+  ): Record<string, unknown> | null => {
+    try {
+      const defsKey = getDefsKey(rootSchema);
+      const defs = (rootSchema as any)[defsKey];
+      const match = refValue.match(new RegExp(`#/${defsKey}/(.+)`));
+      if (!match || !defs) return null;
+      const defName = match[1];
+      const definition = defs[defName];
+      return definition || null;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const countDefinitionUsages = (defName: string, schema: Record<string, unknown>, defsKey: string): number => {
+    let count = 0;
+    const check = (obj: any) => {
+      if (typeof obj === 'object' && obj !== null) {
+        if (obj.$ref === `#/${defsKey}/${defName}`) count++;
+        for (const key in obj) {
+          check(obj[key]);
+        }
+      }
+    };
+    check(schema);
+    return count;
+  };
+
+  const handleTogglePropRef = (toRef: boolean) => {
+    if (toRef && !isRef) {
+      // PROP to REF
+      setExtractName(propertyName);
+      setShowExtractDialog(true);
+    } else if (!toRef && isRef) {
+      // REF to PROP
+      inlineProperty();
+    }
+  };
+
+  const handleConfirmExtract = () => {
+    if (!rootSchema || !onUpdateRoot) return;
+    const defsKey = getDefsKey(rootSchema);
+    const { refSchema, newDefs } = extractToDefinition(propertySchema, extractName, rootSchema);
+    refSchema.__from = propertyName;
+    onUpdate(refSchema);
+    onUpdateRoot({ [defsKey]: newDefs });
+    setShowExtractDialog(false);
+  };
+
+  const inlineProperty = () => {
+    if (!rootSchema || !onUpdateRoot) return;
+    const inlined = inlineDefinition(propertySchema.$ref as string, rootSchema);
+    if (inlined) {
+      const updated = { ...inlined };
+      delete updated.__from;
+      onUpdate(updated);
+      // remove definition if not used elsewhere
+      const defsKey = getDefsKey(rootSchema);
+      const refMatch = (propertySchema.$ref as string).match(new RegExp(`#/${defsKey}/(.+)`));
+      if (refMatch) {
+        const defName = refMatch[1];
+        const usageCount = countDefinitionUsages(defName, rootSchema, defsKey);
+        if (usageCount <= 1) {
+          const defs = { ...(rootSchema as any)[defsKey] };
+          delete defs[defName];
+          onUpdateRoot({ [defsKey]: Object.keys(defs).length ? defs : undefined });
+        }
+      }
+    }
   };
 
   return (
@@ -1815,6 +1934,7 @@ function PropertyEditor({
         )}
         {/* Prop/Ref label - shows status of the property */}
         <div
+          onClick={() => rootSchema && handleTogglePropRef(!isImported)}
           style={{
             padding: '2px 8px',
             fontSize: '10px',
@@ -1824,8 +1944,10 @@ function PropertyEditor({
             color: isImported ? '#ffffff' : 'var(--color-neutral-11)',
             fontWeight: 700,
             textTransform: 'uppercase',
-            letterSpacing: '0.5px'
+            letterSpacing: '0.5px',
+            cursor: rootSchema ? 'pointer' : 'default'
           }}
+          title={rootSchema ? (isImported ? 'Click to inline this reference' : 'Click to extract to definition') : 'No root schema available'}
         >
           {isImported ? 'REF' : 'PROP'}
         </div>
@@ -1870,8 +1992,28 @@ function PropertyEditor({
             isSchemaImported={isSchemaImported} // child inherits imported status if it's the same ref
             onResolve={onResolve}
             rootSchema={rootSchema}
+            onUpdateRoot={onUpdateRoot}
           />
         </>
+      )}
+
+      {rootSchema && showExtractDialog && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: 'white', padding: '20px', borderRadius: '8px', minWidth: '300px' }}>
+            <h3>Extract to Definition</h3>
+            <p>Enter the definition name:</p>
+            <input
+              type="text"
+              value={extractName}
+              onChange={(e) => setExtractName(e.target.value)}
+              style={{ width: '100%', padding: '8px', margin: '10px 0' }}
+            />
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowExtractDialog(false)}>Cancel</button>
+              <button onClick={handleConfirmExtract}>OK</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1893,6 +2035,7 @@ function VariantItem({
   onPropertyRename,
   onResolve,
   rootSchema,
+  onUpdateRoot,
 }: {
   index: number;
   variant: Record<string, unknown>;
@@ -1909,6 +2052,7 @@ function VariantItem({
   onPropertyRename?: (oldName: string, newName: string, path?: string[]) => void;
   onResolve?: (path: string[]) => Promise<void>;
   rootSchema?: Record<string, unknown>;
+  onUpdateRoot?: (updates: Partial<Record<string, unknown>>) => void;
 }) {
   const [isExpanded, setIsExpanded] = useState(!isImported);
   const [isResolving, setIsResolving] = useState(false);
@@ -1979,7 +2123,7 @@ function VariantItem({
         <button
           type="button"
           className={styles.removeSmall}
-          style={{ marginLeft: '12px' }}
+          style={{ marginLeft: 'auto' }}
           title="Remove this branch"
           onClick={() => {
             const next = variants.filter((_, idx) => idx !== index);
@@ -2018,6 +2162,7 @@ function VariantItem({
             onPropertyRename={onPropertyRename}
             onResolve={onResolve}
             rootSchema={rootSchema}
+            onUpdateRoot={onUpdateRoot}
           />
         </div>
       )}
@@ -2033,74 +2178,6 @@ interface CustomMultiSelectProps {
   creatable?: boolean;
   isMulti?: boolean;
 }
-
-const reactSelectStyles = {
-  // ... (keeping existing styles)
-  control: (base: any) => ({
-    ...base,
-    background: 'var(--color-neutral-1)',
-    borderColor: 'var(--color-neutral-6)',
-    '&:hover': {
-      borderColor: 'var(--color-neutral-7)',
-    },
-    minHeight: '38px',
-    borderRadius: '6px',
-    boxShadow: 'none',
-  }),
-  menu: (base: any) => ({
-    ...base,
-    background: 'var(--color-neutral-1)',
-    border: '1px solid var(--color-neutral-6)',
-    zIndex: 'var(--z-index-menu)' as any,
-  }),
-  option: (base: any, state: { isFocused: boolean; isSelected: boolean }) => ({
-    ...base,
-    background: state.isSelected 
-      ? 'var(--color-accent-9)' 
-      : state.isFocused 
-        ? 'var(--color-neutral-3)' 
-        : 'transparent',
-    color: 'var(--color-neutral-12)',
-    cursor: 'pointer',
-    '&:active': {
-      background: 'var(--color-accent-10)',
-    },
-  }),
-  multiValue: (base: any) => ({
-    ...base,
-    background: 'var(--color-neutral-3)',
-    borderRadius: '4px',
-    border: '1px solid var(--color-neutral-6)',
-  }),
-  multiValueLabel: (base: any) => ({
-    ...base,
-    color: 'var(--color-neutral-12)',
-  }),
-  multiValueRemove: (base: any) => ({
-    ...base,
-    color: 'var(--color-neutral-11)',
-    '&:hover': {
-      background: 'var(--color-accent-3)',
-      color: 'var(--color-accent-11)',
-    },
-  }),
-  input: (base: any) => ({
-    ...base,
-    color: 'var(--color-neutral-12)',
-  }),
-  placeholder: (base: any) => ({
-    ...base,
-    color: 'var(--color-neutral-8)',
-  }),
-  singleValue: (base: any) => ({
-    ...base,
-    color: 'var(--color-neutral-12)',
-  }),
-  menuPortal: (base: any) => ({
-    ...base,
-    zIndex: 'var(--z-index-dropdown)' as any,
-  }),
-};
 
 function CustomMultiSelect({ options, values, onChange, placeholder, creatable, isMulti = true }: CustomMultiSelectProps) {
   const selectOptions = (options || []).map(opt => ({ 
@@ -2127,8 +2204,10 @@ function CustomMultiSelect({ options, values, onChange, placeholder, creatable, 
     <div style={{ flex: 1, minWidth: 200 }}>
       <SelectComponent
         isMulti={isMulti}
+        classNamePrefix="react-select"
         options={creatable ? [] : selectOptions}
         value={isMulti ? selectedValues : selectedValues[0]}
+        placeholder={placeholder}
         onChange={(selected: any) => {
           if (isMulti) {
             const newValues = selected ? selected.map((s: any) => s.value) : [];
@@ -2137,9 +2216,6 @@ function CustomMultiSelect({ options, values, onChange, placeholder, creatable, 
             onChange(selected ? [selected.value] : []);
           }
         }}
-        placeholder={placeholder || (creatable ? "Type and press enter to add..." : "Select...")}
-        styles={reactSelectStyles as any}
-        menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
       />
     </div>
   );

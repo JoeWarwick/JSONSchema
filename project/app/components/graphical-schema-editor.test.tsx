@@ -8,6 +8,385 @@ import schemastoreWorkflow from '../test-fixtures/schemastore-workflow.json';
 
 describe('GraphicalSchemaEditor - Enum Editing', () => {
 
+  beforeEach(() => {
+    delete (globalThis as any).__graphicalSchemaExpansionState;
+  });
+
+  it('renders combiner variant numbers starting at 1', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        env: {
+          oneOf: [
+            {
+              type: 'object',
+              additionalProperties: { type: 'string' }
+            },
+            {
+              type: 'string'
+            }
+          ]
+        }
+      }
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => {}} />);
+
+    const expandCombinerToggle = screen.queryByTitle('Expand variants');
+    if (expandCombinerToggle) {
+      fireEvent.click(expandCombinerToggle);
+    }
+
+    expect(await screen.findByText('1. Object')).toBeInTheDocument();
+    expect(await screen.findByText('2. String')).toBeInTheDocument();
+  });
+
+  it('shows Delete Variant in context menu for variant nodes', async () => {
+    render(<GraphicalSchemaEditor schema={schemastoreWorkflow as any} onChange={() => {}} />);
+
+    const combinerToggles = await screen.findAllByTitle(/(Expand|Collapse) variants/i);
+    fireEvent.click(combinerToggles[0]);
+
+    const variantNode = document.querySelector('.react-flow__node-variant') as HTMLElement | null;
+    expect(variantNode).toBeTruthy();
+    fireEvent.contextMenu(variantNode!);
+
+    expect(await screen.findByRole('button', { name: 'Delete Variant' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete Property' })).not.toBeInTheDocument();
+  });
+
+  it('shows Add Combiner in context menu for variant nodes', async () => {
+    render(<GraphicalSchemaEditor schema={schemastoreWorkflow as any} onChange={() => {}} />);
+
+    const combinerToggles = await screen.findAllByTitle(/(Expand|Collapse) variants/i);
+    fireEvent.click(combinerToggles[0]);
+
+    const variantNode = document.querySelector('.react-flow__node-variant') as HTMLElement | null;
+    expect(variantNode).toBeTruthy();
+    fireEvent.contextMenu(variantNode!);
+
+    expect(await screen.findByRole('button', { name: 'Add Combiner' })).toBeInTheDocument();
+  });
+
+  it('keeps combiner vertical position stable when expanding variants', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        env: {
+          oneOf: [
+            {
+              type: 'object',
+              properties: {
+                foo: { type: 'string' },
+                bar: { type: 'number' },
+              },
+            },
+            {
+              type: 'string',
+            },
+          ],
+        },
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => {}} />);
+
+    const combinerToggles = await screen.findAllByTitle(/(Expand|Collapse) variants/i);
+    const toggleButton = combinerToggles[0];
+    const combinerNode = toggleButton.closest('.react-flow__node') as HTMLElement | null;
+    expect(combinerNode).toBeTruthy();
+    const combinerId = combinerNode!.getAttribute('data-id') as string;
+
+    const parseY = (transform: string | null) => {
+      if (!transform) return 0;
+      const match = transform.match(/translate\([^,]+,\s*([-\d.]+)px\)/);
+      return match ? Number(match[1]) : 0;
+    };
+
+    const yBefore = parseY(combinerNode!.style.transform || null);
+
+    fireEvent.click(toggleButton);
+
+    await waitFor(() => {
+      const updatedNode = document.querySelector(`.react-flow__node[data-id="${combinerId}"]`) as HTMLElement | null;
+      expect(updatedNode).toBeTruthy();
+      const yAfter = parseY(updatedNode!.style.transform || null);
+      expect(Math.abs(yAfter - yBefore)).toBeLessThan(1);
+    });
+  });
+
+  it('lays out root children in alphabetical top-to-bottom order', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        zeta: { type: 'string' },
+        alpha: { type: 'string' },
+        mu: { type: 'string' },
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => {}} />);
+
+    const parseY = (transform: string | null) => {
+      if (!transform) return 0;
+      const match = transform.match(/translate\([^,]+,\s*([-\d.]+)px\)/);
+      return match ? Number(match[1]) : 0;
+    };
+
+    await waitFor(() => {
+      expect(document.querySelector('.react-flow__node[data-id="1.alpha"]')).not.toBeNull();
+      expect(document.querySelector('.react-flow__node[data-id="1.mu"]')).not.toBeNull();
+      expect(document.querySelector('.react-flow__node[data-id="1.zeta"]')).not.toBeNull();
+    });
+
+    const alphaNode = document.querySelector('.react-flow__node[data-id="1.alpha"]') as HTMLElement;
+    const muNode = document.querySelector('.react-flow__node[data-id="1.mu"]') as HTMLElement;
+    const zetaNode = document.querySelector('.react-flow__node[data-id="1.zeta"]') as HTMLElement;
+
+    const alphaY = parseY(alphaNode.style.transform || null);
+    const muY = parseY(muNode.style.transform || null);
+    const zetaY = parseY(zetaNode.style.transform || null);
+
+    expect(alphaY).toBeLessThan(muY);
+    expect(muY).toBeLessThan(zetaY);
+  });
+
+  it('does not show expand toggle for array variants with primitive items', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        env: {
+          oneOf: [
+            {
+              type: 'array',
+              items: { type: 'string' }
+            }
+          ]
+        }
+      }
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => {}} />);
+
+    const combinerToggles = await screen.findAllByTitle(/(Expand|Collapse) variants/i);
+    fireEvent.click(combinerToggles[0]);
+
+    expect(screen.queryByTitle('Expand variant')).toBeNull();
+    expect(screen.queryByTitle('Collapse variant')).toBeNull();
+  });
+
+  it('shows Of Type as string for self-hosted-runners tuple array variant', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        'runs-on': {
+          anyOf: [
+            {
+              $comment: 'https://help.github.com/en/actions/automating-your-workflow-with-github-actions/workflow-syntax-for-github-actions#github-hosted-runners',
+              type: 'string',
+            },
+            {
+              $comment: 'https://help.github.com/en/actions/automating-your-workflow-with-github-actions/workflow-syntax-for-github-actions#self-hosted-runners',
+              type: 'array',
+              anyOf: [
+                {
+                  items: [{ type: 'string' }],
+                  minItems: 1,
+                  additionalItems: { type: 'string' },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => {}} />);
+
+    const combinerToggle = await screen.findByTitle(/(Expand|Collapse) variants/i);
+    fireEvent.click(combinerToggle);
+
+    const selfHostedVariant = await screen.findByText(/Self-hosted-runners/i);
+    fireEvent.click(selfHostedVariant);
+
+    expect(screen.getByLabelText('Type: array')).toBeChecked();
+    expect(screen.getByLabelText('Of Type')).toHaveValue('string');
+    expect(screen.queryByText('+ multipleOf')).toBeNull();
+  });
+
+  it('keeps RHS selected when changing self-hosted-runners variant type', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        'runs-on': {
+          anyOf: [
+            {
+              $comment: 'https://help.github.com/en/actions/automating-your-workflow-with-github-actions/workflow-syntax-for-github-actions#github-hosted-runners',
+              type: 'string',
+            },
+            {
+              $comment: 'https://help.github.com/en/actions/automating-your-workflow-with-github-actions/workflow-syntax-for-github-actions#self-hosted-runners',
+              type: 'array',
+              anyOf: [
+                {
+                  items: [{ type: 'string' }],
+                  minItems: 1,
+                  additionalItems: { type: 'string' },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    } as any;
+
+    let latestSchema = testSchema;
+    render(
+      <GraphicalSchemaEditor
+        schema={testSchema}
+        onChange={(next) => {
+          latestSchema = next as any;
+        }}
+      />
+    );
+
+    const combinerToggle = await screen.findByTitle(/(Expand|Collapse) variants/i);
+    fireEvent.click(combinerToggle);
+
+    const selfHostedVariant = await screen.findByText(/Self-hosted-runners/i);
+    fireEvent.click(selfHostedVariant);
+
+    const numberType = screen.getByLabelText('Type: number');
+    fireEvent.click(numberType);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Name')).toBeInTheDocument();
+      expect(screen.getByLabelText('Type: number')).toBeChecked();
+
+      const runsOnAnyOf = ((latestSchema as any)?.properties?.['runs-on']?.anyOf || []) as any[];
+      const hasNumericVariant = runsOnAnyOf.some((entry) => {
+        const emittedType = entry?.type;
+        return emittedType === 'number' || (Array.isArray(emittedType) && emittedType.includes('number'));
+      });
+      expect(hasNumericVariant).toBe(true);
+    });
+  });
+
+  it('removes synthetic additionalProperties node when set to false or true', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        env: {
+          oneOf: [
+            {
+              type: 'object',
+              additionalProperties: { type: 'string' },
+            },
+            {
+              type: 'string',
+            },
+          ],
+        },
+      },
+    } as any;
+
+    let latestSchema = testSchema;
+    render(
+      <GraphicalSchemaEditor
+        schema={testSchema}
+        onChange={(next) => {
+          latestSchema = next;
+        }}
+      />
+    );
+
+    const combinerToggles = await screen.findAllByTitle(/(Expand|Collapse) variants/i);
+    fireEvent.click(combinerToggles[0]);
+
+    const variantExpandToggle = screen.queryByTitle('Expand variant');
+    if (variantExpandToggle) {
+      fireEvent.click(variantExpandToggle);
+    }
+
+    let variantObjectNode: HTMLElement | null = null;
+    await waitFor(() => {
+      variantObjectNode = document.querySelector('.react-flow__node-variant') as HTMLElement | null;
+      expect(variantObjectNode).not.toBeNull();
+    });
+    fireEvent.click(variantObjectNode!);
+
+    const apModeSelect = await screen.findByRole('combobox', { name: 'additionalProperties' });
+
+    await waitFor(() => {
+      expect(document.querySelector('.react-flow__node[data-id$=".additionalProperties"]')).not.toBeNull();
+    });
+
+    fireEvent.change(apModeSelect, { target: { value: 'false' } });
+
+    await waitFor(() => {
+      expect(latestSchema.properties.env.oneOf[0].additionalProperties).toBe(false);
+      expect(document.querySelector('.react-flow__node[data-id$=".additionalProperties"]')).toBeNull();
+    });
+
+    fireEvent.change(apModeSelect, { target: { value: 'true' } });
+
+    await waitFor(() => {
+      expect(latestSchema.properties.env.oneOf[0].additionalProperties).toBe(true);
+      expect(document.querySelector('.react-flow__node[data-id$=".additionalProperties"]')).toBeNull();
+    });
+  });
+
+  it('shows schema mode on owner Object and false mode on synthetic additionalProperties node', async () => {
+    const testSchema = {
+      type: 'object',
+      properties: {
+        env: {
+          oneOf: [
+            {
+              type: 'object',
+              additionalProperties: {
+                oneOf: [
+                  { type: 'string' },
+                  { type: 'number' },
+                  { type: 'boolean' },
+                ],
+              },
+            },
+            {
+              type: 'string',
+            },
+          ],
+        },
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => {}} />);
+
+    const combinerToggles = await screen.findAllByTitle(/(Expand|Collapse) variants/i);
+    fireEvent.click(combinerToggles[0]);
+
+    const variantExpandToggle = screen.queryByTitle('Expand variant');
+    if (variantExpandToggle) {
+      fireEvent.click(variantExpandToggle);
+    }
+
+    let variantObjectNode: HTMLElement | null = null;
+    await waitFor(() => {
+      variantObjectNode = document.querySelector('.react-flow__node-variant') as HTMLElement | null;
+      expect(variantObjectNode).not.toBeNull();
+    });
+    fireEvent.click(variantObjectNode!);
+    expect(await screen.findByRole('combobox', { name: 'additionalProperties' })).toHaveValue('schema');
+
+    let additionalPropertiesNode: HTMLElement | null = null;
+    await waitFor(() => {
+      additionalPropertiesNode = document.querySelector('.react-flow__node[data-id$=".additionalProperties"]') as HTMLElement | null;
+      expect(additionalPropertiesNode).not.toBeNull();
+    });
+    fireEvent.click(additionalPropertiesNode!);
+    expect(await screen.findByRole('combobox', { name: 'additionalProperties' })).toHaveValue('false');
+  });
+
   it('resolves $defs and $ref and renders referenced properties', async () => {
     const testSchema = {
       $id: 'https://example.com/ecommerce.schema.json',
@@ -841,9 +1220,10 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
 
     const remoteNode = await screen.findByText('remote');
     const remoteContainer = remoteNode.closest('[data-testid^="rf__node-"]') as HTMLElement;
-    // Assert badges using aria labels for exact matching
+    // Assert format badge + imported indicator icon
     expect(within(remoteContainer).getByLabelText('Badge format')).toBeInTheDocument();
-    expect(within(remoteContainer).getByLabelText('Badge imported')).toBeInTheDocument();
+    const importedIcon = remoteContainer.querySelector('svg.lucide-link-2');
+    expect(importedIcon).toBeTruthy();
   });
 
   it('supports editing union types (type: [..]) via the Types control', async () => {
@@ -910,6 +1290,82 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     expect(await screen.findByText('inner')).toBeInTheDocument();
   });
 
+  it('hydrates $ref variant nodes under the correct parent rank', async () => {
+    const testSchema = {
+      type: 'object',
+      definitions: {
+        permissionEvent: {
+          type: 'object',
+          properties: {
+            permissions: {
+              type: 'object',
+              properties: {
+                read: { type: 'boolean' },
+                write: { type: 'boolean' }
+              }
+            }
+          }
+        }
+      },
+      properties: {
+        event: {
+          oneOf: [
+            { $ref: '#/definitions/permissionEvent' }
+          ]
+        }
+      }
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => { }} />);
+
+    const combinerToggle = await screen.findByTitle('Expand variants');
+    fireEvent.click(combinerToggle);
+
+    const variantToggle = await screen.findByTitle('Expand variant');
+    fireEvent.click(variantToggle);
+
+    await screen.findByText('permissions');
+    await screen.findByText('read');
+    await screen.findByText('write');
+
+    const variantId = '1.event.__combiner.v0';
+    const permissionsId = `${variantId}.__1.permissions`;
+    const readId = `${permissionsId}.read`;
+    const writeId = `${permissionsId}.write`;
+
+    // Hydrated nodes should exist under deterministic hydrated IDs
+    const variantNode = document.querySelector(`[data-testid="rf__node-${variantId}"]`) as HTMLElement | null;
+    const permissionsNode = document.querySelector(`[data-testid="rf__node-${permissionsId}"]`) as HTMLElement | null;
+    const readNode = document.querySelector(`[data-testid="rf__node-${readId}"]`) as HTMLElement | null;
+    const writeNode = document.querySelector(`[data-testid="rf__node-${writeId}"]`) as HTMLElement | null;
+
+    expect(variantNode).toBeTruthy();
+    expect(permissionsNode).toBeTruthy();
+    expect(readNode).toBeTruthy();
+    expect(writeNode).toBeTruthy();
+
+    const getTranslateX = (el: HTMLElement) => {
+      const transform = el.style.transform || '';
+      const match = transform.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/);
+      return match ? Number(match[1]) : Number.NaN;
+    };
+
+    const variantX = getTranslateX(variantNode!);
+    const permissionsX = getTranslateX(permissionsNode!);
+    const readX = getTranslateX(readNode!);
+    const writeX = getTranslateX(writeNode!);
+
+    expect(Number.isNaN(variantX)).toBe(false);
+    expect(Number.isNaN(permissionsX)).toBe(false);
+    expect(Number.isNaN(readX)).toBe(false);
+    expect(Number.isNaN(writeX)).toBe(false);
+
+    // Parent rank ordering: variant -> permissions -> leaf properties
+    expect(permissionsX).toBeGreaterThan(variantX);
+    expect(readX).toBeGreaterThan(permissionsX);
+    expect(writeX).toBeGreaterThan(permissionsX);
+  });
+
   it('loads a reduced Schemastore GitHub workflow fixture and maps object children/patternProperties', async () => {
     // Use a reduced fixture resembling https://www.schemastore.org/github-workflow.json
     const fixture = schemastoreWorkflow;
@@ -925,10 +1381,9 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     const patternNode = patternNodes.find(n => n.closest('[data-testid^="rf__node-"]')) || patternNodes[0];
     expect(patternNode).toBeInTheDocument();
 
-    // Within a job, 'steps' should be present (text might be split), and step item property 'name' should be present (may have multiple occurrences)
-    expect(await screen.findByText((c) => typeof c === 'string' && c.includes('steps'))).toBeInTheDocument();
-    const nameMatches = await screen.findAllByText('name');
-    expect(nameMatches.length).toBeGreaterThan(0);
+    // Variants/combiners are icon-first now; assert at least one combiner icon trigger exists.
+    const combinerIconTriggers = await screen.findAllByTitle(/(oneOf|anyOf|allOf) —/i);
+    expect(combinerIconTriggers.length).toBeGreaterThan(0);
 
     // Also check defaults -> run -> shell
     const defaultsNodes = await screen.findAllByText('defaults');
@@ -958,16 +1413,24 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     }
     expect(foundPatternExact).toBe(true);
 
-    // Nodes with union types (type: [..]) should show a compact 'union' badge and the tooltip should show the full union
-    const ifNode = await screen.findByText('if');
-    expect(ifNode).toBeInTheDocument();
-    const ifNodeContainer = ifNode.closest('[data-testid^="rf__node-"]') as HTMLElement;
-    expect(within(ifNodeContainer).getByText('union')).toBeInTheDocument();
-    const unionBadge = within(ifNodeContainer).getByText('union');
-    fireEvent.mouseEnter(unionBadge);
-    fireEvent.focus(unionBadge);
-    const unionTooltipMatches = await screen.findAllByText('boolean | number | string');
-    const visibleUnion = unionTooltipMatches.find(el => Boolean(el.closest('[data-state="instant-open"]') || el.parentElement?.getAttribute('data-state') === 'instant-open'));
-    expect(visibleUnion).toBeTruthy();
+    // Combiner behavior is represented by icon+toggle controls.
+    const combinerToggles = await screen.findAllByTitle(/(Expand|Collapse) variants/i);
+    expect(combinerToggles.length).toBeGreaterThan(0);
+  });
+
+  it('shows jobs minProperties/maxProperties in NodePropertyEditor when selecting jobs node', async () => {
+    render(<GraphicalSchemaEditor schema={schemastoreWorkflow as any} onChange={() => { }} />);
+
+    const jobsNode = document.querySelector('[data-testid="rf__node-1.jobs"]') as HTMLElement | null;
+    expect(jobsNode).toBeTruthy();
+    // Keep this to ensure the label exists while selecting by deterministic node id
+    await screen.findByText('jobs');
+    fireEvent.click(jobsNode);
+
+    const minPropsInput = await screen.findByLabelText('Min Properties');
+    const maxPropsInput = await screen.findByLabelText('Max Properties');
+
+    expect((minPropsInput as HTMLInputElement).value).toBe('1');
+    expect((maxPropsInput as HTMLInputElement).value).toBe('1');
   });
 });

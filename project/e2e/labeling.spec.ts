@@ -53,7 +53,7 @@ test.describe('Labeling E2E', () => {
     await page.getByRole('button', { name: 'Schema Input' }).click({ force: true });
     
     // Check if Graphical Editor exists (if so, we are on the wrong tab)
-    const isGraphShowing = await page.isVisible('text=Graphical Schema Editor');
+    const isGraphShowing = await page.isVisible('.react-flow');
     if (isGraphShowing) {
         console.log('Flipping to Schema Input failed! Clicking by text...');
         await page.click('text="Schema Input"');

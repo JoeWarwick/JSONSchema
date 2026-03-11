@@ -176,6 +176,30 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
     expect(screen.getAllByText('1. Event')[0]).toBeInTheDocument();
   });
 
+  it('infers expression syntax name for hydrated string pattern variants', () => {
+    const schema = {
+      oneOf: [
+        {
+          type: 'object',
+          additionalProperties: {
+            oneOf: [
+              { type: 'string' },
+              {
+                type: 'string',
+                pattern: '^.*\\\\$\\\\{\\\\{(.|[\\\\r\\\\n])*\\\\}\\\\}.*$'
+              }
+            ]
+          }
+        },
+        {
+          "$ref": "#/definitions/stringContainingExpressionSyntax"
+        }
+      ]
+    };
+    renderForm(schema);
+    expect(screen.getAllByText('2. StringContainingExpressionSyntax')[0]).toBeInTheDocument();
+  });
+
   it('skips host/file noise and searches deeper into allOf', () => {
     const schema = {
       oneOf: [

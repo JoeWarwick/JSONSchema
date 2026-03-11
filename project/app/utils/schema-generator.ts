@@ -11,13 +11,7 @@ export function validateSchema(schema: Record<string, unknown>): string | null {
     if (!items || typeof items !== 'object') {
       return 'Array type must have a valid items schema.';
     }
-    // If items is an object, check if it is a valid object schema
-    if ((items as any).type === 'object') {
-      const objSchema = items as Record<string, unknown>;
-      if (!objSchema.properties || typeof objSchema.properties !== 'object') {
-        return 'Array of objects must have properties defined.';
-      }
-    }
+    // items object schema is valid even without properties yet (user can add them)
   }
   // Add more checks as needed
   return null;
