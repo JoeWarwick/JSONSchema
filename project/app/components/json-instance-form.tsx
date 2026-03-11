@@ -672,8 +672,21 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     } else if (validateValueAgainstSchema(value, vs) === null) {
       newValue = value;
     } else {
-      // Type mismatch: use the variant's default value
-      newValue = getDefaultValue(vs, rootSchemaRef);
+      // Type mismatch: try to coerce intelligently before falling back to default.
+      // If switching to an array variant and the current value is a valid single item, wrap it.
+      const isArrayVariant = vs.type === 'array' || vs.items;
+      if (isArrayVariant) {
+        const itemSchema = (vs.items && typeof vs.items === 'object' && !Array.isArray(vs.items))
+          ? (vs.items as Record<string, unknown>)
+          : {};
+        if (!Array.isArray(value) && validateValueAgainstSchema(value, itemSchema) === null) {
+          newValue = [value];
+        } else {
+          newValue = getDefaultValue(vs, rootSchemaRef);
+        }
+      } else {
+        newValue = getDefaultValue(vs, rootSchemaRef);
+      }
     }
 
     onChange(newValue);
@@ -1077,7 +1090,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
           </>
         )}
           {selectedVariantIndex < 0 && !matchesAny && value !== undefined && showHeader && <div style={{ color: 'red', marginTop: 6 }}>Value does not match any option</div>}
-          {selectedVariantIndex >= 0 && oneVariants && value !== undefined && validateValueAgainstSchema(value, oneVariants[selectedVariantIndex]) !== null && (
+          {selectedVariantIndex >= 0 && oneVariants && value !== undefined && focusVariantIndex === null && validateValueAgainstSchema(value, oneVariants[selectedVariantIndex]) !== null && (
             <div style={{ color: 'red', marginTop: 6, marginBottom: 6 }}>Ref suggests object but data is primitive</div>
           )}
           <div style={{ marginTop: showHeader ? 8 : 0 }}>
