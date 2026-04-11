@@ -18,6 +18,7 @@ import ReactFlow, {
 } from "reactflow";
 import { TooltipProvider } from "./ui/tooltip/tooltip";
 import { getVariantLabel } from '../utils/labels';
+import { applySnappedDagreLayout } from './graphical-schema-layout-snapped';
 import type { Connection, Edge, Node, OnConnect } from "reactflow"
 import type { SchemaNodeData } from "./schema-behaviors";
 import type { NodeData, GraphicalSchemaEditorProps } from './types';
@@ -247,11 +248,18 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       // Normalize type values so we can handle arrays like ['object','null'] and implicit objects/arrays
       const rawType = obj.type;
       let type = Array.isArray(rawType) ? rawType[0] : rawType; // prefer first declared type for display
+      const hasItemsKeyword = obj && typeof obj === 'object' && Object.prototype.hasOwnProperty.call(obj, 'items');
       if (!type) {
         // If no explicit type, infer type from schema shape
         if (obj.properties) type = 'object';
         else if (obj.items) type = 'array';
         else type = 'object';
+      }
+      // Some schemas use "$ref" with sibling "items" constraints (for example
+      // GitHub workflow event "types"). Ensure we preserve array semantics even
+      // when the referenced definition doesn't declare a direct "type".
+      if (!rawType && hasItemsKeyword && type !== 'array') {
+        type = 'array';
       }
       let ofType = undefined;
       let nodeType = 'property';
@@ -306,6 +314,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         const items = obj.items as any;
         // normalize ofType (handle arrays and infer object when properties present)
         ofType = inferArrayItemType({ type: 'array', items }) || (items.properties ? 'object' : undefined);
+        if (!ofType && Array.isArray(items.enum)) ofType = 'string';
         nodeData.ofType = ofType;
         if (Array.isArray(items.enum)) {
           nodeType = 'enum';
@@ -468,9 +477,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     return { nodes, edges };
   }, []);
 
-  // Relayout nodes into a horizontal tree. Use `dagre` when available to compute
-  // positions using measured node heights from the DOM. If `dagre` is not
-  // available, fall back to a heuristic layout that estimates widths.
+  // Relayout nodes into a horizontal tree using Dagre when available.
+  // If Dagre is unavailable or fails, preserve current positions.
   const relayoutNodes = React.useCallback((inputNodes: Node<SchemaNodeData>[], inputEdges: Edge[]) => {
     if (!Array.isArray(inputNodes) || inputNodes.length === 0) return inputNodes;
 
@@ -523,7 +531,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     if (dagreLib) {
       try {
         const g = new dagreLib.graphlib.Graph();
-        g.setGraph({ rankdir: 'LR', nodesep: 32, ranksep: 80 });
+        g.setGraph({ rankdir: 'LR', nodesep: 32, ranksep: 35 });
         g.setDefaultEdgeLabel(() => ({}));
 
         // All visible nodes go into dagre — let it handle spacing for
@@ -559,174 +567,33 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
           return { ...n, position: { x: dn.x - dn.width / 2, y: dn.y - dn.height / 2 } };
         });
 
-        // Post-process: snap combiner x to sit tight against its parent property node,
-        // then snap variant x tight against its (now-snapped) combiner.
-        // Dagre's y is kept in both cases so vertical layout is undisturbed.
-        const NODE_GAP = 16;
-        const ADDITIONAL_PROPERTIES_GAP = 60;
-        const laidMap = new Map(finalLaid.map(n => [n.id, n]));
-        const withSnappedCombiners = finalLaid.map(n => {
-          if (n.type !== 'combiner') return n;
-          const parentId = (n.data as any)?.parent as string | undefined;
-          const parentNode = parentId ? laidMap.get(parentId) : undefined;
-          if (!parentNode) return n;
-          const dn = g.node(parentNode.id);
-          const pw = dn ? dn.width : estimateWidth(parentNode);
-          const parentIsAdditionalProperties = Boolean((parentNode.data as any)?.isAdditionalProperties);
-          const combinerGap = parentIsAdditionalProperties ? ADDITIONAL_PROPERTIES_GAP : NODE_GAP;
-          return { ...n, position: { x: parentNode.position.x + pw + combinerGap, y: n.position.y } };
-        });
+        // Layout mode toggle for experimentation and debugging.
+        // Current default keeps Dagre positions for combiner + variant nodes.
+        const COMBINER_VARIANT_LAYOUT_MODE: 'manual' | 'dagre-variants' | 'dagre-all' = 'dagre-all';
+        if (COMBINER_VARIANT_LAYOUT_MODE === 'dagre-all') {
+          return [...finalLaid, ...hiddenNodes];
+        }
 
-        const VARIANT_V_GAP = 8;
-        const snappedCombinerMap = new Map(withSnappedCombiners.map(n => [n.id, n]));
-        const withSnappedVariants = withSnappedCombiners.map(n => {
-          if (n.type !== 'variant') return n;
-          const parentId = (n.data as any)?.parent as string | undefined;
-          const parentNode = parentId ? snappedCombinerMap.get(parentId) : undefined;
-          if (!parentNode) return n;
-          const dn = g.node(parentNode.id);
-          const pw = dn ? dn.width : estimateWidth(parentNode);
-          // Stack variants tightly, centered on their combiner's y
-          const siblings = withSnappedCombiners
-            .filter(s => s.type === 'variant' && (s.data as any)?.parent === parentId)
-            .sort(compareLayoutSiblings);
-          const idx = siblings.findIndex(s => s.id === n.id);
-          const VARIANT_H = estimateHeight(n);
-          const totalH = siblings.length * VARIANT_H + (siblings.length - 1) * VARIANT_V_GAP;
-          const startY = parentNode.position.y + (estimateHeight(parentNode) / 2) - totalH / 2;
-          return {
-            ...n,
-            position: {
-              x: parentNode.position.x + pw + NODE_GAP + 5,
-              y: startY + idx * (VARIANT_H + VARIANT_V_GAP),
-            },
-          };
+        const useDagreVariantLayout = COMBINER_VARIANT_LAYOUT_MODE === 'dagre-variants';
+        return applySnappedDagreLayout({
+          finalLaid,
+          hiddenNodes,
+          dagreNodeFor: (id) => g.node(id),
+          estimateWidth,
+          estimateHeight,
+          compareLayoutSiblings,
+          useDagreVariantLayout,
+          nodeGap: 16,
+          ranksep: 35,
+          additionalPropertiesGap: 60,
         });
-
-        const snappedVariantMap = new Map(withSnappedVariants.map(n => [n.id, n]));
-        const withSnappedAdditionalProperties = withSnappedVariants.map(n => {
-          if (!(n.data as any)?.isAdditionalProperties) return n;
-          const parentId = (n.data as any)?.parent as string | undefined;
-          const parentNode = parentId ? snappedVariantMap.get(parentId) : undefined;
-          if (!parentNode) return n;
-          const dn = g.node(parentNode.id);
-          const pw = dn ? dn.width : estimateWidth(parentNode);
-          return { ...n, position: { x: parentNode.position.x + pw + ADDITIONAL_PROPERTIES_GAP, y: n.position.y } };
-        });
-
-        // Re-snap combiners/variants after additionalProperties has moved so
-        // child combiners of additionalProperties don't keep stale far-right x.
-        const snappedAdditionalMap = new Map(withSnappedAdditionalProperties.map(n => [n.id, n]));
-        const withResnappedCombiners = withSnappedAdditionalProperties.map(n => {
-          if (n.type !== 'combiner') return n;
-          const parentId = (n.data as any)?.parent as string | undefined;
-          const parentNode = parentId ? snappedAdditionalMap.get(parentId) : undefined;
-          if (!parentNode) return n;
-          const dn = g.node(parentNode.id);
-          const pw = dn ? dn.width : estimateWidth(parentNode);
-          const parentIsAdditionalProperties = Boolean((parentNode.data as any)?.isAdditionalProperties);
-          const combinerGap = parentIsAdditionalProperties ? ADDITIONAL_PROPERTIES_GAP : NODE_GAP;
-          return { ...n, position: { x: parentNode.position.x + pw + combinerGap, y: n.position.y } };
-        });
-
-        const resnappedCombinerMap = new Map(withResnappedCombiners.map(n => [n.id, n]));
-        const withResnappedVariants = withResnappedCombiners.map(n => {
-          if (n.type !== 'variant') return n;
-          const parentId = (n.data as any)?.parent as string | undefined;
-          const parentNode = parentId ? resnappedCombinerMap.get(parentId) : undefined;
-          if (!parentNode) return n;
-          const dn = g.node(parentNode.id);
-          const pw = dn ? dn.width : estimateWidth(parentNode);
-          const siblings = withResnappedCombiners
-            .filter(s => s.type === 'variant' && (s.data as any)?.parent === parentId)
-            .sort(compareLayoutSiblings);
-          const idx = siblings.findIndex(s => s.id === n.id);
-          const VARIANT_H = estimateHeight(n);
-          const totalH = siblings.length * VARIANT_H + (siblings.length - 1) * VARIANT_V_GAP;
-          const startY = parentNode.position.y + (estimateHeight(parentNode) / 2) - totalH / 2;
-          return {
-            ...n,
-            position: {
-              x: parentNode.position.x + pw + NODE_GAP + 5,
-              y: startY + idx * (VARIANT_H + VARIANT_V_GAP),
-            },
-          };
-        });
-
-        return [...withResnappedVariants, ...hiddenNodes];
       } catch (err) {
-        // fall through to heuristic
+        // If Dagre fails, keep current positions.
       }
     }
 
-    // Heuristic fallback — simple left-to-right tree layout
-    const children = new Map<string, string[]>();
-    for (const n of orderedVisibleNodes) {
-      const pid = n.data?.parent as string | undefined;
-      if (pid) {
-        const arr = children.get(pid) || [];
-        arr.push(n.id);
-        children.set(pid, arr);
-      }
-    }
-
-    for (const [pid, ids] of children.entries()) {
-      children.set(pid, ids.sort((aId, bId) => {
-        const aNode = visibleNodeById.get(aId);
-        const bNode = visibleNodeById.get(bId);
-        if (!aNode || !bNode) return aId.localeCompare(bId, undefined, { numeric: true, sensitivity: 'base' });
-        return compareLayoutSiblings(aNode, bNode);
-      }));
-    }
-
-    const V_SPACING = 20;
-    const H_SPACING = 60;
-    const widthMap = new Map<string, number>();
-    for (const n of orderedVisibleNodes) widthMap.set(n.id, estimateWidth(n));
-
-    const subtreeHeight = new Map<string, number>();
-    const nodeHeightMap = new Map<string, number>();
-    for (const n of orderedVisibleNodes) nodeHeightMap.set(n.id, estimateHeight(n));
-    const calcHeight = (id: string): number => {
-      if (subtreeHeight.has(id)) return subtreeHeight.get(id)!;
-      const ch = children.get(id) || [];
-      const h = ch.length === 0
-        ? (nodeHeightMap.get(id) ?? NODE_HEIGHT)
-        : ch.reduce((s, c, i) => s + calcHeight(c) + (i > 0 ? V_SPACING : 0), 0);
-      subtreeHeight.set(id, h);
-      return h;
-    };
-
-    const positions = new Map<string, { x: number; y: number }>();
-    const assign = (id: string, left: number, yTop: number) => {
-      const ch = children.get(id) || [];
-      const w = widthMap.get(id) || MIN_WIDTH;
-      if (ch.length === 0) {
-        positions.set(id, { x: left, y: yTop });
-        return;
-      }
-      let curY = yTop;
-      for (const cid of ch) {
-        assign(cid, left + w + H_SPACING, curY);
-        curY += calcHeight(cid) + V_SPACING;
-      }
-      const first = positions.get(ch[0])!;
-      const last = positions.get(ch[ch.length - 1])!;
-      positions.set(id, { x: left, y: (first.y + last.y) / 2 });
-    };
-
-    const visibleIds = new Set(orderedVisibleNodes.map(n => n.id));
-    const rootId = orderedVisibleNodes.find(n => !n.data?.parent || !visibleIds.has(n.data.parent as string))?.id ?? orderedVisibleNodes[0].id;
-    calcHeight(rootId);
-    assign(rootId, 20, 20);
-
-    return [
-      ...visibleNodes.map(n => {
-        const p = positions.get(n.id);
-        return p ? { ...n, position: p } : n;
-      }),
-      ...hiddenNodes,
-    ];
+    // No heuristic fallback: preserve current positions when Dagre isn't available.
+    return inputNodes;
   }, []);
 
   const preserveAnchorY = React.useCallback((

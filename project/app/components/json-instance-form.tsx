@@ -77,6 +77,10 @@ export function JsonInstanceForm({ schema: rawSchema, value, onChange, path = []
   const flattenedVariantKey = `json-instance-variants:v1:flattened:${storageKey}`;
   
   const [inputError, setInputError] = useState<string | null>(null);
+  // Local state for string input value to ensure responsiveness even with pattern validation
+  const [stringInputValue, setStringInputValue] = useState<string>(
+    typeof value === 'string' ? value : ''
+  );
   const [newPropKey, setNewPropKey] = useState("");
   const [currentIndexMap, setCurrentIndexMap] = useState<Record<string, number>>({});
 
@@ -508,6 +512,13 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
   const writeOnlyAttr = !!schema.writeOnly;
   const constValue = schema.const as unknown | undefined;
 
+  // Detect if this is an expression syntax field (e.g., GitHub Actions ${{ ... }})
+  const isExpressionSyntaxField = useMemo(() => {
+    if (type !== 'string' || !patternAttr) return false;
+    const pattern = String(patternAttr).toLowerCase();
+    return pattern.includes('\\$\\{\\{') && pattern.includes('\\}\\}');
+  }, [type, patternAttr]);
+
   const getSchemaForProperty = (key: string): Record<string, unknown> | null => {
     const properties = (schema.properties as Record<string, any>) || {};
     const patternProperties = (schema.patternProperties as Record<string, any>) || {};
@@ -523,6 +534,15 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     }
     return getAdditionalPropertiesSchema(additionalProperties);
   };
+
+  // Sync local string input value when parent value prop changes
+  useEffect(() => {
+    if (typeof value === 'string') {
+      setStringInputValue(value);
+    } else {
+      setStringInputValue('');
+    }
+  }, [value]);
 
   // Initialize value from schema defaults if undefined (and parent didn't provide it)
   useEffect(() => {
@@ -1247,6 +1267,12 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
       // For nested properties, parent already shows description in tooltip
       const showDesc = path.length === 0;
       const label = showDesc ? (schema.description as string) : undefined;
+      
+      // Helper text for expression syntax fields
+      const helperText = isExpressionSyntaxField
+        ? 'Use ${{ ... }} syntax, e.g., ${{ github.run_id }} or ${{ secrets.TOKEN }}'
+        : undefined;
+      
       return (
         <div className={styles.field}>
           <label className={styles.label}>{label || "Enter text"}</label>
@@ -1255,14 +1281,17 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
               ref={stringInputRef}
               className={styles.input}
               type={writeOnlyAttr ? 'password' : (format === 'email' ? 'email' : format === 'uri' ? 'url' : format === 'date' ? 'date' : format === 'date-time' ? 'datetime-local' : 'text')}
-              value={(value as string) || ""}
+              value={stringInputValue}
               onChange={(e) => {
                 const v = e.target.value;
+                // Always update local state so input stays responsive
+                setStringInputValue(v);
+                // Validate and propagate to parent
                 const err = validateValueAgainstSchema(v, schema);
                 setInputError(err);
                 onChange(v);
               }}
-              placeholder="Enter value..."
+              placeholder={isExpressionSyntaxField ? "${{ ... }}" : "Enter value..."}
               minLength={minLength}
               maxLength={maxLength}
               pattern={patternAttr}
@@ -1277,13 +1306,18 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                 <code style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--color-neutral-3, #1e1e1e)', color: 'var(--color-warning-11, #ce9178)', fontFamily: 'monospace', wordBreak: 'break-all' }}>
                   {patternAttr}
                 </code>
-                {typeof value === 'string' && value !== '' && (() => {
+                {stringInputValue !== '' && (() => {
                   try {
-                    return new RegExp(patternAttr).test(value as string)
+                    return new RegExp(patternAttr).test(stringInputValue)
                       ? <span style={{ color: 'var(--color-success-11, #4caf50)', fontSize: 12, whiteSpace: 'nowrap' }}>✓ matches</span>
                       : <span style={{ color: 'var(--color-error-11, #f44336)', fontSize: 12, whiteSpace: 'nowrap' }}>✗ must match pattern</span>;
                   } catch { return null; }
                 })()}
+              </div>
+            )}
+            {helperText && (
+              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--color-info, #0066cc)', fontStyle: 'italic' }}>
+                {helperText}
               </div>
             )}
             {deprecatedFlag && <div style={{ color: '#b07', marginTop: 6, fontSize: 12 }}>Deprecated</div>}

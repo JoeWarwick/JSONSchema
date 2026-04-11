@@ -20,6 +20,18 @@ import { ChevronDown, ChevronRight, Loader2, Trash2, HelpCircle } from "lucide-r
 import Select from "react-select";
 import CreatableSelect from "react-select/creatable";
 
+import { generateSchema } from "../utils/schema-generator";
+import { getVariantLabel } from "../utils/labels";
+import { RegexInput } from "./RegexInput";
+import { useExpandedNodes } from "../hooks/useExpandedNodes";
+
+// Helper to generate a consistent path identifier for expandable nodes
+function getNodePath(basePath: string[], nodeName?: string): string {
+  const parts = [...basePath];
+  if (nodeName) parts.push(nodeName);
+  return parts.join('/');
+}
+
 interface SchemaEditorFormProps {
   schema: Record<string, unknown>;
   onChange: (schema: Record<string, unknown>) => void;
@@ -31,11 +43,9 @@ interface SchemaEditorFormProps {
   onResolve?: (path: string[]) => Promise<void>;
   rootSchema?: Record<string, unknown>;
   onUpdateRoot?: (updates: Partial<Record<string, unknown>>) => void;
+  isNodeExpanded?: (path: string) => boolean;
+  toggleNode?: (path: string) => void;
 }
-
-import { generateSchema } from "../utils/schema-generator";
-import { getVariantLabel } from "../utils/labels";
-import { RegexInput } from "./RegexInput";
 
 export function SchemaEditorForm({ 
   schema, 
@@ -49,6 +59,7 @@ export function SchemaEditorForm({
   onUpdateRoot
 }: SchemaEditorFormProps) {
   onUpdateRoot = onUpdateRoot || onChange;
+  const { isNodeExpanded, toggleNode } = useExpandedNodes();
   const [validationError, setValidationError] = useState<string | null>(null);
   const [defaultError, setDefaultError] = useState<string | null>(null);
   const [editingDefault, setEditingDefault] = useState<string>(String(schema?.default ?? ""));
@@ -76,7 +87,8 @@ export function SchemaEditorForm({
     : null;
   
   const isItemsImported = itemsSchema ? checkImported(itemsSchema, [...path, 'items']) : false;
-  const [itemsExpanded, setItemsExpanded] = useState(!isItemsImported);
+  const itemsNodePath = getNodePath(path, 'items');
+  const itemsExpanded = isNodeExpanded(itemsNodePath);
   const [isResolvingItems, setIsResolvingItems] = useState(false);
 
   // State for prop/ref toggle and definition dialog
@@ -717,6 +729,8 @@ export function SchemaEditorForm({
                 onResolve={onResolve}
                 rootSchema={effectiveRootSchema}
                 onUpdateRoot={onUpdateRoot}
+                isNodeExpanded={isNodeExpanded}
+                toggleNode={toggleNode}
               />
             );})}
           </div>
@@ -1254,6 +1268,8 @@ export function SchemaEditorForm({
                                 onPropertyRename={onPropertyRename}
                                 onResolve={onResolve}
                                 rootSchema={effectiveRootSchema}
+                                isNodeExpanded={isNodeExpanded}
+                                toggleNode={toggleNode}
                               />
                             </div>
                             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -1324,6 +1340,8 @@ export function SchemaEditorForm({
                     onResolve={onResolve}
                     rootSchema={effectiveRootSchema}
                     onUpdateRoot={onUpdateRoot}
+                    isNodeExpanded={isNodeExpanded}
+                    toggleNode={toggleNode}
                   />
                 ))}
               </div>
@@ -1355,6 +1373,8 @@ export function SchemaEditorForm({
                   onResolve={onResolve}
                   rootSchema={effectiveRootSchema}
                   onUpdateRoot={onUpdateRoot}
+                  isNodeExpanded={isNodeExpanded}
+                  toggleNode={toggleNode}
                 />
               ))}
           </div>
@@ -1396,7 +1416,7 @@ export function SchemaEditorForm({
                         }
                       }
                     }
-                    setItemsExpanded(nextExpanded);
+                    toggleNode(itemsNodePath);
                   }}
                   title={itemsExpanded ? "Collapse Items" : "Expand Items"}
                   aria-label={itemsExpanded ? "Collapse Items" : "Expand Items"}
@@ -1421,6 +1441,8 @@ export function SchemaEditorForm({
                   onResolve={onResolve}
                   rootSchema={effectiveRootSchema}
                   onUpdateRoot={onUpdateRoot}
+                  isNodeExpanded={isNodeExpanded}
+                  toggleNode={toggleNode}
                 />
               )}
             </div>
@@ -1645,7 +1667,9 @@ function PatternPropertyRow({
   onPropertyRename, 
   onResolve,
   rootSchema,
-  onUpdateRoot
+  onUpdateRoot,
+  isNodeExpanded,
+  toggleNode
 }: { 
   patternKey: string; 
   subschema: Record<string, unknown>; 
@@ -1658,6 +1682,8 @@ function PatternPropertyRow({
   onResolve?: (path: string[]) => Promise<void>;
   rootSchema?: Record<string, unknown>;
   onUpdateRoot?: (updates: Partial<Record<string, unknown>>) => void;
+  isNodeExpanded?: (path: string) => boolean;
+  toggleNode?: (path: string) => void;
 }) {
   const [keyState, setKeyState] = useState<string>(patternKey);
   const [keyError, setKeyError] = useState<string | null>(null);
@@ -1719,6 +1745,8 @@ function PatternPropertyRow({
           onResolve={onResolve}
           rootSchema={rootSchema}
           onUpdateRoot={onUpdateRoot}
+          isNodeExpanded={isNodeExpanded}
+          toggleNode={toggleNode}
         />
       </div>
     </div>
@@ -1739,6 +1767,8 @@ interface PropertyEditorProps {
   onResolve?: (path: string[]) => Promise<void>;
   rootSchema?: Record<string, unknown>;
   onUpdateRoot?: (updates: Partial<Record<string, unknown>>) => void;
+  isNodeExpanded?: (path: string) => boolean;
+  toggleNode?: (path: string) => void;
 }
 
 function PropertyEditor({
@@ -1755,15 +1785,17 @@ function PropertyEditor({
   onResolve,
   rootSchema,
   onUpdateRoot,
+  isNodeExpanded,
+  toggleNode,
 }: PropertyEditorProps) {
   const [editingName, setEditingName] = useState(propertyName);
-  const [isExpanded, setIsExpanded] = useState(!isImported);
+  const defaultExpanded = isNodeExpanded ? isNodeExpanded(getNodePath(path, propertyName)) : false;
   const [isResolving, setIsResolving] = useState(false);
 
   if (!propertySchema) return null;
 
   const handleToggleExpand = async () => {
-    if (!isExpanded && onResolve && isImported) {
+    if (!defaultExpanded && onResolve && isImported) {
       // Check if it's "unresolved" (has a $ref but no content)
       const hasProps = !!propertySchema.properties;
       const hasItems = !!propertySchema.items;
@@ -1779,7 +1811,7 @@ function PropertyEditor({
         }
       }
     }
-    setIsExpanded(!isExpanded);
+    if (toggleNode) toggleNode(getNodePath(path, propertyName));
   };
 
   if (!propertySchema || propertySchema === null || typeof propertySchema !== 'object' || propertySchema.constructor !== Object) return null;
@@ -1886,12 +1918,12 @@ function PropertyEditor({
           type="button"
           className={styles.toggleButton}
           onClick={handleToggleExpand}
-          title={isExpanded ? "Collapse" : "Expand"}
-          aria-label={isExpanded ? "Collapse" : "Expand"}
+          title={defaultExpanded ? "Collapse" : "Expand"}
+          aria-label={defaultExpanded ? "Collapse" : "Expand"}
         >
           {isResolving ? (
             <Loader2 className={styles.loadingSpinner} size={14} />
-          ) : isExpanded ? (
+          ) : defaultExpanded ? (
             <ChevronDown size={14} />
           ) : (
             <ChevronRight size={14} />
@@ -1910,7 +1942,7 @@ function PropertyEditor({
             }
           }}
         />
-        {!isExpanded && (propertySchema.description as string | undefined) && (
+        {!defaultExpanded && (propertySchema.description as string | undefined) && (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -1970,7 +2002,7 @@ function PropertyEditor({
         </button>
       </div>
 
-      {isExpanded && (
+      {defaultExpanded && (
         <>
           <div className={styles.fieldRow}>
             <label className={styles.label} style={{ fontSize: "11px", marginBottom: "4px" }}>Description</label>
@@ -1991,6 +2023,8 @@ function PropertyEditor({
             onResolve={onResolve}
             rootSchema={rootSchema}
             onUpdateRoot={onUpdateRoot}
+            isNodeExpanded={isNodeExpanded}
+            toggleNode={toggleNode}
           />
         </>
       )}
@@ -2034,6 +2068,8 @@ function VariantItem({
   onResolve,
   rootSchema,
   onUpdateRoot,
+  isNodeExpanded,
+  toggleNode,
 }: {
   index: number;
   variant: Record<string, unknown>;
@@ -2051,13 +2087,15 @@ function VariantItem({
   onResolve?: (path: string[]) => Promise<void>;
   rootSchema?: Record<string, unknown>;
   onUpdateRoot?: (updates: Partial<Record<string, unknown>>) => void;
+  isNodeExpanded?: (path: string) => boolean;
+  toggleNode?: (path: string) => void;
 }) {
-  const [isExpanded, setIsExpanded] = useState(!isImported);
   const [isResolving, setIsResolving] = useState(false);
   const variantPath = [...path, logicType, String(index)];
+  const defaultExpanded = isNodeExpanded ? isNodeExpanded(getNodePath(variantPath)) : false;
 
   const handleToggleExpand = async () => {
-    const nextExpanded = !isExpanded;
+    const nextExpanded = !defaultExpanded;
     if (nextExpanded && onResolve && isImported) {
       const s = variant as any;
       const hasContent = s.properties || s.items || s.type || s.oneOf || s.anyOf || s.allOf;
@@ -2072,7 +2110,7 @@ function VariantItem({
         }
       }
     }
-    setIsExpanded(nextExpanded);
+    if (toggleNode) toggleNode(getNodePath(variantPath));
   };
 
   return (
@@ -2082,12 +2120,12 @@ function VariantItem({
           type="button"
           className={styles.toggleButton}
           onClick={handleToggleExpand}
-          title={isExpanded ? "Collapse" : "Expand"}
-          aria-label={isExpanded ? "Collapse" : "Expand"}
+          title={defaultExpanded ? "Collapse" : "Expand"}
+          aria-label={defaultExpanded ? "Collapse" : "Expand"}
         >
           {isResolving ? (
             <Loader2 className={styles.loadingSpinner} size={14} />
-          ) : isExpanded ? (
+          ) : defaultExpanded ? (
             <ChevronDown size={14} />
           ) : (
             <ChevronRight size={14} />
@@ -2145,7 +2183,7 @@ function VariantItem({
           <Trash2 size={16} color="#f59e0b" />
         </button>
       </div>
-      {isExpanded && (
+      {defaultExpanded && (
         <div style={{ padding: '8px 12px' }}>
           <SchemaEditorForm
             schema={variant}
@@ -2161,6 +2199,8 @@ function VariantItem({
             onResolve={onResolve}
             rootSchema={rootSchema}
             onUpdateRoot={onUpdateRoot}
+            isNodeExpanded={isNodeExpanded}
+            toggleNode={toggleNode}
           />
         </div>
       )}

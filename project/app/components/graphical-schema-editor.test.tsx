@@ -482,6 +482,67 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     expect(nameNode).toBeInTheDocument();
   });
 
+  it('preserves sibling items enum when resolving $ref for branch_protection_rule types', async () => {
+    const testSchema = {
+      type: 'object',
+      definitions: {
+        eventObject: {
+          oneOf: [{ type: 'object' }, { type: 'null' }],
+          additionalProperties: true,
+        },
+        types: {
+          oneOf: [{ type: 'array', minItems: 1 }, { type: 'string' }],
+        },
+      },
+      properties: {
+        on: {
+          oneOf: [
+            {
+              properties: {
+                branch_protection_rule: {
+                  $ref: '#/definitions/eventObject',
+                  properties: {
+                    types: {
+                      $ref: '#/definitions/types',
+                      items: {
+                        type: 'string',
+                        enum: ['created', 'edited', 'deleted'],
+                      },
+                      default: ['created', 'edited', 'deleted'],
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => {}} />);
+
+    const onCombinerToggle = await screen.findByTitle(/(Expand|Collapse) variants/i);
+    fireEvent.click(onCombinerToggle);
+
+    const variantExpandToggle = screen.queryByTitle('Expand variant');
+    if (variantExpandToggle) {
+      fireEvent.click(variantExpandToggle);
+    }
+
+    const branchNode = await screen.findByText('branch_protection_rule');
+    fireEvent.click(branchNode);
+
+    const typesNode = await screen.findByText('types');
+    fireEvent.click(typesNode);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Type: array')).toBeChecked();
+      expect(screen.getByText('created')).toBeInTheDocument();
+      expect(screen.getByText('edited')).toBeInTheDocument();
+      expect(screen.getByText('deleted')).toBeInTheDocument();
+    });
+  });
+
   it('can add a property via context menu and it appears in the schema', async () => {
     const testSchema = {
       type: 'object',
@@ -1252,7 +1313,7 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     expect((nextSchema.properties.cond as any).type).not.toContain('number');
   });
 
-  it('renders constraint badges (min/max) on node', async () => {
+  it('does not render min/max pills on node', async () => {
     const testSchema = {
       type: 'object',
       properties: {
@@ -1263,9 +1324,8 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
 
     const countNode = await screen.findByText('count');
     const countContainer = countNode.closest('[data-testid^="rf__node-"]') as HTMLElement;
-    // Assert constraint badges by aria labels for exact badge elements
-    expect(within(countContainer).getByLabelText('Badge minimum')).toBeInTheDocument();
-    expect(within(countContainer).getByLabelText('Badge maximum')).toBeInTheDocument();
+    expect(within(countContainer).queryByLabelText('Badge minimum')).toBeNull();
+    expect(within(countContainer).queryByLabelText('Badge maximum')).toBeNull();
   });
 
   it('renders format and imported badges', async () => {

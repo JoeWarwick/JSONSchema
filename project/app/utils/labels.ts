@@ -56,6 +56,8 @@ export const getRefKey = (refOrSchema?: any): string | null => {
   const parts = target.split('/').filter(p => p && p !== '#');
   for (let i = parts.length - 1; i >= 0; i--) {
     let name = decodeURIComponent(parts[i]);
+    // Skip URL components with colons (protocols, ports), IP addresses, and localhost
+    if (name.includes(':') || /^\d+\.\d+\.\d+\.\d+$/.test(name) || name.toLowerCase().startsWith('localhost')) continue;
     name = name.replace(/\.(json|schema|yaml|yml)$/i, '');
     if (name && !noise.has(name.toLowerCase()) && !/^\d+$/.test(name)) return name;
   }

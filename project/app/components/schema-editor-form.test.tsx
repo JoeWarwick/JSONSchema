@@ -5,6 +5,11 @@ import { SchemaEditorForm } from './schema-editor-form';
 import { TooltipProvider } from "./ui/tooltip/tooltip";
 
 describe('SchemaEditorForm UI', () => {
+  beforeEach(() => {
+    // Clear localStorage before each test to ensure clean state
+    localStorage.clear();
+  });
+
   it('renders the root type as object', async () => {
     // Resolved form of schema (4).json where top-level $ref -> $defs/order
     const resolvedSchema = {
@@ -32,9 +37,9 @@ describe('SchemaEditorForm UI', () => {
     );
 
     const objectButtons = await screen.findAllByRole('button', { name: /Object/i });
+    // Root type button should be visible
+    expect(objectButtons.length).toBeGreaterThan(0);
     expect(objectButtons[0]).toBeInTheDocument();
-    // Check if it's the active one (has bold font or primary background)
-    // For now just checking presence as the component refactored to pills
   });
 
   it('resolves $defs/$ref and renders root as object when given unresolved schema', async () => {
@@ -86,6 +91,8 @@ describe('SchemaEditorForm UI', () => {
     );
 
     const objectButtons = await screen.findAllByRole('button', { name: /Object/i });
+    // Root type button should exist
+    expect(objectButtons.length).toBeGreaterThan(0);
     expect(objectButtons[0]).toBeInTheDocument();
   });
 
@@ -186,6 +193,12 @@ describe('SchemaEditorForm UI', () => {
       </TooltipProvider>
     );
 
+    // Properties are collapsed by default, so expand to see ref buttons
+    const expandButtons = screen.getAllByRole('button', { name: /^Expand/i });
+    if (expandButtons.length > 0) {
+      fireEvent.click(expandButtons[0]);
+    }
+
     const refButtons = screen.getAllByRole('button', { name: /^ref/i });
     expect(refButtons.length).toBeGreaterThanOrEqual(1);
   });
@@ -208,6 +221,12 @@ describe('SchemaEditorForm UI', () => {
         <SchemaEditorForm schema={schema} onChange={() => {}} />
       </TooltipProvider>
     );
+
+    // Properties are collapsed by default, so expand to see ref buttons
+    const expandButtons = screen.getAllByRole('button', { name: /^Expand/i });
+    if (expandButtons.length > 0) {
+      fireEvent.click(expandButtons[0]);
+    }
 
     const refButtons = screen.getAllByRole('button', { name: /^ref/i });
     expect(refButtons.length).toBeGreaterThanOrEqual(1);
@@ -349,13 +368,16 @@ describe('SchemaEditorForm UI', () => {
       </TooltipProvider>
     );
 
-    // Initial check
-    expect(screen.getByDisplayValue('prop1')).toBeInTheDocument();
-
-    // Find and click Remove button
+    // Find the property group by test ID
     const prop1Group = screen.getByTestId('prop-prop1');
+    expect(prop1Group).toBeInTheDocument();
+
+    // Expand the property first to see the Remove button
+    const expandBtn = within(prop1Group).getByRole('button', { name: /Expand/i });
+    fireEvent.click(expandBtn);
+
+    // Now find and click Remove button
     const removeBtn = within(prop1Group).getByRole('button', { name: /Remove/i });
-    
     fireEvent.click(removeBtn);
 
     // After clicking remove, handleChange should be called with properties: {}
@@ -389,11 +411,14 @@ describe('SchemaEditorForm UI', () => {
       </TooltipProvider>
     );
 
-    // Properties are expanded by default, so nested forms should have ref buttons
-    const allRefButtons = screen.getAllByRole('button', { name: /^ref/i });
-    expect(allRefButtons.length).toBeGreaterThan(0);
+    // Properties are collapsed by default; need to expand at least one to see ref buttons
+    const expandButtons = screen.getAllByRole('button', { name: /^Expand/i });
+    if (expandButtons.length > 0) {
+      fireEvent.click(expandButtons[0]);
+    }
     
-    // The root level (path.length === 0) does not show a ref button, 
-    // but nested properties do show ref buttons
+    // After expanding, ref buttons should be visible
+    const refButtons = screen.queryAllByRole('button', { name: /^ref/i });
+    expect(refButtons.length).toBeGreaterThan(0);
   });
 });

@@ -10,6 +10,11 @@ window.HTMLElement.prototype.scrollIntoView = jest.fn();
 describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
   const mockOnChange = jest.fn();
 
+  beforeEach(() => {
+    // Clear localStorage before each test to ensure clean state
+    localStorage.clear();
+  });
+
   const renderForm = (schema: any) => {
     return render(
       <TooltipProvider>
