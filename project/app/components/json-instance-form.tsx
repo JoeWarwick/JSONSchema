@@ -711,8 +711,21 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     } else if (validateValueAgainstSchema(value, vs) === null) {
       newValue = value;
     } else {
-      // Type mismatch: use the variant's default value
-      newValue = getDefaultValue(vs, rootSchemaRef);
+      // Type mismatch: try to coerce intelligently before falling back to default.
+      // If switching to an array variant and the current value is a valid single item, wrap it.
+      const isArrayVariant = vs.type === 'array' || vs.items;
+      if (isArrayVariant) {
+        const itemSchema = (vs.items && typeof vs.items === 'object' && !Array.isArray(vs.items))
+          ? (vs.items as Record<string, unknown>)
+          : {};
+        if (!Array.isArray(value) && validateValueAgainstSchema(value, itemSchema) === null) {
+          newValue = [value];
+        } else {
+          newValue = getDefaultValue(vs, rootSchemaRef);
+        }
+      } else {
+        newValue = getDefaultValue(vs, rootSchemaRef);
+      }
     }
 
     onChange(newValue);

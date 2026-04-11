@@ -1992,14 +1992,16 @@ function PropertyEditor({
           />
           Required
         </label>
-        <button
-          type="button"
-          className={styles.removeSmall}
-          onClick={onDelete}
-          title="Remove this property"
-        >
-          <Trash2 size={16} color="#f59e0b" />
-        </button>
+        {!isRequired && (
+          <button
+            type="button"
+            className={styles.removeSmall}
+            onClick={onDelete}
+            title="Remove this property"
+          >
+            <Trash2 size={16} color="#f59e0b" />
+          </button>
+        )}
       </div>
 
       {defaultExpanded && (
