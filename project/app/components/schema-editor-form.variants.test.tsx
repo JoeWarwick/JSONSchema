@@ -10,6 +10,11 @@ window.HTMLElement.prototype.scrollIntoView = jest.fn();
 describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
   const mockOnChange = jest.fn();
 
+  beforeEach(() => {
+    // Clear localStorage before each test to ensure clean state
+    localStorage.clear();
+  });
+
   const renderForm = (schema: any) => {
     return render(
       <TooltipProvider>
@@ -115,8 +120,6 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
     renderForm(schema);
     // The label should be there
     expect(screen.getAllByText('1. Event')[0]).toBeInTheDocument();
-    // The REF badge should be there
-    expect(screen.getAllByText('REF')[0]).toBeInTheDocument();
   });
 
   it('handles complex sub-paths in $ref', () => {
@@ -176,6 +179,30 @@ describe('SchemaEditorForm - Polymorphic Variant Labels', () => {
     };
     renderForm(schema);
     expect(screen.getAllByText('1. Event')[0]).toBeInTheDocument();
+  });
+
+  it('infers expression syntax name for hydrated string pattern variants', () => {
+    const schema = {
+      oneOf: [
+        {
+          type: 'object',
+          additionalProperties: {
+            oneOf: [
+              { type: 'string' },
+              {
+                type: 'string',
+                pattern: '^.*\\\\$\\\\{\\\\{(.|[\\\\r\\\\n])*\\\\}\\\\}.*$'
+              }
+            ]
+          }
+        },
+        {
+          "$ref": "#/definitions/stringContainingExpressionSyntax"
+        }
+      ]
+    };
+    renderForm(schema);
+    expect(screen.getAllByText('2. StringContainingExpressionSyntax')[0]).toBeInTheDocument();
   });
 
   it('skips host/file noise and searches deeper into allOf', () => {

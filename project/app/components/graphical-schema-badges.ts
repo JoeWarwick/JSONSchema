@@ -128,14 +128,14 @@ export const buildBadges = (data: any) => {
     const def = BADGE_DEFS.type;
     badges.push({ key: def.key, label: def.label(data), tooltip: def.tooltip && def.tooltip(data), variant: def.variant, bg: def.bg, color: def.color });
   }
-  const extraKeys = ['format', 'imported'];
+  const extraKeys = ['format']; // 'imported' is shown as an inline icon next to the label instead
   for (const k of extraKeys) {
     const def = BADGE_DEFS[k];
     if (def && def.condition(data)) {
       badges.push({ key: def.key, label: def.label(data), tooltip: def.tooltip && def.tooltip(data), variant: def.variant, bg: def.bg, color: def.color });
     }
   }
-  const constraintKeys = ['minimum', 'maximum', 'minLength', 'maxLength', 'minItems', 'maxItems'];
+  const constraintKeys: string[] = [];
   for (const k of constraintKeys) {
     const def = BADGE_DEFS[k];
     if (def && def.condition(data)) {

@@ -122,7 +122,7 @@ export default function schemaReducer(state: SchemaState, action: SchemaAction):
       const resolved = action.payload;
       // Map the edited resolved schema back into the canonical source structure.
       // Only attempt rehydration when the current `source` appears to be
-      // a $defs/$ref-based document; when the source is already a
+      // a definitions/$defs/$ref-based document; when the source is already a
       // concrete root-object, prefer assigning the edited resolved schema
       // directly to avoid heuristic/partial rehydration replacing a fully
       // processed schema.
@@ -131,7 +131,7 @@ export default function schemaReducer(state: SchemaState, action: SchemaAction):
         const rawSrc = state.source as Schema;
         const src = rewriteExampleComRefs(rawSrc) as Schema;
         const srcObj = src as Record<string, any>;
-        if (srcObj.$defs || typeof srcObj.$ref === 'string') {
+        if (srcObj.$defs || srcObj.definitions || typeof srcObj.$ref === 'string') {
           newSource = rehydrateSchema(src as Record<string, any>, resolved as Record<string, any>);
         } else {
           newSource = resolved;
@@ -236,7 +236,23 @@ export default function schemaReducer(state: SchemaState, action: SchemaAction):
 // never need to call resolver utilities or inspect `$defs` structure.
 export function getEditorSchema(state: SchemaState): Schema {
   try {
-    return produceResolvedCache(state.resolvedCache, state.sourceIsObject, state.source);
+    const schema = produceResolvedCache(state.resolvedCache, state.sourceIsObject, state.source);
+    // ALWAYS return a safe copy to avoid mutations affecting the cached state
+    // Remove top-level definitions from editor view - they should not be exposed to UI layers
+    // The definitions are preserved in resolvedCache for features like the ref button,
+    // but the editor view should present a clean interface without internal definitions
+    if (schema && typeof schema === 'object') {
+      const clean = { ...schema } as any;
+      // Remove both $defs and definitions when they exist with properties
+      if (clean.properties) {
+        if (clean.$defs) delete clean.$defs;
+        if (clean.definitions) delete clean.definitions;
+      }
+      // Return the safe copy even if we didn't delete anything
+      // to ensure we never return a direct reference to state.resolvedCache
+      return clean;
+    }
+    return schema;
   } catch (_) {
     return state.resolvedCache || state.source;
   }
@@ -309,10 +325,10 @@ export function isSchemaImported(schemaOrState: Schema | SchemaState | null, pat
       if (typeof node.$ref === 'string' && Object.keys(node).length === 1) return true;
       // If it's an allOf that ONLY has a $ref, it's an unexpanded import
       if (Array.isArray(node.allOf) && node.allOf.length === 1 && node.allOf[0] && typeof node.allOf[0].$ref === 'string' && Object.keys(node).length === 1) return true;
-      // If it was tagged with __from but is otherwise empty, it's an import placeholder
-      if (node.__from && !node.properties && !node.type && !node.items && !node.oneOf && !node.anyOf && !node.allOf) return true;
+      // If it has __from, it means it came from an import (regardless of content)
+      if (node.__from) return true;
       
-      // Otherwise, it has content! Even if it came from elsewhere, we want to see it.
+      // Otherwise, it has content but no import provenance
       return false;
     }
     
@@ -439,6 +455,9 @@ function normalizeResolved(s: Schema, source?: Schema): Schema {
         const cleaned: Record<string, any> = {};
         for (const pk of Object.keys(props)) {
           const pv = props[pk];
+          const sourceProp = source && typeof source === 'object' && (source as any).properties && typeof (source as any).properties === 'object'
+            ? (source as any).properties[pk]
+            : undefined;
           // If a top-level property carried $anchor metadata, do not expose it to the editor
           if (pv && typeof pv === 'object' && ('$anchor' in pv)) {
             continue;
@@ -456,13 +475,20 @@ function normalizeResolved(s: Schema, source?: Schema): Schema {
             continue;
           }
 
-          cleaned[pk] = pv;
+          if (
+            sourceProp && typeof sourceProp === 'object' && !Array.isArray(sourceProp) &&
+            pv && typeof pv === 'object' && !Array.isArray(pv)
+          ) {
+            cleaned[pk] = { ...sourceProp, ...pv };
+          } else {
+            cleaned[pk] = pv;
+          }
         }
         const out = { ...s, properties: cleaned };
         // Ensure editor view is object-rooted when properties exist
         if (!(out as any).type) (out as any).type = 'object';
-        // Ensure we never expose a top-level $defs on the normalized view
-        if ((out as any).$defs) delete (out as any).$defs;
+        // Preserve $defs in the normalized view so editors can still reference definitions
+        // (especially for the ref button in SchemaEditorForm)
         return augmentSchemaForKnownIssues(out) as Schema;
       }
       return s;
@@ -525,10 +551,26 @@ function normalizeResolved(s: Schema, source?: Schema): Schema {
   return augmentSchemaForKnownIssues(s) as Schema;
 }
 
-function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source?: Schema): Schema {
+export function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source?: Schema): Schema {
   // Use the boolean discriminator `sourceIsObject` (set on schema load)
   // to decide whether to normalize the resolved view for editors.
   try {
+    // Make a working clone if we're going to mutate resolved
+    let resolvedForMutation = resolved;
+    const needsClone = resolved && typeof resolved === 'object' && (
+      (resolved as any).$defs || 
+      (resolved as any).properties ||
+      (resolved as any).type ||
+      (resolved as any).items
+    );
+    if (needsClone) {
+      try {
+        resolvedForMutation = JSON.parse(JSON.stringify(resolved));
+      } catch (_) {
+        resolvedForMutation = resolved;
+      }
+    }
+    
     // In browser dev, rewrite refs that point to other local dev ports
     // (for example `http://localhost:5174/...`) to the current origin so
     // the app uses same-origin static files under `/schemas/` and avoids
@@ -569,7 +611,7 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
     // to the editors instead of deriving a view from the original `source`.
     try {
       if (resolved && typeof resolved === 'object') {
-        const resObj = resolved as any;
+        const resObj = resolvedForMutation as any;
         const hasProps = resObj.properties && typeof resObj.properties === 'object';
         const isPoly = Array.isArray(resObj.oneOf) || Array.isArray(resObj.anyOf) || Array.isArray(resObj.allOf);
 
@@ -577,64 +619,104 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
         // considered a valid editor-ready view. Prefer it over deriving a new
         // view from `source` every time to ensure our path-based merges persist.
         if (hasProps || isPoly || resObj.type || resObj.items) {
-          // If we are in-browser, annotate from source if available
-          try {
-            if (typeof window !== 'undefined' && source && typeof source === 'object') {
-              const annotateFrom = (resNode: any, srcNode: any) => {
-                if (!resNode || typeof resNode !== 'object') return;
-                if (!srcNode || typeof srcNode !== 'object') return;
-                // If source has a $ref or allOf containing a $ref, and the resolved
-                // node doesn't have its own concrete identity, mark the provenance.
-                try {
-                  if (typeof srcNode.$ref === 'string' && !resNode.__from) {
-                    try { (resNode as any).__from = srcNode.$ref; } catch (_) {
-                      // ignore
+          // But if the properties are just $refs to $defs, it's not yet resolved
+          let shouldInlineRefs = false;
+          if (hasProps && resObj.$defs) {
+            // Check if all/most properties are just $refs (unresolved placeholders)
+            const props = resObj.properties as Record<string, any>;
+            const refCount = Object.values(props).filter((v: any) => v && typeof v === 'object' && typeof v.$ref === 'string' && Object.keys(v).length === 1).length;
+            shouldInlineRefs = refCount === Object.keys(props).length || (refCount > 0 && refCount === Object.keys(props).length);
+          }
+          
+          if (!shouldInlineRefs) {
+            // If we are in-browser, annotate from source if available
+            try {
+              if (typeof window !== 'undefined' && source && typeof source === 'object') {
+                const annotateFrom = (resNode: any, srcNode: any) => {
+                  if (!resNode || typeof resNode !== 'object') return;
+                  if (!srcNode || typeof srcNode !== 'object') return;
+                  // If source has a $ref or allOf containing a $ref, and the resolved
+                  // node doesn't have its own concrete identity, mark the provenance.
+                  try {
+                    if (typeof srcNode.$ref === 'string' && !resNode.__from) {
+                      try { (resNode as any).__from = srcNode.$ref; } catch (_) {
+                        // ignore
+                      }
+                    } else if (Array.isArray(srcNode.allOf) && srcNode.allOf.some((e: any) => e && typeof e.$ref === 'string') && !resNode.__from) {
+                      const m = srcNode.allOf.find((e: any) => e && typeof e.$ref === 'string');
+                      try { (resNode as any).__from = m && m.$ref ? m.$ref : undefined; } catch (_) {
+                        // ignore
+                      }
                     }
-                  } else if (Array.isArray(srcNode.allOf) && srcNode.allOf.some((e: any) => e && typeof e.$ref === 'string') && !resNode.__from) {
-                    const m = srcNode.allOf.find((e: any) => e && typeof e.$ref === 'string');
-                    try { (resNode as any).__from = m && m.$ref ? m.$ref : undefined; } catch (_) {
-                      // ignore
+                    // Also handle case where resolved node has a $ref but source doesn't match
+                    else if (typeof resNode.$ref === 'string' && !resNode.__from && (!srcNode || Object.keys(srcNode).length === 0)) {
+                      try { (resNode as any).__from = resNode.$ref; } catch (_) {
+                        // ignore
+                      }
                     }
+                  } catch (_) {
+                    // ignore
                   }
-                } catch (_) {
-                  // ignore
-                }
 
-                // Recurse into properties
-                if (resNode.properties && typeof resNode.properties === 'object') {
-                  const resProps = resNode.properties as Record<string, any>;
-                  const srcProps = srcNode.properties && typeof srcNode.properties === 'object' ? srcNode.properties as Record<string, any> : null;
-                  for (const k of Object.keys(resProps)) {
-                    try {
-                      const childRes = resProps[k];
-                      const childSrc = srcProps && Object.prototype.hasOwnProperty.call(srcProps, k) ? srcProps[k] : null;
-                      annotateFrom(childRes, childSrc || {});
-                    } catch (_) {
-                      // ignore
+                  // Recurse into properties
+                  if (resNode.properties && typeof resNode.properties === 'object') {
+                    const resProps = resNode.properties as Record<string, any>;
+                    const srcProps = srcNode.properties && typeof srcNode.properties === 'object' ? srcNode.properties as Record<string, any> : null;
+                    for (const k of Object.keys(resProps)) {
+                      try {
+                        const childRes = resProps[k];
+                        const childSrc = srcProps && Object.prototype.hasOwnProperty.call(srcProps, k) ? srcProps[k] : null;
+                        annotateFrom(childRes, childSrc || {});
+                      } catch (_) {
+                        // ignore
+                      }
                     }
                   }
-                }
-                // Recurse into items for arrays
-                if (resNode.items && typeof resNode.items === 'object') {
-                  const resItems = resNode.items;
-                  const srcItems = srcNode.items && typeof srcNode.items === 'object' ? srcNode.items : null;
-                  annotateFrom(resItems, srcItems || {});
-                }
-                // Recurse into polymorphic branches
-                ['oneOf', 'anyOf', 'allOf'].forEach((key) => {
-                  if (Array.isArray(resNode[key])) {
-                    const resArr = resNode[key] as any[];
-                    const srcArr = Array.isArray(srcNode[key]) ? (srcNode[key] as any[]) : [];
-                    resArr.forEach((v, i) => annotateFrom(v, srcArr[i] || {}));
+                  // Recurse into items for arrays
+                  if (resNode.items && typeof resNode.items === 'object') {
+                    const resItems = resNode.items;
+                    const srcItems = srcNode.items && typeof srcNode.items === 'object' ? srcNode.items : null;
+                    annotateFrom(resItems, srcItems || {});
                   }
-                });
-              };
-              annotateFrom(resolved, source || {});
+                  // Recurse into polymorphic branches
+                  ['oneOf', 'anyOf', 'allOf'].forEach((key) => {
+                    if (Array.isArray(resNode[key])) {
+                      const resArr = resNode[key] as any[];
+                      const srcArr = Array.isArray(srcNode[key]) ? (srcNode[key] as any[]) : [];
+                      resArr.forEach((v, i) => annotateFrom(v, srcArr[i] || {}));
+                    }
+                  });
+                };
+                annotateFrom(resolvedForMutation, source || {});
+              }
+            } catch (_) {
+              // ignore
             }
-          } catch (_) {}
 
-          if ((resolved as any).$defs) delete (resolved as any).$defs;
-          return normalizeResolved(resolved, source);
+            // Preserve $defs in the resolved view so editors can still reference definitions
+            // (especially for the ref button in SchemaEditorForm)
+            const normalized = normalizeResolved(resolvedForMutation, source);
+            // After normalization removes $defs, add them back if source has them
+            // This is critical for the ref button to access available definitions
+            if (normalized && typeof normalized === 'object' && source && typeof source === 'object') {
+              const srcObj = source as any;
+              // Always preserve $defs from source, regardless of whether result has properties
+              if (srcObj.$defs && !(normalized as any).$defs) {
+                // Make a proper copy to avoid mutating shared references
+                const result = { ...normalized } as any;
+                result.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
+                return result;
+              }
+              // Also preserve definitions (older JSON Schema draft style)
+              if (srcObj.definitions && !(normalized as any).definitions) {
+                // Make a proper copy to avoid mutating shared references
+                const result = { ...normalized } as any;
+                result.definitions = JSON.parse(JSON.stringify(srcObj.definitions));
+                return result;
+              }
+            }
+            return normalized;
+          }
         }
       }
     } catch (_) {
@@ -647,7 +729,26 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
     try {
       if ((!resolved || resolved === null) && sourceIsObject && source && typeof source === 'object') {
         const fromSource = (source as any).properties && typeof (source as any).properties === 'object' ? { type: 'object', properties: (source as any).properties } : { type: 'object', properties: source };
-        return normalizeResolved(fromSource as Schema);
+        const normalized = normalizeResolved(fromSource as Schema, source);
+        // Preserve $defs after normalization for ref button access
+        if (normalized && typeof normalized === 'object' && source && typeof source === 'object') {
+          const srcObj = source as any;
+          // Always preserve $defs from source, regardless of whether result has properties
+          if (!(normalized as any).$defs && srcObj.$defs) {
+            // Make a proper copy to avoid mutating shared references
+            const result = { ...normalized } as any;
+            result.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
+            return result;
+          }
+          // Also preserve definitions (older JSON Schema draft style)
+          if (!(normalized as any).definitions && srcObj.definitions) {
+            // Make a proper copy to avoid mutating shared references
+            const result = { ...normalized } as any;
+            result.definitions = JSON.parse(JSON.stringify(srcObj.definitions));
+            return result;
+          }
+        }
+        return normalized;
       }
     } catch (_) {
       // ignore
@@ -658,8 +759,18 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
     if (source && typeof source === 'object') {
       const srcObj = source as Record<string, any>;
       try {
-        if (srcObj.$defs && typeof srcObj.$defs === 'object') {
-          return normalizeResolved(srcObj.$defs as Schema);
+        if ((srcObj.$defs || srcObj.definitions) && typeof (srcObj.$defs || srcObj.definitions) === 'object' && !srcObj.properties) {
+          const defsKey = srcObj.$defs ? '$defs' : 'definitions';
+          const result = normalizeResolved(srcObj[defsKey] as Schema) as any;
+          // Preserve $defs even for definitions-only schemas
+          if (!result.$defs && srcObj.$defs) {
+            result.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
+          }
+          // Also preserve definitions
+          if (!result.definitions && srcObj.definitions) {
+            result.definitions = JSON.parse(JSON.stringify(srcObj.definitions));
+          }
+          return result;
         }
       } catch (_) {
         // ignore
@@ -712,7 +823,18 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
                 : null;
               if (srcProps) {
                 for (const k of Object.keys(srcProps)) {
-                  if (Object.prototype.hasOwnProperty.call(resolvedProps, k)) cleaned[k] = resolvedProps[k];
+                  if (Object.prototype.hasOwnProperty.call(resolvedProps, k)) {
+                    const srcProp = srcProps[k];
+                    const resolvedProp = resolvedProps[k];
+                    if (
+                      srcProp && typeof srcProp === 'object' && !Array.isArray(srcProp) &&
+                      resolvedProp && typeof resolvedProp === 'object' && !Array.isArray(resolvedProp)
+                    ) {
+                      cleaned[k] = { ...srcProp, ...resolvedProp };
+                    } else {
+                      cleaned[k] = resolvedProp;
+                    }
+                  }
                 }
                 for (const k of Object.keys(resolvedProps)) if (!Object.prototype.hasOwnProperty.call(cleaned, k)) cleaned[k] = resolvedProps[k];
               } else {
@@ -725,18 +847,83 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
               }
             }
             const cleanedResolved = { ...(resolved as any), properties: cleaned } as Schema;
-            if ((cleanedResolved as any).$defs) delete (cleanedResolved as any).$defs;
-            return normalizeResolved(cleanedResolved, source);
+            // Preserve $defs for editor access (especially for ref button)
+            // Also copy $defs from source if it has them and resolved doesn't
+            try {
+              if (source && typeof source === 'object' && (source as any).$defs && !(cleanedResolved as any).$defs) {
+                (cleanedResolved as any).$defs = (source as any).$defs;
+              }
+              // Also preserve definitions (older JSON Schema draft style)
+              if (source && typeof source === 'object' && (source as any).definitions && !(cleanedResolved as any).definitions) {
+                (cleanedResolved as any).definitions = (source as any).definitions;
+              }
+            } catch (_) {
+              // ignore
+            }
+            const normalized = normalizeResolved(cleanedResolved, source);
+            // Always preserve $defs after normalization for ref button access
+            if (normalized && typeof normalized === 'object' && source && typeof source === 'object') {
+              const srcObj = source as any;
+              // Always preserve $defs from source, regardless of whether result has properties
+              if (!(normalized as any).$defs && srcObj.$defs) {
+                // Make a proper copy to avoid mutating shared references
+                const result = { ...normalized } as any;
+                result.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
+                return result;
+              }
+              // Also preserve definitions (older JSON Schema draft style)
+              if (!(normalized as any).definitions && srcObj.definitions) {
+                // Make a proper copy to avoid mutating shared references
+                const result = { ...normalized } as any;
+                result.definitions = JSON.parse(JSON.stringify(srcObj.definitions));
+                return result;
+              }
+            }
+            return normalized;
           }
         } catch (_) {
-          // ignore
+          // ignore - return fallback on error
         }
-        return normalizeResolved(resolved, source);
+        // Fallback if try block failed
+        if (resolved && typeof resolved === 'object' && source && typeof source === 'object') {
+          const resObj = resolved as any;
+          const srcObj = source as any;
+          if (!resObj.$defs && srcObj.$defs) {
+            resObj.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
+          }
+        }
+        return resolved;
+      }
+    } catch (_) {
+      // ignore
+    }
+    // If resolved doesn't have $defs but source does, copy them over for editor access
+    try {
+      if (resolved && typeof resolved === 'object' && source && typeof source === 'object') {
+        const resObj = resolved as any;
+        const srcObj = source as any;
+        if (!resObj.$defs && srcObj.$defs) {
+          resObj.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
+        }
+        if (!resObj.definitions && srcObj.definitions) {
+          resObj.definitions = JSON.parse(JSON.stringify(srcObj.definitions));
+        }
       }
     } catch (_) {
       // ignore
     }
     return resolved;
+  } catch (_) {
+    // ignore
+  }
+  // FINAL SAFETY: Ensure source $defs are preserved on the result
+  try {
+    if (source && typeof source === 'object' && (source as any).$defs && resolved && typeof resolved === 'object') {
+      const srcDefs = (source as any).$defs;
+      if (!(resolved as any).$defs) {
+        (resolved as any).$defs = srcDefs;
+      }
+    }
   } catch (_) {
     // ignore
   }
@@ -747,7 +934,32 @@ function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source
 export function getResolvedSource(state: SchemaState): Schema {
   try {
     if (!state || !state.resolvedCache) return null;
-    return canonicalizeForPersist(state.resolvedCache as Schema);
+    
+    const resolved = state.resolvedCache as Record<string, any>;
+    const source = state.source as Record<string, any> | null;
+    
+    // Start with canonicalized resolved cache
+    const result = canonicalizeForPersist(resolved) as Record<string, any>;
+    
+    // Preserve definitions from source if they exist and aren't already in result.
+    // This ensures downloaded intermediate schemas still include definition maps
+    // required by ref pickers in the editor.
+    if (source && source.$defs && !result.$defs) {
+      try {
+        result.$defs = JSON.parse(JSON.stringify(source.$defs));
+      } catch (_) {
+        // ignore if can't copy
+      }
+    }
+    if (source && source.definitions && !result.definitions) {
+      try {
+        result.definitions = JSON.parse(JSON.stringify(source.definitions));
+      } catch (_) {
+        // ignore if can't copy
+      }
+    }
+    
+    return result;
   } catch (_) {
     return state.resolvedCache as Schema;
   }

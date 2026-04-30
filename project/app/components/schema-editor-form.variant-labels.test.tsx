@@ -5,7 +5,7 @@ import { SchemaEditorForm } from './schema-editor-form';
 import { TooltipProvider } from './ui/tooltip/tooltip';
 
 describe('SchemaEditorForm Polymorphic Labels', () => {
-  const isSchemaImportedStub = (n: any) => !!(n && (n.$ref || n.__from || (Array.isArray(n?.allOf) && n.allOf.some((e: any) => e.$ref))));
+  const isSchemaImportedStub = (n: any) => !!(n && (n.$ref || n.__from || (Array.isArray(n?.allOf) && n.allOf.some((e: any) => e && typeof e === 'object' && e.$ref))));
 
   it('renders semantic labels from $ref for oneOf variants', async () => {
     const schema = {

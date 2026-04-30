@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { SchemaEditorForm } from './schema-editor-form';
+import { TooltipProvider } from './ui/tooltip/tooltip';
 import { resolveSchema } from '~/utils/schema-resolver';
 
 describe('SchemaEditorForm with remote-ref resolved schema', () => {
@@ -18,7 +19,7 @@ describe('SchemaEditorForm with remote-ref resolved schema', () => {
         };
         return {
           ok: true,
-          headers: { get: (k: string) => 'application/json' },
+          headers: { get: () => 'application/json' },
           json: async () => remoteSchema,
           text: async () => JSON.stringify(remoteSchema),
         };
@@ -42,14 +43,20 @@ describe('SchemaEditorForm with remote-ref resolved schema', () => {
 
     const resolved = await resolveSchema(unresolved as any);
     const handleChange = jest.fn();
-    const isSchemaImportedStub = (n: any) => !!(n && (n.$ref || n.__from || (Array.isArray(n?.allOf) && n.allOf.some((e: any) => e.$ref))));
-    render(<SchemaEditorForm schema={resolved as any} onChange={handleChange} isSchemaImported={isSchemaImportedStub} />);
+    const isSchemaImportedStub = (n: any) => !!(n && (n.$ref || n.__from || (Array.isArray(n?.allOf) && n.allOf.some((e: any) => e && typeof e === 'object' && e.$ref))));
+    render(
+      <TooltipProvider>
+        <SchemaEditorForm schema={resolved as any} onChange={handleChange} isSchemaImported={isSchemaImportedStub} />
+      </TooltipProvider>
+    );
 
-    // The editor renders property name inputs for nested properties
-    const firstNameInput = await screen.findByDisplayValue('firstName');
-    const phoneInput = await screen.findByDisplayValue('phone');
-
-    expect(firstNameInput).toBeInTheDocument();
-    expect(phoneInput).toBeInTheDocument();
+    // With dynamic loading of 3rd level $refs, the emergencyContact property should be rendered
+    // as marked with a REF badge indicating it's an unresolved import
+    const emergencyContactName = await screen.findByDisplayValue('emergencyContact');
+    expect(emergencyContactName).toBeInTheDocument();
+    
+    // The property should be marked with the REF badge
+    const refBadge = await screen.findByText('REF');
+    expect(refBadge).toBeInTheDocument();
   });
 });

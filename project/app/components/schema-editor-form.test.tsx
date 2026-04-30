@@ -5,6 +5,11 @@ import { SchemaEditorForm } from './schema-editor-form';
 import { TooltipProvider } from "./ui/tooltip/tooltip";
 
 describe('SchemaEditorForm UI', () => {
+  beforeEach(() => {
+    // Clear localStorage before each test to ensure clean state
+    localStorage.clear();
+  });
+
   it('renders the root type as object', async () => {
     // Resolved form of schema (4).json where top-level $ref -> $defs/order
     const resolvedSchema = {
@@ -32,9 +37,9 @@ describe('SchemaEditorForm UI', () => {
     );
 
     const objectButtons = await screen.findAllByRole('button', { name: /Object/i });
+    // Root type button should be visible
+    expect(objectButtons.length).toBeGreaterThan(0);
     expect(objectButtons[0]).toBeInTheDocument();
-    // Check if it's the active one (has bold font or primary background)
-    // For now just checking presence as the component refactored to pills
   });
 
   it('resolves $defs/$ref and renders root as object when given unresolved schema', async () => {
@@ -78,7 +83,7 @@ describe('SchemaEditorForm UI', () => {
     }
 
     const handleChange = jest.fn();
-    const isSchemaImportedStub = (n: any) => !!(n && (n.$ref || n.__from || (Array.isArray(n?.allOf) && n.allOf.some((e: any) => e.$ref))));
+    const isSchemaImportedStub = (n: any) => !!(n && (n.$ref || n.__from || (Array.isArray(n?.allOf) && n.allOf.some((e: any) => e && typeof e === 'object' && e.$ref))));
     render(
       <TooltipProvider>
         <SchemaEditorForm schema={resolved} onChange={handleChange} isSchemaImported={isSchemaImportedStub} />
@@ -86,6 +91,8 @@ describe('SchemaEditorForm UI', () => {
     );
 
     const objectButtons = await screen.findAllByRole('button', { name: /Object/i });
+    // Root type button should exist
+    expect(objectButtons.length).toBeGreaterThan(0);
     expect(objectButtons[0]).toBeInTheDocument();
   });
 
@@ -170,6 +177,62 @@ describe('SchemaEditorForm UI', () => {
     // + default should live in the same inlineAdd container as format/pattern for string nodes
     const parent = formatBtn.parentElement!;
     expect(within(parent).getByRole('button', { name: '+ default' })).toBeInTheDocument();
+  });
+
+  it('renders ref buttons in the type control row even when no local definitions exist', async () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        child: { type: 'string' }
+      }
+    } as any;
+
+    render(
+      <TooltipProvider>
+        <SchemaEditorForm schema={schema} onChange={() => {}} />
+      </TooltipProvider>
+    );
+
+    // Properties are collapsed by default, so expand to see ref buttons
+    const expandButtons = screen.getAllByRole('button', { name: /^Expand/i });
+    if (expandButtons.length > 0) {
+      fireEvent.click(expandButtons[0]);
+    }
+
+    const refButtons = screen.getAllByRole('button', { name: /^ref/i });
+    expect(refButtons.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('keeps root $defs available for nested ref dropdowns when rootSchema is not explicitly passed', async () => {
+    const schema = {
+      type: 'object',
+      $defs: {
+        SharedType: {
+          type: 'string'
+        }
+      },
+      properties: {
+        child: { type: 'string' }
+      }
+    } as any;
+
+    render(
+      <TooltipProvider>
+        <SchemaEditorForm schema={schema} onChange={() => {}} />
+      </TooltipProvider>
+    );
+
+    // Properties are collapsed by default, so expand to see ref buttons
+    const expandButtons = screen.getAllByRole('button', { name: /^Expand/i });
+    if (expandButtons.length > 0) {
+      fireEvent.click(expandButtons[0]);
+    }
+
+    const refButtons = screen.getAllByRole('button', { name: /^ref/i });
+    expect(refButtons.length).toBeGreaterThanOrEqual(1);
+
+    fireEvent.click(refButtons[0]);
+    expect(await screen.findByRole('button', { name: 'SharedType' })).toBeInTheDocument();
   });
 
   it('renders number facet + buttons above the Enum checkbox', async () => {
@@ -305,18 +368,57 @@ describe('SchemaEditorForm UI', () => {
       </TooltipProvider>
     );
 
-    // Initial check
-    expect(screen.getByDisplayValue('prop1')).toBeInTheDocument();
-
-    // Find and click Remove button
+    // Find the property group by test ID
     const prop1Group = screen.getByTestId('prop-prop1');
+    expect(prop1Group).toBeInTheDocument();
+
+    // Expand the property first to see the Remove button
+    const expandBtn = within(prop1Group).getByRole('button', { name: /Expand/i });
+    fireEvent.click(expandBtn);
+
+    // Now find and click Remove button
     const removeBtn = within(prop1Group).getByRole('button', { name: /Remove/i });
-    
     fireEvent.click(removeBtn);
 
     // After clicking remove, handleChange should be called with properties: {}
     expect(handleChange).toHaveBeenCalled();
     const lastCall = handleChange.mock.calls[handleChange.mock.calls.length - 1][0];
     expect(lastCall.properties).toEqual({});
+  });
+
+  it('displays ref button in nested property when root schema has definitions', async () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        userId: { type: 'string' },
+        metadata: {
+          type: 'object',
+          properties: {
+            created: { type: 'string' }
+          }
+        }
+      },
+      $defs: {
+        user: { type: 'object', properties: { name: { type: 'string' } } }
+      }
+    } as any;
+
+    const handleChange = jest.fn();
+
+    render(
+      <TooltipProvider>
+        <SchemaEditorForm schema={schema} onChange={handleChange} />
+      </TooltipProvider>
+    );
+
+    // Properties are collapsed by default; need to expand at least one to see ref buttons
+    const expandButtons = screen.getAllByRole('button', { name: /^Expand/i });
+    if (expandButtons.length > 0) {
+      fireEvent.click(expandButtons[0]);
+    }
+    
+    // After expanding, ref buttons should be visible
+    const refButtons = screen.queryAllByRole('button', { name: /^ref/i });
+    expect(refButtons.length).toBeGreaterThan(0);
   });
 });

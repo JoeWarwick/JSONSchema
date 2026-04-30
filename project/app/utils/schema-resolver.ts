@@ -302,6 +302,9 @@ export function rehydrateToRefs(original: Record<string, any>, edited: Record<st
 
   try {
     if (defs && props) {
+      // Track which properties have been synced via __from to skip heuristic fallback
+      const syncedViaClue = new Set<string>();
+
       // First pass: direct name matches (edited prop name matches def key)
       for (const [k, v] of Object.entries(props)) {
         if (Object.prototype.hasOwnProperty.call(defs, k)) {
@@ -309,12 +312,46 @@ export function rehydrateToRefs(original: Record<string, any>, edited: Record<st
           const merged = deepMerge(existing, v as any);
           if (existing && existing.$anchor) (merged as any).$anchor = existing.$anchor;
           defs[k] = merged;
+          syncedViaClue.add(k);
         }
       }
 
-      // Second pass: ambiguous mapping - map edited prop names into defs that contain those property names
+      // New pass: detect __from metadata and sync directly to referenced definitions
+      // This handles cases like homeAddress and workAddress both referencing #/$defs/address
       for (const [propName, propVal] of Object.entries(props)) {
-        if (Object.prototype.hasOwnProperty.call(defs, propName)) continue; // already handled
+        if (syncedViaClue.has(propName)) continue; // already handled by name match
+        
+        const propObj = propVal as any;
+        let defKey: string | null = null;
+        
+        if (propObj && typeof propObj === 'object' && propObj.__from) {
+          defKey = parseDefReference(propObj.__from);
+          if (defKey && Object.prototype.hasOwnProperty.call(defs, defKey)) {
+            // Found a valid reference - sync to that definition directly
+            const existing = defs[defKey] || {};
+            // Merge the property value (excluding __from metadata) into definition
+            const valWithoutClue = { ...propObj };
+            delete valWithoutClue.__from;
+            const merged = deepMerge(existing, valWithoutClue);
+            if (existing && existing.$anchor) (merged as any).$anchor = existing.$anchor;
+            defs[defKey] = merged;
+            syncedViaClue.add(propName);
+            continue;
+          }
+        }
+
+        // If __from referenced a nested property structure, try to sync nested edits
+        // E.g., if propVal is { street: { type: string, __from: #/$defs/address/properties/street }}
+        if (propObj && typeof propObj === 'object' && defKey) {
+          const nestedSync = syncNestedFromClue(propObj, defs, defKey);
+          if (nestedSync) syncedViaClue.add(propName);
+        }
+      }
+
+      // Second pass: ambiguous mapping - only for properties NOT synced via __from
+      for (const [propName, propVal] of Object.entries(props)) {
+        if (syncedViaClue.has(propName)) continue; // already handled above
+        
         const scores: Array<{ key: string; score: number }> = [];
         for (const dk of Object.keys(defs)) {
           const defProps = defs[dk] && defs[dk].properties ? defs[dk].properties : {};
@@ -364,7 +401,43 @@ export function rehydrateToRefs(original: Record<string, any>, edited: Record<st
     }
   }
 
+  // Clean up __from metadata from definitions (it will be re-attached during next hydration)
+  if (defs) {
+    const cleanNode = (node: any) => {
+      if (node && typeof node === 'object') {
+        delete node.__from;
+        for (const [, v] of Object.entries(node)) {
+          if (v && typeof v === 'object') cleanNode(v);
+        }
+      }
+    };
+    for (const [, def] of Object.entries(defs)) {
+      cleanNode(def);
+    }
+  }
+
+  // Clean up __from from root properties
+  const cleanRoot = (node: any) => {
+    if (node && typeof node === 'object' && !Array.isArray(node)) {
+      delete node.__from;
+      for (const [, v] of Object.entries(node)) {
+        if (v && typeof v === 'object') cleanRoot(v);
+      }
+    }
+  };
+  cleanRoot(out);
+
   return out;
+}
+
+/**
+ * Parse a reference string like "#/$defs/address" and extract the definition key.
+ * Returns null if the reference is invalid or not a local $defs reference.
+ */
+function parseDefReference(refString: string): string | null {
+  if (typeof refString !== 'string') return null;
+  const match = refString.match(/^#\/\$defs\/([^/]+)$/);
+  return match ? match[1] : null;
 }
 
 // Public name: clearer API for rehydration roundtrip
@@ -433,6 +506,40 @@ function deepMerge(a: any, b: any): any {
     }
   }
   return out;
+}
+
+/**
+ * Helper to sync nested properties that have __from metadata.
+ * Returns true if sync succeeded, false otherwise.
+ */
+function syncNestedFromClue(propVal: any, defs: Record<string, any>, defKey: string): boolean {
+  if (!propVal || typeof propVal !== 'object') return false;
+  
+  let synced = false;
+  const walk = (node: any, defNode: any) => {
+    if (!node || typeof node !== 'object') return;
+    
+    for (const [k, v] of Object.entries(node)) {
+      if (k === '__from') continue;
+      
+      if (v && typeof v === 'object' && (v as any).__from) {
+        const nestedDefKey = parseDefReference((v as any).__from);
+        if (nestedDefKey && defs[nestedDefKey]) {
+          const existing = defs[nestedDefKey] || {};
+          const valWithoutClue = { ...(v as any) };
+          delete valWithoutClue.__from;
+          const merged = deepMerge(existing, valWithoutClue);
+          defs[nestedDefKey] = merged;
+          synced = true;
+        }
+      } else if (v && typeof v === 'object' && defNode && defNode[k]) {
+        walk(v, defNode[k]);
+      }
+    }
+  };
+  
+  walk(propVal, defs[defKey]);
+  return synced;
 }
 
 /**

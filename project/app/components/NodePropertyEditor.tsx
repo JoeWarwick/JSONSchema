@@ -6,6 +6,24 @@ import type { NodeData, NodePropertyEditorProps } from './types';
 export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, onChange }) => {
   if (!node) return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a node to edit its properties.</div>;
   const { data } = node;
+  const getEffectiveAdditionalProperties = (): unknown => {
+    if ((data as any).additionalProperties !== undefined) return (data as any).additionalProperties;
+    const variantSchema = (data as any).variantSchema;
+    if (variantSchema && typeof variantSchema === 'object' && !Array.isArray(variantSchema)) {
+      return (variantSchema as any).additionalProperties;
+    }
+    return undefined;
+  };
+  const deriveAdditionalPropertiesMode = (value: unknown, isAdditionalPropertiesNode: boolean): 'false' | 'true' | 'schema' => {
+    if (value === false) return 'false';
+    if (value === true) return 'true';
+    if (value && typeof value === 'object' && !Array.isArray(value)) return 'schema';
+    return isAdditionalPropertiesNode ? 'false' : 'true';
+  };
+  const isNonDefaultSchemaObject = (value: unknown): value is Record<string, unknown> => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    return Object.keys(value as Record<string, unknown>).length > 0;
+  };
   const [label, setLabel] = React.useState<string>(data.label || '');
   const formRef = React.useRef<HTMLFormElement | null>(null);
   const nameInputRef = React.useRef<HTMLInputElement>(null);
@@ -23,7 +41,6 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     { value: 'number', label: 'number' },
     { value: 'boolean', label: 'boolean' },
     { value: 'null', label: 'null' },
-    { value: 'image', label: 'image' },
   ];
   // Root node is always required
   const isRoot = node.id === '1';
@@ -46,14 +63,26 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
   const [uniqueItems, setUniqueItems] = React.useState<boolean | undefined>(data.uniqueItems);
   const [minItems, setMinItems] = React.useState<number | undefined>(data.minItems);
   const [maxItems, setMaxItems] = React.useState<number | undefined>(data.maxItems);
+  const [minProperties, setMinProperties] = React.useState<number | undefined>(data.minProperties);
+  const [maxProperties, setMaxProperties] = React.useState<number | undefined>(data.maxProperties);
   const [readOnlyFlag, setReadOnlyFlag] = React.useState<boolean | undefined>(data.readOnly);
   const [deprecatedFlag, setDeprecatedFlag] = React.useState<boolean | undefined>(data.deprecated);
+  const [additionalPropertiesMode, setAdditionalPropertiesMode] = React.useState<'false' | 'true' | 'schema'>(
+    deriveAdditionalPropertiesMode(getEffectiveAdditionalProperties(), Boolean((data as any).isAdditionalProperties))
+  );
+  const rememberedAdditionalPropertiesSchemaRef = React.useRef<Record<string, unknown> | null>(null);
   // validation errors
   const [minMaxLengthError, setMinMaxLengthError] = React.useState<string | null>(null);
   const [minMaxItemsError, setMinMaxItemsError] = React.useState<string | null>(null);
+  const [minMaxPropertiesError, setMinMaxPropertiesError] = React.useState<string | null>(null);
   const [multipleOfError, setMultipleOfError] = React.useState<string | null>(null);
+  const hasNumberType = type === 'number' || Boolean(Array.isArray(typesArray) && typesArray.includes('number'));
 
   React.useEffect(() => {
+    const effectiveAdditionalProperties = getEffectiveAdditionalProperties();
+    if (isNonDefaultSchemaObject(effectiveAdditionalProperties)) {
+      rememberedAdditionalPropertiesSchemaRef.current = { ...effectiveAdditionalProperties };
+    }
     setLabel(data.label || '');
     setType(data.type || '');
     setOfType(data.ofType || '');
@@ -71,21 +100,27 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     setUniqueItems(data.uniqueItems);
     setMinItems(data.minItems);
     setMaxItems(data.maxItems);
+    setMinProperties(data.minProperties);
+    setMaxProperties(data.maxProperties);
     setReadOnlyFlag(data.readOnly);
     setDeprecatedFlag(data.deprecated);
+    setAdditionalPropertiesMode(
+      deriveAdditionalPropertiesMode(effectiveAdditionalProperties, Boolean((data as any).isAdditionalProperties))
+    );
     setContentMediaType(data.contentMediaType);
     setMinMaxLengthError(null);
     setMinMaxItemsError(null);
+    setMinMaxPropertiesError(null);
     setMultipleOfError(null);
     // Keep patternKey in sync with selected node so RHS always shows authoritative regex
-    setPatternKeyState((data as any).patternKey);
+    setPatternKeyState(data.patternKey);
     setPatternKeyError(null);
-    setComment((data as any).$comment);
+    setComment(data.$comment);
     setDescription(data.description);
     // Preserve raw types array if present so we can support multi-type editing (also respect typeUnion)
-    setTypesArray(Array.isArray((data as any).type) ? [...(data as any).type] : (Array.isArray((data as any).typeUnion) ? [...(data as any).typeUnion] : undefined));
+    setTypesArray(Array.isArray(data.type) ? [...data.type] : (Array.isArray(data.typeUnion) ? [...data.typeUnion] : undefined));
     // Ensure primary type state aligns with the first declared type (or single type)
-    setType(Array.isArray((data as any).type) ? (data as any).type[0] : (Array.isArray((data as any).typeUnion) ? (data as any).typeUnion[0] : (data.type || '')));
+    setType(Array.isArray(data.type) ? data.type[0] : (Array.isArray(data.typeUnion) ? data.typeUnion[0] : (data.type || '')));
 
     // Focus name input if this is a new property node
     if (data.label && /^newProperty\d+$/.test(data.label)) {
@@ -97,6 +132,12 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
       }, 0);
     }
   }, [node?.id]);
+
+  React.useEffect(() => {
+    setMinProperties(data.minProperties);
+    setMaxProperties(data.maxProperties);
+    setMinMaxPropertiesError(null);
+  }, [node?.id, data.minProperties, data.maxProperties]);
 
   // Helper to build patch for onChange
   const buildPatch = (override?: Partial<NodeData>) => {
@@ -200,6 +241,10 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     else base.minItems = override?.minItems ?? minItems;
     if (override && Object.prototype.hasOwnProperty.call(override, 'maxItems')) base.maxItems = override.maxItems;
     else base.maxItems = override?.maxItems ?? maxItems;
+    if (override && Object.prototype.hasOwnProperty.call(override, 'minProperties')) base.minProperties = override.minProperties;
+    else base.minProperties = override?.minProperties ?? minProperties;
+    if (override && Object.prototype.hasOwnProperty.call(override, 'maxProperties')) base.maxProperties = override.maxProperties;
+    else base.maxProperties = override?.maxProperties ?? maxProperties;
     // metadata flags
     if (override && Object.prototype.hasOwnProperty.call(override, 'readOnly')) base.readOnly = override.readOnly;
     else base.readOnly = override?.readOnly ?? readOnlyFlag;
@@ -208,11 +253,6 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     // support additionalProperties
     if (override && Object.prototype.hasOwnProperty.call(override, 'additionalProperties')) (base as any).additionalProperties = override.additionalProperties;
     else (base as any).additionalProperties = (data as any).additionalProperties;
-    // If this node is the internal image type, ensure we include sensible defaults
-    if (base.type === 'image') {
-      if (!base.format) base.format = base.format ?? 'data-url';
-      if (!base.contentMediaType) base.contentMediaType = base.contentMediaType ?? 'image/*';
-    }
     return base;
   };
 
@@ -403,14 +443,44 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
       {type === 'object' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input
-              type="checkbox"
-              checked={data.additionalProperties === false}
+            <span style={{ fontSize: 13, minWidth: 130 }}>additionalProperties</span>
+            <select
+              aria-label="additionalProperties"
+              value={additionalPropertiesMode}
               onChange={e => {
-                onChange(buildPatchWithAnnotations({ additionalProperties: e.target.checked ? false : undefined }));
+                const nextMode = e.target.value as 'false' | 'true' | 'schema';
+                setAdditionalPropertiesMode(nextMode);
+                const currentVariantSchema = ((data as any).variantSchema && typeof (data as any).variantSchema === 'object' && !Array.isArray((data as any).variantSchema))
+                  ? ({ ...(data as any).variantSchema } as Record<string, unknown>)
+                  : null;
+                const currentAdditionalProperties = getEffectiveAdditionalProperties();
+                if (isNonDefaultSchemaObject(currentAdditionalProperties)) {
+                  rememberedAdditionalPropertiesSchemaRef.current = { ...currentAdditionalProperties };
+                }
+                const emitAdditionalProperties = (nextAdditionalProperties: unknown) => {
+                  const patch: Partial<NodeData> = { additionalProperties: nextAdditionalProperties };
+                  if (currentVariantSchema) {
+                    patch.variantSchema = { ...currentVariantSchema, additionalProperties: nextAdditionalProperties };
+                  }
+                  onChange(buildPatchWithAnnotations(patch));
+                };
+                if (nextMode === 'false') {
+                  emitAdditionalProperties(false);
+                  return;
+                }
+                if (nextMode === 'true') {
+                  emitAdditionalProperties(true);
+                  return;
+                }
+                const remembered = rememberedAdditionalPropertiesSchemaRef.current;
+                emitAdditionalProperties(remembered ? { ...remembered } : {});
               }}
-            />
-            <span style={{ fontSize: 13 }}>additionalProperties</span>
+              style={{ width: '100%', marginTop: 2, padding: 4, borderRadius: 4, border: '1px solid #ccc' }}
+            >
+              <option value="false">false</option>
+              <option value="true">true</option>
+              <option value="schema">Schema</option>
+            </select>
           </label>
           {comment === undefined ? (
             <button type="button" onClick={() => { setComment(''); onChange(buildPatchWithAnnotations({ $comment: '' })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6, width: 'fit-content' }}>+ Comment</button>
@@ -430,6 +500,83 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
               </div>
             </div>
           )}
+
+          <div style={{ borderTop: '1px dashed #eee', paddingTop: 10, marginTop: 4 }}>
+            <div style={{ marginTop: 0, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {minProperties === undefined ? (
+                <button type="button" onClick={() => { setMinProperties(0); onChange(buildPatchWithAnnotations({ minProperties: 0 } as any)); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Min Properties</button>
+              ) : (
+                <label className={styles.facetCompactField}>
+                  <span className={styles.facetCompactTitle}>Min Properties</span>
+                  <input
+                    className={`${styles.numberInput} ${styles.facetCompactInput}`}
+                    aria-label="Min Properties"
+                    type="number"
+                    min={0}
+                    value={(minProperties ?? '') as any}
+                    onWheel={(e) => {
+                      e.preventDefault();
+                      const dir = e.deltaY > 0 ? -1 : 1;
+                      const mult = e.shiftKey ? 10 : 1;
+                      const cur = typeof minProperties === 'number' ? minProperties : 0;
+                      const newVal = Math.max(0, cur + dir * mult);
+                      setMinProperties(newVal);
+                      onChange(buildPatchWithAnnotations({ minProperties: newVal } as any));
+                    }}
+                    onChange={e => setMinProperties(e.target.value === '' ? undefined : Number(e.target.value))}
+                    onBlur={() => {
+                      if (minProperties !== undefined && minProperties < 0) {
+                        setMinMaxPropertiesError('minProperties must be >= 0');
+                      } else if (maxProperties !== undefined && minProperties !== undefined && maxProperties < minProperties) {
+                        setMinMaxPropertiesError('maxProperties must be >= minProperties');
+                      } else {
+                        setMinMaxPropertiesError(null);
+                        onChange(buildPatchWithAnnotations({ minProperties } as any));
+                      }
+                    }}
+                  />
+                  <button type="button" onClick={() => { setMinProperties(undefined); onChange(buildPatchWithAnnotations({ minProperties: undefined } as any)); }} className={styles.removeControl} title="Remove minProperties">×</button>
+                </label>
+              )}
+
+              {maxProperties === undefined ? (
+                <button type="button" onClick={() => { setMaxProperties(0); onChange(buildPatchWithAnnotations({ maxProperties: 0 } as any)); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Max Properties</button>
+              ) : (
+                <label className={styles.facetCompactField}>
+                  <span className={styles.facetCompactTitle}>Max Properties</span>
+                  <input
+                    className={`${styles.numberInput} ${styles.facetCompactInput}`}
+                    aria-label="Max Properties"
+                    type="number"
+                    min={0}
+                    value={(maxProperties ?? '') as any}
+                    onWheel={(e) => {
+                      e.preventDefault();
+                      const dir = e.deltaY > 0 ? -1 : 1;
+                      const mult = e.shiftKey ? 10 : 1;
+                      const cur = typeof maxProperties === 'number' ? maxProperties : 0;
+                      const newVal = Math.max(0, cur + dir * mult);
+                      setMaxProperties(newVal);
+                      onChange(buildPatchWithAnnotations({ maxProperties: newVal } as any));
+                    }}
+                    onChange={e => setMaxProperties(e.target.value === '' ? undefined : Number(e.target.value))}
+                    onBlur={() => {
+                      if (maxProperties !== undefined && maxProperties < 0) {
+                        setMinMaxPropertiesError('maxProperties must be >= 0');
+                      } else if (minProperties !== undefined && maxProperties !== undefined && maxProperties < minProperties) {
+                        setMinMaxPropertiesError('maxProperties must be >= minProperties');
+                      } else {
+                        setMinMaxPropertiesError(null);
+                        onChange(buildPatchWithAnnotations({ maxProperties } as any));
+                      }
+                    }}
+                  />
+                  <button type="button" onClick={() => { setMaxProperties(undefined); onChange(buildPatchWithAnnotations({ maxProperties: undefined } as any)); }} className={styles.removeControl} title="Remove maxProperties">×</button>
+                </label>
+              )}
+            </div>
+            {minMaxPropertiesError && <div style={{ color: '#e53935', fontSize: 12, marginTop: 6 }}>{minMaxPropertiesError}</div>}
+          </div>
         </div>
       )}
       {Object.prototype.hasOwnProperty.call(node.data, 'required') && !isRoot && (
@@ -445,13 +592,13 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
           {isEnum && (
             <div>
               <div data-testid="enum-values-label" style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Enum Values</div>
-              <ul style={{ padding: 0, margin: '4px 0 8px 0', listStyle: 'none' }}>
+              <ul style={{ padding: 0, margin: '4px 0 8px 0', listStyle: 'none', display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
                 {enumValues.length === 0 ? (
                   <li style={{ color: '#888', fontStyle: 'italic', fontSize: 13 }}>No enum values yet.</li>
                 ) : (
                   enumValues.map((v: string, i: number) => (
-                    <li key={i} style={{ display: 'flex', alignItems: 'center', marginBottom: 2 }}>
-                      <span style={{ background: '#fffde7', border: '1px solid #ffe082', borderRadius: 6, padding: '2px 8px', fontSize: 13, marginRight: 6 }}>{v}</span>
+                    <li key={i} style={{ display: 'inline-flex', alignItems: 'center' }}>
+                      <span style={{ background: '#fffde7', border: '1px solid #ffe082', borderRadius: 6, padding: '2px 8px', fontSize: 13, marginRight: 4 }}>{v}</span>
                       <button
                         type="button"
                         onClick={() => handleRemoveEnum(v)}
@@ -497,7 +644,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
         </>
       )}
       {/* Image preview only (no upload) for schema editor; instance form handles uploads */}
-      {((format === 'data-url') || (contentMediaType && String(contentMediaType).startsWith('image')) || type === 'image') && defaultValue && typeof defaultValue === 'string' && /^data:image\//i.test(defaultValue) && (
+      {((format === 'data-url') || (contentMediaType && String(contentMediaType).startsWith('image'))) && defaultValue && typeof defaultValue === 'string' && /^data:image\//i.test(defaultValue) && (
         <div style={{ marginTop: 10, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <img src={defaultValue} alt="preview" style={{ maxWidth: 240, maxHeight: 160, border: '1px solid #ddd', borderRadius: 6 }} />
@@ -512,7 +659,10 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
               <button type="button" onClick={() => { setPattern(''); onChange(buildPatchWithAnnotations({ pattern: '' })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Pattern</button>
             ) : (
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input className={styles.smallInput} value={pattern ?? ''} onChange={e => setPattern(e.target.value)} onBlur={() => onChange(buildPatchWithAnnotations({ pattern }))} placeholder="RegExp pattern" aria-label="Pattern" />
+                <label className={styles.facetCompactField}>
+                  <span className={styles.facetCompactTitle}>Pattern</span>
+                  <input className={`${styles.smallInput} ${styles.facetCompactControl}`} value={pattern ?? ''} onChange={e => setPattern(e.target.value)} onBlur={() => onChange(buildPatchWithAnnotations({ pattern }))} placeholder="RegExp pattern" aria-label="Pattern" />
+                </label>
                 <button type="button" onClick={() => { setPattern(undefined); onChange(buildPatchWithAnnotations({ pattern: undefined })); }} className={styles.removeControl} title="Remove pattern">×</button>
               </div>
             )}
@@ -520,22 +670,25 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
               <button type="button" onClick={() => { setFormat(''); onChange(buildPatchWithAnnotations({ format: '' })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Format</button>
             ) : (
               <div style={{ width: 150, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <select value={format ?? ''} onChange={e => { setFormat(e.target.value || undefined); onChange(buildPatchWithAnnotations({ format: e.target.value || undefined })); }} style={{ flex: 1, marginTop: 2, padding: 6, borderRadius: 4, border: '1px solid #ccc' }}>
-                  <option value="" disabled>-format-</option>
-                  <option value="date-time">date-time</option>
-                  <option value="date">date</option>
-                  <option value="time">time</option>
-                  <option value="email">email</option>
-                  <option value="uri">uri</option>
-                  <option value="ipv4">ipv4</option>
-                  <option value="ipv6">ipv6</option>
-                  <option value="uuid">uuid</option>
-                  <option value="hostname">hostname</option>
-                  <option value="regex">regex</option>
-                  <option value="password">password</option>
-                  <option value="byte">byte</option>
-                  <option value="binary">binary</option>
-                </select>
+                <label className={styles.facetCompactField}>
+                  <span className={styles.facetCompactTitle}>Format</span>
+                  <select className={styles.facetCompactControl} value={format ?? ''} onChange={e => { setFormat(e.target.value || undefined); onChange(buildPatchWithAnnotations({ format: e.target.value || undefined })); }} style={{ flex: 1, marginTop: 2, padding: 6, borderRadius: 4, border: '1px solid #ccc' }}>
+                    <option value="" disabled>-format-</option>
+                    <option value="date-time">date-time</option>
+                    <option value="date">date</option>
+                    <option value="time">time</option>
+                    <option value="email">email</option>
+                    <option value="uri">uri</option>
+                    <option value="ipv4">ipv4</option>
+                    <option value="ipv6">ipv6</option>
+                    <option value="uuid">uuid</option>
+                    <option value="hostname">hostname</option>
+                    <option value="regex">regex</option>
+                    <option value="password">password</option>
+                    <option value="byte">byte</option>
+                    <option value="binary">binary</option>
+                  </select>
+                </label>
                 <button type="button" onClick={() => { setFormat(undefined); onChange(buildPatchWithAnnotations({ format: undefined })); }} className={styles.removeControl} title="Remove format">×</button>
               </div>
             )}
@@ -546,16 +699,18 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
                 {minimum === undefined ? (
               <button type="button" onClick={() => { setMinimum(0); onChange(buildPatchWithAnnotations({ minimum: 0 })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Minimum</button>
             ) : (
-              <label style={{ width: 120, display: 'flex', alignItems: 'center', gap: 8 }}>Min
-                <input className={styles.numberInput} type="number" value={minimum as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof minimum === 'number' ? (minimum as number) : 0; const newVal = cur + dir * 1 * mult; setMinimum(newVal); onChange(buildPatchWithAnnotations({ minimum: newVal })); }} onChange={e => setMinimum(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => onChange(buildPatchWithAnnotations({ minimum }))} />
+                  <label className={styles.facetCompactField}>
+                    <span className={styles.facetCompactTitle}>Minimum</span>
+                    <input className={`${styles.numberInput} ${styles.facetCompactInput}`} type="number" value={minimum as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof minimum === 'number' ? (minimum as number) : 0; const newVal = cur + dir * 1 * mult; setMinimum(newVal); onChange(buildPatchWithAnnotations({ minimum: newVal })); }} onChange={e => setMinimum(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => onChange(buildPatchWithAnnotations({ minimum }))} />
                 <button type="button" onClick={() => { setMinimum(undefined); onChange(buildPatchWithAnnotations({ minimum: undefined })); }} className={styles.removeControl} title="Remove minimum">×</button>
               </label>
             )}
             {maximum === undefined ? (
               <button type="button" onClick={() => { setMaximum(0); onChange(buildPatchWithAnnotations({ maximum: 0 })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Maximum</button>
             ) : (
-              <label style={{ width: 120, display: 'flex', alignItems: 'center', gap: 8 }}>Max
-                <input className={styles.numberInput} type="number" value={maximum as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof maximum === 'number' ? (maximum as number) : 0; const newVal = cur + dir * 1 * mult; setMaximum(newVal); onChange(buildPatchWithAnnotations({ maximum: newVal })); }} onChange={e => setMaximum(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => onChange(buildPatchWithAnnotations({ maximum }))} />
+                  <label className={styles.facetCompactField}>
+                    <span className={styles.facetCompactTitle}>Maximum</span>
+                    <input className={`${styles.numberInput} ${styles.facetCompactInput}`} type="number" value={maximum as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof maximum === 'number' ? (maximum as number) : 0; const newVal = cur + dir * 1 * mult; setMaximum(newVal); onChange(buildPatchWithAnnotations({ maximum: newVal })); }} onChange={e => setMaximum(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => onChange(buildPatchWithAnnotations({ maximum }))} />
                 <button type="button" onClick={() => { setMaximum(undefined); onChange(buildPatchWithAnnotations({ maximum: undefined })); }} className={styles.removeControl} title="Remove maximum">×</button>
               </label>
             )}
@@ -569,7 +724,9 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
                 <button type="button" onClick={() => { setMinLength(0); onChange(buildPatchWithAnnotations({ minLength: 0 })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Min Length</button>
               ) : (
                 <div style={{ width: 140, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input className={styles.numberInput} placeholder="Min Length" aria-label="Min Length" type="number" value={minLength as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof minLength === 'number' ? (minLength as number) : 0; const newVal = Math.max(0, cur + dir * 1 * mult); setMinLength(newVal); onChange(buildPatchWithAnnotations({ minLength: newVal })); }} onChange={e => setMinLength(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
+                  <label className={styles.facetCompactField}>
+                    <span className={styles.facetCompactTitle}>Min Length</span>
+                    <input className={`${styles.numberInput} ${styles.facetCompactInput}`} placeholder="Min Length" aria-label="Min Length" type="number" value={minLength as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof minLength === 'number' ? (minLength as number) : 0; const newVal = Math.max(0, cur + dir * 1 * mult); setMinLength(newVal); onChange(buildPatchWithAnnotations({ minLength: newVal })); }} onChange={e => setMinLength(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
                     // validate
                     if (minLength !== undefined && minLength < 0) {
                       setMinMaxLengthError('minLength must be >= 0');
@@ -580,6 +737,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
                       onChange(buildPatchWithAnnotations({ minLength }));
                     }
                   }} />
+                  </label>
                   <button type="button" onClick={() => { setMinLength(undefined); onChange(buildPatchWithAnnotations({ minLength: undefined })); }} className={styles.removeControl} title="Remove minLength">×</button>
                   {minMaxLengthError && <div style={{ color: '#e53935', fontSize: 12, marginTop: 6 }}>{minMaxLengthError}</div>}
                 </div>
@@ -588,7 +746,9 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
                 <button type="button" onClick={() => { setMaxLength(0); onChange(buildPatchWithAnnotations({ maxLength: 0 })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Max Length</button>
               ) : (
                 <div style={{ width: 140, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input className={styles.numberInput} placeholder="Max Length" aria-label="Max Length" type="number" value={maxLength as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof maxLength === 'number' ? (maxLength as number) : 0; const newVal = Math.max(0, cur + dir * 1 * mult); setMaxLength(newVal); onChange(buildPatchWithAnnotations({ maxLength: newVal })); }} onChange={e => setMaxLength(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
+                  <label className={styles.facetCompactField}>
+                    <span className={styles.facetCompactTitle}>Max Length</span>
+                    <input className={`${styles.numberInput} ${styles.facetCompactInput}`} placeholder="Max Length" aria-label="Max Length" type="number" value={maxLength as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof maxLength === 'number' ? (maxLength as number) : 0; const newVal = Math.max(0, cur + dir * 1 * mult); setMaxLength(newVal); onChange(buildPatchWithAnnotations({ maxLength: newVal })); }} onChange={e => setMaxLength(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
                     if (maxLength !== undefined && maxLength < 0) {
                       setMinMaxLengthError('maxLength must be >= 0');
                     } else if (minLength !== undefined && maxLength !== undefined && maxLength < minLength) {
@@ -598,6 +758,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
                       onChange(buildPatchWithAnnotations({ maxLength }));
                     }
                   }} />
+                  </label>
                   <button type="button" onClick={() => { setMaxLength(undefined); onChange(buildPatchWithAnnotations({ maxLength: undefined })); }} className={styles.removeControl} title="Remove maxLength">×</button>
                   {minMaxLengthError && <div style={{ color: '#e53935', fontSize: 12, marginTop: 6 }}>{minMaxLengthError}</div>}
                 </div>
@@ -606,54 +767,65 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
           )}
 
           {/* multipleOf */}
-          {!isEnum && (multipleOf === undefined ? (
+          {!isEnum && hasNumberType && (multipleOf === undefined ? (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <button type="button" onClick={() => { setMultipleOf(1); onChange(buildPatchWithAnnotations({ multipleOf: 1 })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ multipleOf</button>
               {examples === undefined ? (
                 <button type="button" onClick={() => { setExamples(''); onChange(buildPatchWithAnnotations({ examples: [] })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Examples</button>
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input
-                    value={examples ?? ''}
-                    onChange={e => setExamples(e.target.value)}
-                    onBlur={() => {
-                      const parsed = examples ? examples.split(',').map(s => s.trim()).filter(Boolean) : undefined;
-                      onChange(buildPatchWithAnnotations({ examples: parsed }));
-                    }}
-                    style={{ minWidth: 180, padding: 4, borderRadius: 4, border: '1px solid #ccc' }}
-                    placeholder="Examples (comma separated)"
-                    aria-label="Examples"
-                  />
+                  <label className={styles.facetCompactField}>
+                    <span className={styles.facetCompactTitle}>Examples</span>
+                    <input
+                      className={styles.facetCompactControl}
+                      value={examples ?? ''}
+                      onChange={e => setExamples(e.target.value)}
+                      onBlur={() => {
+                        const parsed = examples ? examples.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+                        onChange(buildPatchWithAnnotations({ examples: parsed }));
+                      }}
+                      style={{ minWidth: 180, padding: 4, borderRadius: 4, border: '1px solid #ccc' }}
+                      placeholder="Examples (comma separated)"
+                      aria-label="Examples"
+                    />
+                  </label>
                   <button type="button" onClick={() => { setExamples(undefined); onChange(buildPatchWithAnnotations({ examples: undefined })); }} className={styles.removeControl} title="Remove examples">×</button>
                 </div>
               )}
             </div>
           ) : (
             <div style={{ width: 160, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input className={styles.numberInput} placeholder="multipleOf" aria-label="multipleOf" type="number" step="any" value={multipleOf as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof multipleOf === 'number' ? (multipleOf as number) : 1; const newVal = parseFloat((cur + dir * 1 * mult).toString()); setMultipleOf(newVal); onChange(buildPatchWithAnnotations({ multipleOf: newVal })); }} onChange={e => setMultipleOf(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
+              <label className={styles.facetCompactField}>
+                <span className={styles.facetCompactTitle}>multipleOf</span>
+                <input className={`${styles.numberInput} ${styles.facetCompactInput}`} placeholder="multipleOf" aria-label="multipleOf" type="number" step="any" value={multipleOf as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof multipleOf === 'number' ? (multipleOf as number) : 1; const newVal = parseFloat((cur + dir * 1 * mult).toString()); setMultipleOf(newVal); onChange(buildPatchWithAnnotations({ multipleOf: newVal })); }} onChange={e => setMultipleOf(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
                 if (multipleOf !== undefined && !(multipleOf > 0)) {
                   setMultipleOfError('multipleOf must be > 0');
                 } else {
                   setMultipleOfError(null);
                   onChange(buildPatchWithAnnotations({ multipleOf }));
                 }
-                  }} />
+                    }} />
+              </label>
               <button type="button" onClick={() => { setMultipleOf(undefined); onChange(buildPatchWithAnnotations({ multipleOf: undefined })); }} className={styles.removeControl} title="Remove multipleOf">×</button>
               {examples === undefined ? (
                 <button type="button" onClick={() => { setExamples(''); onChange(buildPatchWithAnnotations({ examples: [] })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Examples</button>
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input
-                    value={examples ?? ''}
-                    onChange={e => setExamples(e.target.value)}
-                    onBlur={() => {
-                      const parsed = examples ? examples.split(',').map(s => s.trim()).filter(Boolean) : undefined;
-                      onChange(buildPatchWithAnnotations({ examples: parsed }));
-                    }}
-                    style={{ minWidth: 180, padding: 4, borderRadius: 4, border: '1px solid #ccc' }}
-                    placeholder="Examples (comma separated)"
-                    aria-label="Examples"
-                  />
+                  <label className={styles.facetCompactField}>
+                    <span className={styles.facetCompactTitle}>Examples</span>
+                    <input
+                      className={styles.facetCompactControl}
+                      value={examples ?? ''}
+                      onChange={e => setExamples(e.target.value)}
+                      onBlur={() => {
+                        const parsed = examples ? examples.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+                        onChange(buildPatchWithAnnotations({ examples: parsed }));
+                      }}
+                      style={{ minWidth: 180, padding: 4, borderRadius: 4, border: '1px solid #ccc' }}
+                      placeholder="Examples (comma separated)"
+                      aria-label="Examples"
+                    />
+                  </label>
                   <button type="button" onClick={() => { setExamples(undefined); onChange(buildPatchWithAnnotations({ examples: undefined })); }} className={styles.removeControl} title="Remove examples">×</button>
                 </div>
               )}
@@ -693,28 +865,34 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
                   {minItems === undefined ? (
                     <button type="button" onClick={() => { setMinItems(0); onChange(buildPatchWithAnnotations({ minItems: 0 })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Min Items</button>
                   ) : (
-                    <label style={{ width: 140, display: 'flex', alignItems: 'center', gap: 8 }}> 
-                      <input className={styles.numberInput} placeholder="Min Items" aria-label="Min Items" type="number" value={minItems as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof minItems === 'number' ? (minItems as number) : 0; const newVal = Math.max(0, cur + dir * 1 * mult); setMinItems(newVal); onChange(buildPatchWithAnnotations({ minItems: newVal })); }} onChange={e => setMinItems(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
+                    <div style={{ width: 140, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <label className={styles.facetCompactField}>
+                        <span className={styles.facetCompactTitle}>Min Items</span>
+                        <input className={`${styles.numberInput} ${styles.facetCompactInput}`} placeholder="Min Items" aria-label="Min Items" type="number" value={minItems as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof minItems === 'number' ? (minItems as number) : 0; const newVal = Math.max(0, cur + dir * 1 * mult); setMinItems(newVal); onChange(buildPatchWithAnnotations({ minItems: newVal })); }} onChange={e => setMinItems(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
                         if (minItems !== undefined && minItems < 0) setMinMaxItemsError('minItems must be >= 0');
                         else if (maxItems !== undefined && minItems !== undefined && maxItems < minItems) setMinMaxItemsError('maxItems must be >= minItems');
                         else { setMinMaxItemsError(null); onChange(buildPatchWithAnnotations({ minItems })); }
                       }} />
+                      </label>
                       <button type="button" onClick={() => { setMinItems(undefined); onChange(buildPatchWithAnnotations({ minItems: undefined })); }} className={styles.removeControl} title="Remove minItems">×</button>
                       {minMaxItemsError && <div style={{ color: '#e53935', fontSize: 12, marginTop: 6 }}>{minMaxItemsError}</div>}
-                    </label>
+                    </div>
                   )}
                   {maxItems === undefined ? (
                     <button type="button" onClick={() => { setMaxItems(0); onChange(buildPatchWithAnnotations({ maxItems: 0 })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Max Items</button>
                   ) : (
-                    <label style={{ width: 140, display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input className={styles.numberInput} placeholder="Max Items" aria-label="Max Items" type="number" value={maxItems as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof maxItems === 'number' ? (maxItems as number) : 0; const newVal = Math.max(0, cur + dir * 1 * mult); setMaxItems(newVal); onChange(buildPatchWithAnnotations({ maxItems: newVal })); }} onChange={e => setMaxItems(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
+                    <div style={{ width: 140, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <label className={styles.facetCompactField}>
+                        <span className={styles.facetCompactTitle}>Max Items</span>
+                        <input className={`${styles.numberInput} ${styles.facetCompactInput}`} placeholder="Max Items" aria-label="Max Items" type="number" value={maxItems as any} onWheel={(e) => { e.preventDefault(); const dir = e.deltaY > 0 ? -1 : 1; const mult = e.shiftKey ? 10 : 1; const cur = typeof maxItems === 'number' ? (maxItems as number) : 0; const newVal = Math.max(0, cur + dir * 1 * mult); setMaxItems(newVal); onChange(buildPatchWithAnnotations({ maxItems: newVal })); }} onChange={e => setMaxItems(e.target.value === '' ? undefined : Number(e.target.value))} onBlur={() => {
                         if (maxItems !== undefined && maxItems < 0) setMinMaxItemsError('maxItems must be >= 0');
                         else if (minItems !== undefined && maxItems !== undefined && maxItems < minItems) setMinMaxItemsError('maxItems must be >= minItems');
                         else { setMinMaxItemsError(null); onChange(buildPatchWithAnnotations({ maxItems })); }
                       }} style={{ flex: 1, marginTop: 2, padding: 4, borderRadius: 4, border: '1px solid #ccc' }} />
+                      </label>
                       <button type="button" onClick={() => { setMaxItems(undefined); onChange(buildPatchWithAnnotations({ maxItems: undefined })); }} className={styles.removeControl} title="Remove maxItems">×</button>
                       {minMaxItemsError && <div style={{ color: '#e53935', fontSize: 12, marginTop: 6 }}>{minMaxItemsError}</div>}
-                    </label>
+                    </div>
                   )}
                 </>
               )}

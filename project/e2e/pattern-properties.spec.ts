@@ -68,7 +68,7 @@ test.describe('PatternProperties E2E', () => {
     await clickTab('Schema Editor');
 
     // Wait for the Graphical Editor panel to be visible
-    await page.waitForSelector('text=Graphical Schema Editor', { timeout: 60000 });
+    await page.waitForSelector('.react-flow', { timeout: 60000 });
 
     // Ensure the 'jobs' node is present and right-click it
     const jobsNode = await page.getByText('jobs').first();

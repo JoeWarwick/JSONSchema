@@ -3,14 +3,9 @@
  */
 export function schemaNodeDataToSchema(node: SchemaNodeData): Record<string, unknown> {
   const schema: Record<string, unknown> = {
-    type: node.type === 'image' ? 'string' : node.type,
+    type: node.type,
     title: node.label,
   };
-  // Default annotations for internal `image` node type
-  if (node.type === 'image') {
-    if (node.format === undefined) schema.format = 'data-url';
-    if (node.contentMediaType === undefined) schema.contentMediaType = 'image/*';
-  }
   if (node.format !== undefined) schema.format = node.format;
   if (node.contentMediaType !== undefined) schema.contentMediaType = node.contentMediaType;
   if (node.pattern !== undefined) schema.pattern = node.pattern;
@@ -26,6 +21,8 @@ export function schemaNodeDataToSchema(node: SchemaNodeData): Record<string, unk
   if (node.multipleOf !== undefined) schema.multipleOf = node.multipleOf;
   if (node.minItems !== undefined) schema.minItems = node.minItems;
   if (node.maxItems !== undefined) schema.maxItems = node.maxItems;
+  if (node.minProperties !== undefined) (schema as any).minProperties = node.minProperties;
+  if (node.maxProperties !== undefined) (schema as any).maxProperties = node.maxProperties;
   if (node.uniqueItems !== undefined) schema.uniqueItems = node.uniqueItems;
   if (node.readOnly !== undefined) schema.readOnly = node.readOnly;
   if (node.writeOnly !== undefined) schema.writeOnly = node.writeOnly;
@@ -239,6 +236,8 @@ export interface SchemaNodeData {
   multipleOf?: number;
   minItems?: number;
   maxItems?: number;
+  minProperties?: number;
+  maxProperties?: number;
   uniqueItems?: boolean;
   readOnly?: boolean;
   writeOnly?: boolean;
@@ -249,6 +248,25 @@ export interface SchemaNodeData {
   $ref?: string;
   contentMediaType?: string;
   additionalProperties?: boolean | Record<string, unknown>;
+  // Combiner node fields (type === 'combiner')
+  combinerType?: 'oneOf' | 'anyOf' | 'allOf';
+  variantCount?: number;
+  // Variant node fields (type === 'variant')
+  isCombinerVariant?: boolean;
+  variantIndex?: number;
+  variantRef?: string;
+  variantResolved?: boolean;
+  variantExpanded?: boolean;
+  variantSchema?: Record<string, unknown>;
+  isResolving?: boolean;
+  // Handler callbacks injected into combiner/variant node data by GraphicalSchemaEditor
+  onToggleVariant?: (id: string) => void;
+  onAddVariant?: (id: string) => void;
+  onChangeCombinerType?: (id: string, type: string) => void;
+  onDeleteVariant?: (id: string) => void;
+  // Combiner expand/collapse all variants at once
+  variantsExpanded?: boolean;
+  onToggleVariants?: (id: string) => void;
 }
 
 export interface GraphicalSchemaEditorProps {

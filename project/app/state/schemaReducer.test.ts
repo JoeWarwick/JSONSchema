@@ -81,6 +81,47 @@ describe("schemaReducer rehydrate behavior", () => {
     expect(found).toBe(true);
   });
 
+  test("APPLY_RESOLVED_EDIT preserves draft-07 definitions for ref dropdown usage", () => {
+    const sourceWithDefinitions = {
+      $schema: "http://json-schema.org/draft-07/schema#",
+      type: "object",
+      properties: {
+        concurrency: { $ref: "#/definitions/concurrency" }
+      },
+      definitions: {
+        concurrency: {
+          type: "object",
+          properties: {
+            group: { type: "string" }
+          },
+          required: ["group"]
+        }
+      }
+    } as any;
+
+    const resolvedEditorView = {
+      type: "object",
+      properties: {
+        concurrency: {
+          type: "object",
+          properties: {
+            group: { type: "string" },
+            "cancel-in-progress": { type: "boolean" }
+          },
+          required: ["group"]
+        }
+      }
+    } as any;
+
+    const state0 = initialSchemaState(sourceWithDefinitions);
+    const state1 = schemaReducer(state0, { type: APPLY_RESOLVED_EDIT, payload: resolvedEditorView });
+    const persistable = getPersistableSource(state1) as any;
+
+    expect(persistable).toBeTruthy();
+    expect(persistable.definitions).toBeTruthy();
+    expect(persistable.definitions.concurrency).toBeTruthy();
+  });
+
   test("initial resolvedCache for sourceWithDefs contains only 'order' property", () => {
     const state0 = initialSchemaState(sourceWithDefs) as any;
     expect(state0.resolvedCache).toBeTruthy();
@@ -368,27 +409,86 @@ describe("schemaReducer rehydrate behavior", () => {
     throw new Error('Canonical persisted source did not stabilize within rounds');
   });
 
-  test("resolvedCache never contains top-level $defs", async () => {
-    // Check several source shapes to ensure resolvedCache is always an object-root without $defs
-    const cases = [sourceWithDefs, /* messySchema */ {
+  test("resolvedCache preserves $defs for editor access (especially ref button)", async () => {
+    // When a schema has $defs, they must be preserved in resolvedCache so the editor
+    // can access them for features like the ref type button. This is essential for
+    // allowing users to reference definitions when editing schemas.
+    const sourceWithDefinitions = {
+      $id: "https://example.com/test.schema.json",
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      type: "object",
+      properties: {
+        userId: { type: "string" },
+        profile: { $ref: "#/$defs/userProfile" },
+      },
       $defs: {
-        a: { type: 'object', properties: { x: { type: 'string' } } }
-      }
-    }, {
-      type: 'object', properties: { foo: { type: 'string' } }
-    }];
+        userProfile: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            email: { type: "string" },
+          },
+        },
+        address: {
+          type: "object",
+          properties: {
+            street: { type: "string" },
+            city: { type: "string" },
+          },
+        },
+      },
+    } as any;
 
-    for (const src of cases) {
-      const s0 = initialSchemaState(src as any) as any;
-      expect(s0.resolvedCache).toBeTruthy();
-      // top-level $defs should not appear on resolvedCache
-      expect((s0.resolvedCache as any).$defs).toBeUndefined();
+    // Initial state should preserve $defs for editor access
+    const s0 = initialSchemaState(sourceWithDefinitions) as any;
+    expect(s0.resolvedCache).toBeTruthy();
+    expect((s0.resolvedCache as any).$defs).toBeDefined();
+    expect(Object.keys((s0.resolvedCache as any).$defs || {})).toContain("userProfile");
+    expect(Object.keys((s0.resolvedCache as any).$defs || {})).toContain("address");
 
-      // Simulate async resolver result being applied by reducer
-      const resolved = await resolveSchema(src as any) as any;
-      const s1 = schemaReducer(s0, { type: APPLY_RESOLVED_EDIT, payload: resolved });
-      expect(s1.resolvedCache).toBeTruthy();
-      expect((s1.resolvedCache as any).$defs).toBeUndefined();
-    }
+    // After async resolution, $defs should still be present
+    const resolved = await resolveSchema(sourceWithDefinitions) as any;
+    const s1 = schemaReducer(s0, { type: APPLY_RESOLVED_EDIT, payload: resolved });
+    expect(s1.resolvedCache).toBeTruthy();
+    expect((s1.resolvedCache as any).$defs).toBeDefined();
+    expect(Object.keys((s1.resolvedCache as any).$defs || {})).toContain("userProfile");
+    expect(Object.keys((s1.resolvedCache as any).$defs || {})).toContain("address");
+  });
+
+  test("resolvedCache preserves $defs when source has definitions", async () => {
+    // Test that $defs are preserved in the most common case: modern JSON Schema with $defs
+    const sourceWithDefs = {
+      $defs: {
+        userProfile: {
+          type: "object",
+          properties: { name: { type: "string" } },
+        },
+        address: {
+          type: "object",
+          properties: { street: { type: "string" } },
+        },
+      },
+      type: "object",
+      properties: {
+        item: { $ref: "#/$defs/userProfile" },
+      },
+    };
+
+    const s0 = initialSchemaState(sourceWithDefs as any) as any;
+    expect(s0.resolvedCache).toBeTruthy();
+    // Should preserve $defs
+    const cache = s0.resolvedCache as any;
+    expect(cache.$defs).toBeDefined();
+    expect(Object.keys(cache.$defs || {})).toContain("userProfile");
+    expect(Object.keys(cache.$defs || {})).toContain("address");
+
+    // After async resolution, should still preserve them
+    const resolved = await resolveSchema(sourceWithDefs as any) as any;
+    const s1 = schemaReducer(s0, { type: APPLY_RESOLVED_EDIT, payload: resolved });
+    expect(s1.resolvedCache).toBeTruthy();
+    const cache1 = s1.resolvedCache as any;
+    expect(cache1.$defs).toBeDefined();
+    expect(Object.keys(cache1.$defs || {})).toContain("userProfile");
+    expect(Object.keys(cache1.$defs || {})).toContain("address");
   });
 });

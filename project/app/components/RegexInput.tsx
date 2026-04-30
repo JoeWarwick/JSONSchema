@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import styles from './regex-input.module.css';
-import { Badge } from './ui/badge/badge';
 
 interface RegexInputProps {
   value: string;
@@ -9,6 +8,7 @@ interface RegexInputProps {
   onBlur?: () => void;
   className?: string;
   placeholder?: string;
+  'aria-label'?: string;
 }
 
 const COMMON_TOKENS = [
@@ -35,7 +35,7 @@ const TEMPLATES = [
   { name: 'Phone Number (US)', value: '^\\(\\d{3}\\)\\s\\d{3}-\\d{4}$' },
 ];
 
-export function RegexInput({ value, onChange, onBlur, className, placeholder }: RegexInputProps) {
+export function RegexInput({ value, onChange, onBlur, className, placeholder, 'aria-label': ariaLabel }: RegexInputProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [testValue, setTestValue] = useState('');
   const [isValid, setIsValid] = useState(true);
@@ -122,6 +122,7 @@ export function RegexInput({ value, onChange, onBlur, className, placeholder }: 
             onBlur={onBlur}
             onKeyDown={handleKeyDown}
             placeholder={placeholder || "^regex$"}
+            aria-label={ariaLabel}
           />
         </Popover.Trigger>
 
