@@ -11,7 +11,7 @@ const BASE = process.env.BASE_URL || 'http://localhost:5173';
 test.describe('Remote ref rendering E2E', () => {
   test('renders nested properties when resolved schema is persisted', async ({ page }) => {
     const resolved = {
-      $id: 'https://example.com/health-record.schema.json',
+      $id: 'http://localhost:5173/schemas/health-record.schema.json',
       type: 'object',
       properties: {
         emergencyContact: {
@@ -27,7 +27,12 @@ test.describe('Remote ref rendering E2E', () => {
     // Preload persisted schema into every page before navigation so the app
     // sees it on first paint (avoids timing issues where the app renders
     // a default view before test sets localStorage).
-    await page.context().addInitScript((s) => { try { localStorage.setItem('schema-sculptor-schema', s); } catch (_) {} }, JSON.stringify(resolved));
+    await page.context().addInitScript((s) => { 
+      try { 
+        localStorage.clear(); // Ensure clean state
+        localStorage.setItem('schema-sculptor-schema', s); 
+      } catch (_) {} 
+    }, JSON.stringify(resolved));
     await page.goto(BASE);
 
     // Open the Schema Input tab so the SchemaEditorForm is mounted
@@ -48,6 +53,22 @@ test.describe('Remote ref rendering E2E', () => {
       try { return document.documentElement.getAttribute('data-deref-complete') === '1' || (window as any).__schemaSculptorDerefComplete === true || !!localStorage.getItem('schema-sculptor-deref-complete'); } catch (e) { return false; }
     }, null, { timeout: 30000 });
 
+    // Properties are now collapsed by default, so expand the emergencyContact property
+    // First, ensure the schema form is fully rendered with the property visible
+    const emergencyContactInput = page.getByTestId('prop-emergencyContact-name')
+      .or(page.locator('textbox').filter({ hasText: 'emergencyContact' })).first();
+    await expect(emergencyContactInput).toBeVisible({ timeout: 10000 });
+    
+    // Look for the expand button - try different selectors
+    const expandBtn = page.locator('button[aria-label="Expand"]')
+      .or(page.locator('button:has-text("Expand")'))
+      .or(page.locator('button[title="Expand"]'))
+      .first();
+    
+    await expect(expandBtn).toBeVisible({ timeout: 15000 });
+    await expandBtn.click();
+    await page.waitForTimeout(700);
+
     await expect(page.locator('[data-testid="prop-firstName"]')).toBeVisible({ timeout: 15000 });
     await expect(page.locator('[data-testid="prop-phone"]')).toBeVisible({ timeout: 15000 });
   });
@@ -57,10 +78,10 @@ test.describe('Remote ref rendering E2E', () => {
     // dereferencing to fetch the remote $ref. It can be flaky depending on
     // network/CORS and resolver timing; keep skipped while debugging.
     const unresolved = {
-      $id: 'https://example.com/health-record.schema.json',
+      $id: 'http://localhost:5173/schemas/health-record.schema.json',
       type: 'object',
       properties: {
-        emergencyContact: { $ref: 'https://example.com/user-profile.schema.json' }
+        emergencyContact: { $ref: 'http://localhost:5173/schemas/user-profile.schema.json' }
       }
     } as any;
 
@@ -115,7 +136,12 @@ test.describe('Remote ref rendering E2E', () => {
 
     // Ensure persisted unresolved schema is present on page load. Use both
     // an init script and an explicit write+reload to be robust in CI.
-    await page.context().addInitScript((s) => { try { localStorage.setItem('schema-sculptor-schema', s); } catch (_) {} }, JSON.stringify(unresolved));
+    await page.context().addInitScript((s) => { 
+      try { 
+        localStorage.clear(); // Ensure clean state
+        localStorage.setItem('schema-sculptor-schema', s); 
+      } catch (_) {} 
+    }, JSON.stringify(unresolved));
     await page.goto(BASE);
     // Also write and reload to guarantee the app reads the persisted value
     await page.evaluate((s) => { try { localStorage.setItem('schema-sculptor-schema', s); } catch (_) {} }, JSON.stringify(unresolved));
@@ -132,7 +158,9 @@ test.describe('Remote ref rendering E2E', () => {
     try {
       const out = 'test-results/persisted-schema-dump.json';
       fs.writeFileSync(out, JSON.stringify({ persisted: persistedAfterLoad, ts: Date.now() }, null, 2));
-    } catch (_) {}
+    } catch (_) {
+      // ignore file write errors
+    }
 
     // Fallback: if persisted schema is missing shortly after load, write
     // the local copy of the referenced schema (user-profile) into localStorage
@@ -198,7 +226,27 @@ test.describe('Remote ref rendering E2E', () => {
     } catch (_) {}
 
     const badge = page.locator('[data-testid="schema-source-badge"]');
-    await expect(badge).toHaveText('resolved', { timeout: 30000 });
+    await expect(badge).toHaveText('Source: resolved', { timeout: 30000 });
+    
+    // Ensure form is fully rendered before looking for expand button
+    // Add a small stabilization wait after badge appears
+    await page.waitForTimeout(1000);
+    
+    // Properties are now collapsed by default, so expand the emergencyContact property to see nested fields
+    // First ensure the property is visible in the form
+    const emergencyContactInput2 = page.getByTestId('prop-emergencyContact-name')
+      .or(page.locator('textbox').filter({ hasText: 'emergencyContact' })).first();
+    await expect(emergencyContactInput2).toBeVisible({ timeout: 15000 });
+    
+    const expandBtn2 = page.locator('button[aria-label="Expand"]')
+      .or(page.locator('button:has-text("Expand")'))
+      .or(page.locator('button[title="Expand"]'))
+      .first();
+    
+    await expect(expandBtn2).toBeVisible({ timeout: 15000 });
+    await expandBtn2.click();
+    await page.waitForTimeout(700);
+    
     await expect(page.locator('[data-testid="prop-firstName"]')).toBeVisible({ timeout: 30000 });
     await expect(page.locator('[data-testid="prop-phone"]')).toBeVisible({ timeout: 30000 });
   });
