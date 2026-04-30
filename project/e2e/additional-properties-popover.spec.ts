@@ -9,6 +9,7 @@ test.describe('additionalProperties popover', () => {
     const schemaWithAp = { type: 'object', additionalProperties: { type: 'string' } } as any;
 
     // Inject the schema into localStorage before the app loads
+    // eslint-disable-next-line no-empty
     await page.context().addInitScript((s) => { try { localStorage.setItem('schema-sculptor-schema', s); } catch (_) {} }, JSON.stringify(schemaWithAp));
     await page.goto(BASE);
 

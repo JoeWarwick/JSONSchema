@@ -23,6 +23,7 @@ test.describe('Workbench E2E', () => {
   test('loading unresolved defs schema from localStorage renders object root', async ({ page }) => {
     // Inject the resolved schema into localStorage before the page loads to ensure
     // the app's initial bootstrap sees a persisted schema (avoids race on initial load)
+    // eslint-disable-next-line no-empty
     await page.context().addInitScript((s) => { try { localStorage.setItem('schema-sculptor-schema', s); } catch (_) {} }, JSON.stringify(resolvedSchema));
     await page.goto(BASE);
 

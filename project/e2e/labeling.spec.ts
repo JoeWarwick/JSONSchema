@@ -1,39 +1,4 @@
 import { test, expect } from '@playwright/test';
-
-const ghaSubset = {
-  "type": "object",
-  "properties": {
-    "jobs": {
-      "type": "object",
-      "patternProperties": {
-        "^[_a-zA-Z][a-zA-Z0-9_-]*$": {
-          "oneOf": [
-            {
-              "title": "Normal Job",
-              "type": "object",
-              "properties": {
-                "runs-on": {
-                  "anyOf": [
-                    { "type": "string", "$comment": "https://example.com/github-hosted-runners" },
-                    { "type": "array", "$comment": "https://example.com/self-hosted-runners" },
-                    { "$ref": "#/definitions/expressionSyntax" }
-                  ]
-                }
-              }
-            }
-          ]
-        }
-      }
-    }
-  },
-  "definitions": {
-    "expressionSyntax": {
-      "type": "string",
-      "pattern": "^\\$\\{\\{.*\\}\\}$"
-    }
-  }
-};
-
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 test.describe('Labeling E2E', () => {
@@ -65,7 +30,9 @@ test.describe('Labeling E2E', () => {
       try {
         localStorage.clear();
         localStorage.setItem('schema-sculptor-schema', s);
-      } catch (_) {}
+      } catch (_) {
+        // intentionally empty - localStorage may not be available in some contexts
+      }
     }, JSON.stringify(simpleLabelSchema));
     
     await page.goto(BASE);
@@ -115,7 +82,9 @@ test.describe('Labeling E2E', () => {
       try {
         localStorage.clear();
         localStorage.setItem('schema-sculptor-schema', s);
-      } catch (_) {}
+      } catch (_) {
+        // intentionally empty - localStorage may not be available in some contexts
+      }
     }, JSON.stringify(ghaPrefixSchema));
 
     await page.goto(BASE);

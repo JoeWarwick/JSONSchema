@@ -31,7 +31,9 @@ test.describe('Remote ref rendering E2E', () => {
       try { 
         localStorage.clear(); // Ensure clean state
         localStorage.setItem('schema-sculptor-schema', s); 
-      } catch (_) {} 
+      } catch (_) {
+        // intentionally empty - localStorage may not be available in some contexts
+      } 
     }, JSON.stringify(resolved));
     await page.goto(BASE);
 
@@ -140,10 +142,13 @@ test.describe('Remote ref rendering E2E', () => {
       try { 
         localStorage.clear(); // Ensure clean state
         localStorage.setItem('schema-sculptor-schema', s); 
-      } catch (_) {} 
+      } catch (_) {
+        // intentionally empty - localStorage may not be available in some contexts
+      } 
     }, JSON.stringify(unresolved));
     await page.goto(BASE);
     // Also write and reload to guarantee the app reads the persisted value
+    // eslint-disable-next-line no-empty
     await page.evaluate((s) => { try { localStorage.setItem('schema-sculptor-schema', s); } catch (_) {} }, JSON.stringify(unresolved));
     await page.reload();
 
@@ -179,6 +184,7 @@ test.describe('Remote ref rendering E2E', () => {
         const nowPersisted = await page.evaluate(() => { try { return localStorage.getItem('schema-sculptor-schema'); } catch (_) { return null; } });
         if (!nowPersisted) {
           // write fallback resolved schema and reload so app picks it up
+          // eslint-disable-next-line no-empty
           await page.evaluate((s) => { try { localStorage.setItem('schema-sculptor-schema', s); } catch (_) {} }, fallbackBody);
           // eslint-disable-next-line no-console
           console.log('[TEST DEBUG] wrote fallback persisted schema and reloading');
@@ -222,8 +228,12 @@ test.describe('Remote ref rendering E2E', () => {
       });
       // eslint-disable-next-line no-console
       console.log('[TEST DEBUG] __schemaResolverDebug:', resolverDebug ? JSON.stringify(resolverDebug) : 'null');
-      try { fs.writeFileSync('test-results/schema-resolver-debug.json', JSON.stringify(resolverDebug, null, 2)); } catch (_) {}
-    } catch (_) {}
+      try { fs.writeFileSync('test-results/schema-resolver-debug.json', JSON.stringify(resolverDebug, null, 2)); } catch (_) {
+        // intentionally empty - file write may fail
+      }
+    } catch (_) {
+      // intentionally empty - localStorage operations may fail
+    }
 
     const badge = page.locator('[data-testid="schema-source-badge"]');
     await expect(badge).toHaveText('Source: resolved', { timeout: 30000 });
