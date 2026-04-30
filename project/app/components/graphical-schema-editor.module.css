@@ -447,7 +447,7 @@
   border: 1px solid var(--color-accent-7, #7c3aed);
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.5);
-  z-index: 9999;
+  z-index: var(--z-index-dropdown);
   min-width: 110px;
   overflow: hidden;
   padding: 3px;

@@ -632,7 +632,7 @@ export default function Workbench() {
       {/* ── App menu bar ────────────────────────────────────────────── */}
       <div className={styles.menuBar}>
         <span className={styles.menuLogo}>Schema Sculptor</span>
-        <Menubar>
+        <Menubar loop>
           {/* Language selector */}
           <MenubarMenu>
             <MenubarTrigger>Language</MenubarTrigger>

@@ -69,10 +69,6 @@
   animation: contentShow 150ms var(--ease);
 }
 
-.content[data-state="closed"] {
-  animation: contentHide 150ms var(--ease);
-}
-
 .subContent {
   z-index: 5;
   overflow: hidden;
