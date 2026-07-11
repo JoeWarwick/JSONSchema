@@ -19,42 +19,68 @@ export function validateSchema(schema: Record<string, unknown>): string | null {
 /**
  * Generates a JSON Schema from a given JSON object
  */
-export function generateSchema(json: unknown): Record<string, unknown> {
+export function generateSchema(json: unknown, depth = 0, ancestors = new WeakSet<object>()): Record<string, unknown> {
+  const MAX_DEPTH = 30;
+
+  if (depth >= MAX_DEPTH) {
+    return { type: Array.isArray(json) ? "array" : "object", description: "Maximum recursion depth reached" };
+  }
+
   if (json === null) {
     return { type: "null" };
   }
 
   if (Array.isArray(json)) {
-    if (json.length === 0) {
+    if (ancestors.has(json)) {
+      return { type: "array", description: "Circular reference detected" };
+    }
+
+    ancestors.add(json);
+    try {
+      if (json.length === 0) {
+        return {
+          type: "array",
+          items: {},
+        };
+      }
       return {
         type: "array",
-        items: {},
+        items: generateSchema(json[0], depth + 1, ancestors),
       };
+    } finally {
+      ancestors.delete(json);
     }
-    return {
-      type: "array",
-      items: generateSchema(json[0]),
-    };
   }
 
   const type = typeof json;
 
   if (type === "object") {
-    const properties: Record<string, unknown> = {};
-    const required: string[] = [];
+    const objectValue = json as Record<string, unknown>;
 
-    for (const [key, value] of Object.entries(json as Record<string, unknown>)) {
-      properties[key] = generateSchema(value);
-      if (value !== null && value !== undefined) {
-        required.push(key);
-      }
+    if (ancestors.has(objectValue)) {
+      return { type: "object", description: "Circular reference detected" };
     }
 
-    return {
-      type: "object",
-      properties,
-      required: required.length > 0 ? required : undefined,
-    };
+    ancestors.add(objectValue);
+    try {
+      const properties: Record<string, unknown> = {};
+      const required: string[] = [];
+
+      for (const [key, value] of Object.entries(objectValue)) {
+        properties[key] = generateSchema(value, depth + 1, ancestors);
+        if (value !== null && value !== undefined) {
+          required.push(key);
+        }
+      }
+
+      return {
+        type: "object",
+        properties,
+        required: required.length > 0 ? required : undefined,
+      };
+    } finally {
+      ancestors.delete(objectValue);
+    }
   }
 
   if (type === "string") {

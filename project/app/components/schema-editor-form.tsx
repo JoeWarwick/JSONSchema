@@ -412,7 +412,7 @@ export function SchemaEditorForm({
         )}
         
         {isImported && !renderType && (
-          <div style={{ marginBottom: 16, padding: '12px 16px', background: 'var(--color-accent-2)', border: '1px solid var(--color-accent-6)', borderRadius: 8, color: 'var(--color-accent-12)', fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+          <div style={{ marginBottom: 16, padding: '12px 16px', background: 'var(--color-accent-2)', border: '1px solid var(--color-accent-6)', borderRadius: 8, color: 'var(--color-accent-12)', fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', minWidth: 0, maxWidth: '100%' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
               <button
                 type="button"
@@ -427,9 +427,9 @@ export function SchemaEditorForm({
               >
                 {isResolving ? <Loader2 className={styles.loadingSpinner} size={14} /> : <ChevronRight size={14} />}
               </button>
-              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
                 <span style={{ fontWeight: 800, fontSize: '10px', textTransform: 'uppercase', marginRight: 8, opacity: 0.8 }}>Imported Ref:</span>
-                <code>{String((schema as any).$ref || (schema as any).allOf?.find((e: any) => e.$ref)?.$ref || 'External')}</code>
+                <code style={{ display: 'block', maxWidth: '100%', whiteSpace: 'normal', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{String((schema as any).$ref || (schema as any).allOf?.find((e: any) => e.$ref)?.$ref || 'External')}</code>
               </div>
             </div>
           </div>
@@ -748,6 +748,8 @@ export function SchemaEditorForm({
                 <>
                   {!('format' in schema) && (<button type="button" className={styles.addSmall} onClick={() => updateSchema({ format: 'date-time' })}>+ format</button>)}
                   {!('pattern' in schema) && (<button type="button" className={styles.addSmall} onClick={() => updateSchema({ pattern: '^.*$' })}>+ pattern</button>)}
+                  {!('contentMediaType' in schema) && (<button type="button" className={styles.addSmall} onClick={() => updateSchema({ contentMediaType: 'text/html' })}>+ mediaType</button>)}
+                  {!('contentEncoding' in schema) && (<button type="button" className={styles.addSmall} onClick={() => updateSchema({ contentEncoding: 'base64' })}>+ encoding</button>)}
                 </>
               )}
 
@@ -774,7 +776,7 @@ export function SchemaEditorForm({
               )}
             </div>
 
-            {(renderType === "string" && !schema.enum && ('format' in schema || 'pattern' in schema)) && (
+            {(renderType === "string" && !schema.enum && ('format' in schema || 'pattern' in schema || 'contentMediaType' in schema || 'contentEncoding' in schema)) && (
             <div className={styles.inlineAdd}>
               {'format' in schema ? (
                 <div className={styles.fieldRow}>
@@ -834,6 +836,87 @@ export function SchemaEditorForm({
                       onChange(next);
                     }}
                     title="Remove pattern"
+                  >
+                    <Trash2 size={16} color="#f59e0b" />
+                  </button>
+                </div>
+              ) : null}
+
+              {'contentMediaType' in schema ? (
+                <div className={styles.fieldRow}>
+                  <label className={styles.label}>Media Type</label>
+                  <select
+                    className={styles.select}
+                    value={(schema.contentMediaType as string) || ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "") {
+                        const next = { ...schema } as Record<string, unknown>;
+                        delete next.contentMediaType;
+                        onChange(next);
+                      } else {
+                        updateSchema({ contentMediaType: v });
+                      }
+                    }}
+                  >
+                    <option value="">— Select media type —</option>
+                    <option value="text/html">text/html</option>
+                    <option value="text/css">text/css</option>
+                    <option value="text/javascript">text/javascript</option>
+                    <option value="application/json">application/json</option>
+                    <option value="image/png">image/png</option>
+                    <option value="image/jpeg">image/jpeg</option>
+                    <option value="image/svg+xml">image/svg+xml</option>
+                    <option value="application/pdf">application/pdf</option>
+                  </select>
+                  <button
+                    type="button"
+                    className={styles.removeSmall}
+                    onClick={() => {
+                      const next = { ...schema } as Record<string, unknown>;
+                      delete next.contentMediaType;
+                      onChange(next);
+                    }}
+                    title="Remove media type"
+                  >
+                    <Trash2 size={16} color="#f59e0b" />
+                  </button>
+                </div>
+              ) : null}
+
+              {'contentEncoding' in schema ? (
+                <div className={styles.fieldRow}>
+                  <label className={styles.label}>Encoding</label>
+                  <select
+                    className={styles.select}
+                    value={(schema.contentEncoding as string) || ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "") {
+                        const next = { ...schema } as Record<string, unknown>;
+                        delete next.contentEncoding;
+                        onChange(next);
+                      } else {
+                        updateSchema({ contentEncoding: v });
+                      }
+                    }}
+                  >
+                    <option value="">— Select encoding —</option>
+                    <option value="base64">base64</option>
+                    <option value="quoted-printable">quoted-printable</option>
+                    <option value="8bit">8bit</option>
+                    <option value="7bit">7bit</option>
+                    <option value="binary">binary</option>
+                  </select>
+                  <button
+                    type="button"
+                    className={styles.removeSmall}
+                    onClick={() => {
+                      const next = { ...schema } as Record<string, unknown>;
+                      delete next.contentEncoding;
+                      onChange(next);
+                    }}
+                    title="Remove encoding"
                   >
                     <Trash2 size={16} color="#f59e0b" />
                   </button>
@@ -1619,9 +1702,9 @@ export function SchemaEditorForm({
       )}
 
       {schema.$ref && typeof schema.$ref === 'string' && path.length > 0 ? (
-        <div style={{ marginTop: 12, padding: '8px 12px', background: 'var(--color-accent-2)', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-accent-11)' }}>
-            Ref: <code style={{ fontFamily: 'monospace', fontSize: '10px' }}>{schema.$ref}</code>
+        <div className={styles.refDisplayBanner}>
+          <span className={styles.refDisplayLabel}>
+            Ref: <code className={styles.refDisplayCode}>{schema.$ref}</code>
           </span>
           <div style={{ flex: 1 }} />
           <button

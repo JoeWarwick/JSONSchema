@@ -286,6 +286,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       if (obj.format !== undefined) nodeData.format = obj.format;
       if (obj.pattern !== undefined) nodeData.pattern = obj.pattern;
       if (obj.description !== undefined) nodeData.description = obj.description;
+      if (obj.contentMediaType !== undefined) nodeData.contentMediaType = obj.contentMediaType;
+      if (obj.contentEncoding !== undefined) nodeData.contentEncoding = obj.contentEncoding;
       // Preserve $comment into node data for rendering as a tooltip on a note icon
       if (obj.$comment !== undefined) nodeData.$comment = obj.$comment;
       if (Array.isArray(obj.enum)) nodeData.enum = obj.enum;
@@ -745,6 +747,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     const schema: Record<string, unknown> = { type: root.data.type, title: root.data.label };
     // Preserve root annotation fields (description and $comment)
     if (root.data && root.data.description !== undefined) schema.description = root.data.description as string;
+    if (root.data && root.data.contentMediaType !== undefined) schema.contentMediaType = root.data.contentMediaType as string;
+    if (root.data && root.data.contentEncoding !== undefined) schema.contentEncoding = root.data.contentEncoding as string;
     if (root.data && (root.data as any).$comment !== undefined) schema.$comment = (root.data as any).$comment;
     const props: Record<string, unknown> = {};
     allNodes.forEach(n => {

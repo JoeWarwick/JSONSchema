@@ -332,6 +332,44 @@ describe('SchemaEditorForm UI', () => {
   it('Edit button opens the floating editor', async () => {
     const initial = { type: 'object', additionalProperties: { type: 'string' } } as any;
 
+
+    it('wraps long nested ref paths in the imported ref banner', async () => {
+      const schema = {
+        type: 'object',
+        $ref: '#/$defs/SomeExtremelyLongDefinitionNameThatWouldOtherwiseStretchThePanel',
+        $defs: {
+          SomeExtremelyLongDefinitionNameThatWouldOtherwiseStretchThePanel: {
+            type: 'object',
+            properties: {
+              child: { type: 'string' },
+            },
+          },
+        },
+      } as any;
+
+      render(
+        <TooltipProvider>
+          <SchemaEditorForm schema={schema} path={['child']} onChange={() => {}} />
+        </TooltipProvider>
+      );
+
+      const refBanner = await screen.findByText(/Ref:/i);
+      const banner = refBanner.closest('div');
+      const code = refBanner.querySelector?.('code') ?? refBanner.parentElement?.querySelector('code');
+
+      expect(banner).toBeInTheDocument();
+      expect(code).toBeInTheDocument();
+      expect(banner).toHaveStyle({
+        maxWidth: '100%',
+        minWidth: '0px',
+        flexWrap: 'wrap',
+      });
+      expect(code).toHaveStyle({
+        whiteSpace: 'normal',
+        overflowWrap: 'anywhere',
+        wordBreak: 'break-word',
+      });
+    });
     function Controlled() {
       const [s, setS] = React.useState(initial);
       return (

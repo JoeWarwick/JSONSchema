@@ -4,9 +4,68 @@
 // - `rehydrateToRefs(original, edited)` writes edits back into original $defs
 // - `deepMerge(a,b)` deep-merge helper
 
+function cloneSchemaValue<T>(value: T): T {
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(value);
+    } catch (_) {
+      // fall through to JSON clone
+    }
+  }
+
+  return JSON.parse(JSON.stringify(value));
+}
+
 export async function resolveSchema(schema: Record<string, unknown> | null): Promise<Record<string, unknown> | null> {
   if (!schema || typeof schema !== 'object') return schema;
   const debug = typeof process !== 'undefined' && !!(process as any).env && !!(process as any).env.SCHEMA_RESOLVER_DEBUG;
+
+  const traverseTree = async (
+    root: any,
+    visit: (node: any, parent: any, key: string | number | undefined, depth: number, path: string) => Promise<any> | any,
+    maxDepth = 30
+  ) => {
+    if (!root || typeof root !== 'object') return root;
+
+    const visited = new WeakSet<object>();
+    const stack: Array<{ node: any; parent: any; key?: string | number; depth: number; path: string }> = [
+      { node: root, parent: null, depth: 0, path: '#' }
+    ];
+
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current) continue;
+
+      const { node, parent, key, depth, path } = current;
+      if (!node || typeof node !== 'object' || depth > maxDepth) continue;
+      if (visited.has(node)) continue;
+      visited.add(node);
+
+      const replacement = await visit(node, parent, key, depth, path);
+      const activeNode = typeof replacement !== 'undefined' ? replacement : node;
+
+      if (parent && typeof key !== 'undefined' && typeof replacement !== 'undefined') {
+        parent[key as any] = replacement;
+      }
+
+      if (!activeNode || typeof activeNode !== 'object') continue;
+
+      if (Array.isArray(activeNode)) {
+        for (let i = activeNode.length - 1; i >= 0; i--) {
+          stack.push({ node: activeNode[i], parent: activeNode, key: i, depth: depth + 1, path: `${path}[${i}]` });
+        }
+        continue;
+      }
+
+      const keys = Object.keys(activeNode);
+      for (let i = keys.length - 1; i >= 0; i--) {
+        const childKey = keys[i];
+        stack.push({ node: activeNode[childKey], parent: activeNode, key: childKey, depth: depth + 1, path: path === '#' ? `#/${childKey}` : `${path}/${childKey}` });
+      }
+    }
+
+    return root;
+  };
 
   // Inline external https refs by fetching and replacing $ref nodes.
   const inlineExternalRefs = async (input: any) => {
@@ -23,17 +82,12 @@ export async function resolveSchema(schema: Record<string, unknown> | null): Pro
       return body;
     };
 
-    const cloned = JSON.parse(JSON.stringify(input));
-    const walk = async (node: any, parent: any, key?: string) => {
-      if (!node || typeof node !== 'object') return;
-      if (Array.isArray(node)) {
-        for (let i = 0; i < node.length; i++) await walk(node[i], node, i.toString());
-        return;
-      }
+    const cloned = cloneSchemaValue(input);
+    await traverseTree(cloned, async (node: any) => {
       if (node.$ref && typeof node.$ref === 'string' && /^https?:\/\//i.test(node.$ref)) {
         try {
           const remote = await fetchUrl(node.$ref);
-          let clone = typeof remote === 'string' ? JSON.parse(remote) : JSON.parse(JSON.stringify(remote));
+          let clone = typeof remote === 'string' ? JSON.parse(remote) : cloneSchemaValue(remote);
           if (clone && typeof clone === 'object') {
             delete clone.$id;
             delete clone.$schema;
@@ -51,16 +105,13 @@ export async function resolveSchema(schema: Record<string, unknown> | null): Pro
             }
             clone.__from = node.$ref;
           }
-          if (parent && typeof key !== 'undefined') parent[key] = clone;
-          await walk(clone, parent, key);
-          return;
+          return clone;
         } catch (_) {
-          return;
+          return undefined;
         }
       }
-      for (const k of Object.keys(node)) await walk(node[k], node, k);
-    };
-    await walk(cloned, null);
+      return undefined;
+    });
     return cloned;
   };
 
@@ -77,16 +128,11 @@ export async function resolveSchema(schema: Record<string, unknown> | null): Pro
       remoteCache.set(url, body);
       return body;
     };
-    const replaceRemoteRefs = async (node: any, parent: any, key?: string) => {
-      if (!node || typeof node !== 'object') return;
-      if (Array.isArray(node)) {
-        for (let i = 0; i < node.length; i++) await replaceRemoteRefs(node[i], node, i.toString());
-        return;
-      }
+    await traverseTree(root, async (node: any) => {
       if (node.$ref && typeof node.$ref === 'string' && /^https?:\/\//i.test(node.$ref)) {
         try {
           const remote = await fetchRemote(node.$ref);
-          let clone = typeof remote === 'string' ? JSON.parse(remote) : JSON.parse(JSON.stringify(remote));
+          let clone = typeof remote === 'string' ? JSON.parse(remote) : cloneSchemaValue(remote);
           try {
             const keys = Object.keys(clone || {});
             const looksLikeDefs = keys.length > 0 && keys.every(k => {
@@ -100,16 +146,13 @@ export async function resolveSchema(schema: Record<string, unknown> | null): Pro
             // ignore
           }
           clone.__from = node.$ref;
-          if (parent && typeof key !== 'undefined') parent[key] = clone;
-          await replaceRemoteRefs(clone, parent, key);
-          return;
+          return clone;
         } catch (_) {
-          return;
+          return undefined;
         }
       }
-      for (const k of Object.keys(node)) await replaceRemoteRefs(node[k], node, k);
-    };
-    await replaceRemoteRefs(root, null);
+      return undefined;
+    });
     return root;
   };
 
@@ -119,7 +162,7 @@ export async function resolveSchema(schema: Record<string, unknown> | null): Pro
     try {
       const dk = obj.$defs ? '$defs' : (obj.definitions ? 'definitions' : null);
       if (dk && !obj.properties) {
-        const props = JSON.parse(JSON.stringify(obj[dk]));
+        const props = cloneSchemaValue(obj[dk]);
         const out: any = { type: 'object', properties: props };
         for (const k of Object.keys(obj)) {
           if (k === dk || k === '$id' || k === '$schema' || k === 'type' || k === 'properties') continue;
@@ -141,7 +184,7 @@ export async function resolveSchema(schema: Record<string, unknown> | null): Pro
   };
 
   // Helper to inline local references pointing to anchors or $defs in original
-  const inlineLocalRefsFromOriginal = (root: any, original: any) => {
+  const inlineLocalRefsFromOriginal = async (root: any, original: any) => {
     if (!root || typeof root !== 'object' || !original || typeof original !== 'object') return;
     try {
       const defsKey = original.$defs ? '$defs' : (original.definitions ? 'definitions' : null);
@@ -162,18 +205,7 @@ export async function resolveSchema(schema: Record<string, unknown> | null): Pro
         }
       }
 
-      const visited = new Set<any>();
-      const walk = (node: any, parent: any, key?: string | number, depth = 0) => {
-        if (!node || typeof node !== 'object' || depth > 25) return;
-        if (visited.has(node)) return;
-
-        if (Array.isArray(node)) {
-          node.forEach((n, i) => walk(n, node, i, depth + 1));
-          return;
-        }
-
-        visited.add(node);
-
+      await traverseTree(root, (node: any) => {
         if (node.$ref && typeof node.$ref === 'string' && node.$ref.startsWith('#')) {
           const ref = node.$ref as string;
           const target = anchorMap[ref] ||
@@ -181,17 +213,14 @@ export async function resolveSchema(schema: Record<string, unknown> | null): Pro
             anchorMap[ref.replace(/^#\/?/, '#/$defs/')] ||
             null;
           if (target) {
-            const clone = JSON.parse(JSON.stringify(target));
+            const clone = cloneSchemaValue(target);
             if (clone && typeof clone === 'object') { delete clone.$anchor; delete clone.$id; delete clone.$schema; }
             if (clone && typeof clone === 'object' && !clone.__from) clone.__from = ref;
-            if (parent && typeof key !== 'undefined') parent[key as any] = clone;
-            walk(clone, parent, key, depth + 1);
-            return;
+            return clone;
           }
         }
-        for (const k of Object.keys(node)) walk(node[k], node, k, depth + 1);
-      };
-      walk(root, null);
+        return undefined;
+      }, 30);
     } catch (_) {
       // ignore
     }
@@ -215,8 +244,8 @@ export async function resolveSchema(schema: Record<string, unknown> | null): Pro
   } catch (impErr) {
     if (debug) console.warn('[schema-resolver] parser import failed', impErr);
     if (preparedForParser) {
-      const res = normalizeResult(JSON.parse(JSON.stringify(preparedForParser)));
-      inlineLocalRefsFromOriginal(res, schema);
+      const res = normalizeResult(preparedForParser);
+      await inlineLocalRefsFromOriginal(res, schema);
       return res;
     }
     throw impErr;
@@ -248,19 +277,21 @@ export async function resolveSchema(schema: Record<string, unknown> | null): Pro
   try {
     let deref = await parserModule.dereference(docForParser, { resolve: { http: httpResolver } });
     deref = normalizeResult(deref);
-    try { inlineLocalRefsFromOriginal(deref, schema); } catch (_) {
+    try { await inlineLocalRefsFromOriginal(deref, schema); } catch (_) {
       // ignore
     }
 
     if (preparedForParser) {
+      const visitedMerge = new Set<any>();
       const mergePrepared = (target: any, src: any) => {
-        if (!src || typeof src !== 'object') return;
+        if (!src || typeof src !== 'object' || visitedMerge.has(src)) return;
         if (!target || typeof target !== 'object') return;
+        visitedMerge.add(src);
         for (const k of Object.keys(src)) {
           const s = src[k];
           const t = target[k];
           if (s && typeof s === 'object' && (!t || (t && typeof t === 'object' && (t.$ref && typeof t.$ref === 'string')))) {
-            target[k] = JSON.parse(JSON.stringify(s));
+              target[k] = s;
           } else if (s && typeof s === 'object' && t && typeof t === 'object') {
             mergePrepared(t, s);
           }
@@ -281,9 +312,9 @@ export async function resolveSchema(schema: Record<string, unknown> | null): Pro
   } catch (e) {
     if (debug) console.warn('[schema-resolver] parser dereference failed', e);
     if (preparedForParser) {
-      const fallback = normalizeResult(JSON.parse(JSON.stringify(preparedForParser)));
+      const fallback = normalizeResult(preparedForParser);
       try {
-        inlineLocalRefsFromOriginal(fallback, schema);
+        await inlineLocalRefsFromOriginal(fallback, schema);
       } catch (_) { /* ignore */ }
       return fallback as Record<string, unknown>;
     }
@@ -295,7 +326,7 @@ export function rehydrateToRefs(original: Record<string, any>, edited: Record<st
   if (!original || typeof original !== 'object') return edited;
   if (!edited || typeof edited !== 'object') return original;
 
-  const out = JSON.parse(JSON.stringify(original));
+  const out = cloneSchemaValue(original);
   const defsKey = out.$defs ? '$defs' : (out.definitions ? 'definitions' : null);
   const defs = defsKey ? out[defsKey] : null;
   const props = edited.properties && typeof edited.properties === 'object' ? edited.properties : null;
@@ -456,9 +487,19 @@ export function rehydrateSchema(original: Record<string, any>, edited: Record<st
   return deepMerge(original, edited);
 }
 
-function deepMerge(a: any, b: any): any {
+function deepMerge(a: any, b: any, visited = new WeakMap()): any {
+  return deepMergeWithDepth(a, b, visited, 0, 100);
+}
+
+function deepMergeWithDepth(a: any, b: any, visited = new WeakMap(), depth = 0, maxDepth = 100): any {
   if (a === null || a === undefined) return b;
   if (b === null || b === undefined) return a;
+  if (depth >= maxDepth) return b;
+  
+  if (typeof a === 'object' && typeof b === 'object') {
+    if (visited.has(a) && visited.get(a) === b) return a;
+    visited.set(a, b);
+  }
 
   // If we are merging two objects and the new one (b) is introducing polymorphic logic,
   // we must discard constraints (like 'type' or '$ref') from the old one (a)
@@ -489,7 +530,7 @@ function deepMerge(a: any, b: any): any {
     // reflecting exactly what the editor sees. But we'll still deep merge elements that align by index.
     const out = [...b];
     for (let i = 0; i < Math.min(a.length, b.length); i++) {
-      out[i] = deepMerge(a[i], b[i]);
+      out[i] = deepMergeWithDepth(a[i], b[i], visited, depth + 1, maxDepth);
     }
     return out;
   }
@@ -500,7 +541,7 @@ function deepMerge(a: any, b: any): any {
   const out: any = { ...a };
   for (const [k, v] of Object.entries(b)) {
     if (v !== null && typeof v === 'object' && a[k] !== null && typeof a[k] === 'object') {
-      out[k] = deepMerge(a[k], v);
+      out[k] = deepMergeWithDepth(a[k], v, visited, depth + 1, maxDepth);
     } else {
       out[k] = v;
     }
@@ -514,14 +555,22 @@ function deepMerge(a: any, b: any): any {
  */
 function syncNestedFromClue(propVal: any, defs: Record<string, any>, defKey: string): boolean {
   if (!propVal || typeof propVal !== 'object') return false;
-  
+
   let synced = false;
-  const walk = (node: any, defNode: any) => {
-    if (!node || typeof node !== 'object') return;
-    
+
+  const visited = new Set<any>();
+  const stack: Array<{ node: any; defNode: any }> = [{ node: propVal, defNode: defs[defKey] }];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) continue;
+    const { node, defNode } = current;
+    if (!node || typeof node !== 'object' || visited.has(node)) continue;
+    visited.add(node);
+
     for (const [k, v] of Object.entries(node)) {
       if (k === '__from') continue;
-      
+
       if (v && typeof v === 'object' && (v as any).__from) {
         const nestedDefKey = parseDefReference((v as any).__from);
         if (nestedDefKey && defs[nestedDefKey]) {
@@ -533,12 +582,11 @@ function syncNestedFromClue(propVal: any, defs: Record<string, any>, defKey: str
           synced = true;
         }
       } else if (v && typeof v === 'object' && defNode && defNode[k]) {
-        walk(v, defNode[k]);
+        stack.push({ node: v, defNode: defNode[k] });
       }
     }
-  };
-  
-  walk(propVal, defs[defKey]);
+  }
+
   return synced;
 }
 
@@ -551,8 +599,13 @@ function syncNestedFromClue(propVal: any, defs: Record<string, any>, defKey: str
 export function augmentSchemaForKnownIssues(schema: Record<string, unknown> | null | undefined): Record<string, unknown> | null | undefined {
   if (!schema || typeof schema !== 'object') return schema;
   try {
-    // Deep clone to avoid mutations
-    const augmented = JSON.parse(JSON.stringify(schema));
+    // Targeted clone to avoid mutating the caller while keeping memory use low.
+    const augmented: any = {
+      ...schema,
+      properties: schema.properties && typeof schema.properties === 'object'
+        ? { ...(schema.properties as Record<string, any>) }
+        : schema.properties,
+    };
 
     // Augment root-level concurrency: GitHub Actions supports concurrency as either
     // a string (group name) or object (group + cancel-in-progress).

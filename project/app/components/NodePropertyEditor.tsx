@@ -52,6 +52,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
   const [pattern, setPattern] = React.useState<string | undefined>(data.pattern);
   const [format, setFormat] = React.useState<string | undefined>(data.format);
   const [contentMediaType, setContentMediaType] = React.useState<string | undefined>(data.contentMediaType);
+  const [contentEncoding, setContentEncoding] = React.useState<string | undefined>(data.contentEncoding);
   const [description, setDescription] = React.useState<string | undefined>(data.description);
   const [comment, setComment] = React.useState<string | undefined>((data as any).$comment);
   const [minimum, setMinimum] = React.useState<number | undefined>(data.minimum);
@@ -108,6 +109,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
       deriveAdditionalPropertiesMode(effectiveAdditionalProperties, Boolean((data as any).isAdditionalProperties))
     );
     setContentMediaType(data.contentMediaType);
+    setContentEncoding(data.contentEncoding);
     setMinMaxLengthError(null);
     setMinMaxItemsError(null);
     setMinMaxPropertiesError(null);
@@ -226,6 +228,9 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     // contentMediaType (for images/media)
     if (override && Object.prototype.hasOwnProperty.call(override, 'contentMediaType')) base.contentMediaType = override.contentMediaType;
     else base.contentMediaType = override?.contentMediaType ?? contentMediaType;
+    // contentEncoding
+    if (override && Object.prototype.hasOwnProperty.call(override, 'contentEncoding')) base.contentEncoding = override.contentEncoding;
+    else base.contentEncoding = override?.contentEncoding ?? contentEncoding;
     // length constraints
     if (override && Object.prototype.hasOwnProperty.call(override, 'minLength')) base.minLength = override.minLength;
     else base.minLength = override?.minLength ?? minLength;
@@ -654,7 +659,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
       {!(type === 'boolean' || type === 'object' || type === 'null') && (
         <div style={{ borderTop: '1px dashed #eee', paddingTop: 10 }}>
         {type !== 'array' && !isEnum && (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 8 }}>
             {pattern === undefined ? (
               <button type="button" onClick={() => { setPattern(''); onChange(buildPatchWithAnnotations({ pattern: '' })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Pattern</button>
             ) : (
@@ -692,6 +697,60 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
                 <button type="button" onClick={() => { setFormat(undefined); onChange(buildPatchWithAnnotations({ format: undefined })); }} className={styles.removeControl} title="Remove format">×</button>
               </div>
             )}
+            {contentMediaType === undefined ? (
+               <button type="button" onClick={() => { setContentMediaType(''); onChange(buildPatchWithAnnotations({ contentMediaType: '' })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ MediaType</button>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 200 }}>
+                <label className={styles.facetCompactField} style={{ flex: 1 }}>
+                  <span className={styles.facetCompactTitle}>MediaType</span>
+                  <select 
+                    className={`${styles.facetCompactControl}`} 
+                    value={contentMediaType ?? ''} 
+                    onChange={e => {
+                      const val = e.target.value;
+                      setContentMediaType(val);
+                      onChange(buildPatchWithAnnotations({ contentMediaType: val }));
+                    }}
+                    style={{ width: '100%', marginTop: 2, padding: 6, borderRadius: 4, border: '1px solid #ccc', background: 'white', color: '#222' }}
+                    aria-label="Media Type"
+                  >
+                    <option value="">-Select-</option>
+                    <option value="text/html">text/html</option>
+                    <option value="text/css">text/css</option>
+                    <option value="text/javascript">text/javascript</option>
+                    <option value="text/markdown">text/markdown</option>
+                    <option value="application/json">application/json</option>
+                    <option value="application/xml">application/xml</option>
+                    <option value="image/svg+xml">image/svg+xml</option>
+                    <option value="image/png">image/png</option>
+                    <option value="image/jpeg">image/jpeg</option>
+                  </select>
+                </label>
+                <button type="button" onClick={() => { setContentMediaType(undefined); onChange(buildPatchWithAnnotations({ contentMediaType: undefined })); }} className={styles.removeControl} title="Remove media type">×</button>
+              </div>
+            )}
+            <div style={{ width: '100%', display: 'flex', alignItems: 'center', marginTop: 4 }}>
+              {contentEncoding === undefined ? (
+                 <button type="button" onClick={() => { setContentEncoding(''); onChange(buildPatchWithAnnotations({ contentEncoding: '' })); }} style={{ background: 'none', border: '1px dashed #ccc', padding: '4px 8px', borderRadius: 6 }}>+ Encoding</button>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 150 }}>
+                  <label className={styles.facetCompactField} style={{ flex: 1 }}>
+                    <span className={styles.facetCompactTitle}>Encoding</span>
+                    <input 
+                      className={`${styles.smallInput} ${styles.facetCompactControl}`} 
+                      value={contentEncoding ?? ''} 
+                      onChange={e => setContentEncoding(e.target.value)} 
+                      onBlur={() => onChange(buildPatchWithAnnotations({ contentEncoding }))} 
+                      onFocus={(e) => e.target.select()} 
+                      placeholder="e.g. base64" 
+                      aria-label="Encoding" 
+                      style={{ width: '100%', flex: 1, background: 'white', color: '#222' }}
+                    />
+                  </label>
+                  <button type="button" onClick={() => { setContentEncoding(undefined); onChange(buildPatchWithAnnotations({ contentEncoding: undefined })); }} className={styles.removeControl} title="Remove encoding">×</button>
+                </div>
+              )}
+            </div>
           </div>
         )}
         {type === 'number' && !isEnum && (

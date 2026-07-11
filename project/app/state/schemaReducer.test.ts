@@ -122,6 +122,45 @@ describe("schemaReducer rehydrate behavior", () => {
     expect(persistable.definitions.concurrency).toBeTruthy();
   });
 
+  test("getPersistableSource prefers the authoritative source over expanded resolved cache", () => {
+    const sourceWithDefs = {
+      $id: "https://example.com/ecommerce.schema.json",
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      $defs: {
+        product: {
+          $anchor: "ProductSchema",
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            price: { type: "number", minimum: 0 },
+          },
+        },
+      },
+    } as any;
+
+    const state0 = initialSchemaState(sourceWithDefs) as any;
+    state0.resolvedCache = {
+      type: "object",
+      properties: {
+        product: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            price: { type: "number", minimum: 0 },
+            extraField: { type: "string" },
+          },
+        },
+      },
+    };
+
+    const persistable = getPersistableSource(state0) as any;
+
+    expect(persistable.$defs).toBeTruthy();
+    expect(persistable.properties).toBeUndefined();
+    expect(persistable.resolvedCache).toBeUndefined();
+    expect(persistable.$defs.product.properties.extraField).toBeUndefined();
+  });
+
   test("initial resolvedCache for sourceWithDefs contains only 'order' property", () => {
     const state0 = initialSchemaState(sourceWithDefs) as any;
     expect(state0.resolvedCache).toBeTruthy();

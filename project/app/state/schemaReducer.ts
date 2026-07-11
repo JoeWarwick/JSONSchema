@@ -441,15 +441,27 @@ function normalizeResolved(s: Schema, source?: Schema): Schema {
 
         // collect all provenance markers (e.g. $ref) that appear nested within properties
         const nestedFroms = new Set<string>();
-        const collectFroms = (obj: any, skipSelf = false) => {
-          if (!obj || typeof obj !== 'object') return;
-          if (Array.isArray(obj)) return obj.forEach((o) => collectFroms(o, false));
-          if (!skipSelf && typeof obj.$ref === 'string') nestedFroms.add(obj.$ref as string);
-          for (const v of Object.values(obj)) collectFroms(v, false);
-        };
+        const visited = new Set<any>();
+        const stack: Array<{ node: any; skipSelf: boolean }> = [];
         for (const v of Object.values(props)) {
-          // collect froms from nested content, skipping the top-level property itself
-          collectFroms(v, true);
+          stack.push({ node: v, skipSelf: true });
+        }
+        while (stack.length > 0) {
+          const current = stack.pop();
+          if (!current) continue;
+          const { node, skipSelf } = current;
+          if (!node || typeof node !== 'object' || visited.has(node)) continue;
+          visited.add(node);
+          if (!skipSelf && typeof node.$ref === 'string') nestedFroms.add(node.$ref as string);
+          if (Array.isArray(node)) {
+            for (let i = node.length - 1; i >= 0; i--) {
+              stack.push({ node: node[i], skipSelf: false });
+            }
+            continue;
+          }
+          for (const v of Object.values(node)) {
+            stack.push({ node: v, skipSelf: false });
+          }
         }
 
         const cleaned: Record<string, any> = {};
@@ -509,13 +521,28 @@ function normalizeResolved(s: Schema, source?: Schema): Schema {
         const propsClone = JSON.parse(JSON.stringify(s));
         // collect nested provenance markers to detect referenced defs
         const nestedFroms = new Set<string>();
-        const collectFroms = (obj: any, skipSelf = false) => {
-          if (!obj || typeof obj !== 'object') return;
-          if (Array.isArray(obj)) return obj.forEach((o) => collectFroms(o, false));
-          if (!skipSelf && typeof obj.$ref === 'string') nestedFroms.add(obj.$ref as string);
-          for (const v of Object.values(obj)) collectFroms(v, false);
-        };
-        for (const v of Object.values(propsClone)) collectFroms(v, true);
+        const visited = new Set<any>();
+        const stack: Array<{ node: any; skipSelf: boolean }> = [];
+        for (const v of Object.values(propsClone)) {
+          stack.push({ node: v, skipSelf: true });
+        }
+        while (stack.length > 0) {
+          const current = stack.pop();
+          if (!current) continue;
+          const { node, skipSelf } = current;
+          if (!node || typeof node !== 'object' || visited.has(node)) continue;
+          visited.add(node);
+          if (!skipSelf && typeof node.$ref === 'string') nestedFroms.add(node.$ref as string);
+          if (Array.isArray(node)) {
+            for (let i = node.length - 1; i >= 0; i--) {
+              stack.push({ node: node[i], skipSelf: false });
+            }
+            continue;
+          }
+          for (const v of Object.values(node)) {
+            stack.push({ node: v, skipSelf: false });
+          }
+        }
 
         // Build helper sets from nestedFroms: referenced defs by key and by anchor name
         const referencedKeys = new Set<string>();
@@ -965,17 +992,15 @@ export function getResolvedSource(state: SchemaState): Schema {
   }
 }
 
-// Return a canonical schema suitable for persisting: rehydrate resolved edits into source when available.
+// Return a canonical schema suitable for persisting.
+// The reducer keeps `source` as the authoritative shape, so persistence should
+// avoid replaying the expanded resolved cache unless there is no source.
 export function getPersistableSource(state: SchemaState): Schema {
   try {
     if (!state) return null;
     const src = state.source;
-    const resolved = state.resolvedCache;
-    if (src && resolved) {
-      // rehydrate edits from resolved view into the original source structure
-      const rehydrated = rehydrateSchema(src as Record<string, any>, resolved as Record<string, any>);
-      return canonicalizeForPersist(rehydrated);
-    }
+    if (src) return canonicalizeForPersist(src);
+    if (state.resolvedCache) return canonicalizeForPersist(state.resolvedCache);
     return src;
   } catch (_) {
     return state.source;

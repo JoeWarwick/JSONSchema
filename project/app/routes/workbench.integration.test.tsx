@@ -1,7 +1,12 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import schemastoreWorkflow from '../test-fixtures/schemastore-workflow.json';
 import Workbench from './workbench';
+
+const { TextEncoder, TextDecoder } = require('util');
+Object.assign(global, { TextEncoder, TextDecoder });
+const { renderToString } = require('react-dom/server');
 
 const STORAGE_KEY = 'schema-sculptor-schema';
 
@@ -31,6 +36,89 @@ describe('Workbench integration - load unresolved $defs schema', () => {
 
   beforeEach(() => {
     localStorage.clear();
+  });
+
+  it('does not read persisted storage during the initial render pass', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(unresolved));
+    const getItemSpy = jest.spyOn(Storage.prototype, 'getItem');
+
+    render(<Workbench />);
+
+    expect(getItemSpy).not.toHaveBeenCalled();
+    getItemSpy.mockRestore();
+  });
+
+  it('restores the raw saved instance text without reserializing it', async () => {
+    const rawInstance = '{"alpha":1,"beta":{"nested":true}}';
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(unresolved));
+    localStorage.setItem('schema-sculptor-instance', rawInstance);
+
+    render(<Workbench />);
+
+    await waitFor(() => {
+      const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+      expect(textarea.value).toBe(rawInstance);
+    });
+  });
+
+  it('rehydrates the GitHub workflow schema and a simple myStyles/myHtml instance from localStorage', async () => {
+    const workflowInstance = {
+      name: 'demo-workflow',
+      myStyles: 'body { color: #123456; }',
+      myHtml: '<div>hello</div>',
+      on: 'push',
+      jobs: {
+        build: {
+          'runs-on': 'ubuntu-latest',
+          steps: [
+            { run: 'echo hi' }
+          ]
+        }
+      }
+    } as any;
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(schemastoreWorkflow));
+    localStorage.setItem('schema-sculptor-instance', JSON.stringify(workflowInstance));
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      render(<Workbench />);
+
+      await waitFor(() => {
+        const badge = screen.getByTestId('schema-source-badge');
+        expect(badge).toHaveTextContent(/resolved/i);
+      });
+
+      const textarea = await screen.findByRole('textbox') as HTMLTextAreaElement;
+      expect(textarea.value).toContain('"myStyles"');
+      expect(textarea.value).toContain('"myHtml"');
+
+      const hasStackOverflow = errorSpy.mock.calls.some((args) =>
+        args.some((arg) => typeof arg === 'string' && arg.includes('Maximum call stack size exceeded'))
+      );
+
+      expect(hasStackOverflow).toBe(false);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('does not emit a useLayoutEffect warning during server rendering', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      renderToString(<Workbench />);
+
+      const containsWarning = errorSpy.mock.calls.some((args) => {
+        const [firstArg] = args;
+        return typeof firstArg === 'string' && firstArg.includes('useLayoutEffect does nothing on the server');
+      });
+
+      expect(containsWarning).toBe(false);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('renders SchemaEditorForm root type as object when schema loaded from storage', async () => {

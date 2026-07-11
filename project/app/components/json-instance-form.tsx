@@ -8,6 +8,8 @@ import { getVariantLabel } from "../utils/labels";
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip/tooltip";
 import { flattenValueByVariants, filterOutDefaults, toStorageFormat } from "../utils/schema-flattener";
 import { Trash2, Edit } from "lucide-react";
+import { CssEditor } from "./CssEditor";
+import { HtmlEditor } from "./HtmlEditor";
 
 import { renderTooltipContentChildren } from './tooltip-utils';
 
@@ -70,7 +72,16 @@ export function JsonInstanceForm({ schema: rawSchema, value, onChange, path = []
   const explicitType = schema.type as string | undefined;
   const hasSchemaProps = !!(schema.properties || schema.patternProperties || schema.additionalProperties);
   const type = explicitType ?? (hasSchemaProps ? 'object' : (schema.items || schema.additionalItems || Array.isArray(value) ? 'array' : (value && typeof value === 'object' ? 'object' : 'string')));
-  const storageKey = 'json-instance:' + (rawSchema && typeof (rawSchema.title as any) === 'string' ? rawSchema.title : (rawSchema.$id ? rawSchema.$id : JSON.stringify(rawSchema)));
+  
+  // Memoize storage key to avoid repeated expensive JSON.stringify on large schemas
+  const storageKey = useMemo(() => {
+    if (rawSchema && typeof (rawSchema.title as any) === 'string') return `json-instance:${rawSchema.title}`;
+    if (rawSchema && rawSchema.$id) return `json-instance:${rawSchema.$id}`;
+    // Fallback to a hash or truncated string if schema is huge to avoid performance hit
+    const schemaStr = JSON.stringify(rawSchema);
+    return `json-instance:${schemaStr.length > 500 ? schemaStr.substring(0, 500) + schemaStr.length : schemaStr}`;
+  }, [rawSchema]);
+
   const pathKey = path.join('.');
   const variantMemoryKey = `json-instance-variants:${storageKey}:${pathKey}`;
   // New schema-identity-based storage key for flattened variants (avoids path-dependent issues)
@@ -537,12 +548,11 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
 
   // Sync local string input value when parent value prop changes
   useEffect(() => {
-    if (typeof value === 'string') {
-      setStringInputValue(value);
-    } else {
-      setStringInputValue('');
+    const targetValue = typeof value === 'string' ? value : '';
+    if (stringInputValue !== targetValue) {
+      setStringInputValue(targetValue);
     }
-  }, [value]);
+  }, [value, stringInputValue]);
 
   // Initialize value from schema defaults if undefined (and parent didn't provide it)
   useEffect(() => {
@@ -1281,6 +1291,44 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
       const showDesc = path.length === 0;
       const label = showDesc ? (schema.description as string) : undefined;
       
+      if (contentMediaType === 'text/css') {
+        const cssPlaceholder = (Array.isArray(schema.examples) && schema.examples.length > 0) 
+          ? String(schema.examples[0]) 
+          : "/* Enter CSS here */";
+        return (
+          <div className={styles.field}>
+            <label className={styles.label}>{label || "CSS Editor"}</label>
+            <CssEditor
+              value={stringInputValue}
+              onChange={(v) => {
+                setStringInputValue(v);
+                onChange(v);
+              }}
+              placeholder={cssPlaceholder}
+            />
+          </div>
+        );
+      }
+
+      if (contentMediaType === 'text/html') {
+        const htmlPlaceholder = (Array.isArray(schema.examples) && schema.examples.length > 0)
+          ? String(schema.examples[0])
+          : "<!-- Enter HTML here -->";
+        return (
+          <div className={styles.field}>
+            <label className={styles.label}>{label || "HTML Editor"}</label>
+            <HtmlEditor
+              value={stringInputValue}
+              onChange={(v) => {
+                setStringInputValue(v);
+                onChange(v);
+              }}
+              placeholder={htmlPlaceholder}
+            />
+          </div>
+        );
+      }
+
       // Helper text for expression syntax fields
       const helperText = isExpressionSyntaxField
         ? 'Use ${{ ... }} syntax, e.g., ${{ github.run_id }} or ${{ secrets.TOKEN }}'

@@ -107,60 +107,69 @@ const generateDefaultInstance = (schema: Record<string, unknown>): unknown => {
 
 export default function Workbench() {
   const showDevStorageTools = typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
-  // Initialize reducer with persisted canonical source when available so
-  // editors receive the saved schema on first render (avoids e2e timing flakiness).
-  let initialPersisted: Record<string, unknown> | null = null;
-  if (typeof window !== 'undefined') {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) initialPersisted = JSON.parse(raw) as Record<string, unknown>;
-    } catch (_) {
-      // ignore
-    }
-  }
-  const [state, dispatch] = useReducer(schemaReducer, initialSchemaState(initialPersisted));
-  
-  const [instanceData, setInstanceData] = useState<unknown>(() => {
-    // Load instance data from localStorage on initial render
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(INSTANCE_STORAGE_KEY);
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (err) {
-          console.error('Failed to parse saved instance:', err);
+  const [state, dispatch] = useReducer(schemaReducer, initialSchemaState(null));
+  const [instanceData, setInstanceData] = useState<unknown>(null);
+  const [jsonInput, setJsonInput] = useState(typeof window === 'undefined' ? SAMPLE_JSON : '{}');
+  const [hasHydratedPersistedState, setHasHydratedPersistedState] = useState(false);
+  const [hasMounted, setHasMounted] = useState(false);
+  const instanceTextRef = useRef<string>("");
+  const skipNextInstancePersistRef = useRef(false);
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const hydratePersistedState = () => {
+      try {
+        const rawSchema = window.localStorage.getItem(STORAGE_KEY);
+        let persistedSchema: Record<string, unknown> | null = null;
+        if (rawSchema) {
+          try {
+            persistedSchema = JSON.parse(rawSchema) as Record<string, unknown>;
+          } catch (err) {
+            console.error('Failed to parse persisted schema:', err);
+          }
         }
-      }
-    }
-    return null;
-  });
-  
-  const [jsonInput, setJsonInput] = useState(() => {
-    // Initialize jsonInput from saved instance data if available
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(INSTANCE_STORAGE_KEY);
-      if (saved) {
-        try {
-          const instance = JSON.parse(saved);
-          return JSON.stringify(instance, null, 2);
-        } catch (err) {
-          console.error('Failed to initialize jsonInput from saved instance:', err);
+
+        if (persistedSchema) {
+          dispatch({ type: APPLY_SOURCE_UPDATE, payload: persistedSchema });
         }
+
+        const savedInstance = window.localStorage.getItem(INSTANCE_STORAGE_KEY);
+        if (savedInstance) {
+          try {
+            const parsedInstance = JSON.parse(savedInstance);
+            instanceTextRef.current = savedInstance;
+            skipNextInstancePersistRef.current = true;
+            setInstanceData(parsedInstance);
+            setJsonInput(savedInstance);
+          } catch (err) {
+            console.error('Failed to parse saved instance:', err);
+          }
+        } else if (persistedSchema) {
+          try {
+            const defaultInstance = generateDefaultInstance(persistedSchema);
+            const defaultInstanceText = JSON.stringify(defaultInstance, null, 2);
+            instanceTextRef.current = defaultInstanceText;
+            setInstanceData(defaultInstance);
+            setJsonInput(defaultInstanceText);
+          } catch (_) {
+            // ignore
+          }
+        }
+      } catch (_) {
+        // ignore
+      } finally {
+        setHasHydratedPersistedState(true);
       }
-      
-      // If no saved instance, prefer generating a blank skeleton from the persisted schema
-      // instead of using a generic sample JSON.
-      if (initialPersisted) {
-        try {
-          return JSON.stringify(generateDefaultInstance(initialPersisted), null, 2);
-        } catch (_) { /* ignore */ }
-      }
-      
-      // If no state is found in storage, start with an empty object for "from scratch"
-      return "{}";
-    }
-    return SAMPLE_JSON;
-  });
+    };
+
+    const timer = window.setTimeout(hydratePersistedState, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showSchemaSource, setShowSchemaSource] = useState(false);
@@ -209,6 +218,7 @@ export default function Workbench() {
   // Do NOT persist to localStorage until dereferencing has completed —
   // this avoids saving a source that still contains unresolved $ref URLs.
   useEffect(() => {
+    if (!hasHydratedPersistedState) return;
     let cancelled = false;
     (async () => {
       if (cancelled) return;
@@ -219,12 +229,12 @@ export default function Workbench() {
       }
     })();
     return () => { cancelled = true; };
-  }, [state.source]);
+  }, [state.source, hasHydratedPersistedState]);
 
   // Persist canonical source only after dereferencing completes so saved
   // state does not contain unresolved $ref entries.
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || !hasHydratedPersistedState) return;
     try {
       // Only persist when no deref is in progress; this ensures any async
       // fetches have finished and `resolvedCache` is authoritative.
@@ -234,18 +244,23 @@ export default function Workbench() {
     } catch (err) {
       // ignore
     }
-  }, [state.resolvedCache, state.derefInProgress]);
+  }, [state.resolvedCache, state.derefInProgress, hasHydratedPersistedState]);
 
   // (debug hooks removed)
 
   // Auto-save instance data to localStorage whenever it changes
   useEffect(() => {
+    if (typeof window === 'undefined' || !hasHydratedPersistedState) return;
+    if (skipNextInstancePersistRef.current) {
+      skipNextInstancePersistRef.current = false;
+      return;
+    }
     if (instanceData !== null) {
-      localStorage.setItem(INSTANCE_STORAGE_KEY, JSON.stringify(instanceData));
+      localStorage.setItem(INSTANCE_STORAGE_KEY, instanceTextRef.current || jsonInput);
     } else {
       localStorage.removeItem(INSTANCE_STORAGE_KEY);
     }
-  }, [instanceData]);
+  }, [instanceData, hasHydratedPersistedState, jsonInput]);
 
   /**
    * Clear all variant storage when loading a fresh JSON document
@@ -303,6 +318,7 @@ export default function Workbench() {
       const generatedSchema = generateSchema(parsed);
       dispatch({ type: APPLY_SOURCE_UPDATE, payload: generatedSchema });
       setInstanceData(parsed);
+      instanceTextRef.current = jsonInput;
       // Clear variant storage when loading fresh JSON (version 1 approach)
       clearVariantStorage();
     } catch (err) {
@@ -332,8 +348,8 @@ export default function Workbench() {
       const content = e.target?.result as string;
       try {
         const parsed = parseMarkup(content, markupLanguage);
-        const asJson = JSON.stringify(parsed, null, 2);
-        setJsonInput(asJson);
+        instanceTextRef.current = content;
+        setJsonInput(content);
         setInstanceData(parsed);
         clearVariantStorage();
         setError(null);
@@ -368,8 +384,8 @@ export default function Workbench() {
       }
       const text = await response.text();
       const parsed = parseMarkup(text, markupLanguage);
-      const asJson = JSON.stringify(parsed, null, 2);
-      setJsonInput(asJson);
+      instanceTextRef.current = text;
+      setJsonInput(text);
       setInstanceData(parsed);
       clearVariantStorage();
       setJsonUrl('');
@@ -396,7 +412,16 @@ export default function Workbench() {
         const parsedSchema = JSON.parse(content);
         dispatch({ type: APPLY_SOURCE_UPDATE, payload: parsedSchema });
         // Only generate a default instance when none is present — preserve user-loaded instance
-        setInstanceData((prev: any) => (prev == null ? generateDefaultInstance(parsedSchema) : prev));
+        setInstanceData((prev: any) => {
+          if (prev == null) {
+            const defaultInstance = generateDefaultInstance(parsedSchema);
+            const defaultInstanceText = JSON.stringify(defaultInstance, null, 2);
+            instanceTextRef.current = defaultInstanceText;
+            setJsonInput(defaultInstanceText);
+            return defaultInstance;
+          }
+          return prev;
+        });
          
         setError(null);
       } catch (err) {
@@ -426,7 +451,16 @@ export default function Workbench() {
       const data = await response.json();
       dispatch({ type: APPLY_SOURCE_UPDATE, payload: data });
       // Only generate a default instance when none is present — preserve user-loaded instance
-      setInstanceData((prev: any) => (prev == null ? generateDefaultInstance(data) : prev));
+      setInstanceData((prev: any) => {
+        if (prev == null) {
+          const defaultInstance = generateDefaultInstance(data);
+          const defaultInstanceText = JSON.stringify(defaultInstance, null, 2);
+          instanceTextRef.current = defaultInstanceText;
+          setJsonInput(defaultInstanceText);
+          return defaultInstance;
+        }
+        return prev;
+      });
       setSchemaUrl("");
     } catch (err) {
       setError(`Failed to load schema from URL: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -621,6 +655,17 @@ export default function Workbench() {
       /* ignore */
     }
   }, [editorSchema]);
+
+  if (!hasMounted) {
+    return (
+      <div className={styles.container} aria-busy="true">
+        <div className={styles.menuBar}>
+          <span className={styles.menuLogo}>Schema Sculptor</span>
+        </div>
+        <div style={{ padding: 24, color: 'var(--color-neutral-10)' }}>Loading workbench…</div>
+      </div>
+    );
+  }
 
   return (
     <TooltipProvider>
@@ -1034,7 +1079,9 @@ export default function Workbench() {
                   value={instanceData ?? generateDefaultInstance(editorSchema)}
                   onChange={(newData) => {
                     setInstanceData(newData);
-                    setJsonInput(JSON.stringify(newData, null, 2));
+                    const newDataText = JSON.stringify(newData, null, 2);
+                    instanceTextRef.current = newDataText;
+                    setJsonInput(newDataText);
                   }}
                 />
               </div>

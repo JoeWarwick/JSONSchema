@@ -247,6 +247,7 @@ export interface SchemaNodeData {
   imported?: boolean;
   $ref?: string;
   contentMediaType?: string;
+  contentEncoding?: string;
   additionalProperties?: boolean | Record<string, unknown>;
   // Combiner node fields (type === 'combiner')
   combinerType?: 'oneOf' | 'anyOf' | 'allOf';

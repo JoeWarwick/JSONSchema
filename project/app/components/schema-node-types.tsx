@@ -295,7 +295,7 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
               border: '1px solid #b3d4fc',
               marginRight: 4,
               marginBottom: 2,
-            }}>{key}: {String(value)}</span>
+            }}>{String(value)}</span>
           );
         })}
       </div>
