@@ -792,6 +792,40 @@ describe('JsonInstanceForm extras', () => {
     expect(added['runs-on']).toBe('ubuntu-latest');
   });
 
+  test('adding defaults.run does not auto-seed a nested run property when the child schema has no declared properties', () => {
+    const schema: any = {
+      type: 'object',
+      properties: {
+        defaults: {
+          type: 'object',
+          properties: {
+            run: {
+              type: 'object',
+              minProperties: 1,
+              additionalProperties: false
+            }
+          }
+        }
+      }
+    };
+
+    const onChange = jest.fn();
+    const { rerender } = renderForm(<JsonInstanceForm schema={schema} value={{ defaults: {} }} onChange={onChange} />);
+
+    const addRun = screen.getByRole('button', { name: /\+ Run/i });
+    fireEvent.click(addRun);
+
+    expect(onChange).toHaveBeenCalled();
+    const called = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    expect(called.defaults).toBeTruthy();
+    expect(called.defaults.run).toEqual({});
+
+    act(() => rerender(<TooltipProvider><JsonInstanceForm schema={schema} value={called} onChange={onChange} /></TooltipProvider>));
+
+    expect(screen.queryByText(/\bRun\b.*\(unexpected\)/i)).toBeNull();
+    expect(screen.queryByText(/^Run$/i)).toBeTruthy();
+  });
+
   test('available row has no empty placeholders for required properties', () => {
     const schema: any = { properties: { a: { type: 'string' }, b: { type: 'string' }, c: { type: 'string' } }, required: ['a'] };
     const onChange = jest.fn();

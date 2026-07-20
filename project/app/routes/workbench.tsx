@@ -62,15 +62,22 @@ const DEREF_ERROR_STORAGE_KEY = 'schema-sculptor-deref-error';
 // Helper function to generate default instance data
 const generateDefaultInstance = (schema: Record<string, unknown>): unknown => {
   if (!schema || typeof schema !== 'object') return null;
+
+  if (schema.const !== undefined) return schema.const;
+  if (schema.default !== undefined) return schema.default;
   
   const type = schema.type;
   
   if (type === 'object') {
     const result: Record<string, unknown> = {};
+    const required = Array.isArray(schema.required) ? schema.required : [];
     if (schema.properties && typeof schema.properties === 'object') {
       for (const [key, propSchema] of Object.entries(schema.properties as Record<string, unknown>)) {
         if (typeof propSchema === 'object' && propSchema !== null) {
-          result[key] = generateDefaultInstance(propSchema as Record<string, unknown>);
+          const childDefault = generateDefaultInstance(propSchema as Record<string, unknown>);
+          if (required.includes(key) || (propSchema as any).default !== undefined) {
+            result[key] = childDefault;
+          }
         }
       }
     }

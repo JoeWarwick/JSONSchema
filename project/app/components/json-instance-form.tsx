@@ -564,25 +564,17 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
       }
     }
 
-    // Seed missing required properties or minProperties if object is empty
+    // Seed missing required properties when an object is empty.
     if (type === 'object' && value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) {
       const properties = (schema.properties as Record<string, any>) || {};
       const required = (schema.required as string[]) || [];
-      const hasMinProps = typeof schema.minProperties === 'number' && schema.minProperties > 0;
+      const hasDefinedProps = Object.keys(properties).length > 0;
       
-      if (required.length > 0 || hasMinProps) {
+      if (hasDefinedProps && required.length > 0) {
         const newValue: Record<string, any> = {};
         required.forEach(k => {
           if (properties[k]) newValue[k] = getDefaultValue(resolveSchemaNode(properties[k]), rootSchemaRef);
         });
-        
-        if (Object.keys(newValue).length === 0 && hasMinProps) {
-          // Use the same logic as the component body to generate a default key
-          const last = path[path.length - 1] || 'item';
-          const hint = (last.length > 1 && last.endsWith('s')) ? last.slice(0, -1) : last;
-          // For seeding, we just use the hint directly if empty
-          newValue[hint] = getDefaultValue(resolveSchemaNode(getSchemaForProperty(hint) || {}), rootSchemaRef);
-        }
 
         if (Object.keys(newValue).length > 0) {
           onChange(newValue);
@@ -1489,12 +1481,11 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     const required = (schema.required as string[]) || [];
     let objectValue = (value as Record<string, unknown>) || {};
 
-    // If value is empty, initialize with required properties or seed a default key if minProperties > 0
+    // If value is empty, initialize with required properties.
     if (Object.keys(objectValue).length === 0) {
       const hasDefinedProps = Object.keys(properties).length > 0;
-      const hasMinProps = typeof schema.minProperties === 'number' && schema.minProperties > 0;
       
-      if (hasDefinedProps || hasMinProps) {
+      if (hasDefinedProps && required.length > 0) {
         objectValue = {};
         required.forEach((key) => {
           if (properties[key]) {
@@ -1503,17 +1494,6 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
             objectValue[key] = isPoly ? undefined : getDefaultValue(propSchema, rootSchemaRef);
           }
         });
-
-        // If still empty and schema requires at least one property (like "jobs"),
-        // seed a default key using the same logic as the "+ Add" suggestions.
-        if (Object.keys(objectValue).length === 0 && hasMinProps) {
-          const hint = deriveBaseHint(path);
-          const key = generateAutoKey({}, hint);
-          const sch = getSchemaForProperty(key);
-          if (sch) {
-            objectValue[key] = getDefaultValue(resolveSchemaNode(sch), rootSchemaRef);
-          }
-        }
       }
     }
 
