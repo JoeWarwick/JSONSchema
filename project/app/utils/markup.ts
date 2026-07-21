@@ -1,13 +1,14 @@
 /**
  * Markup language abstraction layer.
  *
- * Internal data is always plain JSON.  This module handles serialisation and
- * deserialisation between JSON and the user-selected markup language so that
- * the rest of the app only ever works with plain JS values.
- *
- * YAML and XML are architecturally wired; call sites are ready.  Actual
- * libraries will be added when those languages are enabled (see TODOs below).
+ * Internal data is always plain JS values. This module handles serialisation
+ * and deserialisation between JSON/YAML/XML and the user-selected markup
+ * language so that the rest of the app only ever works with plain objects.
  */
+
+import yaml from "js-yaml";
+
+const { load: loadYaml, dump: dumpYaml } = yaml;
 
 export type MarkupLanguage = 'json' | 'yaml' | 'xml';
 
@@ -45,6 +46,13 @@ export function acceptAttr(lang: MarkupLanguage): string {
   }
 }
 
+export function detectMarkupLanguageFromPath(path: string): MarkupLanguage {
+  const lower = String(path || '').toLowerCase();
+  if (lower.endsWith('.yaml') || lower.endsWith('.yml')) return 'yaml';
+  if (lower.endsWith('.xml')) return 'xml';
+  return 'json';
+}
+
 /**
  * Whether this language requires the textarea to display the *serialised*
  * form (true) rather than raw JSON (false).
@@ -72,8 +80,7 @@ export function parseMarkup(text: string, lang: MarkupLanguage): unknown {
       return JSON.parse(text); // throws SyntaxError on bad input
     }
     case 'yaml': {
-      // TODO: import { load } from 'js-yaml' and replace this stub
-      throw new Error('YAML support coming soon');
+      return loadYaml(text, { json: true });
     }
     case 'xml': {
       // TODO: import a DOM/XMLParser and replace this stub
@@ -93,8 +100,11 @@ export function serializeMarkup(data: unknown, lang: MarkupLanguage): string {
       return JSON.stringify(data, null, 2);
     }
     case 'yaml': {
-      // TODO: import { dump } from 'js-yaml' and replace this stub
-      throw new Error('YAML support coming soon');
+      return dumpYaml(data, {
+        noRefs: true,
+        sortKeys: false,
+        lineWidth: -1,
+      });
     }
     case 'xml': {
       // TODO: implement XML serialiser and replace this stub

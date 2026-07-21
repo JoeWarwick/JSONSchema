@@ -40,12 +40,34 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
   const initialLoadRef = React.useRef(true);
   const flowWrapperRef = React.useRef<HTMLDivElement | null>(null);
   const pendingCenterRef = React.useRef(false);
+  const pendingTimeoutsRef = React.useRef<number[]>([]);
+  const isMountedRef = React.useRef(true);
   // Only render ReactFlow when the wrapper has a measured non-zero height.
   // This avoids React Flow error #004 when the parent container has no height
   // at initial render (e.g. due to CSS/layout timing).
   const [canRenderFlow, setCanRenderFlow] = React.useState<boolean>(() => false);
   const [explicitHeight, setExplicitHeight] = React.useState<number | undefined>(undefined);
   const failedChecksRef = React.useRef<number>(0);
+
+  const scheduleTask = React.useCallback((task: () => void, delay = 0) => {
+    const timeoutId = window.setTimeout(() => {
+      if (!isMountedRef.current) return;
+      pendingTimeoutsRef.current = pendingTimeoutsRef.current.filter((id) => id !== timeoutId);
+      task();
+    }, delay);
+    pendingTimeoutsRef.current.push(timeoutId);
+    return timeoutId;
+  }, []);
+
+  React.useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      for (const timeoutId of pendingTimeoutsRef.current) {
+        window.clearTimeout(timeoutId);
+      }
+      pendingTimeoutsRef.current = [];
+    };
+  }, []);
 
   React.useEffect(() => {
     const el = flowWrapperRef.current;
@@ -90,12 +112,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
         if (typeof process !== 'undefined' && process?.env?.NODE_ENV !== 'production') console.debug('[GraphicalSchemaEditor] applying explicit fallback height', fallback);
         setExplicitHeight(fallback);
         // Wait a tick to allow the explicit height to flush into the DOM
-        setTimeout(() => setCanRenderFlow(true), 0);
+        scheduleTask(() => setCanRenderFlow(true), 0);
         return;
       }
 
       // Layout may settle after a tick; schedule a short re-check.
-      setTimeout(() => {
+      scheduleTask(() => {
         const r2 = el?.getBoundingClientRect();
         if (r2 && r2.width > 0 && r2.height > 0) setCanRenderFlow(true);
       }, 50);
@@ -120,9 +142,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
   React.useEffect(() => {
     if (canRenderFlow) {
       // Dispatch asynchronously to allow layout to settle
-      setTimeout(() => window.dispatchEvent(new Event('resize')), 0);
+      scheduleTask(() => window.dispatchEvent(new Event('resize')), 0);
     }
-  }, [canRenderFlow]);
+  }, [canRenderFlow, scheduleTask]);
 
   // Helper to generate deterministic IDs based on path
   const makeId = (parentId?: string, label?: string) => {
@@ -1202,8 +1224,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       }
     };
 
-    setTimeout(runPass, 0);
-  }, [handleToggleCombinerVariants, handleToggleVariant]);
+    scheduleTask(runPass, 0);
+  }, [handleToggleCombinerVariants, handleToggleVariant, scheduleTask]);
 
   // Always reflect current closures (runs every render)
   nodeHandlersRef.current = {
@@ -1413,7 +1435,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
   const prevNodeCount = React.useRef(0);
   const prevEdgeCount = React.useRef(0);
   const reactFlowInstanceRef = React.useRef<any>(null);
-  React.useMemo(() => {
+  React.useEffect(() => {
     // If we recently emitted a schema update from inside this component,
     // skip syncing back from the `schema` prop for this change to avoid
     // tearing down and rebuilding nodes (which causes selection loss).
@@ -1531,7 +1553,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       prevEdgeCount.current = edges.length;
       // Set a fixed comfortable zoom and center the graph.
       // fitView counteracts nodesep changes (bigger graph → more zoom-out → same density).
-      setTimeout(() => {
+      scheduleTask(() => {
         const rf = reactFlowInstanceRef.current;
         if (!rf) return;
         const allNodes = rf.getNodes();
@@ -1560,7 +1582,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       setEdges(edges);
     }
     // Otherwise, do not reset selection (preserve selection and form)
-  }, [schema, setNodes, setEdges, useTestData, schemaToGraph, fingerprintSchema, relayoutNodes, restoreExpandedStateRecursively]);
+  }, [schema, setNodes, setEdges, useTestData, schemaToGraph, fingerprintSchema, relayoutNodes, restoreExpandedStateRecursively, scheduleTask]);
 
   // Note: dereferencing is handled by the top-level reducer/workbench.
 

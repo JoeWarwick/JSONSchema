@@ -96,6 +96,22 @@
 .propertyCard:active { cursor: grabbing; }
 .buttonDanger { border: 1px solid var(--erd-button-danger-border); border-radius: 4px; background: var(--erd-button-danger-bg); color: var(--erd-button-danger-text); padding: 6px 10px; font-size: 12px; }
 .buttonSecondary { border: 1px solid var(--erd-button-secondary-border); border-radius: 4px; background: var(--erd-button-secondary-bg); color: var(--erd-button-secondary-text); padding: 6px 10px; font-size: 12px; }
+.buttonDanger svg,
+.buttonSecondary svg {
+  color: currentColor;
+}
+
+:global(html.dark-theme) .buttonSecondary {
+  background: var(--color-neutral-11);
+  border-color: var(--color-neutral-8);
+  color: var(--color-neutral-1);
+}
+
+:global(html.dark-theme) .buttonDanger {
+  background: var(--color-error-11);
+  border-color: var(--color-error-10);
+  color: var(--color-neutral-1);
+}
 .dragHandle { color: #6a818a; font-size: 14px; letter-spacing: -2px; user-select: none; }
 .emptySidebarState { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; margin-top: 16px; }
 .columnBadge { padding: 4px 8px; border-radius: 999px; background: var(--erd-section-bg); color: var(--erd-section-text); font-size: 11px; font-weight: 700; }

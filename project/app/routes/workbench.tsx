@@ -3,7 +3,7 @@ import useAsyncMemo from "~/hooks/useAsyncMemo";
 import { Sparkles, Copy, Check, X, Link as LinkIcon, Download, FileUp, ShieldCheck } from "lucide-react";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { toast } from "sonner";
-import { type MarkupLanguage, parseMarkup, serializeMarkup, fileExtension, mimeType, acceptAttr, markupLabel } from "~/utils/markup";
+import { type MarkupLanguage, parseMarkup, serializeMarkup, fileExtension, mimeType, acceptAttr, markupLabel, detectMarkupLanguageFromPath } from "~/utils/markup";
 import {
   Menubar, MenubarMenu, MenubarTrigger, MenubarContent, MenubarItem,
   MenubarSeparator, MenubarRadioGroup, MenubarRadioItem, MenubarLabel,
@@ -214,6 +214,7 @@ export default function Workbench() {
   const [erdModel, setErdModel] = useState<ErdModel | null>(null);
   const [compactJsonView, setCompactJsonView] = useState<boolean>(false);
   const [markupLanguage, setMarkupLanguage] = useState<MarkupLanguage>('json');
+  const [schemaMarkupLanguage, setSchemaMarkupLanguage] = useState<MarkupLanguage>('json');
   const [showMarkupUrlDialog, setShowMarkupUrlDialog] = useState(false);
   const [showSchemaUrlDialog, setShowSchemaUrlDialog] = useState(false);
   const resolutionCache = useRef<Map<string, any>>(new Map());
@@ -324,6 +325,14 @@ export default function Workbench() {
       }
       keysToRemove.forEach(key => localStorage.removeItem(key));
     } catch { /* ignore */ }
+  };
+
+  const parseSchemaInput = (content: string, schemaLanguage: MarkupLanguage): Record<string, unknown> => {
+    const parsed = parseMarkup(content, schemaLanguage);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(`Schema input must be a ${markupLabel[schemaLanguage].toLowerCase()} object`);
+    }
+    return parsed as Record<string, unknown>;
   };
 
   const handleClearLocalStorage = () => {
@@ -451,11 +460,14 @@ export default function Workbench() {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    const schemaLanguage = detectMarkupLanguageFromPath(file.name);
+
     const reader = new FileReader();
     reader.onload = (e) => {
       const content = e.target?.result as string;
       try {
-        const parsedSchema = JSON.parse(content);
+        const parsedSchema = parseSchemaInput(content, schemaLanguage);
+        setSchemaMarkupLanguage(schemaLanguage);
         dispatch({ type: APPLY_SOURCE_UPDATE, payload: parsedSchema });
         // Only generate a default instance when none is present — preserve user-loaded instance
         setInstanceData((prev: any) => {
@@ -471,7 +483,7 @@ export default function Workbench() {
          
         setError(null);
       } catch (err) {
-        setError("Invalid schema file. Please upload a valid JSON schema.");
+        setError(`Invalid schema file. Please upload a valid ${markupLabel[schemaLanguage].toLowerCase()} schema.`);
       }
     };
     reader.onerror = () => {
@@ -540,7 +552,16 @@ export default function Workbench() {
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      const data = await response.json();
+      const schemaLanguage = (() => {
+        try {
+          return detectMarkupLanguageFromPath(new URL(schemaUrl).pathname);
+        } catch {
+          return detectMarkupLanguageFromPath(schemaUrl);
+        }
+      })();
+      const text = await response.text();
+      const data = parseSchemaInput(text, schemaLanguage);
+      setSchemaMarkupLanguage(schemaLanguage);
       dispatch({ type: APPLY_SOURCE_UPDATE, payload: data });
       // Only generate a default instance when none is present — preserve user-loaded instance
       setInstanceData((prev: any) => {
@@ -565,11 +586,12 @@ export default function Workbench() {
     const toSave = getPersistableSource(state);
     if (!toSave) return;
 
-    const blob = new Blob([JSON.stringify(toSave, null, 2)], { type: 'application/json' });
+    const content = serializeMarkup(toSave, schemaMarkupLanguage);
+    const blob = new Blob([content], { type: mimeType(schemaMarkupLanguage) });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'schema.json';
+    a.download = `schema${fileExtension(schemaMarkupLanguage)}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -580,11 +602,12 @@ export default function Workbench() {
     const toSave = getResolvedSource(state);
     if (!toSave) return;
 
-    const blob = new Blob([JSON.stringify(toSave, null, 2)], { type: 'application/json' });
+    const content = serializeMarkup(toSave, schemaMarkupLanguage);
+    const blob = new Blob([content], { type: mimeType(schemaMarkupLanguage) });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'schema-resolved.json';
+    a.download = `schema-resolved${fileExtension(schemaMarkupLanguage)}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -777,7 +800,7 @@ export default function Workbench() {
             <MenubarContent>
               <MenubarRadioGroup value={markupLanguage} onValueChange={(v) => setMarkupLanguage(v as MarkupLanguage)}>
                 <MenubarRadioItem value="json">JSON</MenubarRadioItem>
-                <MenubarRadioItem value="yaml" disabled title="Coming soon">YAML</MenubarRadioItem>
+                <MenubarRadioItem value="yaml">YAML</MenubarRadioItem>
                 <MenubarRadioItem value="xml" disabled title="Coming soon">XML</MenubarRadioItem>
               </MenubarRadioGroup>
             </MenubarContent>
@@ -1187,7 +1210,7 @@ export default function Workbench() {
                         // ignore invalid
                       }
                     }}
-                    placeholder="Paste your JSON here..."
+                    placeholder={markupLanguage === 'yaml' ? 'Paste your YAML here...' : 'Paste your JSON here...'}
                     spellCheck={false}
                     style={{ width: '100%', height: '100%', minHeight: 240, boxSizing: 'border-box' }}
                   />

@@ -1,0 +1,241 @@
+<!-- edited with XMLSpy v2009 (http://www.altova.com) by jrwar (EMBRACE) -->
+<xs:schema xmlns="http://schemas.datacontract.org/2004/07/RPFabric.Core.Data" xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="http://schemas.datacontract.org/2004/07/RPFabric.Core.Data" elementFormDefault="qualified" attributeFormDefault="unqualified" id="schema-1">
+	<xs:element name="UpgradeStep">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="Models">
+					<xs:annotation>
+						<xs:documentation>All/some of the Eiger Models in the RPFabric.Core.Data Namespace</xs:documentation>
+					</xs:annotation>
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="Model" maxOccurs="unbounded">
+								<xs:complexType>
+									<xs:complexContent>
+										<xs:extension base="modelType">
+											<xs:sequence>
+												<xs:element name="PostScript" type="xs:string" minOccurs="0"/>
+											</xs:sequence>
+										</xs:extension>
+									</xs:complexContent>
+								</xs:complexType>
+							</xs:element>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="Transformations" type="TransformationsType" minOccurs="0"/>
+			</xs:sequence>
+			<xs:attribute name="from-version" type="versionNumberType" use="required"/>
+			<xs:attribute name="to-version" type="versionNumberType" use="required"/>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="ModelType" type="modelType" abstract="true">
+		<xs:annotation>
+			<xs:documentation>Abstract model Substitution Element</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:element name="Transformations" type="TransformationsType"/>
+	<xs:element name="Field" type="fieldType"/>
+	<xs:element name="Enum" type="enumType"/>
+	<xs:complexType name="modelType">
+		<xs:annotation>
+			<xs:documentation>Abstract model type</xs:documentation>
+		</xs:annotation>
+		<xs:choice>
+			<xs:sequence>
+				<xs:element name="ClassFields" type="propertiesType">
+					<xs:annotation>
+						<xs:documentation>Properties of the class itself</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+				<xs:element name="CoreProperties" minOccurs="0">
+					<xs:annotation>
+						<xs:documentation>Properties stored in core metadatalist</xs:documentation>
+					</xs:annotation>
+					<xs:complexType mixed="false">
+						<xs:complexContent mixed="false">
+							<xs:extension base="propertiesType"/>
+						</xs:complexContent>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="SourceProperties" type="propertiesType" minOccurs="0">
+					<xs:annotation>
+						<xs:documentation>Extra properties coming from a connector</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+			</xs:sequence>
+			<xs:element name="Enumeration">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element ref="Enum" maxOccurs="unbounded"/>
+					</xs:sequence>
+					<xs:attribute name="type" type="typesType" use="required"/>
+				</xs:complexType>
+			</xs:element>
+		</xs:choice>
+		<xs:attribute name="version-number" type="versionNumberType"/>
+		<xs:attribute name="name" type="xs:string" use="required"/>
+		<xs:attribute name="namespace" type="namespaceType" default="RPFabric.Core.Data"/>
+		<xs:attribute name="include-always" default="false"/>
+		<xs:attribute name="extend-type" default="PersistedExtensibleDataObjectBase">
+			<xs:simpleType>
+				<xs:union memberTypes="xs:string">
+					<xs:simpleType>
+						<xs:restriction base="xs:string">
+							<xs:enumeration value="PersistedExtensibleDataObjectBase"/>
+							<xs:enumeration value="ExtensibleDataObjectBase"/>
+							<xs:enumeration value="None"/>
+						</xs:restriction>
+					</xs:simpleType>
+				</xs:union>
+			</xs:simpleType>
+		</xs:attribute>
+		<xs:attribute name="services-used-in">
+			<xs:simpleType>
+				<xs:list>
+					<xs:simpleType>
+						<xs:restriction base="xs:string">
+							<xs:enumeration value="Management"/>
+							<xs:enumeration value="User"/>
+							<xs:enumeration value="Tenant"/>
+							<xs:enumeration value="SearchField"/>
+						</xs:restriction>
+					</xs:simpleType>
+				</xs:list>
+			</xs:simpleType>
+		</xs:attribute>
+	</xs:complexType>
+	<xs:complexType name="fieldType">
+		<xs:sequence>
+			<xs:element name="OtherDefaults" minOccurs="0">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="ElasticDefault" type="defaultType" minOccurs="0"/>
+						<xs:element name="ServiceFabricDefault" type="defaultType" minOccurs="0"/>
+						<xs:element name="BlobDefault" type="defaultType" minOccurs="0"/>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+		</xs:sequence>
+		<xs:attribute name="name" type="xs:string" use="required"/>
+		<xs:attribute name="type" type="typesType" use="required"/>
+		<xs:attribute name="isList" type="xs:boolean" default="false"/>
+		<xs:attribute name="disallownull" type="xs:boolean" default="false"/>
+		<xs:attribute name="deprecated" type="xs:boolean" default="false"/>
+		<xs:attributeGroup ref="default-specifier"/>
+		<xs:anyAttribute namespace="##other"/>
+	</xs:complexType>
+	<xs:complexType name="defaultType">
+		<xs:attribute name="name"/>
+		<xs:attribute name="type" type="typesType" default="string"/>
+		<xs:attributeGroup ref="default-specifier"/>
+	</xs:complexType>
+	<xs:complexType name="propertiesType">
+		<xs:sequence>
+			<xs:element ref="Field" minOccurs="0" maxOccurs="unbounded"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="enumerationType">
+		<xs:sequence/>
+		<xs:attribute name="version-number" type="versionNumberType" use="required"/>
+		<xs:attribute name="namespace" type="namespaceType"/>
+	</xs:complexType>
+	<xs:complexType name="enumType">
+		<xs:attribute name="name" type="xs:string" use="required"/>
+		<xs:attribute name="value" type="xs:anySimpleType"/>
+	</xs:complexType>
+	<xs:complexType name="arrayOfType" mixed="false">
+		<xs:complexContent mixed="false">
+			<xs:extension base="modelType"/>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:attributeGroup name="default-specifier">
+		<xs:attribute name="default-value" type="xs:string" use="optional"/>
+		<xs:attribute name="default-kind" default="value">
+			<xs:simpleType>
+				<xs:restriction base="xs:string">
+					<xs:enumeration value="null"/>
+					<xs:enumeration value="value"/>
+					<xs:enumeration value="c#"/>
+					<xs:enumeration value="xpath"/>
+				</xs:restriction>
+			</xs:simpleType>
+		</xs:attribute>
+		<xs:attribute name="cstype-name" type="xs:string" default="MetaData"/>
+		<xs:attribute name="cstype-namespace" type="namespaceType" use="optional"/>
+	</xs:attributeGroup>
+	<xs:simpleType name="versionNumberType">
+		<xs:annotation>
+			<xs:documentation>version numbers be like 1.9.12</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string"/>
+	</xs:simpleType>
+	<xs:simpleType name="modelNames">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="Item"/>
+			<xs:enumeration value="Aggregation"/>
+			<xs:enumeration value="Audit"/>
+			<xs:enumeration value="Rule"/>
+			<xs:enumeration value="ItemCategory"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="operationType">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="Add"/>
+			<xs:enumeration value="Rename"/>
+			<xs:enumeration value="Combine"/>
+			<xs:enumeration value="Remove"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="typesType">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="bool"/>
+			<xs:enumeration value="int32"/>
+			<xs:enumeration value="datetime"/>
+			<xs:enumeration value="decimal"/>
+			<xs:enumeration value="double"/>
+			<xs:enumeration value="guid"/>
+			<xs:enumeration value="ienumerable"/>
+			<xs:enumeration value="object"/>
+			<xs:enumeration value="string"/>
+			<xs:enumeration value="version"/>
+			<xs:enumeration value="binary"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="namespacesType">
+		<xs:restriction base="xs:string">
+			<xs:pattern value="\w+.\w+.\w+(.\w+)*"/>
+			<xs:enumeration value="RPFabric.Core.Data"/>
+			<xs:enumeration value="RPFabric.Core.Data.Application"/>
+			<xs:enumeration value="RPFabric.Core.Data.Audit"/>
+			<xs:enumeration value="RPFabric.Core.Data.Connector"/>
+			<xs:enumeration value="RPFabric.Core.Data.ItemCategory"/>
+			<xs:enumeration value="RPFabric.Core.Data.Role"/>
+			<xs:enumeration value="RPFabric.Core.Data.Rule"/>
+			<xs:enumeration value="RPFabric.Core.Data.Schedule"/>
+			<xs:enumeration value="RPFabric.Core.Data.Search"/>
+			<xs:enumeration value="RPFabric.Core.Data.SearchField"/>
+			<xs:enumeration value="RPFabric.Core.Data.SearchOperator"/>
+			<xs:enumeration value="RPFabric.Core.Data.Webhook"/>
+			<xs:enumeration value="http://schemas.microsoft.com/2003/10/Serialization/"/>
+			<xs:enumeration value="http://www.w3.org/2001/XMLSchema"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="namespaceType">
+		<xs:union memberTypes="xs:string namespacesType"/>
+	</xs:simpleType>
+	<xs:complexType name="TransformationsType">
+		<xs:sequence>
+			<xs:element name="Transform" minOccurs="0" maxOccurs="unbounded">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="Description" type="xs:string" minOccurs="0"/>
+					</xs:sequence>
+					<xs:attribute name="model" type="modelNames" use="required"/>
+					<xs:attribute name="operation" type="operationType" default="Add"/>
+					<xs:attribute name="fieldname" type="xs:string"/>
+				</xs:complexType>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+</xs:schema>
