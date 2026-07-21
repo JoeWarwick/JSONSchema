@@ -1,14 +1,14 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { TextEncoder, TextDecoder } from 'node:util';
 import schemastoreWorkflow from '../test-fixtures/schemastore-workflow.json';
 import Workbench from './workbench';
 
-const { TextEncoder, TextDecoder } = require('util');
 Object.assign(global, { TextEncoder, TextDecoder });
-const { renderToString } = require('react-dom/server');
 
 const STORAGE_KEY = 'schema-sculptor-schema';
+const ERD_STORAGE_KEY = 'schema-sculptor-erd-model';
 
 describe('Workbench integration - load unresolved $defs schema', () => {
   const unresolved = {
@@ -104,10 +104,11 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     }
   });
 
-  it('does not emit a useLayoutEffect warning during server rendering', () => {
+  it('does not emit a useLayoutEffect warning during server rendering', async () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
     try {
+      const { renderToString } = await import('react-dom/server');
       renderToString(<Workbench />);
 
       const containsWarning = errorSpy.mock.calls.some((args) => {
@@ -154,7 +155,7 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     fireEvent.click(schemaTab);
 
     // Find the hidden file input and simulate uploading JSON content
-    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement | null;
+    const fileInput = document.querySelector('input[accept=".cs,text/plain"]') as HTMLInputElement | null;
     expect(fileInput).toBeTruthy();
     const file = new File([JSON.stringify(unresolved)], 'schema.json', { type: 'application/json' });
     // fire change event to load schema into reducer
@@ -173,6 +174,35 @@ describe('Workbench integration - load unresolved $defs schema', () => {
       expect(objectBtns.length).toBeGreaterThan(0);
       expect(objectBtns[0]).toHaveStyle('font-weight: 700');
     });
+  });
+
+  it('persists and restores the ERD model from localStorage', async () => {
+    const initialModel = {
+      tables: [
+        {
+          id: 'Instructor',
+          name: 'Instructor',
+          clrName: 'Instructor',
+          columns: [],
+          navigations: [],
+        }
+      ],
+      relationships: [],
+      sourceFiles: [],
+      diagnostics: [],
+    };
+    localStorage.setItem(ERD_STORAGE_KEY, JSON.stringify(initialModel));
+
+    render(<Workbench />);
+
+    const erdTab = screen.getByRole('button', { name: /ERD/i });
+    fireEvent.click(erdTab);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Entity Relationship Diagram/i)).toBeInTheDocument();
+    });
+
+    expect(JSON.parse(localStorage.getItem(ERD_STORAGE_KEY) || '{}')).toEqual(initialModel);
   });
 
   it('Save Intermediate includes definition maps in downloaded schema', async () => {
@@ -256,6 +286,7 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     localStorage.setItem('schema-sculptor-deref-complete', JSON.stringify({ ts: Date.now() }));
     localStorage.setItem('schema-sculptor-deref-error', JSON.stringify({ message: 'x' }));
     localStorage.setItem('json-instance-variants:v1:test', JSON.stringify({}));
+    localStorage.setItem(ERD_STORAGE_KEY, JSON.stringify({ tables: [], relationships: [], sourceFiles: [], diagnostics: [] }));
 
     render(<Workbench />);
 
@@ -268,6 +299,7 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     await waitFor(() => {
       expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
       expect(localStorage.getItem('schema-sculptor-instance')).toBeNull();
+      expect(localStorage.getItem(ERD_STORAGE_KEY)).toBeNull();
       expect(localStorage.getItem('schema-sculptor-deref-complete')).toBeNull();
       expect(localStorage.getItem('schema-sculptor-deref-error')).toBeNull();
       expect(localStorage.getItem('json-instance-variants:v1:test')).toBeNull();

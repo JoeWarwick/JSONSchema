@@ -17,6 +17,7 @@ import ReactFlow, {
   useEdgesState,
 } from "reactflow";
 import { TooltipProvider } from "./ui/tooltip/tooltip";
+import { HorizontalSplitPane } from "./ui/split-pane";
 import { getVariantLabel } from '../utils/labels';
 import { applySnappedDagreLayout } from './graphical-schema-layout-snapped';
 import type { Connection, Edge, Node, OnConnect } from "reactflow"
@@ -2135,49 +2136,55 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
   })();
 
   return (
-    <div className={styles.graphicalEditorContainer}>
-      <TooltipProvider>
-        <ReactFlowProvider>
-          <div ref={flowWrapperRef} style={{ width: '100%', height: explicitHeight ? `${explicitHeight}px` : '100%', minHeight: 360 }}>
-            {canRenderFlow ? (
-              <ReactFlow
-                style={{ width: '100%', height: explicitHeight ? `${explicitHeight}px` : '100%' }}
-                nodes={nodes}
-                edges={edges.map(e => ({ ...e, style: { stroke: '#00e676', strokeWidth: 3 } }))}
-                minZoom={0.16}
-                onNodesChange={handleNodesChange}
-                onEdgesChange={handleEdgesChange}
-                onConnect={onConnect}
-                nodeTypes={nodeTypes}
-                onInit={(instance) => {
-                  reactFlowInstanceRef.current = instance;
-                }}
-                onNodeClick={handleNodeClick}
-                onNodeContextMenu={handleNodeContextMenu}
-              >
-                {/* <MiniMap /> */}
-                <Controls />
-                <Background />
-              </ReactFlow>
-            ) : (
-              /* Render a placeholder box while we wait for layout to measure */
-              <div style={{ width: '100%', height: 360 }} />
-            )}
-          </div>
-        </ReactFlowProvider>
-      </TooltipProvider>
-      <div className={styles.editorSidebar}>
-        {/* Always show NodePropertyEditor for selected node, including enum node */}
-        <MemoizedNodePropertyEditor node={selectedNode} onChange={handleNodePropertyChange} />
+    <>
+    <HorizontalSplitPane className={styles.graphicalEditorContainer} defaultRightWidth={320} minRightWidth={280} minLeftWidth={360}>
+      <div className={styles.flowPanel}>
+        <TooltipProvider>
+          <ReactFlowProvider>
+            <div ref={flowWrapperRef} style={{ width: '100%', height: explicitHeight ? `${explicitHeight}px` : '100%', minHeight: 360 }}>
+              {canRenderFlow ? (
+                <ReactFlow
+                  style={{ width: '100%', height: explicitHeight ? `${explicitHeight}px` : '100%' }}
+                  nodes={nodes}
+                  edges={edges.map(e => ({ ...e, style: { stroke: '#00e676', strokeWidth: 3 } }))}
+                  minZoom={0.16}
+                  onNodesChange={handleNodesChange}
+                  onEdgesChange={handleEdgesChange}
+                  onConnect={onConnect}
+                  nodeTypes={nodeTypes}
+                  onInit={(instance) => {
+                    reactFlowInstanceRef.current = instance;
+                  }}
+                  onNodeClick={handleNodeClick}
+                  onNodeContextMenu={handleNodeContextMenu}
+                >
+                  {/* <MiniMap /> */}
+                  <Controls />
+                  <Background />
+                </ReactFlow>
+              ) : (
+                /* Render a placeholder box while we wait for layout to measure */
+                <div style={{ width: '100%', height: 360 }} />
+              )}
+            </div>
+          </ReactFlowProvider>
+        </TooltipProvider>
       </div>
-      {contextMenu?.visible && (
-        <ContextMenu
-          items={contextMenuItems}
-          position={contextMenu.position}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
-    </div>
+      <div className={styles.sidebarPanel}>
+        <div className={styles.editorSidebar}>
+          {/* Always show NodePropertyEditor for selected node, including enum node */}
+          <MemoizedNodePropertyEditor node={selectedNode} onChange={handleNodePropertyChange} />
+        </div>
+      </div>
+    </HorizontalSplitPane>
+    {contextMenu?.visible && (
+      <ContextMenu
+        items={contextMenuItems}
+        position={contextMenu.position}
+        onClose={() => setContextMenu(null)}
+      />
+    )}
+    </>
   );
 }
 

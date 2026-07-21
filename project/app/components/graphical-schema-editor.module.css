@@ -11,8 +11,15 @@
   flex-direction: row;
   /* Fill whatever height the flex parent (tabPanel) gives us */
   height: 100%;
+  width: 100%;
   min-height: 0;
   overflow: hidden;
+}
+
+.flowPanel,
+.sidebarPanel {
+  height: 100%;
+  min-width: 0;
 }
 
 .patternNode {
@@ -45,8 +52,9 @@
 } 
 
 .editorSidebar {
-  width: 320px;
-  min-width: 280px;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
   background: var(--color-neutral-1);
   border-left: 1px solid var(--color-neutral-6);
   padding: var(--space-4);

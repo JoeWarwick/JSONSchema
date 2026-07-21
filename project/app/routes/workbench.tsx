@@ -60,6 +60,7 @@ const SAMPLE_JSON = `{
 
 const STORAGE_KEY = 'schema-sculptor-schema';
 const INSTANCE_STORAGE_KEY = 'schema-sculptor-instance';
+const ERD_STORAGE_KEY = 'schema-sculptor-erd-model';
 const DEREF_COMPLETE_STORAGE_KEY = 'schema-sculptor-deref-complete';
 const DEREF_ERROR_STORAGE_KEY = 'schema-sculptor-deref-error';
 
@@ -170,6 +171,16 @@ export default function Workbench() {
             // ignore
           }
         }
+
+        const savedErdModel = window.localStorage.getItem(ERD_STORAGE_KEY);
+        if (savedErdModel) {
+          try {
+            const parsedErdModel = JSON.parse(savedErdModel) as ErdModel;
+            setErdModel(parsedErdModel);
+          } catch (err) {
+            console.error('Failed to parse saved ERD model:', err);
+          }
+        }
       } catch (_) {
         // ignore
       } finally {
@@ -275,6 +286,17 @@ export default function Workbench() {
     }
   }, [instanceData, hasHydratedPersistedState, jsonInput]);
 
+  // Auto-save ERD state to localStorage whenever it changes.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !hasHydratedPersistedState) return;
+    try {
+      if (erdModel) localStorage.setItem(ERD_STORAGE_KEY, JSON.stringify(erdModel));
+      else localStorage.removeItem(ERD_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+  }, [erdModel, hasHydratedPersistedState]);
+
   /**
    * Clear all variant storage when loading a fresh JSON document
    * This implements the "version 1" approach: clean slate on new document load
@@ -300,12 +322,14 @@ export default function Workbench() {
     try {
       localStorage.removeItem(STORAGE_KEY);
       localStorage.removeItem(INSTANCE_STORAGE_KEY);
+      localStorage.removeItem(ERD_STORAGE_KEY);
       localStorage.removeItem(DEREF_COMPLETE_STORAGE_KEY);
       localStorage.removeItem(DEREF_ERROR_STORAGE_KEY);
       clearVariantStorage();
       dispatch({ type: APPLY_SOURCE_UPDATE, payload: { type: 'object', properties: {} } });
       setInstanceData(null);
       setJsonInput('{}');
+      setErdModel(null);
       setError(null);
       toast.success('Local storage cleared');
     } catch {

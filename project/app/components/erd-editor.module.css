@@ -7,6 +7,12 @@
   background: #f4f7f8;
 }
 
+.flowPanel,
+.sidebarPanel {
+  height: 100%;
+  min-width: 0;
+}
+
 .flow {
   flex: 1;
   min-width: 0;
@@ -14,8 +20,9 @@
 }
 
 .sidebar {
-  width: 280px;
-  min-width: 280px;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
   overflow-y: auto;
   padding: 18px;
   background: #ffffff;
@@ -23,8 +30,19 @@
 }
 
 .sidebar h2 { margin: 0 0 8px; font-size: 18px; color: #173b4d; }
-.sidebar label { display: block; margin-top: 16px; font-size: 12px; font-weight: 700; color: #58717a; }
-.sidebar input { box-sizing: border-box; width: 100%; margin-top: 5px; padding: 8px; border: 1px solid #b5c5c9; border-radius: 4px; }
+.sidebarSection { margin-top: 16px; }
+.sectionTitle { margin: 0 0 10px; font-size: 13px; color: #58717a; text-transform: uppercase; letter-spacing: .04em; }
+.field { display: block; margin-top: 12px; font-size: 12px; font-weight: 700; color: #58717a; }
+.fieldLabel { display: block; margin-bottom: 5px; }
+.fieldInput { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #b5c5c9; border-radius: 4px; }
+.fieldRow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.checkboxRow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
+.checkboxLabel { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #405962; }
+.relationshipCard, .propertyCard { margin-top: 12px; padding: 12px; border: 1px solid #d5dee1; border-radius: 8px; background: #f9fbfb; }
+.relationshipHeader { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+.buttonDanger { border: 1px solid #d0a1a1; border-radius: 4px; background: #fff; color: #8d3c3c; padding: 6px 10px; font-size: 12px; }
+.columnBadge { padding: 4px 8px; border-radius: 999px; background: #e7eef1; color: #38505a; font-size: 11px; font-weight: 700; }
+.muted { margin: 0; color: #687b82; font-size: 12px; }
 .diagnostics { margin-top: 20px; color: #7c3f00; font-size: 12px; }
 
 .tableNode {
