@@ -1,16 +1,27 @@
 import React from 'react';
 import ReactFlow, { Background, Controls, ReactFlowProvider, useEdgesState, useNodesState } from 'reactflow';
 import type { Node } from 'reactflow';
-import { Trash2 } from 'lucide-react';
+import { ChevronDown, Printer, Trash2 } from 'lucide-react';
 import type { ErdModel } from '../types/erd';
 import { erdModelToGraph, type ErdTableNodeData } from '../utils/erd-graph';
 import { addErdRelationship, addErdTable, addErdTableColumn, deleteErdRelationship, deleteErdTable, deleteErdTableColumn, normalizeErdModel, reorderErdTableColumns, renameErdTable, relatedRelationships, updateErdRelationship, updateErdTableColumn } from '../utils/erd-model-editing';
+import { printErdModel } from '../utils/print-erd';
 import { erdNodeTypes } from './erd-node-types';
 import { HorizontalSplitPane } from './ui/split-pane';
 import styles from './erd-editor.module.css';
 import 'reactflow/dist/style.css';
 
-const commonPropertyTypes = ['string', 'int', 'long', 'short', 'decimal', 'double', 'float', 'bool', 'DateTime', 'Guid'];
+const commonPropertyTypes = ['string', 'int', 'long', 'short', 'decimal', 'double', 'float', 'bool', 'DateTime', 'DateTimeOffset', 'Guid'];
+
+const identityColumnTypes = new Set(['int', 'long', 'short']);
+
+function isIdentityEligibleColumnType(type: string): boolean {
+  return identityColumnTypes.has(type.replace(/\?$/, ''));
+}
+
+function isTimestampColumnType(type: string): boolean {
+  return ['DateTime', 'DateTimeOffset'].includes(type.replace(/\?$/, ''));
+}
 
 export interface ErdEditorProps {
   model: ErdModel;
@@ -24,6 +35,7 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
   const [edges, setEdges, onEdgesChange] = useEdgesState(graph.edges);
   const [selectedTableId, setSelectedTableId] = React.useState<string | null>(null);
   const [draggedColumnName, setDraggedColumnName] = React.useState<string | null>(null);
+  const [diagnosticsOpen, setDiagnosticsOpen] = React.useState(false);
   const selectedTable = normalizedModel.tables.find((table) => table.id === selectedTableId);
   const tableRelationships = React.useMemo(() => selectedTable ? relatedRelationships(normalizedModel, selectedTable.id) : [], [normalizedModel, selectedTable]);
 
@@ -61,6 +73,13 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
       ...currentColumn,
       ...nextColumn,
     } as typeof currentColumn));
+  };
+
+  const setColumnCurrentTimestamp = (columnName: string, enabled: boolean) => {
+    if (!selectedTable) return;
+    updateSelectedColumn(columnName, {
+      defaultGeneration: enabled ? 'current-timestamp' : undefined,
+    });
   };
 
   const updateSelectedRelationship = (relationshipId: string, nextRelationship: Partial<ErdModel['relationships'][number]>) => {
@@ -102,6 +121,10 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
     commitModel(deleteErdTable(normalizedModel, selectedTable.id));
   };
 
+  const handlePrintGraph = () => {
+    printErdModel(normalizedModel);
+  };
+
   return (
     <HorizontalSplitPane className={styles.erdEditor} defaultRightWidth={320} minRightWidth={280} minLeftWidth={360}>
       <div className={styles.flowPanel}>
@@ -138,12 +161,22 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
           {selectedTable ? (
             <div className={styles.sidebarTitleRow}>
               <h2>{selectedTable.name}</h2>
-              <button type="button" className={styles.buttonDanger} aria-label={`Delete entity ${selectedTable.name}`} onClick={removeSelectedTable} title="Delete entity">
-                <Trash2 size={16} />
-              </button>
+              <div className={styles.sidebarTitleActions}>
+                <button type="button" className={styles.buttonSecondary} onClick={handlePrintGraph} title="Print graph" aria-label="Print graph">
+                  <Printer size={16} />
+                </button>
+                <button type="button" className={styles.buttonDanger} aria-label={`Delete entity ${selectedTable.name}`} onClick={removeSelectedTable} title="Delete entity">
+                  <Trash2 size={16} />
+                </button>
+              </div>
             </div>
           ) : (
-            <h2>Entity Relationship Diagram</h2>
+            <div className={styles.sidebarTitleRow}>
+              <h2>Entity Relationship Diagram</h2>
+              <button type="button" className={styles.buttonSecondary} onClick={handlePrintGraph} title="Print graph" aria-label="Print graph">
+                <Printer size={16} />
+              </button>
+            </div>
           )}
           {selectedTable ? (
           <div className={styles.sidebarSection}>
@@ -196,7 +229,17 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
                     </label>
                     <label className={styles.field}>
                       <span className={styles.fieldLabel}>Type</span>
-                      <select className={styles.fieldInput} value={column.type} onChange={(event) => updateSelectedColumn(column.name, { type: event.target.value })}>
+                      <select
+                        className={styles.fieldInput}
+                        value={column.type}
+                        onChange={(event) => {
+                          const nextType = event.target.value;
+                          updateSelectedColumn(column.name, {
+                            type: nextType,
+                            defaultGeneration: isTimestampColumnType(nextType) ? column.defaultGeneration : undefined,
+                          });
+                        }}
+                      >
                         {column.type && !commonPropertyTypes.includes(column.type) && <option value={column.type}>{column.type}</option>}
                         {commonPropertyTypes.map((type) => <option key={type} value={type}>{type}</option>)}
                       </select>
@@ -206,6 +249,20 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
                     <label className={styles.checkboxLabel}><input type="checkbox" checked={column.isNullable} onChange={(event) => updateSelectedColumn(column.name, { isNullable: event.target.checked })} /> Nullable</label>
                     <label className={styles.checkboxLabel}><input type="checkbox" checked={column.isPrimaryKey} onChange={(event) => updateSelectedColumn(column.name, { isPrimaryKey: event.target.checked })} /> Primary key</label>
                     <span className={styles.columnBadge}>{column.isForeignKey ? `FK${column.foreignKeyTarget ? ` → ${column.foreignKeyTarget}` : ''}` : 'Regular'}</span>
+                    {column.isPrimaryKey && isIdentityEligibleColumnType(column.type) && (
+                      <span className={styles.columnBadge} title="Numeric primary keys are exported as IDENTITY columns">Auto</span>
+                    )}
+                    {isTimestampColumnType(column.type) && (
+                      <button
+                        type="button"
+                        className={`${styles.defaultChip} ${column.defaultGeneration === 'current-timestamp' ? styles.defaultChipActive : ''}`}
+                        onClick={() => setColumnCurrentTimestamp(column.name, column.defaultGeneration !== 'current-timestamp')}
+                        title="Use the current time as the default value"
+                        aria-label={`Default for ${column.name}`}
+                      >
+                        Now
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -239,9 +296,10 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
                   <label className={styles.field}>
                     <span className={styles.fieldLabel}>Foreign key columns</span>
                     <input
+                      key={relationship.id}
                       className={styles.fieldInput}
-                      value={relationship.foreignKeyColumns.join(', ')}
-                      onChange={(event) => updateSelectedRelationship(relationship.id, {
+                      defaultValue={relationship.foreignKeyColumns.join(', ')}
+                      onBlur={(event) => updateSelectedRelationship(relationship.id, {
                         foreignKeyColumns: event.target.value.split(',').map((column) => column.trim()).filter(Boolean),
                       })}
                     />
@@ -285,9 +343,24 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
             </div>
           )}
           {normalizedModel.diagnostics.length > 0 && (
-            <div className={styles.diagnostics} role="status">
-              {normalizedModel.diagnostics.map((diagnostic, index) => <div key={`${diagnostic.message}-${index}`}>{diagnostic.message}</div>)}
-            </div>
+            <section className={styles.diagnosticsSection} aria-label="Diagnostics" role="status">
+              <button
+                type="button"
+                className={styles.diagnosticsToggle}
+                aria-expanded={diagnosticsOpen}
+                aria-label={diagnosticsOpen ? 'Collapse diagnostics' : 'Expand diagnostics'}
+                title={diagnosticsOpen ? 'Collapse diagnostics' : 'Expand diagnostics'}
+                onClick={() => setDiagnosticsOpen((open) => !open)}
+              >
+                <ChevronDown className={`${styles.diagnosticsIcon}${diagnosticsOpen ? ` ${styles.diagnosticsIconOpen}` : ''}`} aria-hidden="true" />
+                <span>Diagnostics</span>
+              </button>
+              {diagnosticsOpen && (
+                <div className={styles.diagnosticsList}>
+                  {normalizedModel.diagnostics.map((diagnostic, index) => <div key={`${diagnostic.message}-${index}`}>{diagnostic.message}</div>)}
+                </div>
+              )}
+            </section>
           )}
         </aside>
       </div>

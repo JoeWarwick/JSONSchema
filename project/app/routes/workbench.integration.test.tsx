@@ -3,6 +3,15 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { TextEncoder, TextDecoder } from 'node:util';
 import schemastoreWorkflow from '../test-fixtures/schemastore-workflow.json';
+
+jest.mock('@dazl/color-scheme/react', () => ({
+  useColorScheme: () => ({
+    configScheme: 'light',
+    resolvedScheme: 'light',
+    setColorScheme: jest.fn(),
+  }),
+}));
+
 import Workbench from './workbench';
 
 Object.assign(global, { TextEncoder, TextDecoder });
@@ -205,6 +214,81 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     expect(JSON.parse(localStorage.getItem(ERD_STORAGE_KEY) || '{}')).toEqual(initialModel);
   });
 
+  it('creates a blank ERD from scratch', async () => {
+    render(<Workbench />);
+
+    fireEvent.click(screen.getByRole('button', { name: /ERD/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/start from scratch/i)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Create blank ERD/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Add Entity/i })).toBeInTheDocument();
+      expect(JSON.parse(localStorage.getItem(ERD_STORAGE_KEY) || '{}')).toEqual({
+        tables: [],
+        relationships: [],
+        sourceFiles: [],
+        diagnostics: [],
+      });
+    });
+  });
+
+  it('prints the ERD graph from the sidebar button', async () => {
+    localStorage.setItem(ERD_STORAGE_KEY, JSON.stringify({
+      tables: [
+        {
+          id: 'Instructor',
+          name: 'Instructor',
+          clrName: 'Instructor',
+          columns: [],
+          navigations: [],
+        },
+      ],
+      relationships: [],
+      sourceFiles: [],
+      diagnostics: [],
+    }));
+
+    const originalCreateObjectURL = (URL as any).createObjectURL;
+    const originalRevokeObjectURL = (URL as any).revokeObjectURL;
+    (URL as any).createObjectURL = jest.fn(() => 'blob:print-preview');
+    (URL as any).revokeObjectURL = jest.fn(() => {});
+    const openSpy = jest.spyOn(window, 'open').mockImplementation(() => {
+      const listeners: Record<string, Array<() => void>> = {};
+      return {
+        focus: jest.fn(),
+        print: jest.fn(),
+        close: jest.fn(),
+        addEventListener: jest.fn((event: string, handler: () => void) => {
+          listeners[event] = listeners[event] ?? [];
+          listeners[event].push(handler);
+          if (event === 'load') {
+            handler();
+          }
+        }),
+      } as any;
+    });
+
+    render(<Workbench />);
+    fireEvent.click(screen.getByRole('button', { name: /ERD/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Print graph/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Print graph/i }));
+
+    await waitFor(() => expect(openSpy).toHaveBeenCalled());
+    expect((URL as any).createObjectURL).toHaveBeenCalled();
+    expect((URL as any).revokeObjectURL).not.toHaveBeenCalled();
+    (URL as any).createObjectURL = originalCreateObjectURL;
+    (URL as any).revokeObjectURL = originalRevokeObjectURL;
+    openSpy.mockRestore();
+  });
+
   it('adds and deletes ERD items from the sidebar', async () => {
     const initialModel = {
       tables: [
@@ -232,6 +316,7 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     };
 
     localStorage.setItem(ERD_STORAGE_KEY, JSON.stringify(initialModel));
+
 
     render(<Workbench />);
 
@@ -263,6 +348,39 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     await waitFor(() => {
       const stored = JSON.parse(localStorage.getItem(ERD_STORAGE_KEY) || '{}');
       expect(stored.tables[0].columns.some((column: any) => column.name === 'InstructorID')).toBe(false);
+    });
+  });
+
+  it('keeps diagnostics collapsed by default and opens them from the toggle', async () => {
+    localStorage.setItem(ERD_STORAGE_KEY, JSON.stringify({
+      tables: [
+        {
+          id: 'Node',
+          name: 'Node',
+          clrName: 'Node',
+          columns: [],
+          navigations: [],
+        },
+      ],
+      relationships: [],
+      sourceFiles: [],
+      diagnostics: [{ severity: 'warning', message: 'Inferred relationship Node -> Node from navigation Parent.' }],
+    }));
+
+    render(<Workbench />);
+
+    fireEvent.click(screen.getByRole('button', { name: /ERD/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Entity Relationship Diagram/i)).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText(/Inferred relationship Node -> Node from navigation Parent\./i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Expand diagnostics/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Inferred relationship Node -> Node from navigation Parent\./i)).toBeInTheDocument();
     });
   });
 
@@ -323,6 +441,68 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     await waitFor(() => {
       const stored = JSON.parse(localStorage.getItem(ERD_STORAGE_KEY) || '{}');
       expect(stored.relationships).toHaveLength(0);
+    });
+  });
+
+  it('commits foreign key columns on blur', async () => {
+    const initialModel = {
+      tables: [
+        {
+          id: 'Department',
+          name: 'Department',
+          clrName: 'Department',
+          columns: [
+            { name: 'DepartmentID', type: 'int', isNullable: false, isPrimaryKey: true, isForeignKey: false },
+            { name: 'InstructorID', type: 'int', isNullable: true, isPrimaryKey: false, isForeignKey: true, foreignKeyTarget: 'Instructor' },
+          ],
+          navigations: [],
+        },
+        {
+          id: 'Instructor',
+          name: 'Instructor',
+          clrName: 'Instructor',
+          columns: [{ name: 'ID', type: 'int', isNullable: false, isPrimaryKey: true, isForeignKey: false }],
+          navigations: [],
+        },
+      ],
+      relationships: [
+        {
+          id: 'Department->Instructor:InstructorID',
+          dependentTable: 'Department',
+          principalTable: 'Instructor',
+          foreignKeyColumns: ['InstructorID'],
+          principalCardinality: 'one',
+          dependentCardinality: 'zero-or-one',
+          explicit: true,
+        },
+      ],
+      sourceFiles: [],
+      diagnostics: [],
+    };
+
+    localStorage.setItem(ERD_STORAGE_KEY, JSON.stringify(initialModel));
+
+    render(<Workbench />);
+
+    fireEvent.click(screen.getByRole('button', { name: /ERD/i }));
+
+    await waitFor(() => {
+      expect(document.querySelector('.react-flow__node')).toBeTruthy();
+    });
+
+    fireEvent.click(document.querySelector('.react-flow__node') as Element);
+
+    const foreignKeyInput = await screen.findByLabelText(/Foreign key columns/i);
+    fireEvent.change(foreignKeyInput, { target: { value: 'InstructorID, DepartmentID' } });
+
+    const storedBeforeBlur = JSON.parse(localStorage.getItem(ERD_STORAGE_KEY) || '{}');
+    expect(storedBeforeBlur.relationships[0].foreignKeyColumns).toEqual(['InstructorID']);
+
+    fireEvent.blur(foreignKeyInput);
+
+    await waitFor(() => {
+      const storedAfterBlur = JSON.parse(localStorage.getItem(ERD_STORAGE_KEY) || '{}');
+      expect(storedAfterBlur.relationships[0].foreignKeyColumns).toEqual(['InstructorID', 'DepartmentID']);
     });
   });
 

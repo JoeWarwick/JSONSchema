@@ -167,6 +167,36 @@ describe('erd-model-editing', () => {
     ]);
   });
 
+  it('names self-referential relationships parent and children by default', () => {
+    const model = addErdRelationship({
+      tables: [
+        {
+          id: 'Node',
+          name: 'Node',
+          clrName: 'Node',
+          columns: [{ name: 'ID', type: 'int', isNullable: false, isPrimaryKey: true, isForeignKey: false }],
+          navigations: [],
+        },
+      ],
+      relationships: [],
+      sourceFiles: [],
+      diagnostics: [],
+    }, 'Node', 'Node');
+
+    expect(model.relationships).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dependentTable: 'Node',
+        principalTable: 'Node',
+        dependentNavigation: 'Parent',
+        principalNavigation: 'Children',
+      }),
+    ]));
+    expect(model.tables.find((table) => table.id === 'Node')?.navigations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'Parent', targetTable: 'Node', cardinality: 'one' }),
+      expect.objectContaining({ name: 'Children', targetTable: 'Node', cardinality: 'many' }),
+    ]));
+  });
+
   it('deletes a relationship by id', () => {
     const model = deleteErdRelationship(sampleModel(), 'Department->Instructor:InstructorID');
 
@@ -191,5 +221,43 @@ describe('erd-model-editing', () => {
   it('finds relationships related to a table', () => {
     const model = normalizeErdModel(sampleModel());
     expect(relatedRelationships(model, 'Department')).toHaveLength(1);
+  });
+
+  it('infers missing relationships from foreign keys and navigations', () => {
+    const model = normalizeErdModel({
+      tables: [
+        {
+          id: 'Department',
+          name: 'Department',
+          clrName: 'Department',
+          columns: [
+            { name: 'DepartmentID', type: 'int', isNullable: false, isPrimaryKey: true, isForeignKey: false },
+            { name: 'InstructorID', type: 'int', isNullable: true, isPrimaryKey: false, isForeignKey: true, foreignKeyTarget: 'Instructor' },
+          ],
+          navigations: [{ name: 'Instructor', targetTable: 'Instructor', cardinality: 'one' }],
+        },
+        {
+          id: 'Instructor',
+          name: 'Instructor',
+          clrName: 'Instructor',
+          columns: [{ name: 'ID', type: 'int', isNullable: false, isPrimaryKey: true, isForeignKey: false }],
+          navigations: [{ name: 'Departments', targetTable: 'Department', cardinality: 'many' }],
+        },
+      ],
+      relationships: [],
+      sourceFiles: [],
+      diagnostics: [],
+    });
+
+    expect(model.relationships).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dependentTable: 'Department',
+        principalTable: 'Instructor',
+        foreignKeyColumns: ['InstructorID'],
+        dependentNavigation: 'Instructor',
+        principalNavigation: 'Departments',
+        explicit: false,
+      }),
+    ]));
   });
 });

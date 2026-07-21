@@ -21,14 +21,58 @@ function syncTableForeignKeys(tables: ErdTable[], relationships: ErdRelationship
       ...table,
       columns: table.columns.map((column) => {
         const target = targets.get(column.name);
+        const foreignKeyTarget = target ?? column.foreignKeyTarget;
         return {
           ...column,
-          isForeignKey: Boolean(target),
-          foreignKeyTarget: target,
+          isForeignKey: Boolean(target ?? column.isForeignKey),
+          foreignKeyTarget,
         };
       }),
     };
   });
+}
+
+function inferRelationshipsFromTables(tables: ErdTable[], relationships: ErdRelationship[]): ErdRelationship[] {
+  const existing = new Set(relationships.map((relationship) => relationship.id));
+  const inferred: ErdRelationship[] = [];
+
+  for (const dependentTable of tables) {
+    const foreignKeyGroups = new Map<string, string[]>();
+
+    for (const column of dependentTable.columns.filter((item) => item.isForeignKey && item.foreignKeyTarget)) {
+      const targetTable = column.foreignKeyTarget!;
+      const columns = foreignKeyGroups.get(targetTable) ?? [];
+      columns.push(column.name);
+      foreignKeyGroups.set(targetTable, columns);
+    }
+
+    for (const [principalTable, foreignKeyColumns] of foreignKeyGroups) {
+      const id = buildRelationshipId({ dependentTable: dependentTable.id, principalTable, foreignKeyColumns });
+      if (existing.has(id)) continue;
+
+      const dependentNavigation = dependentTable.navigations.find((navigation) => navigation.targetTable === principalTable && navigation.cardinality !== 'many')
+        ?? dependentTable.navigations.find((navigation) => navigation.targetTable === principalTable)
+        ?? null;
+      const principalTableModel = tables.find((table) => table.id === principalTable) ?? null;
+      const principalNavigation = principalTableModel?.navigations.find((navigation) => navigation.targetTable === dependentTable.id)
+        ?? null;
+
+      inferred.push({
+        id,
+        principalTable,
+        dependentTable: dependentTable.id,
+        foreignKeyColumns: [...foreignKeyColumns],
+        principalCardinality: dependentNavigation?.cardinality ?? 'one',
+        dependentCardinality: principalNavigation?.cardinality ?? 'many',
+        principalNavigation: principalNavigation?.name,
+        dependentNavigation: dependentNavigation?.name,
+        explicit: false,
+      });
+      existing.add(id);
+    }
+  }
+
+  return inferred;
 }
 
 function syncNavigationReferences(navigations: ErdNavigation[], oldTableId: string, nextTableId: string): ErdNavigation[] {
@@ -39,6 +83,23 @@ function pluralizeNavigationName(name: string): string {
   if (name.endsWith('y') && !/[aeiou]y$/i.test(name)) return `${name.slice(0, -1)}ies`;
   if (name.endsWith('s')) return `${name}es`;
   return `${name}s`;
+}
+
+function defaultSelfRelationshipNavigationNames(): { dependent: string; principal: string } {
+  return { dependent: 'Parent', principal: 'Children' };
+}
+
+function relationshipNavigationNames(relationship: Pick<ErdRelationship, 'dependentTable' | 'principalTable' | 'principalNavigation' | 'dependentNavigation'>): { dependent: string; principal: string } {
+  if (relationship.dependentTable === relationship.principalTable) {
+    return {
+      dependent: relationship.dependentNavigation ?? defaultSelfRelationshipNavigationNames().dependent,
+      principal: relationship.principalNavigation ?? defaultSelfRelationshipNavigationNames().principal,
+    };
+  }
+  return {
+    dependent: relationship.dependentNavigation ?? relationship.principalTable,
+    principal: relationship.principalNavigation ?? pluralizeNavigationName(relationship.dependentTable),
+  };
 }
 
 function addNavigation(tables: ErdTable[], tableId: string, navigation: ErdNavigation): ErdTable[] {
@@ -62,15 +123,32 @@ function removeNavigation(tables: ErdTable[], tableId: string, navigation: ErdNa
   });
 }
 
+function clearForeignKeyMetadata(tables: ErdTable[], tableId: string, foreignKeyColumns: string[]): ErdTable[] {
+  const columnsToClear = new Set(foreignKeyColumns);
+
+  return tables.map((table) => {
+    if (table.id !== tableId) return table;
+    return {
+      ...table,
+      columns: table.columns.map((column) => columnsToClear.has(column.name) ? {
+        ...column,
+        isForeignKey: false,
+        foreignKeyTarget: undefined,
+      } : column),
+    };
+  });
+}
+
 function buildRelationshipNavigations(relationship: Pick<ErdRelationship, 'dependentTable' | 'principalTable' | 'principalCardinality' | 'dependentCardinality' | 'principalNavigation' | 'dependentNavigation'>): { dependent: ErdNavigation; principal: ErdNavigation } {
+  const names = relationshipNavigationNames(relationship);
   return {
     dependent: {
-      name: relationship.dependentNavigation ?? relationship.principalTable,
+      name: names.dependent,
       targetTable: relationship.principalTable,
       cardinality: relationship.principalCardinality,
     },
     principal: {
-      name: relationship.principalNavigation ?? pluralizeNavigationName(relationship.dependentTable),
+      name: names.principal,
       targetTable: relationship.dependentTable,
       cardinality: relationship.dependentCardinality,
     },
@@ -147,11 +225,13 @@ export function normalizeErdModel(model: ErdModel): ErdModel {
     foreignKeyColumns: [...relationship.foreignKeyColumns],
     id: buildRelationshipId(relationship),
   }));
+  const tables = syncTableForeignKeys(model.tables, relationships);
+  const inferredRelationships = inferRelationshipsFromTables(tables, relationships);
 
   return {
     ...model,
-    relationships,
-    tables: syncTableForeignKeys(model.tables, relationships),
+    relationships: [...relationships, ...inferredRelationships],
+    tables,
   };
 }
 
@@ -215,10 +295,18 @@ export function deleteErdTable(model: ErdModel, tableId: string): ErdModel {
     ...table,
     navigations: table.navigations.filter((navigation) => navigation.targetTable !== tableId),
   }));
+  const clearedTables = navigations.map((table) => ({
+    ...table,
+    columns: table.columns.map((column) => column.foreignKeyTarget === tableId ? {
+      ...column,
+      isForeignKey: false,
+      foreignKeyTarget: undefined,
+    } : column),
+  }));
 
   return normalizeErdModel({
     ...model,
-    tables: navigations,
+    tables: clearedTables,
     relationships,
     nodePositions: model.nodePositions
       ? Object.fromEntries(Object.entries(model.nodePositions).filter(([id]) => id !== tableId))
@@ -358,8 +446,18 @@ export function addErdRelationship(model: ErdModel, dependentTableId: string, pr
     principalCardinality: 'one' as const,
     dependentCardinality: 'many' as const,
     explicit: true,
-    dependentNavigation: targetTable.id,
-    principalNavigation: pluralizeNavigationName(dependentTable.id),
+    ...(() => {
+      const names = dependentTable.id === targetTable.id
+        ? defaultSelfRelationshipNavigationNames()
+        : {
+          dependent: targetTable.id,
+          principal: pluralizeNavigationName(dependentTable.id),
+        };
+      return {
+        dependentNavigation: names.dependent,
+        principalNavigation: names.principal,
+      };
+    })(),
   };
 
   return normalizeErdModel({
@@ -377,10 +475,11 @@ export function addErdRelationship(model: ErdModel, dependentTableId: string, pr
 
 export function deleteErdRelationship(model: ErdModel, relationshipId: string): ErdModel {
   const relationship = model.relationships.find((item) => item.id === relationshipId) ?? null;
+  const tables = relationship ? clearForeignKeyMetadata(model.tables, relationship.dependentTable, relationship.foreignKeyColumns) : model.tables;
 
   return normalizeErdModel({
     ...model,
-    tables: relationship ? applyRelationshipNavigations(model.tables, relationship, null) : model.tables,
+    tables: relationship ? applyRelationshipNavigations(tables, relationship, null) : model.tables,
     relationships: model.relationships.filter((item) => item.id !== relationshipId),
   });
 }

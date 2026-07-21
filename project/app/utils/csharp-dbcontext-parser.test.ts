@@ -65,4 +65,79 @@ describe('parseDbContextFiles', () => {
       expect.objectContaining({ dependentTable: 'Course', principalTable: 'Department' }),
     ]));
   });
+
+  it('inherits base class members and infers collection-navigation relationships', () => {
+    const model = parseDbContextFiles([
+      {
+        name: 'FeedModel.cs',
+        content: `
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+
+public class Subscribable
+{
+    [Key]
+    public int Id { get; set; }
+}
+
+public class FeedSet : Subscribable
+{
+    public List<Subscribable> Feeds { get; set; }
+}
+`,
+      },
+    ]);
+
+    const feedSet = model.tables.find((table) => table.name === 'FeedSet');
+    expect(feedSet?.columns).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'Id', isPrimaryKey: true }),
+    ]));
+    expect(model.relationships).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dependentTable: 'Subscribable',
+        principalTable: 'FeedSet',
+        foreignKeyColumns: ['FeedSetID'],
+        dependentCardinality: 'many',
+        explicit: false,
+      }),
+    ]));
+    expect(model.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: 'warning',
+        message: expect.stringContaining('Inferred relationship Subscribable -> FeedSet from navigation Feeds.'),
+      }),
+    ]));
+  });
+
+  it('defaults self-referential navigation names to parent and children when inferring relationships', () => {
+    const model = parseDbContextFiles([
+      {
+        name: 'TreeNode.cs',
+        content: `
+using System.ComponentModel.DataAnnotations;
+
+public class TreeNode
+{
+    [Key]
+    public int Id { get; set; }
+
+    public int? ParentId { get; set; }
+
+    public TreeNode Parent { get; set; }
+}
+`,
+      },
+    ]);
+
+    expect(model.relationships).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dependentTable: 'TreeNode',
+        principalTable: 'TreeNode',
+        foreignKeyColumns: ['ParentId'],
+        dependentNavigation: 'Parent',
+        principalNavigation: 'Children',
+        explicit: false,
+      }),
+    ]));
+  });
 });

@@ -92,11 +92,61 @@
 }
 
 .menuStatusBadge {
-  margin-left: auto;
   font-size: 11px;
   color: var(--color-neutral-9);
   padding-right: var(--space-2);
   white-space: nowrap;
+}
+
+.menuBarEnd {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+@media print {
+  .menuBar,
+  .tabs {
+    display: none !important;
+  }
+
+  .container {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .tabPanel {
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+    min-height: 0 !important;
+    height: auto !important;
+  }
+
+  .tabPanelFlush {
+    overflow: visible !important;
+  }
+
+  .workspace {
+    display: block;
+    height: auto;
+  }
+
+  .panel {
+    min-height: 0;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .editorContainer,
+  .schemaOutputPanel,
+  .schemaOutput {
+    overflow: visible !important;
+  }
 }
 
 .header {

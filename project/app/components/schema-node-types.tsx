@@ -85,8 +85,8 @@ import { renderBadges } from './graphical-schema-badges';
 // Group box for Properties/Items
 export const GroupBox = ({ children }: { title: string; children: React.ReactNode }) => (
   <div style={{
-    background: '#e8fbe8',
-    border: '2px dashed #7ed957',
+    background: 'var(--graph-node-bg-subtle)',
+    border: '2px dashed var(--graph-node-border-accent)',
     borderRadius: 12,
     padding: '18px 18px 12px 18px',
     margin: '0 0 24px 0',
@@ -97,8 +97,8 @@ export const GroupBox = ({ children }: { title: string; children: React.ReactNod
     <button style={{
       marginTop: 12,
       background: 'none',
-      border: '1px dashed #7ed957',
-      color: '#388e3c',
+      border: '1px dashed var(--graph-node-border-accent)',
+      color: 'var(--color-accent-10)',
       borderRadius: 8,
       padding: '4px 12px',
       cursor: 'pointer',
@@ -116,17 +116,17 @@ export const EnumNode = ({ data }: { data: SchemaNodeData & { enum: string[] } }
   const badges = buildBadges(data);
   return (
     <div style={{
-      background: '#fffbe6',
-      border: '2px solid #ffe082',
+      background: 'var(--graph-node-bg)',
+      border: '2px solid var(--color-accent-6)',
       borderRadius: 8,
       padding: '7px 14px',
       marginBottom: 12,
       minWidth: 180,
-      boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+      boxShadow: 'var(--graph-node-shadow)',
       textAlign: 'left',
       position: 'relative',
     }}>
-      <Handle type="target" position={Position.Left} style={{ background: '#00e676', width: 10, height: 10, borderRadius: 5 }} />
+      <Handle type="target" position={Position.Left} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
       <div className={styles.nodeHeader}>
         <div className={styles.nodeHeaderLeft}>
           {data.patternKey ? <span className={styles.patternBadge}>pattern</span> : null}
@@ -145,7 +145,7 @@ export const EnumNode = ({ data }: { data: SchemaNodeData & { enum: string[] } }
             <Tooltip>
               <TooltipTrigger asChild>
                 <button aria-label="Node description" className={styles.nodeIcon}>
-                  <AlertCircle size={16} color="#d9822b" />
+                  <AlertCircle size={16} color="var(--color-accent-10)" />
                 </button>
               </TooltipTrigger>
               <TooltipContent>{renderTooltipContentChildren(data.description)}</TooltipContent>
@@ -155,7 +155,7 @@ export const EnumNode = ({ data }: { data: SchemaNodeData & { enum: string[] } }
             <Tooltip>
               <TooltipTrigger asChild>
                 <button aria-label="Node comment" className={styles.nodeIcon}>
-                  <FileText size={16} color="#6e7191" />
+                  <FileText size={16} color="var(--graph-node-muted)" />
                 </button>
               </TooltipTrigger>
               <TooltipContent>{renderTooltipContentChildren((data as any).$comment)}</TooltipContent>
@@ -166,7 +166,7 @@ export const EnumNode = ({ data }: { data: SchemaNodeData & { enum: string[] } }
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
         {renderBadges(badges)}
       </div>
-      <Handle type="source" position={Position.Right} style={{ background: '#00e676', width: 10, height: 10, borderRadius: 5 }} />
+      <Handle type="source" position={Position.Right} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
     </div>
   );
 };
@@ -178,18 +178,18 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
   const badges = buildBadges(data);
   return (
     <div className={isPattern ? styles.patternNode : undefined} style={{
-      background: isPattern ? undefined : '#fff',
-      border: '2px solid #b3e6b3',
+      background: isPattern ? undefined : 'var(--graph-node-bg)',
+      border: '2px solid var(--graph-node-border)',
       borderRadius: 8,
       padding: '7px 14px',
       marginBottom: 12,
       minWidth: 180,
-      boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+      boxShadow: 'var(--graph-node-shadow)',
       textAlign: 'left',
       position: 'relative',
     }}>
-      <Handle type="target" position={Position.Left} style={{ background: '#00e676', width: 10, height: 10, borderRadius: 5 }} />
-      <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4, color: '#222' }}>
+      <Handle type="target" position={Position.Left} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
+      <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4, color: 'var(--graph-node-text)' }}>
         { (data as any).patternKey ? <span className={styles.patternBadge}>pattern</span> : null }
         {required && (
           <Tooltip>
@@ -204,7 +204,7 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
           <Tooltip>
             <TooltipTrigger asChild>
               <span style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 5, verticalAlign: 'middle', flexShrink: 0, cursor: 'help' }}>
-                <Link2 size={13} color="#7b4397" />
+                <Link2 size={13} color="var(--color-accent-10)" />
               </span>
             </TooltipTrigger>
             <TooltipContent>{typeof data.$ref === 'string' ? `Imported from ${data.$ref}` : 'Imported definition (create local override to change)'}</TooltipContent>
@@ -215,7 +215,7 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
             <Tooltip>
               <TooltipTrigger asChild>
                 <button aria-label="Node description" className={styles.nodeIcon} style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}>
-                  <AlertCircle size={16} color="#d9822b" />
+                  <AlertCircle size={16} color="var(--color-accent-10)" />
                 </button>
               </TooltipTrigger>
               <TooltipContent>{renderTooltipContentChildren(data.description)}</TooltipContent>
@@ -225,7 +225,7 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
             <Tooltip>
               <TooltipTrigger asChild>
                 <button aria-label="Node comment" className={styles.nodeIcon} style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}>
-                  <FileText size={16} color="#6e7191" />
+                  <FileText size={16} color="var(--graph-node-muted)" />
                 </button>
               </TooltipTrigger>
               <TooltipContent>{renderTooltipContentChildren((data as any).$comment)}</TooltipContent>
@@ -243,7 +243,7 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
             return (
               <span key={key} style={{
                 display: 'inline-block',
-                color: '#fb8c00',
+                  color: 'var(--color-accent-10)',
                 fontWeight: 700,
                 marginRight: 8,
                 marginBottom: 2,
@@ -255,7 +255,7 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
             return (
               <Tooltip key={key}>
                 <TooltipTrigger asChild>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', cursor: 'default', color: '#7b4397' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', cursor: 'default', color: 'var(--color-accent-10)' }}>
                     <Regex size={13} />
                   </span>
                 </TooltipTrigger>
@@ -268,14 +268,14 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
             return (
               <span key={key} style={{
                 display: 'inline-block',
-                background: '#fff4e5',
-                color: '#d9822b',
+                  background: 'color-mix(in srgb, var(--color-accent-7) 16%, var(--graph-node-bg))',
+                  color: 'var(--color-accent-10)',
                 borderRadius: 8,
                 padding: '2px 8px',
                 fontSize: 12,
                 fontWeight: 700,
                 letterSpacing: '0.03em',
-                border: '1px solid #ffd9b3',
+                  border: '1px solid var(--color-accent-6)',
                 marginRight: 4,
                 marginBottom: 2,
               }}>imported</span>
@@ -285,21 +285,21 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
           return (
             <span key={key} style={{
               display: 'inline-block',
-              background: '#eaf6ff',
-              color: '#2176c7',
+                background: 'var(--graph-node-bg-subtle)',
+                color: 'var(--graph-node-text)',
               borderRadius: 8,
               padding: '2px 8px',
               fontSize: 12,
               fontWeight: 500,
               letterSpacing: '0.03em',
-              border: '1px solid #b3d4fc',
+                border: '1px solid var(--graph-node-border)',
               marginRight: 4,
               marginBottom: 2,
             }}>{String(value)}</span>
           );
         })}
       </div>
-      <Handle type="source" position={Position.Right} style={{ background: '#00e676', width: 10, height: 10, borderRadius: 5 }} />
+        <Handle type="source" position={Position.Right} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
     </div>
   );
 };
@@ -307,26 +307,26 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
 // Simple SchemaCard component for displaying label and type
 export const SchemaCard = ({ label, type, imported }: { label: string; type: SchemaNodeType; imported?: boolean }) => (
   <div style={{
-    background: '#f5f5f5',
-    border: '1px solid #b3e6b3',
+    background: 'var(--graph-node-bg)',
+    border: '1px solid var(--graph-node-border)',
     borderRadius: 8,
     padding: '8px 14px',
     marginBottom: 8,
     minWidth: 100,
     fontSize: 15,
     fontWeight: 500,
-    color: '#2176c7',
+    color: 'var(--graph-node-text)',
     display: 'inline-block',
   }}>
     {label}{imported && (
-      <span title="Imported definition (create local override to change)" style={{ color: '#d9822b', marginLeft: 6 }}>*</span>
-    )} <span style={{ color: '#888', fontWeight: 400 }}>({type})</span>
+      <span title="Imported definition (create local override to change)" style={{ color: 'var(--color-accent-10)', marginLeft: 6 }}>*</span>
+    )} <span style={{ color: 'var(--graph-node-muted)', fontWeight: 400 }}>({type})</span>
   </div>
 );
 
 // Root node as a group box with a property card
 export const RootNode: React.FC<{ data: SchemaNodeData }> = ({ data }) => (
-  <div style={{ background: '#e8fbe8', border: '2px dashed #7ed957', borderRadius: 12, padding: '18px' }}>
+  <div style={{ background: 'var(--graph-node-bg-subtle)', border: '2px dashed var(--graph-node-border-accent)', borderRadius: 12, padding: '18px' }}>
     <div className="root-node" style={{ pointerEvents: 'none', cursor: 'default' }}>
       <SchemaCard label={data.label} type={data.type} imported={data.imported} />
     </div>
@@ -335,12 +335,12 @@ export const RootNode: React.FC<{ data: SchemaNodeData }> = ({ data }) => (
 
 // Properties group node type
 export const PropertiesGroupNode = ({ children }: { children?: React.ReactNode }) => (
-  <div style={{ background: '#e8fbe8', border: '2px dashed #7ed957', borderRadius: 12, padding: '18px' }}>{children}</div>
+  <div style={{ background: 'var(--graph-node-bg-subtle)', border: '2px dashed var(--graph-node-border-accent)', borderRadius: 12, padding: '18px' }}>{children}</div>
 );
 
 // Items group node type
 export const ItemsGroupNode = ({ data }: { data: SchemaNodeData }) => (
-  <div style={{ background: '#e8fbe8', border: '2px dashed #7ed957', borderRadius: 12, padding: '18px' }}>
+  <div style={{ background: 'var(--graph-node-bg-subtle)', border: '2px dashed var(--graph-node-border-accent)', borderRadius: 12, padding: '18px' }}>
     <SchemaCard label={data.label} type={data.type} imported={data.imported} />
   </div>
 );
@@ -465,7 +465,7 @@ export const VariantNode = ({ data }: { data: any }) => {
   const expandable = isExpandableVariant(data);
   return (
     <div className={`${styles.variantNode}${expandable ? '' : ` ${styles.variantNodePrimitive}`}`}>
-      <Handle type="target" position={Position.Left} style={{ background: '#7c3aed', width: 8, height: 8, borderRadius: 4 }} />
+      <Handle type="target" position={Position.Left} style={{ background: 'var(--color-accent-7)', width: 8, height: 8, borderRadius: 4 }} />
       <div className={styles.variantNodeHeader}>
         <div className={styles.variantNodeTitle}>
           <span>{(variantIndex ?? 0) + 1}. {label}</span>

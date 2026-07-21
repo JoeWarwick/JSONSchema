@@ -16,6 +16,7 @@ import ReactFlow, {
   useNodesState,
   useEdgesState,
 } from "reactflow";
+import { Printer } from "lucide-react";
 import { TooltipProvider } from "./ui/tooltip/tooltip";
 import { HorizontalSplitPane } from "./ui/split-pane";
 import { getVariantLabel } from '../utils/labels';
@@ -24,6 +25,7 @@ import type { Connection, Edge, Node, OnConnect } from "reactflow"
 import type { SchemaNodeData } from "./schema-behaviors";
 import type { NodeData, GraphicalSchemaEditorProps } from './types';
 import { nodeTypes, initialNodes, initialEdges } from './schema-node-types';
+import { printGraphSection } from '../utils/print-graph';
 import "reactflow/dist/style.css";
 import styles from "./graphical-schema-editor.module.css";
 
@@ -2135,13 +2137,17 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
     return items;
   })();
 
+  const handlePrintGraph = React.useCallback(() => {
+    printGraphSection('graphical');
+  }, []);
+
   return (
     <>
     <HorizontalSplitPane className={styles.graphicalEditorContainer} defaultRightWidth={320} minRightWidth={280} minLeftWidth={360}>
       <div className={styles.flowPanel}>
         <TooltipProvider>
           <ReactFlowProvider>
-            <div ref={flowWrapperRef} style={{ width: '100%', height: explicitHeight ? `${explicitHeight}px` : '100%', minHeight: 360 }}>
+            <div ref={flowWrapperRef} className={styles.flowWrapper} style={{ width: '100%', height: explicitHeight ? `${explicitHeight}px` : '100%', minHeight: 360 }}>
               {canRenderFlow ? (
                 <ReactFlow
                   style={{ width: '100%', height: explicitHeight ? `${explicitHeight}px` : '100%' }}
@@ -2172,6 +2178,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       </div>
       <div className={styles.sidebarPanel}>
         <div className={styles.editorSidebar}>
+          <div className={styles.editorSidebarHeader}>
+            <button type="button" className={styles.printButton} onClick={handlePrintGraph} title="Print graph" aria-label="Print graph">
+              <Printer size={16} />
+              <span>Print graph</span>
+            </button>
+          </div>
           {/* Always show NodePropertyEditor for selected node, including enum node */}
           <MemoizedNodePropertyEditor node={selectedNode} onChange={handleNodePropertyChange} />
         </div>

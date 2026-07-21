@@ -34,4 +34,33 @@ describe('erdModelToGraph', () => {
     expect(enrollmentCourse).toEqual(expect.objectContaining({ sourcePosition: 'right', targetPosition: 'left' }));
     expect(enrollmentCourse).toEqual(expect.objectContaining({ sourceHandle: 'source-right', targetHandle: 'target-left' }));
   });
+
+  it('prunes edges whose endpoints are missing from the graph', () => {
+    const graph = erdModelToGraph({
+      tables: [
+        {
+          id: 'Book',
+          name: 'Book',
+          clrName: 'Book',
+          columns: [{ name: 'ID', type: 'int', isNullable: false, isPrimaryKey: true, isForeignKey: false }],
+          navigations: [],
+        },
+      ],
+      relationships: [
+        {
+          id: 'Book->Course:CourseID',
+          dependentTable: 'Book',
+          principalTable: 'Course',
+          foreignKeyColumns: ['CourseID'],
+          principalCardinality: 'one',
+          dependentCardinality: 'many',
+          explicit: true,
+        },
+      ],
+      sourceFiles: [],
+      diagnostics: [],
+    });
+
+    expect(graph.edges).toHaveLength(0);
+  });
 });

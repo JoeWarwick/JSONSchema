@@ -7,6 +7,22 @@
   font-weight: 600;
 }
 .graphicalEditorContainer {
+  --graph-shell-bg: var(--color-neutral-1);
+  --graph-flow-bg: var(--color-neutral-2);
+  --graph-sidebar-bg: var(--color-neutral-1);
+  --graph-sidebar-border: var(--color-neutral-6);
+  --graph-text: var(--color-neutral-12);
+  --graph-muted: var(--color-neutral-11);
+  --graph-border: var(--color-accent-7);
+  --graph-surface: var(--color-neutral-1);
+  --graph-node-bg: var(--color-neutral-1);
+  --graph-node-bg-subtle: var(--color-neutral-2);
+  --graph-node-border: var(--color-neutral-6);
+  --graph-node-border-accent: var(--color-accent-7);
+  --graph-node-text: var(--color-neutral-12);
+  --graph-node-muted: var(--color-neutral-11);
+  --graph-node-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  --graph-node-shadow-strong: 0 4px 16px rgba(0,0,0,0.16);
   display: flex;
   flex-direction: row;
   /* Fill whatever height the flex parent (tabPanel) gives us */
@@ -14,6 +30,7 @@
   width: 100%;
   min-height: 0;
   overflow: hidden;
+  background: var(--graph-shell-bg);
 }
 
 .flowPanel,
@@ -22,15 +39,19 @@
   min-width: 0;
 }
 
+.flowPanel {
+  background: var(--graph-flow-bg);
+}
+
 .patternNode {
-  background: linear-gradient(180deg, #eaf2ff 0%, #f7fbff 100%);
-  border: 2px solid #82aaff;
+  background: linear-gradient(180deg, var(--graph-node-bg-subtle) 0%, var(--graph-node-bg) 100%);
+  border: 2px solid var(--graph-node-border-accent);
 }
 
 .patternBadge {
   display: inline-block;
-  background: #e8f0ff;
-  color: #2b6cb0;
+  background: color-mix(in srgb, var(--color-accent-7) 18%, var(--graph-node-bg));
+  color: var(--color-accent-11);
   border-radius: 6px;
   padding: 2px 8px;
   font-weight: 700;
@@ -39,13 +60,13 @@
 }
 
 .patternKeyError {
-  color: #b71c1c;
+  color: var(--color-error-11);
   font-size: 12px;
   margin-top: 6px;
 }
 
 .patternKeyHelper {
-  color: #666;
+  color: var(--graph-muted);
   font-size: 12px;
   margin-top: 4px;
   font-style: italic;
@@ -55,18 +76,42 @@
   width: 100%;
   min-width: 0;
   height: 100%;
-  background: var(--color-neutral-1);
-  border-left: 1px solid var(--color-neutral-6);
+  background: var(--graph-sidebar-bg);
+  border-left: 1px solid var(--graph-sidebar-border);
   padding: var(--space-4);
   font-size: var(--font-size-1);
-  color: var(--color-neutral-10);
+  color: var(--graph-text);
   overflow-y: auto;
+}
+
+.editorSidebarHeader {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-3);
+}
+
+.printButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--graph-sidebar-border);
+  border-radius: var(--radius-3);
+  background: var(--graph-sidebar-bg);
+  color: var(--graph-muted);
+  font: var(--font-body);
+  font-size: var(--font-size-1);
+  cursor: pointer;
+}
+
+.printButton:hover {
+  background: var(--graph-node-bg-subtle);
 }
 
 .removeControl {
   background: none;
   border: none;
-  color: #e53935;
+  color: var(--color-error-10);
   font-weight: 700;
   cursor: pointer;
   padding: 0 2px;
@@ -79,7 +124,9 @@
   margin-top: 2px;
   padding: 4px;
   border-radius: 4px;
-  border: 1px solid var(--color-neutral-6);
+  border: 1px solid var(--graph-node-border);
+  background: var(--graph-node-bg);
+  color: var(--graph-node-text);
 }
 
 .numberInput {
@@ -88,7 +135,9 @@
   margin-top: 2px;
   padding: 4px 6px;
   border-radius: 4px;
-  border: 1px solid var(--color-neutral-6);
+  border: 1px solid var(--graph-node-border);
+  background: var(--graph-node-bg);
+  color: var(--graph-node-text);
 }
 
 .facetCompactField {
@@ -107,8 +156,8 @@
   font-size: 10px;
   font-weight: 600;
   line-height: 1;
-  color: var(--color-neutral-9);
-  background: var(--color-neutral-1);
+  color: var(--graph-muted);
+  background: var(--graph-sidebar-bg);
   padding: 0 3px;
   pointer-events: none;
 }
@@ -118,6 +167,52 @@
   flex-basis: 74px;
   margin-top: 0;
   padding-top: 8px;
+}
+
+@media print {
+  :global(body[data-print-mode='graphical']) .graphicalEditorContainer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 9.5in;
+    min-height: 9.5in;
+    overflow: visible;
+    background: #fff;
+    padding: 0.1in;
+    box-sizing: border-box;
+  }
+
+  :global(body[data-print-mode='graphical']) .flowPanel {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    min-height: 9.5in;
+  }
+
+  :global(body[data-print-mode='graphical']) .flowWrapper {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    min-height: 9.5in;
+    margin: 0 auto;
+  }
+
+  :global(body[data-print-mode='graphical']) .sidebarPanel {
+    display: none;
+  }
+
+  :global(body[data-print-mode='graphical']) .flowPanel :global(.react-flow__controls),
+  :global(body[data-print-mode='graphical']) .flowPanel :global(.react-flow__panel) {
+    display: none;
+  }
+
+  :global(body[data-print-mode='graphical']) .flowPanel :global(.react-flow__controls-button) {
+    background: var(--graph-sidebar-bg);
+    color: var(--graph-text);
+    border-color: var(--graph-sidebar-border);
+  }
 }
 
 .facetCompactControl {
@@ -131,7 +226,7 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 4px;
-  color: #222;
+  color: var(--graph-node-text);
 }
 .nodeHeaderLeft {
   display: flex;
@@ -151,8 +246,8 @@
 }
 .patternBadge {
   display: inline-block;
-  background: #e8f0ff;
-  color: #2b6cb0;
+  background: color-mix(in srgb, var(--color-accent-7) 16%, var(--graph-node-bg));
+  color: var(--color-accent-11);
   border-radius: 6px;
   padding: 2px 8px;
   font-weight: 700;
@@ -164,7 +259,7 @@
 .requiredAsterisk {
   display: inline-block;
   background: transparent;
-  color: #e53935;
+  color: var(--color-error-10);
   border: none;
   padding: 0;
   font-size: 10px;
@@ -180,7 +275,7 @@
 }
 
 .importedStar {
-  color: #d9822b;
+  color: var(--color-accent-10);
   margin-left: 8px;
   font-size: 14px;
   vertical-align: middle;
@@ -201,36 +296,36 @@
 
 /* Variant styles */
 .badge_type {
-  background: #f5f5f5;
-  border: 1px solid #e0e0e0;
-  color: #2b6cb0;
+  background: var(--graph-node-bg-subtle);
+  border: 1px solid var(--graph-node-border);
+  color: var(--graph-node-text);
 }
 .badge_enum {
-  background: #fffbe6;
-  border: 1px solid #ffe082;
-  color: #2b6cb0;
+  background: var(--color-error-3);
+  border: 1px solid var(--color-error-6);
+  color: var(--color-error-11);
 }
 .badge_union {
-  background: #e8f0ff;
-  border: 1px solid #82aaff;
-  color: #2b6cb0;
+  background: var(--color-accent-3);
+  border: 1px solid var(--color-accent-6);
+  color: var(--color-accent-11);
   font-weight: 700;
 }
 .badge_constraint {
-  background: #f7fbff;
-  border: 1px solid #dbeeff;
-  color: #2176c7;
+  background: var(--graph-node-bg-subtle);
+  border: 1px solid var(--graph-node-border);
+  color: var(--graph-node-text);
 }
 .badge_format {
-  background: #fff7f0;
-  border: 1px solid #ffe6cc;
-  color: #fb8c00;
+  background: var(--color-error-3);
+  border: 1px solid var(--color-error-6);
+  color: var(--color-error-11);
   font-weight: 700;
 }
 .badge_imported {
-  background: #f3e8ff;
-  border: 1px solid #e1c9ff;
-  color: #7b4397;
+  background: var(--color-accent-3);
+  border: 1px solid var(--color-accent-6);
+  color: var(--color-accent-11);
   font-weight: 700;
 }
 /* Icons rendered inside nodes for description and $comment - flow layout (not absolute) */
@@ -254,13 +349,13 @@
   justify-content: center;
   width: 16px;
   height: 16px;
-  color: var(--color-neutral-10);
+  color: var(--graph-node-muted);
   font-size: 12px;
   line-height: 1;
 }
 
 .nodeIcon:hover {
-  background: rgba(0,0,0,0.04);
+  background: color-mix(in srgb, var(--color-accent-7) 14%, transparent);
   border-radius: 4px;
 }
 
@@ -268,7 +363,7 @@
 .requiredAsterisk {
   display: inline-block;
   background: transparent;
-  color: #e53935;
+  color: var(--color-error-11);
   border: none;
   padding: 0;
   font-size: 10px;
@@ -283,7 +378,7 @@
 }
 
 .importedStar {
-  color: #d9822b;
+  color: var(--color-error-10);
   margin-left: 8px;
   font-size: 14px;
   vertical-align: middle;
@@ -292,14 +387,14 @@
 /* ── Combiner node (mirrors .variantsLabel from schema-editor-form) ─────── */
 /* ── Combiner node — compact visual node ─────────────── */
 .combinerNode {
-  background: var(--color-neutral-2, #2a2f45);
+  background: var(--graph-node-bg);
   border: 1.5px solid var(--color-accent-7, #7c3aed);
   border-radius: 8px;
   min-width: 0;
   width: fit-content;
   padding: 0;
   position: relative;
-  box-shadow: 0 2px 8px 0 rgba(124,58,237,0.18);
+  box-shadow: var(--graph-node-shadow);
 }
 
 .combinerBody {
@@ -423,7 +518,7 @@
   display: flex;
   align-items: center;
   gap: 3px;
-  background: var(--color-neutral-1, #1e1e2e);
+  background: var(--graph-node-bg);
   border: 1px solid var(--color-accent-7, #7c3aed);
   border-radius: 6px;
   padding: 3px 5px;
@@ -432,7 +527,7 @@
   transition: background 0.12s;
 }
 .combinerTypeDropdownTrigger:hover {
-  background: var(--color-neutral-2, #2a2f45);
+  background: var(--graph-node-bg-subtle);
 }
 
 .combinerDropdownIcon {
@@ -451,10 +546,10 @@
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  background: #1e1b2e;
+  background: var(--graph-flow-bg);
   border: 1px solid var(--color-accent-7, #7c3aed);
   border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  box-shadow: var(--graph-node-shadow-strong);
   z-index: var(--z-index-dropdown);
   min-width: 110px;
   overflow: hidden;
@@ -479,11 +574,11 @@
   transition: background 0.1s, border-color 0.1s;
 }
 .combinerTypeDropdownItem:hover {
-  background: rgba(124,58,237,0.3);
+  background: color-mix(in srgb, var(--color-accent-7) 22%, transparent);
   border-color: var(--color-accent-7, #7c3aed);
 }
 .combinerTypeDropdownItemActive {
-  background: rgba(124,58,237,0.4) !important;
+  background: color-mix(in srgb, var(--color-accent-7) 30%, transparent) !important;
   border-color: var(--color-accent-5, #a78bfa) !important;
   color: #fff !important;
 }
@@ -505,7 +600,7 @@
 
 /* ── Variant node ──────────────────────────────────────────────────────────── */
 .variantNode {
-  background: var(--color-neutral-2, #2a2f45);
+  background: var(--graph-node-bg);
   border: 1.5px solid var(--color-accent-6, #6d28d9);
   border-radius: 8px;
   width: fit-content;
@@ -524,7 +619,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(124,58,237,0.28);
+  background: color-mix(in srgb, var(--color-accent-7) 18%, var(--graph-node-bg));
   padding: 5px 8px;
   border-radius: 6px 6px 0 0;
 }
@@ -553,7 +648,7 @@
   cursor: pointer;
   padding: 0;
   z-index: 10;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  box-shadow: var(--graph-node-shadow);
   transition: background 0.12s, transform 0.12s;
 }
 .variantEdgeToggle:hover {
@@ -569,7 +664,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--color-accent-11, #93c5fd);
+  color: var(--graph-node-text);
   font-weight: 700;
   font-size: 13px;
   white-space: nowrap;
@@ -577,9 +672,9 @@
 
 .variantRefBadge {
   display: inline-block;
-  background: var(--color-accent-2, #1e3a5f);
-  color: var(--color-accent-10, #60a5fa);
-  border: 1px solid var(--color-accent-6, #3b82f6);
+  background: color-mix(in srgb, var(--color-accent-7) 16%, var(--graph-node-bg));
+  color: var(--color-accent-10);
+  border: 1px solid var(--color-accent-6);
   border-radius: 4px;
   padding: 0 6px;
   font-size: 9px;
@@ -592,7 +687,7 @@
 .variantDeleteButton {
   background: none;
   border: none;
-  color: #d97706;
+  color: var(--color-error-10);
   cursor: pointer;
   padding: 2px;
   display: inline-flex;
@@ -602,7 +697,22 @@
 }
 
 .variantDeleteButton:hover {
-  color: #f59e0b;
+  color: var(--color-error-11);
+}
+
+@media (prefers-color-scheme: dark) {
+  /* no-op; theme is controlled by html.dark-theme */
+}
+
+:global(html.dark-theme) .graphicalEditorContainer {
+  --graph-shell-bg: var(--color-neutral-1);
+  --graph-flow-bg: var(--color-neutral-2);
+  --graph-sidebar-bg: var(--color-neutral-1);
+  --graph-sidebar-border: var(--color-neutral-6);
+  --graph-text: var(--color-neutral-12);
+  --graph-muted: var(--color-neutral-11);
+  --graph-border: var(--color-accent-7);
+  --graph-surface: var(--color-neutral-1);
 }
 
 /* Spinner animation (mirrors schema-editor-form loadingSpinner) */

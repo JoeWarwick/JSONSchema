@@ -60,6 +60,12 @@ function attachEdgePositions(edge: Edge<ErdRelationshipEdgeData>, sourceNode: No
   };
 }
 
+function pruneGraphEdges(edges: Edge<ErdRelationshipEdgeData>[], nodes: Node<ErdTableNodeData>[]): Edge<ErdRelationshipEdgeData>[] {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+
+  return edges.filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target));
+}
+
 export function layoutErdGraph(graph: ErdGraph): ErdGraph {
   const layout = new dagre.graphlib.Graph();
   layout.setGraph({ rankdir: 'LR', nodesep: 60, ranksep: 100, marginx: 40, marginy: 40 });
@@ -100,13 +106,14 @@ export function erdModelToGraph(model: ErdModel): ErdGraph {
     position: model.nodePositions?.[node.id] ?? node.position,
   }));
   const positionedById = new Map(positionedNodes.map((node) => [node.id, node]));
+  const positionedEdges = laidOutGraph.edges.map((edge) => {
+    const sourceNode = positionedById.get(edge.source);
+    const targetNode = positionedById.get(edge.target);
+    return sourceNode && targetNode ? attachEdgePositions(edge, sourceNode, targetNode) : edge;
+  });
   return {
     nodes: positionedNodes,
-    edges: laidOutGraph.edges.map((edge) => {
-      const sourceNode = positionedById.get(edge.source);
-      const targetNode = positionedById.get(edge.target);
-      return sourceNode && targetNode ? attachEdgePositions(edge, sourceNode, targetNode) : edge;
-    }),
+    edges: pruneGraphEdges(positionedEdges, positionedNodes),
   };
 }
 

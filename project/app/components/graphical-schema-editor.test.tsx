@@ -41,6 +41,17 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     expect(await screen.findByText('2. String')).toBeInTheDocument();
   });
 
+  it('prints the graph from the sidebar button', async () => {
+    const printSpy = jest.spyOn(window, 'print').mockImplementation(() => {});
+
+    render(<GraphicalSchemaEditor schema={{ type: 'object', properties: {} } as any} onChange={() => {}} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Print graph/i }));
+
+    await waitFor(() => expect(printSpy).toHaveBeenCalled());
+    printSpy.mockRestore();
+  });
+
   it('shows Delete Variant in context menu for variant nodes', async () => {
     render(<GraphicalSchemaEditor schema={schemastoreWorkflow as any} onChange={() => {}} />);
 

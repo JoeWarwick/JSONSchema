@@ -18,6 +18,7 @@ const scalarTypes = new Set([
 
 interface ParsedClass {
   name: string;
+  baseName?: string;
   body: string;
   fileName: string;
 }
@@ -65,7 +66,7 @@ function matchingBrace(text: string, openIndex: number): number {
 function parseClasses(file: ErdSourceFile, diagnostics: ErdDiagnostic[]): ParsedClass[] {
   const text = stripComments(file.content);
   const classes: ParsedClass[] = [];
-  const classPattern = /\bclass\s+(\w+)[^{]*\{/g;
+  const classPattern = /\bclass\s+(\w+)(?:\s*:\s*([^{]+))?\s*\{/g;
   let match: RegExpExecArray | null;
 
   while ((match = classPattern.exec(text))) {
@@ -80,7 +81,12 @@ function parseClasses(file: ErdSourceFile, diagnostics: ErdDiagnostic[]): Parsed
       });
       continue;
     }
-    classes.push({ name: match[1], body: text.slice(openIndex + 1, closeIndex), fileName: file.name });
+    classes.push({
+      name: match[1],
+      baseName: match[2]?.split(',')[0]?.trim().replace(/<.*$/, ''),
+      body: text.slice(openIndex + 1, closeIndex),
+      fileName: file.name,
+    });
     classPattern.lastIndex = closeIndex + 1;
   }
   return classes;
@@ -149,6 +155,68 @@ function parseForeignKeyProperties(properties: ParsedProperty[], navigations: Er
   return foreignKeys;
 }
 
+function resolveInheritedProperties(className: string, classMap: Map<string, ParsedClass>, cache: Map<string, ParsedProperty[]>, visiting = new Set<string>()): ParsedProperty[] {
+  if (cache.has(className)) return cache.get(className) ?? [];
+  if (visiting.has(className)) return [];
+
+  const parsedClass = classMap.get(className);
+  if (!parsedClass) return [];
+
+  visiting.add(className);
+  const inherited = parsedClass.baseName && classMap.has(parsedClass.baseName)
+    ? resolveInheritedProperties(parsedClass.baseName, classMap, cache, visiting)
+    : [];
+  visiting.delete(className);
+
+  const ownProperties = parseProperties(parsedClass);
+  const merged = [...inherited];
+  for (const property of ownProperties) {
+    const existingIndex = merged.findIndex((item) => item.name === property.name);
+    if (existingIndex >= 0) merged[existingIndex] = property;
+    else merged.push(property);
+  }
+
+  cache.set(className, merged);
+  return merged;
+}
+
+function getPrimaryKeyColumns(table: ErdTable): ErdColumn[] {
+  const primaryKeys = table.columns.filter((column) => column.isPrimaryKey);
+  if (primaryKeys.length > 0) return primaryKeys;
+  if (table.columns.length > 0) return table.columns.slice(0, 1);
+  return [{ name: `${table.id}ID`, type: 'int', isNullable: false, isPrimaryKey: true, isForeignKey: false }];
+}
+
+function preferredForeignKeyName(principalTable: ErdTable, principalColumn: ErdColumn, dependentTable: ErdTable): string {
+  const baseName = `${principalTable.id}ID`;
+  const existingNames = new Set(dependentTable.columns.map((column) => column.name));
+  let candidate = baseName;
+  let index = 2;
+
+  while (existingNames.has(candidate)) {
+    candidate = `${baseName}${index}`;
+    index += 1;
+  }
+
+  return candidate;
+}
+
+function relationshipRepairDiagnostic(dependent: ErdTable, principal: ErdTable, navigationName: string): ErdDiagnostic {
+  return {
+    severity: 'warning',
+    message: `Inferred relationship ${dependent.name} -> ${principal.name} from navigation ${navigationName}.`,
+    fileName: dependent.sourceFile || principal.sourceFile,
+  };
+}
+
+function defaultSelfRelationshipNavigationNames(): { dependent: string; principal: string } {
+  return { dependent: 'Parent', principal: 'Children' };
+}
+
+function findInverseNavigation(principal: ErdTable, dependentTableId: string, navigationName: string): ErdNavigation | undefined {
+  return principal.navigations.find((navigation) => navigation.targetTable === dependentTableId && navigation.name !== navigationName);
+}
+
 function parseNavigations(properties: ParsedProperty[], classNames: Set<string>, fileName: string): ErdNavigation[] {
   return properties.flatMap((property): ErdNavigation[] => {
     const collectionTarget = propertyIsCollection(property.type);
@@ -205,6 +273,7 @@ function relationshipId(dependentTable: string, principalTable: string, columns:
 export function parseDbContextFiles(sourceFiles: ErdSourceFile[]): ErdModel {
   const diagnostics: ErdDiagnostic[] = [];
   const classes = sourceFiles.flatMap((file) => parseClasses(file, diagnostics));
+  const classMap = new Map(classes.map((item) => [item.name, item] as const));
   const classNames = new Set(classes.map((item) => item.name));
   const dbSetNames = new Set<string>();
   const dbSetFiles = new Map<string, string>();
@@ -231,9 +300,10 @@ export function parseDbContextFiles(sourceFiles: ErdSourceFile[]): ErdModel {
   const tables: ErdTable[] = [];
   const propertyMap = new Map<string, ParsedProperty[]>();
   const navigationMap = new Map<string, ErdNavigation[]>();
+  const inheritedPropertyCache = new Map<string, ParsedProperty[]>();
 
   for (const parsedClass of tableClasses) {
-    const properties = parseProperties(parsedClass);
+    const properties = resolveInheritedProperties(parsedClass.name, classMap, inheritedPropertyCache);
     const navigations = parseNavigations(properties, classNames, parsedClass.fileName);
     const keyProperties = parseKeyProperties(properties, parsedClass.name);
     const foreignKeys = parseForeignKeyProperties(properties, navigations);
@@ -282,8 +352,8 @@ export function parseDbContextFiles(sourceFiles: ErdSourceFile[]): ErdModel {
       foreignKeyColumns: columns,
       principalCardinality: fluent.principalCardinality,
       dependentCardinality: fluent.dependentCardinality,
-      principalNavigation: fluent.principalNavigation,
-      dependentNavigation: fluent.dependentNavigation,
+      principalNavigation: fluent.principalNavigation ?? (dependent.id === principal.id ? defaultSelfRelationshipNavigationNames().principal : undefined),
+      dependentNavigation: fluent.dependentNavigation ?? (dependent.id === principal.id ? defaultSelfRelationshipNavigationNames().dependent : undefined),
       explicit: true,
     });
   }
@@ -294,7 +364,7 @@ export function parseDbContextFiles(sourceFiles: ErdSourceFile[]): ErdModel {
       if (!principal) continue;
       const columns = dependent.columns.filter((column) => column.isForeignKey && column.foreignKeyTarget === principal.id).map((column) => column.name);
       if (columns.length === 0) continue;
-      const inverse = principal.navigations.find((item) => item.targetTable === dependent.id);
+      const inverse = findInverseNavigation(principal, dependent.id, navigation.name);
       const key = relationshipId(dependent.id, principal.id, columns);
       if (relationships.has(key)) continue;
       addRelationship({
@@ -304,10 +374,64 @@ export function parseDbContextFiles(sourceFiles: ErdSourceFile[]): ErdModel {
         foreignKeyColumns: columns,
         principalCardinality: navigation.cardinality,
         dependentCardinality: inverse?.cardinality || 'many',
-        principalNavigation: inverse?.name,
+        principalNavigation: inverse?.name ?? (dependent.id === principal.id ? defaultSelfRelationshipNavigationNames().principal : undefined),
         dependentNavigation: navigation.name,
         explicit: false,
       });
+      diagnostics.push(relationshipRepairDiagnostic(dependent, principal, navigation.name));
+    }
+  }
+
+  for (const principal of tables) {
+    for (const navigation of principal.navigations.filter((item) => item.cardinality === 'many')) {
+      const dependent = tables.find((table) => table.id === navigation.targetTable);
+      if (!dependent) continue;
+      if ([...relationships.values()].some((relationship) => relationship.principalTable === principal.id && relationship.dependentTable === dependent.id)) continue;
+      const inverse = findInverseNavigation(principal, dependent.id, navigation.name);
+
+      const principalKeyColumns = getPrimaryKeyColumns(principal);
+      const foreignKeyColumns = principalKeyColumns.map((column) => preferredForeignKeyName(principal, column, dependent));
+      const nextColumns = [...dependent.columns];
+
+      for (let index = 0; index < principalKeyColumns.length; index += 1) {
+        const principalColumn = principalKeyColumns[index];
+        const foreignKeyColumn = foreignKeyColumns[index];
+        const existing = nextColumns.find((column) => column.name === foreignKeyColumn);
+        if (existing) {
+          existing.isForeignKey = true;
+          existing.foreignKeyTarget = principal.id;
+          continue;
+        }
+        nextColumns.push({
+          name: foreignKeyColumn,
+          type: principalColumn.type || 'int',
+          isNullable: true,
+          isPrimaryKey: false,
+          isForeignKey: true,
+          foreignKeyTarget: principal.id,
+        });
+      }
+
+      const dependentIndex = tables.findIndex((table) => table.id === dependent.id);
+      if (dependentIndex >= 0) {
+        tables[dependentIndex] = {
+          ...dependent,
+          columns: nextColumns,
+        };
+      }
+
+      addRelationship({
+        id: relationshipId(dependent.id, principal.id, foreignKeyColumns),
+        principalTable: principal.id,
+        dependentTable: dependent.id,
+        foreignKeyColumns,
+        principalCardinality: 'one',
+        dependentCardinality: 'many',
+        principalNavigation: navigation.name,
+        dependentNavigation: inverse?.name ?? (dependent.id === principal.id ? defaultSelfRelationshipNavigationNames().dependent : undefined),
+        explicit: false,
+      });
+      diagnostics.push(relationshipRepairDiagnostic(dependent, principal, navigation.name));
     }
   }
 

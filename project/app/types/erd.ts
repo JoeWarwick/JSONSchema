@@ -18,6 +18,7 @@ export interface ErdColumn {
   isNullable: boolean;
   isPrimaryKey: boolean;
   isForeignKey: boolean;
+  defaultGeneration?: 'current-timestamp';
   foreignKeyTarget?: string;
   sourceFile?: string;
 }

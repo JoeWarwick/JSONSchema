@@ -11,6 +11,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose,
 } from "~/components/ui/dialog/dialog";
+import { ColorSchemeToggle } from "~/components/ui/color-scheme-toggle/color-scheme-toggle";
 import styles from "./workbench.module.css";
 import { generateSchema, isValidJSON } from "~/utils/schema-generator";
 import schemaReducer, { initialSchemaState, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, MERGE_RESOLVED_PATH, MERGE_RESOLVED_ALL_PATHS, ensureResolved, getPersistableSource, getEditorSchema, getResolvedSource } from "~/state/schemaReducer";
@@ -32,6 +33,7 @@ import { GraphicalSchemaEditor } from "~/components/graphical-schema-editor";
 import { ErdEditor } from "~/components/erd-editor";
 import { parseDbContextFiles } from "~/utils/csharp-dbcontext-parser";
 import { generateDbContextCSharp } from "~/utils/csharp-dbcontext-generator";
+import { generateErdSql } from "~/utils/sql-schema-generator";
 import type { ErdModel } from "~/types/erd";
 
 export function meta() {
@@ -63,6 +65,13 @@ const INSTANCE_STORAGE_KEY = 'schema-sculptor-instance';
 const ERD_STORAGE_KEY = 'schema-sculptor-erd-model';
 const DEREF_COMPLETE_STORAGE_KEY = 'schema-sculptor-deref-complete';
 const DEREF_ERROR_STORAGE_KEY = 'schema-sculptor-deref-error';
+
+const createEmptyErdModel = (): ErdModel => ({
+  tables: [],
+  relationships: [],
+  sourceFiles: [],
+  diagnostics: [],
+});
 
 // Helper function to generate default instance data
 const generateDefaultInstance = (schema: Record<string, unknown>): unknown => {
@@ -489,6 +498,12 @@ export default function Workbench() {
     }
   };
 
+  const handleNewErd = () => {
+    setErdModel(createEmptyErdModel());
+    setActiveTab('erd');
+    setError(null);
+  };
+
   const handleExportErd = () => {
     if (!erdModel) return;
     const blob = new Blob([generateDbContextCSharp(erdModel)], { type: 'text/plain;charset=utf-8' });
@@ -496,6 +511,17 @@ export default function Workbench() {
     const anchor = document.createElement('a');
     anchor.href = url;
     anchor.download = 'generated-erd.cs';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportErdSql = () => {
+    if (!erdModel) return;
+    const blob = new Blob([generateErdSql(erdModel)], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'generated-erd.sql';
     anchor.click();
     URL.revokeObjectURL(url);
   };
@@ -828,6 +854,10 @@ export default function Workbench() {
           <MenubarMenu>
             <MenubarTrigger>ERD</MenubarTrigger>
             <MenubarContent>
+              <MenubarItem onSelect={handleNewErd}>
+                <Sparkles size={14} style={{ marginRight: 6 }} />
+                New blank ERD
+              </MenubarItem>
               <MenubarItem onSelect={() => erdFileInputRef.current?.click()}>
                 <FileUp size={14} style={{ marginRight: 6 }} />
                 Open DbContext files&hellip;
@@ -835,6 +865,10 @@ export default function Workbench() {
               <MenubarItem onSelect={handleExportErd} disabled={!erdModel}>
                 <Download size={14} style={{ marginRight: 6 }} />
                 Export C#
+              </MenubarItem>
+              <MenubarItem onSelect={handleExportErdSql} disabled={!erdModel}>
+                <Download size={14} style={{ marginRight: 6 }} />
+                Export SQL
               </MenubarItem>
             </MenubarContent>
           </MenubarMenu>
@@ -854,9 +888,12 @@ export default function Workbench() {
             </MenubarContent>
           </MenubarMenu>
         </Menubar>
-        <small className={styles.menuStatusBadge} suppressHydrationWarning data-testid="schema-source-badge">
-          Source: {state.resolvedCache ? 'resolved' : state.source ? 'source' : 'none'}
-        </small>
+        <div className={styles.menuBarEnd}>
+          <ColorSchemeToggle />
+          <small className={styles.menuStatusBadge} suppressHydrationWarning data-testid="schema-source-badge">
+            Source: {state.resolvedCache ? 'resolved' : state.source ? 'source' : 'none'}
+          </small>
+        </div>
       </div>
 
       {/* ── URL load dialog — markup document ───────────────────────── */}
@@ -950,7 +987,10 @@ export default function Workbench() {
           erdModel ? (
             <ErdEditor model={erdModel} onChange={setErdModel} />
           ) : (
-            <div className={styles.emptyState}>Open one or more DbContext C# files to create an ERD.</div>
+            <div className={styles.emptyState}>
+              <p>Open one or more DbContext C# files to create an ERD, or start from scratch.</p>
+              <button type="button" className={styles.generateButton} onClick={handleNewErd}>Create blank ERD</button>
+            </div>
           )
         )}
         {activeTab === 'graph' && (
