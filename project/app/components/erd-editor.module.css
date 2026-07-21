@@ -30,6 +30,7 @@
 }
 
 .sidebar h2 { margin: 0 0 8px; font-size: 18px; color: #173b4d; }
+.sidebarTitleRow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .sidebarSection { margin-top: 16px; }
 .sectionTitle { margin: 0 0 10px; font-size: 13px; color: #58717a; text-transform: uppercase; letter-spacing: .04em; }
 .field { display: block; margin-top: 12px; font-size: 12px; font-weight: 700; color: #58717a; }
@@ -38,9 +39,15 @@
 .fieldRow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .checkboxRow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
 .checkboxLabel { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #405962; }
+.sectionHeader { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.cardHeader { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
 .relationshipCard, .propertyCard { margin-top: 12px; padding: 12px; border: 1px solid #d5dee1; border-radius: 8px; background: #f9fbfb; }
-.relationshipHeader { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+.propertyCard { cursor: grab; }
+.propertyCard:active { cursor: grabbing; }
 .buttonDanger { border: 1px solid #d0a1a1; border-radius: 4px; background: #fff; color: #8d3c3c; padding: 6px 10px; font-size: 12px; }
+.buttonSecondary { border: 1px solid #9cb8c1; border-radius: 4px; background: #fff; color: #27505d; padding: 6px 10px; font-size: 12px; }
+.dragHandle { color: #6a818a; font-size: 14px; letter-spacing: -2px; user-select: none; }
+.emptySidebarState { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; margin-top: 16px; }
 .columnBadge { padding: 4px 8px; border-radius: 999px; background: #e7eef1; color: #38505a; font-size: 11px; font-weight: 700; }
 .muted { margin: 0; color: #687b82; font-size: 12px; }
 .diagnostics { margin-top: 20px; color: #7c3f00; font-size: 12px; }

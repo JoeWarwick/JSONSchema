@@ -1,4 +1,5 @@
 import * as dagre from 'dagre';
+import { Position } from 'reactflow';
 import type { Edge, Node } from 'reactflow';
 import type { ErdModel, ErdRelationship, ErdTable } from '../types/erd';
 
@@ -17,6 +18,47 @@ export interface ErdGraph {
 
 const tableWidth = (table: ErdTable): number => Math.max(240, Math.min(360, table.name.length * 10 + 80));
 const tableHeight = (table: ErdTable): number => 52 + Math.max(1, table.columns.length) * 26 + (table.navigations.length > 0 ? 34 : 0);
+
+function positionForDirection(dx: number, dy: number): Position {
+  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? Position.Right : Position.Left;
+  return dy >= 0 ? Position.Bottom : Position.Top;
+}
+
+function oppositePosition(position: Position): Position {
+  if (position === Position.Left) return Position.Right;
+  if (position === Position.Right) return Position.Left;
+  if (position === Position.Top) return Position.Bottom;
+  return Position.Top;
+}
+
+function handleId(kind: 'source' | 'target', position: Position): string {
+  return `${kind}-${position}`;
+}
+
+function attachEdgePositions(edge: Edge<ErdRelationshipEdgeData>, sourceNode: Node<ErdTableNodeData>, targetNode: Node<ErdTableNodeData>): Edge<ErdRelationshipEdgeData> {
+  const sourceWidth = tableWidth(sourceNode.data.table);
+  const sourceHeight = tableHeight(sourceNode.data.table);
+  const targetWidth = tableWidth(targetNode.data.table);
+  const targetHeight = tableHeight(targetNode.data.table);
+  const sourceCenter = {
+    x: sourceNode.position.x + sourceWidth / 2,
+    y: sourceNode.position.y + sourceHeight / 2,
+  };
+  const targetCenter = {
+    x: targetNode.position.x + targetWidth / 2,
+    y: targetNode.position.y + targetHeight / 2,
+  };
+  const sourcePosition = positionForDirection(targetCenter.x - sourceCenter.x, targetCenter.y - sourceCenter.y);
+  const targetPosition = oppositePosition(sourcePosition);
+
+  return {
+    ...edge,
+    sourcePosition,
+    targetPosition,
+    sourceHandle: handleId('source', sourcePosition),
+    targetHandle: handleId('target', targetPosition),
+  };
+}
 
 export function layoutErdGraph(graph: ErdGraph): ErdGraph {
   const layout = new dagre.graphlib.Graph();
@@ -53,12 +95,18 @@ export function erdModelToGraph(model: ErdModel): ErdGraph {
     animated: false,
   }));
   const laidOutGraph = layoutErdGraph({ nodes, edges });
+  const positionedNodes = laidOutGraph.nodes.map((node) => ({
+    ...node,
+    position: model.nodePositions?.[node.id] ?? node.position,
+  }));
+  const positionedById = new Map(positionedNodes.map((node) => [node.id, node]));
   return {
-    ...laidOutGraph,
-    nodes: laidOutGraph.nodes.map((node) => ({
-      ...node,
-      position: model.nodePositions?.[node.id] ?? node.position,
-    })),
+    nodes: positionedNodes,
+    edges: laidOutGraph.edges.map((edge) => {
+      const sourceNode = positionedById.get(edge.source);
+      const targetNode = positionedById.get(edge.target);
+      return sourceNode && targetNode ? attachEdgePositions(edge, sourceNode, targetNode) : edge;
+    }),
   };
 }
 

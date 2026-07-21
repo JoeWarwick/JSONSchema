@@ -14,7 +14,10 @@ export function ErdTableNode({ data }: { data: ErdTableNodeData }) {
   const { table } = data;
   return (
     <section className={styles.tableNode} aria-label={`Table ${table.name}`}>
-      <Handle type="target" position={Position.Left} className={styles.handle} />
+      <Handle id="target-top" type="target" position={Position.Top} className={styles.handle} />
+      <Handle id="target-right" type="target" position={Position.Right} className={styles.handle} />
+      <Handle id="target-bottom" type="target" position={Position.Bottom} className={styles.handle} />
+      <Handle id="target-left" type="target" position={Position.Left} className={styles.handle} />
       <header className={styles.tableHeader}>{table.name}</header>
       <div className={styles.sectionLabel}>Properties</div>
       <div className={styles.columnList}>
@@ -36,7 +39,10 @@ export function ErdTableNode({ data }: { data: ErdTableNodeData }) {
           </div>
         </>
       )}
-      <Handle type="source" position={Position.Right} className={styles.handle} />
+      <Handle id="source-top" type="source" position={Position.Top} className={styles.handle} />
+      <Handle id="source-right" type="source" position={Position.Right} className={styles.handle} />
+      <Handle id="source-bottom" type="source" position={Position.Bottom} className={styles.handle} />
+      <Handle id="source-left" type="source" position={Position.Left} className={styles.handle} />
     </section>
   );
 }

@@ -1,9 +1,10 @@
 import React from 'react';
 import ReactFlow, { Background, Controls, ReactFlowProvider, useEdgesState, useNodesState } from 'reactflow';
 import type { Node } from 'reactflow';
+import { Trash2 } from 'lucide-react';
 import type { ErdModel } from '../types/erd';
 import { erdModelToGraph, type ErdTableNodeData } from '../utils/erd-graph';
-import { normalizeErdModel, renameErdTable, relatedRelationships, updateErdRelationship, updateErdTableColumn } from '../utils/erd-model-editing';
+import { addErdRelationship, addErdTable, addErdTableColumn, deleteErdRelationship, deleteErdTable, deleteErdTableColumn, normalizeErdModel, reorderErdTableColumns, renameErdTable, relatedRelationships, updateErdRelationship, updateErdTableColumn } from '../utils/erd-model-editing';
 import { erdNodeTypes } from './erd-node-types';
 import { HorizontalSplitPane } from './ui/split-pane';
 import styles from './erd-editor.module.css';
@@ -20,8 +21,9 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
   const normalizedModel = React.useMemo(() => normalizeErdModel(model), [model]);
   const graph = React.useMemo(() => erdModelToGraph(normalizedModel), [normalizedModel]);
   const [nodes, setNodes, onNodesChange] = useNodesState<ErdTableNodeData>(graph.nodes);
-  const [edges, , onEdgesChange] = useEdgesState(graph.edges);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(graph.edges);
   const [selectedTableId, setSelectedTableId] = React.useState<string | null>(null);
+  const [draggedColumnName, setDraggedColumnName] = React.useState<string | null>(null);
   const selectedTable = normalizedModel.tables.find((table) => table.id === selectedTableId);
   const tableRelationships = React.useMemo(() => selectedTable ? relatedRelationships(normalizedModel, selectedTable.id) : [], [normalizedModel, selectedTable]);
 
@@ -29,8 +31,18 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
     setNodes(graph.nodes);
   }, [graph.nodes, setNodes]);
 
+  React.useEffect(() => {
+    setEdges(graph.edges);
+  }, [graph.edges, setEdges]);
+
   const commitModel = (nextModel: ErdModel) => {
     onChange?.(nextModel);
+  };
+
+  const addSelectedTable = () => {
+    const { model: nextModel, tableId } = addErdTable(normalizedModel);
+    setSelectedTableId(tableId);
+    commitModel(nextModel);
   };
 
   const renameSelectedTable = (name: string) => {
@@ -59,6 +71,37 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
     })));
   };
 
+  const addSelectedColumn = () => {
+    if (!selectedTable) return;
+    commitModel(addErdTableColumn(normalizedModel, selectedTable.id));
+  };
+
+  const removeSelectedColumn = (columnName: string) => {
+    if (!selectedTable) return;
+    commitModel(deleteErdTableColumn(normalizedModel, selectedTable.id, columnName));
+  };
+
+  const reorderSelectedColumn = (columnName: string, targetColumnName: string) => {
+    if (!selectedTable) return;
+    commitModel(reorderErdTableColumns(normalizedModel, selectedTable.id, columnName, targetColumnName));
+  };
+
+  const addSelectedRelationship = () => {
+    if (!selectedTable) return;
+    commitModel(addErdRelationship(normalizedModel, selectedTable.id));
+  };
+
+  const removeSelectedRelationship = (relationshipId: string) => {
+    commitModel(deleteErdRelationship(normalizedModel, relationshipId));
+  };
+
+  const removeSelectedTable = () => {
+    if (!selectedTable) return;
+    if (!window.confirm('are you sure you wish to delete this entity?')) return;
+    setSelectedTableId(null);
+    commitModel(deleteErdTable(normalizedModel, selectedTable.id));
+  };
+
   return (
     <HorizontalSplitPane className={styles.erdEditor} defaultRightWidth={320} minRightWidth={280} minLeftWidth={360}>
       <div className={styles.flowPanel}>
@@ -70,6 +113,7 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
               nodeTypes={erdNodeTypes}
               fitView
               onNodesChange={onNodesChange}
+              onPaneClick={() => setSelectedTableId(null)}
               onNodeDragStop={(_, node) => {
                 if (!onChange) return;
                 commitModel({
@@ -91,7 +135,16 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
       </div>
       <div className={styles.sidebarPanel}>
         <aside className={styles.sidebar} aria-label="ERD details">
-          <h2>{selectedTable ? selectedTable.name : 'Entity Relationship Diagram'}</h2>
+          {selectedTable ? (
+            <div className={styles.sidebarTitleRow}>
+              <h2>{selectedTable.name}</h2>
+              <button type="button" className={styles.buttonDanger} aria-label={`Delete entity ${selectedTable.name}`} onClick={removeSelectedTable} title="Delete entity">
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ) : (
+            <h2>Entity Relationship Diagram</h2>
+          )}
           {selectedTable ? (
           <div className={styles.sidebarSection}>
             <label className={styles.field}>
@@ -107,13 +160,39 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
             </label>
 
             <div className={styles.sidebarSection}>
-              <h3 className={styles.sectionTitle}>Properties</h3>
+              <div className={styles.sectionHeader}>
+                <h3 className={styles.sectionTitle}>Properties</h3>
+                <button type="button" className={styles.buttonSecondary} onClick={addSelectedColumn}>Add property</button>
+              </div>
               {selectedTable.columns.length === 0 ? <p className={styles.muted}>No properties available for this table.</p> : selectedTable.columns.map((column) => (
-                <div key={column.name} className={styles.propertyCard}>
+                <div
+                  key={column.name}
+                  className={styles.propertyCard}
+                  data-testid={`property-card-${column.name}`}
+                  draggable
+                  onDragStart={() => setDraggedColumnName(column.name)}
+                  onDragEnd={() => setDraggedColumnName(null)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => {
+                    if (draggedColumnName && draggedColumnName !== column.name) {
+                      reorderSelectedColumn(draggedColumnName, column.name);
+                    }
+                    setDraggedColumnName(null);
+                  }}
+                >
+                  <div className={styles.cardHeader}>
+                    <span className={styles.dragHandle} aria-hidden="true">⋮⋮</span>
+                    <strong>{column.name}</strong>
+                    <button type="button" className={styles.buttonDanger} aria-label={`Delete property ${column.name}`} onClick={() => removeSelectedColumn(column.name)}>Delete</button>
+                  </div>
                   <div className={styles.fieldRow}>
                     <label className={styles.field}>
                       <span className={styles.fieldLabel}>Name</span>
-                      <input className={styles.fieldInput} value={column.name} onChange={(event) => updateSelectedColumn(column.name, { name: event.target.value })} />
+                      <input
+                        className={styles.fieldInput}
+                        defaultValue={column.name}
+                        onBlur={(event) => updateSelectedColumn(column.name, { name: event.target.value })}
+                      />
                     </label>
                     <label className={styles.field}>
                       <span className={styles.fieldLabel}>Type</span>
@@ -133,11 +212,15 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
             </div>
 
             <div className={styles.sidebarSection}>
-              <h3 className={styles.sectionTitle}>Relationships</h3>
-              {tableRelationships.length === 0 ? <p className={styles.muted}>No relationships involve this table.</p> : tableRelationships.map((relationship, index) => (
-                <div key={index} className={styles.relationshipCard}>
-                  <div className={styles.relationshipHeader}>
+              <div className={styles.sectionHeader}>
+                <h3 className={styles.sectionTitle}>Relationships</h3>
+                <button type="button" className={styles.buttonSecondary} onClick={addSelectedRelationship}>Add relationship</button>
+              </div>
+              {tableRelationships.length === 0 ? <p className={styles.muted}>No relationships involve this table.</p> : tableRelationships.map((relationship) => (
+                <div key={relationship.id} className={styles.relationshipCard}>
+                  <div className={styles.cardHeader}>
                     <strong>{relationship.dependentTable} → {relationship.principalTable}</strong>
+                    <button type="button" className={styles.buttonDanger} aria-label={`Delete relationship ${relationship.dependentTable} to ${relationship.principalTable}`} onClick={() => removeSelectedRelationship(relationship.id)}>Delete</button>
                   </div>
                   <div className={styles.fieldRow}>
                     <label className={styles.field}>
@@ -195,7 +278,12 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
               ))}
             </div>
           </div>
-          ) : <p>Select a table to inspect it.</p>}
+          ) : (
+            <div className={styles.emptySidebarState}>
+              <p>Select a table to inspect it.</p>
+              <button type="button" className={styles.buttonSecondary} onClick={addSelectedTable}>Add Entity</button>
+            </div>
+          )}
           {normalizedModel.diagnostics.length > 0 && (
             <div className={styles.diagnostics} role="status">
               {normalizedModel.diagnostics.map((diagnostic, index) => <div key={`${diagnostic.message}-${index}`}>{diagnostic.message}</div>)}

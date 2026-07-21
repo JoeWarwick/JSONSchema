@@ -205,6 +205,233 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     expect(JSON.parse(localStorage.getItem(ERD_STORAGE_KEY) || '{}')).toEqual(initialModel);
   });
 
+  it('adds and deletes ERD items from the sidebar', async () => {
+    const initialModel = {
+      tables: [
+        {
+          id: 'Department',
+          name: 'Department',
+          clrName: 'Department',
+          columns: [
+            { name: 'DepartmentID', type: 'int', isNullable: false, isPrimaryKey: true, isForeignKey: false },
+            { name: 'InstructorID', type: 'int', isNullable: true, isPrimaryKey: false, isForeignKey: false },
+          ],
+          navigations: [],
+        },
+        {
+          id: 'Instructor',
+          name: 'Instructor',
+          clrName: 'Instructor',
+          columns: [{ name: 'ID', type: 'int', isNullable: false, isPrimaryKey: true, isForeignKey: false }],
+          navigations: [],
+        },
+      ],
+      relationships: [],
+      sourceFiles: [],
+      diagnostics: [],
+    };
+
+    localStorage.setItem(ERD_STORAGE_KEY, JSON.stringify(initialModel));
+
+    render(<Workbench />);
+
+    fireEvent.click(screen.getByRole('button', { name: /ERD/i }));
+
+    await waitFor(() => {
+      expect(document.querySelector('.react-flow__node')).toBeTruthy();
+    });
+
+    fireEvent.click(document.querySelector('.react-flow__node') as Element);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Add property/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Add property/i }));
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem(ERD_STORAGE_KEY) || '{}');
+      expect(stored.tables[0].columns.some((column: any) => column.name === 'NewProperty')).toBe(true);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Add relationship/i }));
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem(ERD_STORAGE_KEY) || '{}');
+      expect(stored.relationships).toHaveLength(1);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Delete property InstructorID/i }));
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem(ERD_STORAGE_KEY) || '{}');
+      expect(stored.tables[0].columns.some((column: any) => column.name === 'InstructorID')).toBe(false);
+    });
+  });
+
+  it('deletes an ERD relationship from the sidebar', async () => {
+    const initialModel = {
+      tables: [
+        {
+          id: 'Department',
+          name: 'Department',
+          clrName: 'Department',
+          columns: [
+            { name: 'DepartmentID', type: 'int', isNullable: false, isPrimaryKey: true, isForeignKey: false },
+            { name: 'InstructorID', type: 'int', isNullable: true, isPrimaryKey: false, isForeignKey: true, foreignKeyTarget: 'Instructor' },
+          ],
+          navigations: [],
+        },
+        {
+          id: 'Instructor',
+          name: 'Instructor',
+          clrName: 'Instructor',
+          columns: [{ name: 'ID', type: 'int', isNullable: false, isPrimaryKey: true, isForeignKey: false }],
+          navigations: [],
+        },
+      ],
+      relationships: [
+        {
+          id: 'Department->Instructor:InstructorID',
+          dependentTable: 'Department',
+          principalTable: 'Instructor',
+          foreignKeyColumns: ['InstructorID'],
+          principalCardinality: 'one',
+          dependentCardinality: 'zero-or-one',
+          explicit: true,
+        },
+      ],
+      sourceFiles: [],
+      diagnostics: [],
+    };
+
+    localStorage.setItem(ERD_STORAGE_KEY, JSON.stringify(initialModel));
+
+    render(<Workbench />);
+
+    fireEvent.click(screen.getByRole('button', { name: /ERD/i }));
+
+    await waitFor(() => {
+      expect(document.querySelector('.react-flow__node')).toBeTruthy();
+    });
+
+    fireEvent.click(document.querySelector('.react-flow__node') as Element);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Delete relationship Department to Instructor/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Delete relationship Department to Instructor/i }));
+
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem(ERD_STORAGE_KEY) || '{}');
+      expect(stored.relationships).toHaveLength(0);
+    });
+  });
+
+  it('reorders ERD properties by dragging a card', async () => {
+    const initialModel = {
+      tables: [
+        {
+          id: 'Department',
+          name: 'Department',
+          clrName: 'Department',
+          columns: [
+            { name: 'DepartmentID', type: 'int', isNullable: false, isPrimaryKey: true, isForeignKey: false },
+            { name: 'InstructorID', type: 'int', isNullable: true, isPrimaryKey: false, isForeignKey: true, foreignKeyTarget: 'Instructor' },
+          ],
+          navigations: [],
+        },
+        {
+          id: 'Instructor',
+          name: 'Instructor',
+          clrName: 'Instructor',
+          columns: [{ name: 'ID', type: 'int', isNullable: false, isPrimaryKey: true, isForeignKey: false }],
+          navigations: [],
+        },
+      ],
+      relationships: [
+        {
+          id: 'Department->Instructor:InstructorID',
+          dependentTable: 'Department',
+          principalTable: 'Instructor',
+          foreignKeyColumns: ['InstructorID'],
+          principalCardinality: 'one',
+          dependentCardinality: 'zero-or-one',
+          explicit: true,
+        },
+      ],
+      sourceFiles: [],
+      diagnostics: [],
+    };
+
+    localStorage.setItem(ERD_STORAGE_KEY, JSON.stringify(initialModel));
+
+    render(<Workbench />);
+    fireEvent.click(screen.getByRole('button', { name: /ERD/i }));
+
+    await waitFor(() => {
+      expect(document.querySelector('.react-flow__node')).toBeTruthy();
+    });
+
+    fireEvent.click(document.querySelector('.react-flow__node') as Element);
+
+    const instructorCard = await screen.findByTestId('property-card-InstructorID');
+    const departmentCard = await screen.findByTestId('property-card-DepartmentID');
+
+    fireEvent.dragStart(instructorCard);
+    fireEvent.dragOver(departmentCard);
+    fireEvent.drop(departmentCard);
+
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem(ERD_STORAGE_KEY) || '{}');
+      expect(stored.tables[0].columns.map((column: any) => column.name)).toEqual(['InstructorID', 'DepartmentID']);
+    });
+  });
+
+  it('adds and deletes ERD entities from the sidebar', async () => {
+    const initialModel = {
+      tables: [
+        {
+          id: 'Department',
+          name: 'Department',
+          clrName: 'Department',
+          columns: [
+            { name: 'DepartmentID', type: 'int', isNullable: false, isPrimaryKey: true, isForeignKey: false },
+          ],
+          navigations: [],
+        },
+      ],
+      relationships: [],
+      sourceFiles: [],
+      diagnostics: [],
+    };
+
+    localStorage.setItem(ERD_STORAGE_KEY, JSON.stringify(initialModel));
+
+    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+
+    render(<Workbench />);
+    fireEvent.click(screen.getByRole('button', { name: /ERD/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Add Entity/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Add Entity/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Delete entity NewEntity/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Delete entity NewEntity/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Add Entity/i })).toBeInTheDocument();
+      const stored = JSON.parse(localStorage.getItem(ERD_STORAGE_KEY) || '{}');
+      expect(stored.tables.some((table: any) => table.id === 'NewEntity')).toBe(false);
+    });
+
+    confirmSpy.mockRestore();
+  });
+
   it('Save Intermediate includes definition maps in downloaded schema', async () => {
     const draft7WithDefinitions = {
       $schema: 'http://json-schema.org/draft-07/schema#',

@@ -27,4 +27,11 @@ describe('erdModelToGraph', () => {
     expect(enrollmentCourse).toEqual(expect.objectContaining({ source: 'Enrollment', target: 'Course', label: '* : 1' }));
     expect(enrollmentCourse?.data?.relationship.foreignKeyColumns).toEqual(['CourseID']);
   });
+
+  it('attaches relationship edges to the nearest sides of each table', () => {
+    const graph = erdModelToGraph(fixtureModel());
+    const enrollmentCourse = graph.edges.find((edge) => edge.id.startsWith('Enrollment->Course:'));
+    expect(enrollmentCourse).toEqual(expect.objectContaining({ sourcePosition: 'right', targetPosition: 'left' }));
+    expect(enrollmentCourse).toEqual(expect.objectContaining({ sourceHandle: 'source-right', targetHandle: 'target-left' }));
+  });
 });
