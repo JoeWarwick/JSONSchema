@@ -15,7 +15,6 @@ import "./styles/tokens/decorations.css";
 import "./styles/tokens/spacings.css";
 import "./styles/tokens/typography.css";
 import "./styles/theme.css";
-import { useColorScheme } from "@dazl/color-scheme/react";
 import favicon from "/favicon.svg";
 
 export const links: Route.LinksFunction = () => [
@@ -37,9 +36,8 @@ export const links: Route.LinksFunction = () => [
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  const { rootCssClass, resolvedScheme } = useColorScheme();
   return (
-    <html lang="en" suppressHydrationWarning className={rootCssClass} style={{ colorScheme: resolvedScheme }}>
+    <html lang="en" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />

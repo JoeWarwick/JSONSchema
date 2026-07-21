@@ -29,6 +29,10 @@ import { SchemaEditorForm } from "~/components/schema-editor-form";
 import { JsonInstanceForm } from "~/components/json-instance-form";
 
 import { GraphicalSchemaEditor } from "~/components/graphical-schema-editor";
+import { ErdEditor } from "~/components/erd-editor";
+import { parseDbContextFiles } from "~/utils/csharp-dbcontext-parser";
+import { generateDbContextCSharp } from "~/utils/csharp-dbcontext-generator";
+import type { ErdModel } from "~/types/erd";
 
 export function meta() {
   return [
@@ -116,7 +120,7 @@ export default function Workbench() {
   const showDevStorageTools = typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
   const [state, dispatch] = useReducer(schemaReducer, initialSchemaState(null));
   const [instanceData, setInstanceData] = useState<unknown>(null);
-  const [jsonInput, setJsonInput] = useState(typeof window === 'undefined' ? SAMPLE_JSON : '{}');
+  const [jsonInput, setJsonInput] = useState(SAMPLE_JSON);
   const [hasHydratedPersistedState, setHasHydratedPersistedState] = useState(false);
   const [hasMounted, setHasMounted] = useState(false);
   const instanceTextRef = useRef<string>("");
@@ -186,6 +190,8 @@ export default function Workbench() {
   const [isLoadingSchemaUrl, setIsLoadingSchemaUrl] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const schemaFileInputRef = useRef<HTMLInputElement>(null);
+  const erdFileInputRef = useRef<HTMLInputElement>(null);
+  const [erdModel, setErdModel] = useState<ErdModel | null>(null);
   const [compactJsonView, setCompactJsonView] = useState<boolean>(false);
   const [markupLanguage, setMarkupLanguage] = useState<MarkupLanguage>('json');
   const [showMarkupUrlDialog, setShowMarkupUrlDialog] = useState(false);
@@ -441,6 +447,35 @@ export default function Workbench() {
     reader.readAsText(file);
   };
 
+  const handleErdFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+    try {
+      const sourceFiles = await Promise.all(files.map(async (file) => ({
+        name: file.name,
+        content: await file.text(),
+      })));
+      setErdModel(parseDbContextFiles(sourceFiles));
+      setActiveTab('erd');
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? `Failed to read C# files: ${err.message}` : 'Failed to read C# files');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const handleExportErd = () => {
+    if (!erdModel) return;
+    const blob = new Blob([generateDbContextCSharp(erdModel)], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'generated-erd.cs';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleLoadSchemaFromUrl = async () => {
     if (!schemaUrl.trim()) {
       setError("Please enter a schema URL");
@@ -569,7 +604,7 @@ export default function Workbench() {
   };
 
   // Tabbed UI state
-  const [activeTab, setActiveTab] = useState<'json' | 'schema' | 'instance' | 'output' | 'graph'>('json');
+  const [activeTab, setActiveTab] = useState<'json' | 'schema' | 'instance' | 'output' | 'graph' | 'erd'>('json');
 
   // Debug: record tab changes and resolved/source swap events for E2E/manual debugging
   useEffect(() => {
@@ -680,6 +715,7 @@ export default function Workbench() {
       {/* Hidden file inputs — top-level so menu items can trigger them from any active tab */}
       <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept={acceptAttr(markupLanguage)} style={{ display: 'none' }} />
       <input type="file" ref={schemaFileInputRef} onChange={handleSchemaFileUpload} accept=".json,application/json" style={{ display: 'none' }} />
+      <input type="file" ref={erdFileInputRef} onChange={handleErdFileUpload} accept=".cs,text/plain" multiple style={{ display: 'none' }} />
 
       {/* ── App menu bar ────────────────────────────────────────────── */}
       <div className={styles.menuBar}>
@@ -761,6 +797,21 @@ export default function Workbench() {
                   </MenubarItem>
                 </>
               )}
+            </MenubarContent>
+          </MenubarMenu>
+
+          {/* Entity Relationship Diagram operations */}
+          <MenubarMenu>
+            <MenubarTrigger>ERD</MenubarTrigger>
+            <MenubarContent>
+              <MenubarItem onSelect={() => erdFileInputRef.current?.click()}>
+                <FileUp size={14} style={{ marginRight: 6 }} />
+                Open DbContext files&hellip;
+              </MenubarItem>
+              <MenubarItem onSelect={handleExportErd} disabled={!erdModel}>
+                <Download size={14} style={{ marginRight: 6 }} />
+                Export C#
+              </MenubarItem>
             </MenubarContent>
           </MenubarMenu>
 
@@ -867,9 +918,17 @@ export default function Workbench() {
         <button className={activeTab === 'instance' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('instance')}>Instance Editor</button>
         <button className={activeTab === 'schema' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('schema')}>Schema Input</button>
         <button className={activeTab === 'graph' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('graph')}>Schema Editor</button>
+        <button className={activeTab === 'erd' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('erd')}>ERD</button>
       </div>
 
-      <div className={`${styles.tabPanel}${activeTab === 'graph' ? ` ${styles.tabPanelFlush}` : ''}`}>
+      <div className={`${styles.tabPanel}${activeTab === 'graph' || activeTab === 'erd' ? ` ${styles.tabPanelFlush}` : ''}`}>
+        {activeTab === 'erd' && (
+          erdModel ? (
+            <ErdEditor model={erdModel} onChange={setErdModel} />
+          ) : (
+            <div className={styles.emptyState}>Open one or more DbContext C# files to create an ERD.</div>
+          )
+        )}
         {activeTab === 'graph' && (
           <>
             {editorSchema ? (
