@@ -90,6 +90,27 @@
   margin-bottom: var(--space-3);
 }
 
+.sidebarHeaderGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.schemaDialectBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--graph-sidebar-border);
+  background: var(--graph-node-bg-subtle);
+  color: var(--graph-muted);
+  font: var(--font-body);
+  font-size: var(--font-size-0);
+  font-weight: 600;
+}
+
 .printButton {
   display: inline-flex;
   align-items: center;
@@ -106,6 +127,47 @@
 
 .printButton:hover {
   background: var(--graph-node-bg-subtle);
+}
+
+.schemaDetailsPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--graph-sidebar-border);
+  border-radius: var(--radius-3);
+  background: var(--graph-node-bg-subtle);
+}
+
+.schemaDetailStack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.schemaDetailRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.schemaDetailLabel {
+  color: var(--graph-muted);
+  font-size: var(--font-size-0);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  min-width: 0;
+}
+
+.schemaDetailValue {
+  color: var(--graph-text);
+  font-size: var(--font-size-0);
+  text-align: right;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .removeControl {

@@ -3,7 +3,7 @@ import useAsyncMemo from "~/hooks/useAsyncMemo";
 import { Sparkles, Copy, Check, X, Link as LinkIcon, Download, FileUp, ShieldCheck } from "lucide-react";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { toast } from "sonner";
-import { type MarkupLanguage, parseMarkup, serializeMarkup, fileExtension, mimeType, acceptAttr, markupLabel, detectMarkupLanguageFromPath } from "~/utils/markup";
+import { type MarkupLanguage, parseMarkup, serializeMarkup, fileExtension, mimeType, acceptAttr, markupLabel, detectMarkupLanguageFromPath, extractXmlSchemaLocations, resolveXmlSchemaLocation } from "~/utils/markup";
 import {
   Menubar, MenubarMenu, MenubarTrigger, MenubarContent, MenubarItem,
   MenubarSeparator, MenubarRadioGroup, MenubarRadioItem, MenubarLabel,
@@ -16,6 +16,8 @@ import styles from "./workbench.module.css";
 import { generateSchema, isValidJSON } from "~/utils/schema-generator";
 import schemaReducer, { initialSchemaState, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, MERGE_RESOLVED_PATH, MERGE_RESOLVED_ALL_PATHS, ensureResolved, getPersistableSource, getEditorSchema, getResolvedSource } from "~/state/schemaReducer";
 import { resolveSchema } from "~/utils/schema-resolver";
+
+const schemaServiceBaseUrl = (typeof process !== 'undefined' && process.env?.VITE_SCHEMA_SERVICE_URL) || 'http://localhost:5080';
 
 // Utility to rename a property in an object (shallow)
 function renamePropertyInObject(obj: any, oldName: string, newName: string) {
@@ -65,6 +67,9 @@ const INSTANCE_STORAGE_KEY = 'schema-sculptor-instance';
 const ERD_STORAGE_KEY = 'schema-sculptor-erd-model';
 const DEREF_COMPLETE_STORAGE_KEY = 'schema-sculptor-deref-complete';
 const DEREF_ERROR_STORAGE_KEY = 'schema-sculptor-deref-error';
+
+const getInstanceStorageKey = (language: MarkupLanguage) => `${INSTANCE_STORAGE_KEY}:${language}`;
+const getSchemaStorageKey = (language: MarkupLanguage) => `${STORAGE_KEY}:${language}`;
 
 const createEmptyErdModel = (): ErdModel => ({
   tables: [],
@@ -156,9 +161,10 @@ export default function Workbench() {
 
         if (persistedSchema) {
           dispatch({ type: APPLY_SOURCE_UPDATE, payload: persistedSchema });
+          activeSchemaLanguageRef.current = 'json';
         }
 
-        const savedInstance = window.localStorage.getItem(INSTANCE_STORAGE_KEY);
+        const savedInstance = window.localStorage.getItem(getInstanceStorageKey('json')) || window.localStorage.getItem(INSTANCE_STORAGE_KEY);
         if (savedInstance) {
           try {
             const parsedInstance = JSON.parse(savedInstance);
@@ -166,6 +172,7 @@ export default function Workbench() {
             skipNextInstancePersistRef.current = true;
             setInstanceData(parsedInstance);
             setJsonInput(savedInstance);
+            activeInstanceLanguageRef.current = 'json';
           } catch (err) {
             console.error('Failed to parse saved instance:', err);
           }
@@ -218,6 +225,81 @@ export default function Workbench() {
   const [showMarkupUrlDialog, setShowMarkupUrlDialog] = useState(false);
   const [showSchemaUrlDialog, setShowSchemaUrlDialog] = useState(false);
   const resolutionCache = useRef<Map<string, any>>(new Map());
+  const activeInstanceLanguageRef = useRef<MarkupLanguage>('json');
+  const activeSchemaLanguageRef = useRef<MarkupLanguage>('json');
+  const skipNextSchemaPersistRef = useRef(false);
+  const isMarkupLanguageTransitionRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !hasHydratedPersistedState) return;
+    isMarkupLanguageTransitionRef.current = true;
+
+    const previousInstanceLanguage = activeInstanceLanguageRef.current;
+    const previousSchemaLanguage = activeSchemaLanguageRef.current;
+
+    if (previousInstanceLanguage !== markupLanguage) {
+      const previousInstanceText = instanceTextRef.current || jsonInput;
+      if (previousInstanceText) {
+        localStorage.setItem(getInstanceStorageKey(previousInstanceLanguage), previousInstanceText);
+        if (previousInstanceLanguage === 'json') {
+          localStorage.setItem(INSTANCE_STORAGE_KEY, previousInstanceText);
+        }
+      }
+
+      const currentSchema = getPersistableSource(state);
+      if (currentSchema) {
+        const schemaText = JSON.stringify(currentSchema);
+        localStorage.setItem(getSchemaStorageKey(previousSchemaLanguage), schemaText);
+        if (previousSchemaLanguage === 'json') {
+          localStorage.setItem(STORAGE_KEY, schemaText);
+        }
+      }
+    }
+
+    activeInstanceLanguageRef.current = markupLanguage;
+    activeSchemaLanguageRef.current = markupLanguage;
+
+    const savedSchema = window.localStorage.getItem(getSchemaStorageKey(markupLanguage)) || (markupLanguage === 'json' ? window.localStorage.getItem(STORAGE_KEY) : null);
+    if (savedSchema) {
+      try {
+        const parsedSchema = parseMarkup(savedSchema, markupLanguage);
+        skipNextSchemaPersistRef.current = true;
+        dispatch({ type: APPLY_SOURCE_UPDATE, payload: parsedSchema as any });
+        setSchemaMarkupLanguage(markupLanguage);
+      } catch {
+        // fall through to blank state
+      }
+    }
+
+    const savedInstance = window.localStorage.getItem(getInstanceStorageKey(markupLanguage)) || (markupLanguage === 'json' ? window.localStorage.getItem(INSTANCE_STORAGE_KEY) : null);
+    if (savedInstance) {
+      try {
+        const parsedInstance = parseMarkup(savedInstance, markupLanguage);
+        instanceTextRef.current = savedInstance;
+        skipNextInstancePersistRef.current = true;
+        setInstanceData(parsedInstance);
+        setJsonInput(savedInstance);
+        setError(null);
+        return;
+      } catch {
+        // fall back to a blank editor for this language
+      }
+    }
+
+    instanceTextRef.current = '';
+    skipNextInstancePersistRef.current = true;
+    setInstanceData(null);
+    setJsonInput('');
+    if (!savedSchema) {
+      skipNextSchemaPersistRef.current = true;
+      dispatch({ type: APPLY_SOURCE_UPDATE, payload: { type: 'object', properties: {} } });
+      setSchemaMarkupLanguage(markupLanguage);
+    }
+
+    window.setTimeout(() => {
+      isMarkupLanguageTransitionRef.current = false;
+    }, 0);
+  }, [markupLanguage, hasHydratedPersistedState]);
 
   // Clear cache if source changes
   useEffect(() => {
@@ -269,12 +351,29 @@ export default function Workbench() {
   // state does not contain unresolved $ref entries.
   useEffect(() => {
     if (typeof window === 'undefined' || !hasHydratedPersistedState) return;
+    if (isMarkupLanguageTransitionRef.current) return;
+    if (skipNextSchemaPersistRef.current) {
+      skipNextSchemaPersistRef.current = false;
+      return;
+    }
     try {
       // Only persist when no deref is in progress; this ensures any async
       // fetches have finished and `resolvedCache` is authoritative.
       if (state.derefInProgress) return;
       const toSave = getPersistableSource(state);
-      if (toSave) localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave)); else localStorage.removeItem(STORAGE_KEY);
+      const storageLanguage = activeSchemaLanguageRef.current;
+      if (toSave) {
+        const schemaText = JSON.stringify(toSave);
+        localStorage.setItem(getSchemaStorageKey(storageLanguage), schemaText);
+        if (storageLanguage === 'json') {
+          localStorage.setItem(STORAGE_KEY, schemaText);
+        }
+      } else {
+        localStorage.removeItem(getSchemaStorageKey(storageLanguage));
+        if (storageLanguage === 'json') {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      }
     } catch (err) {
       // ignore
     }
@@ -285,14 +384,24 @@ export default function Workbench() {
   // Auto-save instance data to localStorage whenever it changes
   useEffect(() => {
     if (typeof window === 'undefined' || !hasHydratedPersistedState) return;
+    if (isMarkupLanguageTransitionRef.current) return;
     if (skipNextInstancePersistRef.current) {
       skipNextInstancePersistRef.current = false;
       return;
     }
     if (instanceData !== null) {
-      localStorage.setItem(INSTANCE_STORAGE_KEY, instanceTextRef.current || jsonInput);
+      const currentText = instanceTextRef.current || jsonInput;
+      const storageLanguage = activeInstanceLanguageRef.current;
+      localStorage.setItem(getInstanceStorageKey(storageLanguage), currentText);
+      if (storageLanguage === 'json') {
+        localStorage.setItem(INSTANCE_STORAGE_KEY, currentText);
+      }
     } else {
-      localStorage.removeItem(INSTANCE_STORAGE_KEY);
+      const storageLanguage = activeInstanceLanguageRef.current;
+      localStorage.removeItem(getInstanceStorageKey(storageLanguage));
+      if (storageLanguage === 'json') {
+        localStorage.removeItem(INSTANCE_STORAGE_KEY);
+      }
     }
   }, [instanceData, hasHydratedPersistedState, jsonInput]);
 
@@ -335,9 +444,129 @@ export default function Workbench() {
     return parsed as Record<string, unknown>;
   };
 
+  const postSchemaService = async <T,>(path: string, body: unknown): Promise<T> => {
+    const response = await fetch(`${schemaServiceBaseUrl}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    return response.json() as Promise<T>;
+  };
+
+  const applySchemaContent = (content: string, schemaLanguage: MarkupLanguage) => {
+    const parsedSchema = parseSchemaInput(content, schemaLanguage);
+    setSchemaMarkupLanguage(schemaLanguage);
+    activeSchemaLanguageRef.current = schemaLanguage;
+    dispatch({ type: APPLY_SOURCE_UPDATE, payload: parsedSchema });
+    if (schemaLanguage !== 'xml') {
+      setInstanceData((prev: any) => {
+        if (prev == null) {
+          const defaultInstance = generateDefaultInstance(parsedSchema);
+          const defaultInstanceText = JSON.stringify(defaultInstance, null, 2);
+          instanceTextRef.current = defaultInstanceText;
+          setJsonInput(defaultInstanceText);
+          return defaultInstance;
+        }
+        return prev;
+      });
+    }
+    return parsedSchema;
+  };
+
+  const loadDefaultInstanceFromXmlSchema = async (schemaText: string, schemaLanguage: MarkupLanguage) => {
+    if (schemaLanguage !== 'xml') return;
+
+    try {
+      const response = await postSchemaService<{ xml?: string; warnings?: string[] }>('/api/schema/default-instance', { schema: schemaText });
+      if (response.xml) {
+        const parsedInstance = parseMarkup(response.xml, 'xml');
+        setInstanceData((prev: any) => {
+          if (prev == null) {
+            instanceTextRef.current = response.xml ?? '';
+            setJsonInput(response.xml ?? '');
+            return parsedInstance;
+          }
+          return prev;
+        });
+      }
+    } catch (err) {
+      setError(`Failed to generate default XML instance: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  const loadSchemaFromUrl = async (schemaSourceUrl: string) => {
+    const response = await fetch(schemaSourceUrl);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const schemaLanguage = (() => {
+      try {
+        return detectMarkupLanguageFromPath(new URL(schemaSourceUrl).pathname);
+      } catch {
+        return detectMarkupLanguageFromPath(schemaSourceUrl);
+      }
+    })();
+    const text = await response.text();
+    applySchemaContent(text, schemaLanguage);
+    if (schemaLanguage === 'xml') {
+      void loadDefaultInstanceFromXmlSchema(text, schemaLanguage);
+    }
+    setSchemaUrl('');
+    setActiveTab('schema');
+    return { text, schemaLanguage };
+  };
+
+  const tryLoadSchemaFromXmlInstance = async (content: string, sourceUrl?: string) => {
+    const schemaLocations = extractXmlSchemaLocations(content);
+    for (const location of schemaLocations) {
+      const resolvedUrl = resolveXmlSchemaLocation(location, sourceUrl);
+      if (!resolvedUrl) continue;
+      try {
+        await loadSchemaFromUrl(resolvedUrl);
+        return true;
+      } catch {
+        // keep trying remaining hints
+      }
+    }
+
+    try {
+      const result = await postSchemaService<{ mode: string; inferredSchema?: string; schemaUrls?: string[]; warnings?: string[] }>('/api/schema/from-xml', {
+        content,
+        language: 'xml',
+        sourceUri: sourceUrl,
+        preferSchemaLocation: true,
+      });
+
+      if (result.mode === 'schemaLocation' && Array.isArray(result.schemaUrls) && result.schemaUrls.length > 0) {
+        await loadSchemaFromUrl(result.schemaUrls[0]);
+        return true;
+      }
+
+      if (result.mode === 'inferred' && result.inferredSchema) {
+        applySchemaContent(result.inferredSchema, 'xml');
+        setSchemaUrl('');
+        setActiveTab('schema');
+        return true;
+      }
+    } catch (err) {
+      setError(`Failed to infer XML schema: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+
+    return false;
+  };
+
   const handleClearLocalStorage = () => {
     if (typeof localStorage === 'undefined') return;
     try {
+      for (const language of ['json', 'yaml', 'xml'] as MarkupLanguage[]) {
+        localStorage.removeItem(getInstanceStorageKey(language));
+        localStorage.removeItem(getSchemaStorageKey(language));
+      }
       localStorage.removeItem(STORAGE_KEY);
       localStorage.removeItem(INSTANCE_STORAGE_KEY);
       localStorage.removeItem(ERD_STORAGE_KEY);
@@ -360,6 +589,35 @@ export default function Workbench() {
 
     if (!jsonInput.trim()) {
       setError("Please enter JSON data");
+      return;
+    }
+
+    if (markupLanguage === 'xml') {
+      void (async () => {
+        try {
+          const result = await postSchemaService<{ mode: string; inferredSchema?: string; schemaUrls?: string[]; warnings?: string[] }>('/api/schema/from-xml', {
+            content: jsonInput,
+            language: 'xml',
+            sourceUri: undefined,
+            preferSchemaLocation: true,
+          });
+
+          if (result.mode === 'schemaLocation' && Array.isArray(result.schemaUrls) && result.schemaUrls.length > 0) {
+            await loadSchemaFromUrl(result.schemaUrls[0]);
+            return;
+          }
+
+          if (result.mode === 'inferred' && result.inferredSchema) {
+            applySchemaContent(result.inferredSchema, 'xml');
+            setActiveTab('schema');
+            return;
+          }
+
+          setError('Failed to infer an XML schema from the current instance.');
+        } catch (err) {
+          setError(`Failed to infer XML schema: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        }
+      })();
       return;
     }
 
@@ -406,6 +664,9 @@ export default function Workbench() {
         instanceTextRef.current = content;
         setJsonInput(content);
         setInstanceData(parsed);
+        if (markupLanguage === 'xml') {
+          void tryLoadSchemaFromXmlInstance(content);
+        }
         clearVariantStorage();
         setError(null);
       } catch (err) {
@@ -442,6 +703,9 @@ export default function Workbench() {
       instanceTextRef.current = text;
       setJsonInput(text);
       setInstanceData(parsed);
+      if (markupLanguage === 'xml') {
+        void tryLoadSchemaFromXmlInstance(text, jsonUrl);
+      }
       clearVariantStorage();
       setJsonUrl('');
     } catch (err) {
@@ -466,21 +730,7 @@ export default function Workbench() {
     reader.onload = (e) => {
       const content = e.target?.result as string;
       try {
-        const parsedSchema = parseSchemaInput(content, schemaLanguage);
-        setSchemaMarkupLanguage(schemaLanguage);
-        dispatch({ type: APPLY_SOURCE_UPDATE, payload: parsedSchema });
-        // Only generate a default instance when none is present — preserve user-loaded instance
-        setInstanceData((prev: any) => {
-          if (prev == null) {
-            const defaultInstance = generateDefaultInstance(parsedSchema);
-            const defaultInstanceText = JSON.stringify(defaultInstance, null, 2);
-            instanceTextRef.current = defaultInstanceText;
-            setJsonInput(defaultInstanceText);
-            return defaultInstance;
-          }
-          return prev;
-        });
-         
+        applySchemaContent(content, schemaLanguage);
         setError(null);
       } catch (err) {
         setError(`Invalid schema file. Please upload a valid ${markupLabel[schemaLanguage].toLowerCase()} schema.`);
@@ -548,33 +798,7 @@ export default function Workbench() {
     setError(null);
 
     try {
-      const response = await fetch(schemaUrl);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const schemaLanguage = (() => {
-        try {
-          return detectMarkupLanguageFromPath(new URL(schemaUrl).pathname);
-        } catch {
-          return detectMarkupLanguageFromPath(schemaUrl);
-        }
-      })();
-      const text = await response.text();
-      const data = parseSchemaInput(text, schemaLanguage);
-      setSchemaMarkupLanguage(schemaLanguage);
-      dispatch({ type: APPLY_SOURCE_UPDATE, payload: data });
-      // Only generate a default instance when none is present — preserve user-loaded instance
-      setInstanceData((prev: any) => {
-        if (prev == null) {
-          const defaultInstance = generateDefaultInstance(data);
-          const defaultInstanceText = JSON.stringify(defaultInstance, null, 2);
-          instanceTextRef.current = defaultInstanceText;
-          setJsonInput(defaultInstanceText);
-          return defaultInstance;
-        }
-        return prev;
-      });
-      setSchemaUrl("");
+      await loadSchemaFromUrl(schemaUrl);
     } catch (err) {
       setError(`Failed to load schema from URL: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
@@ -617,13 +841,7 @@ export default function Workbench() {
   const handleSaveMarkup = () => {
     if (!jsonInput.trim()) return;
     try {
-      let content: string;
-      if (markupLanguage === 'json') {
-        content = jsonInput;
-      } else {
-        const data = JSON.parse(jsonInput);
-        content = serializeMarkup(data, markupLanguage);
-      }
+      const content = jsonInput;
       const blob = new Blob([content], { type: mimeType(markupLanguage) });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -787,7 +1005,7 @@ export default function Workbench() {
     <div className={styles.container}>
       {/* Hidden file inputs — top-level so menu items can trigger them from any active tab */}
       <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept={acceptAttr(markupLanguage)} style={{ display: 'none' }} />
-      <input type="file" ref={schemaFileInputRef} onChange={handleSchemaFileUpload} accept=".json,application/json" style={{ display: 'none' }} />
+      <input type="file" ref={schemaFileInputRef} onChange={handleSchemaFileUpload} accept=".json,.yaml,.yml,.xml,.xsd,application/json,text/yaml,application/xml" style={{ display: 'none' }} />
       <input type="file" ref={erdFileInputRef} onChange={handleErdFileUpload} accept=".cs,text/plain" multiple style={{ display: 'none' }} />
 
       {/* ── App menu bar ────────────────────────────────────────────── */}
@@ -801,7 +1019,7 @@ export default function Workbench() {
               <MenubarRadioGroup value={markupLanguage} onValueChange={(v) => setMarkupLanguage(v as MarkupLanguage)}>
                 <MenubarRadioItem value="json">JSON</MenubarRadioItem>
                 <MenubarRadioItem value="yaml">YAML</MenubarRadioItem>
-                <MenubarRadioItem value="xml" disabled title="Coming soon">XML</MenubarRadioItem>
+                <MenubarRadioItem value="xml">XML</MenubarRadioItem>
               </MenubarRadioGroup>
             </MenubarContent>
           </MenubarMenu>
@@ -1021,6 +1239,7 @@ export default function Workbench() {
             {editorSchema ? (
               <GraphicalSchemaEditor
                 schema={editorSchema as any}
+                schemaLanguage={schemaMarkupLanguage}
                 onChange={(newSchema) => {
                   // Editor emits edits to the resolved view; reducer will rehydrate into source
                   dispatch({ type: APPLY_RESOLVED_EDIT, payload: newSchema });
@@ -1204,13 +1423,14 @@ export default function Workbench() {
                       setError(null);
                       // Try to parse and update instance form if valid
                       try {
-                        const parsed = JSON.parse(e.target.value);
+                        const parsed = parseMarkup(e.target.value, markupLanguage);
+                        instanceTextRef.current = e.target.value;
                         setInstanceData(parsed);
                       } catch {
                         // ignore invalid
                       }
                     }}
-                    placeholder={markupLanguage === 'yaml' ? 'Paste your YAML here...' : 'Paste your JSON here...'}
+                    placeholder={markupLanguage === 'yaml' ? 'Paste your YAML here...' : markupLanguage === 'xml' ? 'Paste your XML here...' : 'Paste your JSON here...'}
                     spellCheck={false}
                     style={{ width: '100%', height: '100%', minHeight: 240, boxSizing: 'border-box' }}
                   />
@@ -1223,7 +1443,7 @@ export default function Workbench() {
         {activeTab === 'instance' && (
           <div className={styles.panel}>
             <div className={styles.panelHeader}>
-              <h2 className={styles.panelTitle}>Instance Editor</h2>
+              <h2 className={styles.panelTitle}>{markupLabel[markupLanguage]} Instance Editor</h2>
             </div>
             {editorSchema ? (
               <div className={styles.editorContainer}>

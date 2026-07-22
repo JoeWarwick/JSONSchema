@@ -16,8 +16,28 @@ function cloneSchemaValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
+function looksLikeXmlSchemaDocument(value: any): boolean {
+  if (!value || typeof value !== 'object') return false;
+  if (Object.prototype.hasOwnProperty.call(value, 'xs:schema')) return true;
+
+  const root = (value as any).schema || value;
+  if (!root || typeof root !== 'object') return false;
+
+  const attrs = (root as any)['@attributes'];
+  if (!attrs || typeof attrs !== 'object') return false;
+
+  return !!(
+    attrs['xmlns:xs'] ||
+    attrs['xmlns'] ||
+    attrs.targetNamespace ||
+    attrs.elementFormDefault ||
+    attrs.attributeFormDefault
+  );
+}
+
 export async function resolveSchema(schema: Record<string, unknown> | null): Promise<Record<string, unknown> | null> {
   if (!schema || typeof schema !== 'object') return schema;
+  if (looksLikeXmlSchemaDocument(schema)) return schema;
   const debug = typeof process !== 'undefined' && !!(process as any).env && !!(process as any).env.SCHEMA_RESOLVER_DEBUG;
 
   const traverseTree = async (

@@ -578,9 +578,39 @@ function normalizeResolved(s: Schema, source?: Schema): Schema {
   return augmentSchemaForKnownIssues(s) as Schema;
 }
 
+function cloneDefinitionMaps(schema: Schema): Schema {
+  if (!schema || typeof schema !== 'object') return schema;
+  const cloned = Array.isArray(schema) ? [...schema] : { ...schema };
+  try {
+    if ((cloned as any).$defs && typeof (cloned as any).$defs === 'object') {
+      (cloned as any).$defs = JSON.parse(JSON.stringify((cloned as any).$defs));
+    }
+    if ((cloned as any).definitions && typeof (cloned as any).definitions === 'object') {
+      (cloned as any).definitions = JSON.parse(JSON.stringify((cloned as any).definitions));
+    }
+  } catch (_) {
+    // ignore copy failures and return the shallow clone
+  }
+  return cloned as Schema;
+}
+
 export function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean, source?: Schema): Schema {
   // Use the boolean discriminator `sourceIsObject` (set on schema load)
   // to decide whether to normalize the resolved view for editors.
+  if ((!resolved || resolved === null) && sourceIsObject && source && typeof source === 'object') {
+    const fromSource = (source as any).properties && typeof (source as any).properties === 'object'
+      ? { type: 'object', properties: (source as any).properties }
+      : { type: 'object', properties: source };
+    const normalized = normalizeResolved(fromSource as Schema, source) as any;
+    const srcObj = source as any;
+    if (srcObj.$defs && !normalized.$defs) {
+      normalized.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
+    }
+    if (srcObj.definitions && !normalized.definitions) {
+      normalized.definitions = JSON.parse(JSON.stringify(srcObj.definitions));
+    }
+    return cloneDefinitionMaps(normalized);
+  }
   try {
     // Make a working clone if we're going to mutate resolved
     let resolvedForMutation = resolved;
@@ -732,17 +762,17 @@ export function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean,
                 // Make a proper copy to avoid mutating shared references
                 const result = { ...normalized } as any;
                 result.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
-                return result;
+                return cloneDefinitionMaps(result);
               }
               // Also preserve definitions (older JSON Schema draft style)
               if (srcObj.definitions && !(normalized as any).definitions) {
                 // Make a proper copy to avoid mutating shared references
                 const result = { ...normalized } as any;
                 result.definitions = JSON.parse(JSON.stringify(srcObj.definitions));
-                return result;
+                return cloneDefinitionMaps(result);
               }
             }
-            return normalized;
+            return cloneDefinitionMaps(normalized);
           }
         }
       }
@@ -765,17 +795,17 @@ export function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean,
             // Make a proper copy to avoid mutating shared references
             const result = { ...normalized } as any;
             result.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
-            return result;
+            return cloneDefinitionMaps(result);
           }
           // Also preserve definitions (older JSON Schema draft style)
           if (!(normalized as any).definitions && srcObj.definitions) {
             // Make a proper copy to avoid mutating shared references
             const result = { ...normalized } as any;
             result.definitions = JSON.parse(JSON.stringify(srcObj.definitions));
-            return result;
+            return cloneDefinitionMaps(result);
           }
         }
-        return normalized;
+        return cloneDefinitionMaps(normalized);
       }
     } catch (_) {
       // ignore
@@ -797,7 +827,7 @@ export function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean,
           if (!result.definitions && srcObj.definitions) {
             result.definitions = JSON.parse(JSON.stringify(srcObj.definitions));
           }
-          return result;
+          return cloneDefinitionMaps(result);
         }
       } catch (_) {
         // ignore
@@ -896,17 +926,17 @@ export function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean,
                 // Make a proper copy to avoid mutating shared references
                 const result = { ...normalized } as any;
                 result.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
-                return result;
+                  return cloneDefinitionMaps(result);
               }
               // Also preserve definitions (older JSON Schema draft style)
               if (!(normalized as any).definitions && srcObj.definitions) {
                 // Make a proper copy to avoid mutating shared references
                 const result = { ...normalized } as any;
                 result.definitions = JSON.parse(JSON.stringify(srcObj.definitions));
-                return result;
+                  return cloneDefinitionMaps(result);
               }
             }
-            return normalized;
+              return cloneDefinitionMaps(normalized);
           }
         } catch (_) {
           // ignore - return fallback on error
@@ -919,7 +949,7 @@ export function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean,
             resObj.$defs = JSON.parse(JSON.stringify(srcObj.$defs));
           }
         }
-        return resolved;
+        return cloneDefinitionMaps(resolved);
       }
     } catch (_) {
       // ignore
@@ -939,7 +969,7 @@ export function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean,
     } catch (_) {
       // ignore
     }
-    return resolved;
+    return cloneDefinitionMaps(resolved);
   } catch (_) {
     // ignore
   }
@@ -954,7 +984,7 @@ export function produceResolvedCache(resolved: Schema, sourceIsObject?: boolean,
   } catch (_) {
     // ignore
   }
-  return resolved;
+  return cloneDefinitionMaps(resolved);
 }
 
 // Return the fully resolved (dereferenced) schema from the cache.

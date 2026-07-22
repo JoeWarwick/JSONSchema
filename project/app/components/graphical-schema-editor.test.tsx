@@ -52,6 +52,30 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     printSpy.mockRestore();
   });
 
+  it('shows XML schema details in the right sidebar when the schema language is XML', async () => {
+    const schema = {
+      'xs:schema': {
+        '@attributes': {
+          xmlns: 'http://schemas.datacontract.org/2004/07/RPFabric.Core.Data',
+          'xmlns:xs': 'http://www.w3.org/2001/XMLSchema',
+          targetNamespace: 'http://schemas.datacontract.org/2004/07/RPFabric.Core.Data',
+          elementFormDefault: 'qualified',
+          attributeFormDefault: 'unqualified',
+        },
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={schema} schemaLanguage="xml" onChange={() => {}} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Toggle XML schema details/i }));
+
+    const detailsPanel = await screen.findByLabelText('XML schema details');
+    expect(detailsPanel).toBeInTheDocument();
+    expect(within(detailsPanel).getByText('targetNamespace')).toBeInTheDocument();
+    expect(within(detailsPanel).getAllByText('http://schemas.datacontract.org/2004/07/RPFabric.Core.Data').length).toBeGreaterThan(0);
+    expect(within(detailsPanel).getByText('xmlns:xs')).toBeInTheDocument();
+  });
+
   it('shows Delete Variant in context menu for variant nodes', async () => {
     render(<GraphicalSchemaEditor schema={schemastoreWorkflow as any} onChange={() => {}} />);
 

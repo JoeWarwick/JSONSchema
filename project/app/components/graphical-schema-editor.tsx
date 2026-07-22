@@ -29,7 +29,7 @@ import { printGraphSection } from '../utils/print-graph';
 import "reactflow/dist/style.css";
 import styles from "./graphical-schema-editor.module.css";
 
-export function GraphicalSchemaEditor({ schema, onChange, useTestData }: GraphicalSchemaEditorProps) {
+export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLanguage }: GraphicalSchemaEditorProps) {
   type ExpansionState = {
     combiners: Record<string, boolean>;
     variants: Record<string, boolean>;
@@ -1429,6 +1429,37 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
 
   // Context menu state
   const [contextMenu, setContextMenu] = React.useState<{ visible: boolean; position: { x: number; y: number }; nodeId: string | null } | null>(null);
+  const [showSchemaDetails, setShowSchemaDetails] = React.useState(false);
+
+  const xmlSchemaDetails = React.useMemo(() => {
+    const candidate = schema as any;
+    const directAttributes = candidate?.['@attributes'] && typeof candidate['@attributes'] === 'object'
+      ? candidate['@attributes'] as Record<string, unknown>
+      : null;
+    const schemaRoot = candidate?.['xs:schema'] && typeof candidate['xs:schema'] === 'object'
+      ? candidate['xs:schema'] as Record<string, unknown>
+      : null;
+    const nestedAttributes = schemaRoot?.['@attributes'] && typeof schemaRoot['@attributes'] === 'object'
+      ? schemaRoot['@attributes'] as Record<string, unknown>
+      : null;
+    const attributes = nestedAttributes || directAttributes;
+    const targetNamespace = attributes?.targetNamespace || candidate?.targetNamespace || schemaRoot?.targetNamespace;
+    const elementFormDefault = attributes?.elementFormDefault || candidate?.elementFormDefault || schemaRoot?.elementFormDefault;
+    const attributeFormDefault = attributes?.attributeFormDefault || candidate?.attributeFormDefault || schemaRoot?.attributeFormDefault;
+    const xmlnsEntries = attributes
+      ? Object.entries(attributes).filter(([key]) => key.startsWith('xmlns'))
+      : [];
+
+    return {
+      targetNamespace: typeof targetNamespace === 'string' ? targetNamespace : null,
+      elementFormDefault: typeof elementFormDefault === 'string' ? elementFormDefault : null,
+      attributeFormDefault: typeof attributeFormDefault === 'string' ? attributeFormDefault : null,
+      xmlnsEntries,
+    };
+  }, [schema]);
+
+  const schemaDialectLabel = schemaLanguage === 'xml' ? 'XML Schema' : 'JSON Schema';
+  const showXmlDetails = schemaLanguage === 'xml' || Boolean(xmlSchemaDetails.targetNamespace || xmlSchemaDetails.xmlnsEntries.length > 0);
 
   // Sync nodes/edges with schema prop unless using test data
   // Only reset selected node if the graph structure changes (add/remove), not for every property edit
@@ -2201,11 +2232,58 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData }: Graphic
       <div className={styles.sidebarPanel}>
         <div className={styles.editorSidebar}>
           <div className={styles.editorSidebarHeader}>
-            <button type="button" className={styles.printButton} onClick={handlePrintGraph} title="Print graph" aria-label="Print graph">
-              <Printer size={16} />
-              <span>Print graph</span>
-            </button>
+            <div className={styles.sidebarHeaderGroup}>
+              <span className={styles.schemaDialectBadge} title="Current schema dialect">{schemaDialectLabel}</span>
+              {showXmlDetails && (
+                <button
+                  type="button"
+                  className={styles.printButton}
+                  onClick={() => setShowSchemaDetails(prev => !prev)}
+                  title="Toggle XML schema details"
+                  aria-label="Toggle XML schema details"
+                >
+                  <span>{showSchemaDetails ? 'Hide XML details' : 'XML details'}</span>
+                </button>
+              )}
+              <button type="button" className={styles.printButton} onClick={handlePrintGraph} title="Print graph" aria-label="Print graph">
+                <Printer size={16} />
+                <span>Print graph</span>
+              </button>
+            </div>
           </div>
+          {showXmlDetails && showSchemaDetails && (
+            <div className={styles.schemaDetailsPanel} aria-label="XML schema details">
+              {xmlSchemaDetails.targetNamespace && (
+                <div className={styles.schemaDetailRow}>
+                  <span className={styles.schemaDetailLabel}>targetNamespace</span>
+                  <span className={styles.schemaDetailValue}>{xmlSchemaDetails.targetNamespace}</span>
+                </div>
+              )}
+              {xmlSchemaDetails.elementFormDefault && (
+                <div className={styles.schemaDetailRow}>
+                  <span className={styles.schemaDetailLabel}>elementFormDefault</span>
+                  <span className={styles.schemaDetailValue}>{xmlSchemaDetails.elementFormDefault}</span>
+                </div>
+              )}
+              {xmlSchemaDetails.attributeFormDefault && (
+                <div className={styles.schemaDetailRow}>
+                  <span className={styles.schemaDetailLabel}>attributeFormDefault</span>
+                  <span className={styles.schemaDetailValue}>{xmlSchemaDetails.attributeFormDefault}</span>
+                </div>
+              )}
+              {xmlSchemaDetails.xmlnsEntries.length > 0 && (
+                <div className={styles.schemaDetailStack}>
+                  <span className={styles.schemaDetailLabel}>xmlns</span>
+                  {xmlSchemaDetails.xmlnsEntries.map(([key, value]) => (
+                    <div className={styles.schemaDetailRow} key={key}>
+                      <span className={styles.schemaDetailValue}>{key}</span>
+                      <span className={styles.schemaDetailValue}>{String(value)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {/* Always show NodePropertyEditor for selected node, including enum node */}
           <MemoizedNodePropertyEditor node={selectedNode} onChange={handleNodePropertyChange} />
         </div>

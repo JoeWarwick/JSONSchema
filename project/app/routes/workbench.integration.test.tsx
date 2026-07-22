@@ -163,10 +163,15 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     const schemaTab = screen.getByRole('button', { name: /Schema Input/i });
     fireEvent.click(schemaTab);
 
-    // Find the hidden file input and simulate uploading JSON content
-    const fileInput = document.querySelector('input[accept=".cs,text/plain"]') as HTMLInputElement | null;
+    // Find the hidden schema file input and simulate uploading XML Schema content
+    const fileInput = document.querySelector('input[accept*=".xsd"]') as HTMLInputElement | null;
     expect(fileInput).toBeTruthy();
-    const file = new File([JSON.stringify(unresolved)], 'schema.json', { type: 'application/json' });
+    const file = new File([
+      `<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="https://example.com/schema" elementFormDefault="qualified">
+  <xs:element name="root" type="xs:string" />
+</xs:schema>`
+    ], 'schema.xsd', { type: 'application/xml' });
     // fire change event to load schema into reducer
     fireEvent.change(fileInput!, { target: { files: [file] } });
 
@@ -183,6 +188,109 @@ describe('Workbench integration - load unresolved $defs schema', () => {
       expect(objectBtns.length).toBeGreaterThan(0);
       expect(objectBtns[0]).toHaveStyle('font-weight: 700');
     });
+  });
+
+  it('loads a schema from xsi:schemaLocation when an XML instance file is uploaded', async () => {
+    const schemaUrl = 'https://example.com/schemas/customer.xsd';
+    const schemaResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="https://example.com/customer" elementFormDefault="qualified">
+  <xs:element name="customer" type="xs:string" />
+</xs:schema>`;
+    const originalFetch = (global as any).fetch;
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => schemaResponse,
+    } as Response);
+    (global as any).fetch = fetchMock;
+
+    render(<Workbench />);
+
+    const languageTrigger = screen.getByRole('menuitem', { name: /Language/i });
+    fireEvent.pointerDown(languageTrigger);
+
+    const xmlOption = await screen.findByRole('menuitemradio', { name: /^XML$/i });
+    fireEvent.click(xmlOption);
+
+    const fileInput = document.querySelector('input[accept*=".xml"][accept*="application/xml"]') as HTMLInputElement | null;
+    expect(fileInput).toBeTruthy();
+
+    const instanceFile = new File([
+      `<?xml version="1.0" encoding="UTF-8"?>
+<customer xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://example.com/customer ${schemaUrl}">
+  <name>Jane</name>
+</customer>`
+    ], 'customer.xml', { type: 'application/xml' });
+
+    fireEvent.change(fileInput!, { target: { files: [instanceFile] } });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(schemaUrl);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('schema-source-badge')).toHaveTextContent(/resolved/i);
+    });
+
+    (global as any).fetch = originalFetch;
+  });
+
+  it('infers a schema from the dotnet service when an XML instance has no schemaLocation', async () => {
+    const inferredSchema = `<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified">
+  <xs:element name="person">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="name" type="xs:string" />
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>`;
+    const originalFetch = (global as any).fetch;
+    const fetchMock = jest.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/schema/from-xml')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ mode: 'inferred', inferredSchema, warnings: [] }),
+        } as Response;
+      }
+
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    (global as any).fetch = fetchMock;
+
+    try {
+      render(<Workbench />);
+
+      const languageTrigger = screen.getByRole('menuitem', { name: /Language/i });
+      fireEvent.pointerDown(languageTrigger);
+      const xmlOption = await screen.findByRole('menuitemradio', { name: /^XML$/i });
+      fireEvent.click(xmlOption);
+
+      const fileInput = document.querySelector('input[accept*=".xml"][accept*="application/xml"]') as HTMLInputElement | null;
+      expect(fileInput).toBeTruthy();
+
+      const instanceFile = new File([`<?xml version="1.0" encoding="UTF-8"?>
+<person>
+  <name>Jane</name>
+</person>`], 'person.xml', { type: 'application/xml' });
+      fireEvent.change(fileInput!, { target: { files: [instanceFile] } });
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          expect.stringContaining('/api/schema/from-xml'),
+          expect.objectContaining({ method: 'POST' })
+        );
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('schema-source-badge')).toHaveTextContent(/resolved/i);
+      });
+    } finally {
+      (global as any).fetch = originalFetch;
+    }
   });
 
   it('persists and restores the ERD model from localStorage', async () => {
