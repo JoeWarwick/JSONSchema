@@ -5,6 +5,8 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite --port 5173",
+    "dev:api": "dotnet run --project dotnet-schema-service/src/SchemaService/SchemaService.csproj --launch-profile SchemaService",
+    "dev:full": "concurrently -k \"npm run dev\" \"npm run dev:api\"",
     "preview": "vite preview",
     "e2e": "npx playwright test",
     "e2e:ci": "BASE_URL=http://localhost:5173 npx playwright test --project=chromium --reporter=list,html --trace=on",
@@ -67,6 +69,7 @@
     "husky": "^8.0.3",
     "jest": "^30.2.0",
     "jest-environment-jsdom": "^30.2.0",
+    "concurrently": "^9.2.1",
     "playwright": "^1.36.0",
     "prettier": "^2.8.8",
     "typescript": "~5.9.3",

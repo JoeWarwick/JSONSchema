@@ -205,4 +205,23 @@ describe('NodePropertyEditor min/max properties facets', () => {
 
     expect(screen.getByRole('spinbutton', { name: 'Max Properties' })).toHaveValue(1);
   });
+
+  it('can transition from no node to a selected node without error', () => {
+    const onChange = jest.fn();
+    const { rerender } = render(<NodePropertyEditor node={null} onChange={onChange} />);
+
+    expect(screen.getByText('Select a node to edit its properties.')).toBeInTheDocument();
+
+    rerender(
+      <NodePropertyEditor
+        node={makeNode({
+          label: 'obj',
+          type: 'object',
+        })}
+        onChange={onChange}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: '+ Min Properties' })).toBeInTheDocument();
+  });
 });

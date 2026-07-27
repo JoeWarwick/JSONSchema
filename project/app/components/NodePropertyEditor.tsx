@@ -3,9 +3,13 @@ import { validateValueAgainstSchema } from "../utils/validation";
 import styles from "./graphical-schema-editor.module.css";
 import type { NodeData, NodePropertyEditorProps } from './types';
 
-export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, onChange }) => {
-  if (!node) return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a node to edit its properties.</div>;
-  const { data } = node;
+export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = (props) => {
+  if (!props.node) return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a node to edit its properties.</div>;
+  return <NodePropertyEditorBody node={props.node} onChange={props.onChange} />;
+};
+
+const NodePropertyEditorBody: React.FC<NodePropertyEditorProps> = ({ node, onChange }) => {
+  const data = node?.data ?? {};
   const getEffectiveAdditionalProperties = (): unknown => {
     if ((data as any).additionalProperties !== undefined) return (data as any).additionalProperties;
     const variantSchema = (data as any).variantSchema;
@@ -43,7 +47,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
     { value: 'null', label: 'null' },
   ];
   // Root node is always required
-  const isRoot = node.id === '1';
+  const isRoot = node?.id === '1';
   const [required, setRequired] = React.useState<boolean>(isRoot ? true : !!data.required);
   const enumValues: string[] = Array.isArray(data.enum) ? data.enum : [];
   const isEnum: boolean = Array.isArray(data.enum);
@@ -143,7 +147,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
 
   // Helper to build patch for onChange
   const buildPatch = (override?: Partial<NodeData>) => {
-    let patch: Partial<NodeData> = { id: node.id, label, type, required, ...override };
+    let patch: Partial<NodeData> = { id: node!.id, label, type, required, ...override };
     const prevTypeRaw = data.type;
     const newTypeRaw = override?.type ?? type;
     const prevType = Array.isArray(prevTypeRaw) ? prevTypeRaw[0] : prevTypeRaw;
@@ -264,6 +268,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
   // Enum editor UI
   const [enumInput, setEnumInput] = React.useState<string>('');
   const enumInputRef = React.useRef<HTMLInputElement>(null);
+
   const handleAddEnum = () => {
     if (enumInput.trim() && !enumValues.includes(enumInput.trim())) {
       const newEnum = [...enumValues, enumInput.trim()];
@@ -584,7 +589,7 @@ export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = ({ node, on
           </div>
         </div>
       )}
-      {Object.prototype.hasOwnProperty.call(node.data, 'required') && !isRoot && (
+      {Object.prototype.hasOwnProperty.call(data, 'required') && !isRoot && (
         <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <input type="checkbox" checked={required} onChange={handleRequiredChange} aria-label="Required" /> Required
         </label>

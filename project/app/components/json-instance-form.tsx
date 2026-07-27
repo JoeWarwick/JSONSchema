@@ -26,6 +26,60 @@ interface JsonInstanceFormProps {
 
 const decodePointerSegment = (seg: string) => seg.replace(/~1/g, '/').replace(/~0/g, '~');
 
+const isExpressionSyntaxSchema = (node: Record<string, unknown> | null | undefined) => {
+  const pattern = node?.pattern;
+  if (typeof pattern !== 'string') return false;
+  const normalized = pattern.toLowerCase();
+  return normalized.includes('\\$\\{\\{') && normalized.includes('\\}\\}');
+};
+
+function InlineRenameInput({
+  value,
+  onChange,
+  onCommit,
+  onCancel,
+  placeholder = 'New property name...',
+  width = 160,
+  height = 28,
+  fontSize = 13,
+  hint,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+  placeholder?: string;
+  width?: number;
+  height?: number;
+  fontSize?: number;
+  hint?: React.ReactNode;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        className={styles.input}
+        style={{ width, height, fontSize }}
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') onCancel();
+          if (event.key === 'Enter') onCommit();
+        }}
+      />
+      {hint}
+    </>
+  );
+}
+
 const getSchemaByPointer = (root: Record<string, unknown>, ref: string): Record<string, unknown> | null => {
   if (!ref.startsWith('#/')) return null;
   const parts = ref.replace(/^#\//, '').split('/').map(decodePointerSegment).filter(Boolean);
@@ -92,13 +146,13 @@ export function JsonInstanceForm({ schema: rawSchema, value, onChange, path = []
   const [stringInputValue, setStringInputValue] = useState<string>(
     typeof value === 'string' ? value : ''
   );
+  const [stringPatternTouched, setStringPatternTouched] = useState(false);
   const [newPropKey, setNewPropKey] = useState("");
   const [currentIndexMap, setCurrentIndexMap] = useState<Record<string, number>>({});
 
   // State used for inline rename of auto-added pattern properties
   const [creatingPropKey, setCreatingPropKey] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState<string>('');
-  const renameInputRef = useRef<HTMLInputElement | null>(null);
   
   // Helper to create a human-friendly label (capitalize first char)
   const displayLabel = (s: string) => (typeof s === 'string' && s.length > 0) ? (s.charAt(0).toUpperCase() + s.slice(1)) : s;
@@ -530,6 +584,9 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     return pattern.includes('\\$\\{\\{') && pattern.includes('\\}\\}');
   }, [type, patternAttr]);
 
+  const isExpressionDraftValue =
+    isExpressionSyntaxField && typeof value === 'string' && value.startsWith('$') && !value.trim().endsWith('}}');
+
   const getSchemaForProperty = (key: string): Record<string, unknown> | null => {
     const properties = (schema.properties as Record<string, any>) || {};
     const patternProperties = (schema.patternProperties as Record<string, any>) || {};
@@ -655,6 +712,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
       if (isString || isObject || isArray) return;
       if (value === '' && (curVs.type === 'string' || !curVs.type)) return;
       if (Array.isArray(value) && value.length === 0 && (curVs.type === 'array' || curVs.items)) return;
+      if (isExpressionDraftValue && (curVs.type === 'string' || (Array.isArray(curVs.type) && curVs.type.includes('string')))) return;
     }
 
     const match = oneVariants.find(vs => validateValueAgainstSchema(value, vs) === null);
@@ -669,12 +727,16 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     if (!hasVariants) return;
     const variants = oneVariants ?? anyVariants;
     if (!variants || idx < 0 || idx >= variants.length) return;
+    const vs = variants[idx];
 
     // Track this index as the "intended" selection so the synchronization useEffect
     // doesn't fight us while the parent state is still updating.
-    // Use a long timeout (30s) to allow parent updates to propagate even on slow connections.
     setFocusVariantIndex(idx);
-    setTimeout(() => setFocusVariantIndex((cur) => cur === idx ? null : cur), 30000);
+    const shouldPinFocus = isExpressionSyntaxSchema(vs);
+    if (!shouldPinFocus) {
+      // Use a long timeout to allow parent updates to propagate even on slow connections.
+      setTimeout(() => setFocusVariantIndex((cur) => cur === idx ? null : cur), 30000);
+    }
 
     // For single-select (oneOf/oneOnly), track the index
     if (oneVariants) {
@@ -685,7 +747,6 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     }
 
     const mem = getVariantMemory();
-    const vs = variants[idx];
 
     // Save the current value under the departing variant index so switching back restores it.
     const previousIdx = oneVariants ? selectedVariantIndex : (selectedAnyIndices[0] ?? -1);
@@ -902,6 +963,10 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
     // If we have a focus hint, stick to it while the value is being initialized
     if (focusVariantIndex !== null && focusVariantIndex >= 0 && focusVariantIndex < sourceVariants.length) {
       setSelectedAnyIndices((prev) => prev.includes(focusVariantIndex) ? prev : [focusVariantIndex]);
+      return;
+    }
+
+    if (isExpressionDraftValue && selectedAnyIndices.length > 0) {
       return;
     }
 
@@ -1339,10 +1404,19 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                 const v = e.target.value;
                 // Always update local state so input stays responsive
                 setStringInputValue(v);
-                // Validate and propagate to parent
-                const err = validateValueAgainstSchema(v, schema);
-                setInputError(err);
+                if (patternAttr) {
+                  setStringPatternTouched(false);
+                } else {
+                  // Validate and propagate to parent
+                  const err = validateValueAgainstSchema(v, schema);
+                  setInputError(err);
+                }
                 onChange(v);
+              }}
+              onBlur={() => {
+                if (!patternAttr) return;
+                setStringPatternTouched(true);
+                setInputError(validateValueAgainstSchema(stringInputValue, schema));
               }}
               placeholder={isExpressionSyntaxField ? "${{ ... }}" : "Enter value..."}
               minLength={minLength}
@@ -1354,7 +1428,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
             {autoFocus && (
               <FocusStringInputEffect inputRef={stringInputRef} />
             )}
-            {patternAttr && (
+            {patternAttr && stringPatternTouched && (
               <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <code style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--color-neutral-3, #1e1e1e)', color: 'var(--color-warning-11, #ce9178)', fontFamily: 'monospace', wordBreak: 'break-all' }}>
                   {patternAttr}
@@ -1375,6 +1449,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
             )}
             {deprecatedFlag && <div style={{ color: '#b07', marginTop: 6, fontSize: 12 }}>Deprecated</div>}
             {inputError && !patternAttr && <div style={{ color: 'red', marginTop: 6 }}>{inputError}</div>}
+            {patternAttr && stringPatternTouched && inputError && <div style={{ color: 'red', marginTop: 6 }}>{inputError}</div>}
           </>
         </div>
       );
@@ -1666,34 +1741,27 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
           const propSchema = basePropSchema ? resolveSchemaNode(basePropSchema) : null;
           if (!propSchema) {
             const isRenaming = creatingPropKey === key;
+            const commitRename = () => {
+              const newName = renameDraft.trim();
+              if (newName && newName !== key && !(newName in objectValue)) {
+                const moved = { ...objectValue } as Record<string, unknown>;
+                moved[newName] = moved[key];
+                delete moved[key];
+                onChange(moved);
+              }
+              setCreatingPropKey(null);
+            };
             return (
               <div key={key} className={`${styles.propertyGroup} ${styles.unexpectedContainer}`}>
                 <div className={styles.propertyHeader} style={{ padding: '8px 12px' }}>
                   {isRenaming ? (
-                    <>
-                      <input
-                        ref={(el) => { if (el) { renameInputRef.current = el; el.focus(); } }}
-                        className={styles.input}
-                        style={{ width: 160, height: 28, fontSize: 13 }}
-                        placeholder="New property name..."
-                        value={renameDraft}
-                        onChange={(e) => setRenameDraft(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Escape') setCreatingPropKey(null);
-                          if (e.key === 'Enter') {
-                            const newName = renameDraft.trim();
-                            if (newName && newName !== key && !(newName in objectValue)) {
-                              const moved = { ...objectValue } as Record<string, unknown>;
-                              moved[newName] = moved[key];
-                              delete moved[key];
-                              onChange(moved);
-                            }
-                            setCreatingPropKey(null);
-                          }
-                        }}
-                      />
-                      <div style={{ fontSize: 11, color: '#666', marginLeft: 8 }}>Enter to confirm — Esc to cancel</div>
-                    </>
+                    <InlineRenameInput
+                      value={renameDraft}
+                      onChange={setRenameDraft}
+                      onCommit={commitRename}
+                      onCancel={() => setCreatingPropKey(null)}
+                      hint={<div style={{ fontSize: 11, color: '#666', marginLeft: 8 }}>Enter to confirm — Esc to cancel</div>}
+                    />
                   ) : (
                     <>
                       <span className={styles.unexpectedName}>{displayLabel(key)} (unexpected)</span>
@@ -1707,7 +1775,6 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                               onClick={() => {
                                 setRenameDraft(key);
                                 setCreatingPropKey(key);
-                                setTimeout(() => renameInputRef.current?.focus(), 0);
                               }}
                             >
                               <Edit size={14} />
@@ -1743,32 +1810,22 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
             <div key={key} className={styles.propertyGroup}>
               <div className={styles.propertyHeader}>
                 {creatingPropKey === key ? (
-                  <>
-                    <input
-                      ref={(el) => { if (el) { renameInputRef.current = el; el.focus(); } }}
-                      className={styles.input}
-                      style={{ width: 160, height: 28, fontSize: 13 }}
-                      placeholder="New property name..."
-                      value={renameDraft}
-                      onChange={(e) => setRenameDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Escape') {
-                          setCreatingPropKey(null);
-                        }
-                        if (e.key === 'Enter') {
-                          const newName = renameDraft.trim();
-                          if (newName && newName !== key && !(newName in objectValue)) {
-                            const moved = { ...objectValue } as Record<string, unknown>;
-                            moved[newName] = moved[key];
-                            delete moved[key];
-                            onChange(moved);
-                          }
-                          setCreatingPropKey(null);
-                        }
-                      }}
-                    />
-                    <div data-testid="rename-hint" style={{ fontSize: 11, color: '#666', marginLeft: 8 }}>Press Enter — Esc to cancel</div>
-                  </>
+                  <InlineRenameInput
+                    value={renameDraft}
+                    onChange={setRenameDraft}
+                    onCommit={() => {
+                      const newName = renameDraft.trim();
+                      if (newName && newName !== key && !(newName in objectValue)) {
+                        const moved = { ...objectValue } as Record<string, unknown>;
+                        moved[newName] = moved[key];
+                        delete moved[key];
+                        onChange(moved);
+                      }
+                      setCreatingPropKey(null);
+                    }}
+                    onCancel={() => setCreatingPropKey(null)}
+                    hint={<div data-testid="rename-hint" style={{ fontSize: 11, color: '#666', marginLeft: 8 }}>Press Enter — Esc to cancel</div>}
+                  />
                 ) : (
                   <>
                     <span className={styles.propertyName}>
@@ -1805,38 +1862,33 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
         {creatingPropKey && !(creatingPropKey in objectValue) && (
           <div key={`pending:${creatingPropKey}`} className={styles.propertyGroup}>
             <div className={styles.propertyHeader}>
-              <input
-                ref={(el) => { renameInputRef.current = el; }}
-                className={styles.input}
-                style={{ width: 160, height: 32, fontSize: 13 }}
-                placeholder="New property name..."
+              <InlineRenameInput
                 value={renameDraft}
-                onChange={(e) => setRenameDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    setCreatingPropKey(null);
-                  }
-                  if (e.key === 'Enter') {
-                    const newName = renameDraft.trim();
-                    if (newName && newName !== creatingPropKey) {
-                      // Attempt to rename the pending property. If parent has already added it, move it; otherwise create a new key with a default value for the property's schema
-                      const moved = { ...objectValue } as Record<string, unknown>;
-                      if (creatingPropKey in moved) {
-                        moved[newName] = moved[creatingPropKey];
-                        delete moved[creatingPropKey];
-                      } else {
-                        const sch = getSchemaForProperty(creatingPropKey) || {};
-                        moved[newName] = getDefaultValue(resolveSchemaNode(sch), rootSchemaRef);
-                      }
-                      // Cancel any pending deferred add to avoid the original name being added afterward
-                      if (addTimerRef.current) { clearTimeout(addTimerRef.current as any); addTimerRef.current = null; }
-                      onChange(moved);
+                onChange={setRenameDraft}
+                width={160}
+                height={32}
+                fontSize={13}
+                onCommit={() => {
+                  const newName = renameDraft.trim();
+                  if (newName && newName !== creatingPropKey) {
+                    // Attempt to rename the pending property. If parent has already added it, move it; otherwise create a new key with a default value for the property's schema
+                    const moved = { ...objectValue } as Record<string, unknown>;
+                    if (creatingPropKey in moved) {
+                      moved[newName] = moved[creatingPropKey];
+                      delete moved[creatingPropKey];
+                    } else {
+                      const sch = getSchemaForProperty(creatingPropKey) || {};
+                      moved[newName] = getDefaultValue(resolveSchemaNode(sch), rootSchemaRef);
                     }
-                    setCreatingPropKey(null);
+                    // Cancel any pending deferred add to avoid the original name being added afterward
+                    if (addTimerRef.current) { clearTimeout(addTimerRef.current as any); addTimerRef.current = null; }
+                    onChange(moved);
                   }
+                  setCreatingPropKey(null);
                 }}
+                onCancel={() => setCreatingPropKey(null)}
+                hint={<div data-testid="rename-hint" style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>Press Enter to confirm — Esc to cancel</div>}
               />
-              <div data-testid="rename-hint" style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>Press Enter to confirm — Esc to cancel</div>
             </div>
             <JsonInstanceForm
               schema={resolveSchemaNode(getSchemaForProperty(creatingPropKey) || {})}

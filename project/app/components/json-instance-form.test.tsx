@@ -372,6 +372,61 @@ describe('JsonInstanceForm extras', () => {
     expect(selfBtn.getAttribute('aria-pressed')).toBe('false');
   });
 
+  test('expression syntax string keeps partial dollar input mounted while typing', async () => {
+    const schema: any = {
+      type: 'object',
+      properties: {
+        expr: {
+          type: 'string',
+          pattern: '^\\$\\{\\{(.*|[ ])*\\}\\}$'
+        }
+      }
+    };
+
+    const onChange = jest.fn();
+    const { rerender } = renderForm(<JsonInstanceForm schema={schema} value={{ expr: '' }} onChange={onChange} />);
+
+    const input = screen.getByPlaceholderText('${{ ... }}') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '$' } });
+
+    const called = onChange.mock.calls[onChange.mock.calls.length - 1][0] as any;
+    act(() => rerender(<JsonInstanceForm schema={schema} value={called} onChange={onChange} />));
+
+    await waitFor(() => {
+      const renderedInput = screen.getByDisplayValue('$') as HTMLInputElement;
+      expect(renderedInput.value).toBe('$');
+    });
+  });
+
+  test('expression syntax string validates pattern on blur instead of each keystroke', async () => {
+    const schema: any = {
+      type: 'object',
+      properties: {
+        expr: {
+          type: 'string',
+          pattern: '^\\$\\{\\{(.*|[ ])*\\}\\}$'
+        }
+      }
+    };
+
+    const onChange = jest.fn();
+    const { rerender } = renderForm(<JsonInstanceForm schema={schema} value={{ expr: '' }} onChange={onChange} />);
+
+    const input = screen.getByPlaceholderText('${{ ... }}') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '$' } });
+
+    act(() => rerender(<JsonInstanceForm schema={schema} value={{ expr: '$' }} onChange={onChange} />));
+    expect(screen.queryByText(/must match pattern/i)).toBeNull();
+
+    act(() => {
+      fireEvent.blur(screen.getByDisplayValue('$'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/✗ must match pattern/i)).toBeTruthy();
+    });
+  });
+
   test('clicking anyOf chip populates default and shows content', () => {
     const schema: any = {
       type: 'object',
@@ -712,6 +767,37 @@ describe('JsonInstanceForm extras', () => {
     expect(Object.prototype.hasOwnProperty.call(called.jobs, 'normalJob1')).toBeTruthy();
 
     jest.useRealTimers();
+  });
+
+  test('pending rename textbox keeps focus while typing', () => {
+    const schema: any = {
+      type: 'object',
+      properties: {
+        jobs: {
+          type: 'object',
+          patternProperties: {
+            '^[_a-zA-Z][a-zA-Z0-9_-]*$': {
+              type: 'object'
+            }
+          },
+          additionalProperties: true
+        }
+      }
+    };
+
+    const onChange = jest.fn();
+    renderForm(<JsonInstanceForm schema={schema} value={{ jobs: {} }} onChange={onChange} />);
+
+    const input = findAddInputForSection('Jobs') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'normal' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    const pendingInput = screen.getByDisplayValue('normal') as HTMLInputElement;
+    expect(document.activeElement).toBe(pendingInput);
+
+    fireEvent.change(pendingInput, { target: { value: 'normalJob' } });
+
+    expect(document.activeElement).toBe(pendingInput);
   });
 
   test('pattern properties show add input even when additionalProperties is false', () => {
