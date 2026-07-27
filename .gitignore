@@ -71,6 +71,7 @@ coverage/
 # Optional: ignore build artifacts
 build/
 dist/
+bin/
 
 # Optional: ignore test output
 /test-output/
