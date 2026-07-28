@@ -197,12 +197,16 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       }
     };
 
+    const schemaAttrs = getXmlAttrs(schemaRoot);
     addNode({
       id: '1',
       label: 'xs:schema',
       type: 'object',
       xmlNodeKind: 'schema',
       xmlPath: ['xs:schema'],
+      xmlTargetNamespace: schemaAttrs.targetNamespace,
+      xmlElementFormDefault: schemaAttrs.elementFormDefault,
+      xmlAttributeFormDefault: schemaAttrs.attributeFormDefault,
     });
 
     const simpleTypes = asArray((schemaRoot as any)?.['xs:simpleType']);
@@ -480,6 +484,26 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           if (value !== undefined && value !== null && String(value).length > 0) attrs.maxOccurs = String(value);
           else delete attrs.maxOccurs;
         }
+      }
+    }
+
+    if (kind === 'schema') {
+      const attrs = getOrCreateAttrs(target);
+      if (!attrs) return null;
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlTargetNamespace')) {
+        const value = (patch as any).xmlTargetNamespace;
+        if (value) attrs.targetNamespace = value;
+        else delete attrs.targetNamespace;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlElementFormDefault')) {
+        const value = (patch as any).xmlElementFormDefault;
+        if (value) attrs.elementFormDefault = value;
+        else delete attrs.elementFormDefault;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlAttributeFormDefault')) {
+        const value = (patch as any).xmlAttributeFormDefault;
+        if (value) attrs.attributeFormDefault = value;
+        else delete attrs.attributeFormDefault;
       }
     }
 

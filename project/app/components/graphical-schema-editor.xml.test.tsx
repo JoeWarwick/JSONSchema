@@ -475,4 +475,62 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
       expect(element?.['@attributes']?.maxOccurs).toBe('unbounded');
     });
   });
+
+  it('edits schema targetNamespace and elementFormDefault via RHS editor', async () => {
+    const initialSchema = {
+      'xs:schema': {
+        '@attributes': {
+          xmlns: 'http://www.w3.org/2001/XMLSchema',
+          'xmlns:xs': 'http://www.w3.org/2001/XMLSchema',
+          targetNamespace: 'http://example.com/old',
+          elementFormDefault: 'qualified',
+          attributeFormDefault: 'unqualified',
+        },
+      },
+    } as any;
+
+    let latestSchema = initialSchema;
+
+    function StatefulXmlEditor() {
+      const [currentSchema, setCurrentSchema] = React.useState<any>(initialSchema);
+      return (
+        <GraphicalSchemaEditor
+          schema={currentSchema}
+          schemaLanguage="xml"
+          onChange={(next) => {
+            latestSchema = next as any;
+            setCurrentSchema(next as any);
+          }}
+        />
+      );
+    }
+
+    render(<StatefulXmlEditor />);
+
+    // Click on the schema node
+    const schemaNode = await screen.findByText('xs:schema');
+    fireEvent.click(schemaNode);
+
+    // Verify the schema editor is shown
+    expect(await screen.findByText('Schema Editor')).toBeInTheDocument();
+
+    // Edit the targetNamespace
+    const namespaceInput = await screen.findByLabelText('Target Namespace');
+    fireEvent.change(namespaceInput, { target: { value: 'http://example.com/new' } });
+    fireEvent.blur(namespaceInput);
+
+    await waitFor(() => {
+      const attrs = latestSchema?.['xs:schema']?.['@attributes'];
+      expect(attrs?.targetNamespace).toBe('http://example.com/new');
+    });
+
+    // Edit the elementFormDefault
+    const elementFormSelect = await screen.findByLabelText('Element Form Default');
+    fireEvent.change(elementFormSelect, { target: { value: 'unqualified' } });
+
+    await waitFor(() => {
+      const attrs = latestSchema?.['xs:schema']?.['@attributes'];
+      expect(attrs?.elementFormDefault).toBe('unqualified');
+    });
+  });
 });

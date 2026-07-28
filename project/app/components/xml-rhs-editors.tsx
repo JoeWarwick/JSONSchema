@@ -281,16 +281,80 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   );
 }
 
+function XmlSchemaEditor({ node, onChange }: XmlNodeRhsEditorProps) {
+  if (!node) return null;
+  const data = (node.data || {}) as any;
+  const [targetNamespace, setTargetNamespace] = React.useState<string>(String(data.xmlTargetNamespace || ''));
+  const [elementFormDefault, setElementFormDefault] = React.useState<string>(String(data.xmlElementFormDefault || 'qualified'));
+  const [attributeFormDefault, setAttributeFormDefault] = React.useState<string>(String(data.xmlAttributeFormDefault || 'unqualified'));
+
+  React.useEffect(() => {
+    setTargetNamespace(String(data.xmlTargetNamespace || ''));
+    setElementFormDefault(String(data.xmlElementFormDefault || 'qualified'));
+    setAttributeFormDefault(String(data.xmlAttributeFormDefault || 'unqualified'));
+  }, [node?.id, data.xmlTargetNamespace, data.xmlElementFormDefault, data.xmlAttributeFormDefault]);
+
+  return (
+    <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
+      <div style={{ fontWeight: 700, fontSize: 13 }}>Schema Editor</div>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 12 }}>targetNamespace</span>
+        <input
+          aria-label="Target Namespace"
+          value={targetNamespace}
+          onChange={(e) => setTargetNamespace(e.target.value)}
+          onBlur={() => onChange({ id: node.id, xmlTargetNamespace: targetNamespace })}
+          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+          placeholder="http://example.com/schema"
+        />
+      </label>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 12 }}>elementFormDefault</span>
+        <select
+          aria-label="Element Form Default"
+          value={elementFormDefault}
+          onChange={(e) => {
+            const nextValue = e.target.value;
+            setElementFormDefault(nextValue);
+            onChange({ id: node.id, xmlElementFormDefault: nextValue });
+          }}
+          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+        >
+          <option value="qualified">qualified</option>
+          <option value="unqualified">unqualified</option>
+        </select>
+      </label>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 12 }}>attributeFormDefault</span>
+        <select
+          aria-label="Attribute Form Default"
+          value={attributeFormDefault}
+          onChange={(e) => {
+            const nextValue = e.target.value;
+            setAttributeFormDefault(nextValue);
+            onChange({ id: node.id, xmlAttributeFormDefault: nextValue });
+          }}
+          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+        >
+          <option value="qualified">qualified</option>
+          <option value="unqualified">unqualified</option>
+        </select>
+      </label>
+    </form>
+  );
+}
+
 export function XmlNodeRhsEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   if (!node) return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a node to edit XML properties.</div>;
   const data = (node.data || {}) as any;
   const kind = (data.xmlNodeKind || '') as XmlNodeKind;
 
+  if (kind === 'schema') return <XmlSchemaEditor node={node} onChange={onChange} />;
   if (kind === 'simpleType') return <XmlSimpleTypeEditor node={node} onChange={onChange} />;
   if (kind === 'complexType') return <XmlComplexTypeEditor node={node} onChange={onChange} />;
   if (kind === 'attribute') return <XmlAttributeEditor node={node} onChange={onChange} />;
   if (kind === 'element') return <XmlElementEditor node={node} onChange={onChange} />;
   if (kind === 'sequence' || kind === 'choice' || kind === 'all') return <XmlCompositorEditor node={node} onChange={onChange} />;
 
-  return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a SimpleType, ComplexType, attribute, element, or compositor node to edit.</div>;
+  return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a schema, SimpleType, ComplexType, attribute, element, or compositor node to edit.</div>;
 }

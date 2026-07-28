@@ -448,6 +448,23 @@ export default function Workbench() {
     URL.revokeObjectURL(url);
   };
 
+  const handleCreateNewXmlSchema = () => {
+    const newSchema = {
+      'xs:schema': {
+        '@attributes': {
+          xmlns: 'http://www.w3.org/2001/XMLSchema',
+          'xmlns:xs': 'http://www.w3.org/2001/XMLSchema',
+          targetNamespace: 'http://example.com/schema',
+          elementFormDefault: 'qualified',
+          attributeFormDefault: 'unqualified',
+        },
+      },
+    };
+    dispatch({ type: APPLY_SOURCE_UPDATE, payload: newSchema });
+    setInstanceData(null);
+    setError(null);
+  };
+
   const handleSaveResolvedSchema = () => {
     const toSave = getResolvedSource(state);
     if (!toSave) return;
@@ -680,6 +697,11 @@ export default function Workbench() {
                 <FileUp size={14} style={{ marginRight: 6 }} />
                 Open Schema&hellip;
               </MenubarItem>
+              <MenubarItem onSelect={handleCreateNewXmlSchema}>
+                <Sparkles size={14} style={{ marginRight: 6 }} />
+                New XML Schema
+              </MenubarItem>
+              <MenubarSeparator />
               <MenubarItem onSelect={handleSaveSchema} disabled={!state.source}>
                 <Download size={14} style={{ marginRight: 6 }} />
                 Save Schema
