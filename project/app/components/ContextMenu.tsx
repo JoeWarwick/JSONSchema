@@ -15,6 +15,8 @@ export interface ContextMenuProps {
 }
 
 export const ContextMenu: React.FC<ContextMenuProps> = ({ items, position, onClose }) => {
+  const [hoveredIndex, setHoveredIndex] = React.useState<number | null>(null);
+
   React.useEffect(() => {
     const handleClick = () => {
       onClose();
@@ -43,11 +45,13 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ items, position, onClo
         <button
           key={idx}
           onClick={item.onClick}
+          onMouseEnter={() => setHoveredIndex(idx)}
+          onMouseLeave={() => setHoveredIndex(null)}
           disabled={item.disabled}
           style={{
             display: "block",
             width: "100%",
-            background: "none",
+            background: hoveredIndex === idx && !item.disabled ? "#f0f0f0" : "none",
             border: "none",
             padding: "8px 18px",
             textAlign: "left",
@@ -55,6 +59,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ items, position, onClo
             color: item.disabled ? "#aaa" : "#333",
             cursor: item.disabled ? "not-allowed" : "pointer",
             outline: "none",
+            transition: "background-color 0.15s ease",
           }}
         >
           {item.label}

@@ -14,6 +14,7 @@ import ReactFlow, {
   Background,
   useNodesState,
   useEdgesState,
+  Position,
 } from "reactflow";
 import { TooltipProvider } from "./ui/tooltip/tooltip";
 import { HorizontalSplitPane } from "./ui/split-pane";
@@ -27,6 +28,92 @@ import { nodeTypes, initialNodes, initialEdges } from './schema-node-types';
 import { printGraphSection } from '../utils/print-graph';
 import "reactflow/dist/style.css";
 import styles from "./graphical-schema-editor.module.css";
+
+// Helper functions for edge positioning — connect to the nearest side of parent nodes
+function positionForDirection(dx: number, dy: number): Position {
+  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? Position.Right : Position.Left;
+  return dy >= 0 ? Position.Bottom : Position.Top;
+}
+
+function oppositePosition(position: Position): Position {
+  if (position === Position.Left) return Position.Right;
+  if (position === Position.Right) return Position.Left;
+  if (position === Position.Top) return Position.Bottom;
+  return Position.Top;
+}
+
+function handleId(kind: 'source' | 'target', position: Position): string {
+  // Capitalize first letter of position (e.g., "right" -> "Right")
+  const capitalizedPosition = position.charAt(0).toUpperCase() + position.slice(1);
+  return `${kind}-${capitalizedPosition}`;
+}
+
+function estimateNodeWidth(node: Node<SchemaNodeData>): number {
+  const label = (node.data?.label as string) || '';
+  const CHAR_WIDTH = 8;
+  const MIN_WIDTH = 180;
+  const H_PADDING = 40;
+  const minW = (node.type === 'combiner' || node.type === 'variant') ? 80 : MIN_WIDTH;
+  return Math.max(minW, label.length * CHAR_WIDTH + H_PADDING);
+}
+
+function estimateNodeHeight(node: Node<SchemaNodeData>): number {
+  if (node.type === 'combiner') return 48;
+  if (node.type === 'variant') return 52;
+  return 64;
+}
+
+function attachEdgePositions(edge: Edge, sourceNode: Node<SchemaNodeData>, targetNode: Node<SchemaNodeData>): Edge {
+  const sourceWidth = estimateNodeWidth(sourceNode);
+  const sourceHeight = estimateNodeHeight(sourceNode);
+  const targetWidth = estimateNodeWidth(targetNode);
+  const targetHeight = estimateNodeHeight(targetNode);
+  const sourceCenter = {
+    x: sourceNode.position.x + sourceWidth / 2,
+    y: sourceNode.position.y + sourceHeight / 2,
+  };
+  const targetCenter = {
+    x: targetNode.position.x + targetWidth / 2,
+    y: targetNode.position.y + targetHeight / 2,
+  };
+  
+  let sourcePosition: Position;
+  let targetPosition: Position;
+  
+  // Root node (schema node) always connects via Right side
+  if (sourceNode.type === 'root') {
+    sourcePosition = Position.Right;
+  } else {
+    sourcePosition = positionForDirection(targetCenter.x - sourceCenter.x, targetCenter.y - sourceCenter.y);
+  }
+  
+  if (targetNode.type === 'root') {
+    targetPosition = Position.Left;
+  } else {
+    targetPosition = oppositePosition(sourcePosition);
+  }
+
+  return {
+    ...edge,
+    sourcePosition,
+    targetPosition,
+    sourceHandle: handleId('source', sourcePosition),
+    targetHandle: handleId('target', targetPosition),
+  } as unknown as Edge;
+}
+
+// Apply edge positioning to all edges based on node positions
+function applyEdgePositioning(edges: Edge[], nodes: Node<SchemaNodeData>[]): Edge[] {
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  return edges.map(edge => {
+    const sourceNode = nodeById.get(edge.source);
+    const targetNode = nodeById.get(edge.target);
+    if (sourceNode && targetNode) {
+      return attachEdgePositions(edge, sourceNode, targetNode);
+    }
+    return edge;
+  });
+}
 
 export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLanguage }: GraphicalSchemaEditorProps) {
   type ExpansionState = {
@@ -153,10 +240,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
   };
 
   const isXmlGraphMode = React.useMemo(() => {
-    if (schemaLanguage === 'xml') return true;
     const s = schema as any;
+    // Check if schema actually has XML structure (xs:schema key)
+    // Only use XML mode if the schema has the XML namespace structure
     return Boolean(s && typeof s === 'object' && s['xs:schema']);
-  }, [schema, schemaLanguage]);
+  }, [schema]);
 
   const asArray = React.useCallback((value: unknown): any[] => {
     if (Array.isArray(value)) return value;
@@ -166,14 +254,33 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
   const toNodeLabel = React.useCallback((kind: string, attrs: Record<string, unknown> | undefined, fallback: string) => {
     const name = typeof attrs?.name === 'string' ? attrs.name : '';
-    if (name) return `${kind}:${name}`;
+    if (name) {
+      // For elements, just return the name without prefix
+      if (kind === 'element') return name;
+      return `${kind}:${name}`;
+    }
     return fallback;
   }, []);
 
   const getXmlAttrs = React.useCallback((node: any): Record<string, unknown> => {
     if (!node || typeof node !== 'object') return {};
-    const attrs = node['@attributes'];
-    return attrs && typeof attrs === 'object' ? attrs as Record<string, unknown> : {};
+    // Start with @attributes if they exist (XML form)
+    const fromAttrs = node['@attributes'] && typeof node['@attributes'] === 'object' ? (node['@attributes'] as Record<string, unknown>) : {};
+    // Also check for direct properties (normalized form, e.g., MS SchemaObject)
+    // These would be things like targetNamespace, elementFormDefault, etc. at the root
+    const directProps: Record<string, unknown> = {};
+    const xmlSchemaProps = ['targetNamespace', 'elementFormDefault', 'attributeFormDefault', 'blockDefault', 'finalDefault', 'version', 'id', 'xmlns', 'xmlns:xs'];
+    xmlSchemaProps.forEach(prop => {
+      if (Object.prototype.hasOwnProperty.call(node, prop)) {
+        directProps[prop] = (node as any)[prop];
+      }
+    });
+    // Merge: direct properties override @attributes
+    const merged = { ...fromAttrs, ...directProps };
+    if (Object.keys(merged).length > 0) {
+      console.log('[getXmlAttrs] @attributes:', fromAttrs, 'directProps:', directProps, 'merged:', merged);
+    }
+    return merged;
   }, []);
 
   const xmlSchemaToGraph = React.useCallback((xmlDoc: Record<string, unknown>): { nodes: Node<SchemaNodeData>[]; edges: Edge[] } => {
@@ -183,6 +290,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     const schemaRoot = ((xmlDoc as any)?.['xs:schema'] && typeof (xmlDoc as any)['xs:schema'] === 'object')
       ? (xmlDoc as any)['xs:schema']
       : xmlDoc;
+
+    const schemaAttrs = getXmlAttrs(schemaRoot);
 
     const addNode = (data: any, parentId?: string) => {
       const id = data.id as string;
@@ -196,20 +305,40 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         edges.push({ id: `e${parentId}-${id}`, source: parentId, target: id, type: 'default' });
       }
     };
-
-    const schemaAttrs = getXmlAttrs(schemaRoot);
-    addNode({
+    
+    // Extract all schema attributes generically
+    const xmlSchemaNodeData: any = {
       id: '1',
       label: 'xs:schema',
-      type: 'object',
+      type: 'root',
       xmlNodeKind: 'schema',
       xmlPath: ['xs:schema'],
-      xmlTargetNamespace: schemaAttrs.targetNamespace,
-      xmlElementFormDefault: schemaAttrs.elementFormDefault,
-      xmlAttributeFormDefault: schemaAttrs.attributeFormDefault,
+    };
+
+    // Map XML attributes to xml* prefixed node data properties
+    const attrXmlMap: Record<string, string> = {
+      targetNamespace: 'xmlTargetNamespace',
+      elementFormDefault: 'xmlElementFormDefault',
+      attributeFormDefault: 'xmlAttributeFormDefault',
+      blockDefault: 'xmlBlockDefault',
+      finalDefault: 'xmlFinalDefault',
+      version: 'xmlVersion',
+      id: 'xmlId',
+    };
+
+    Object.entries(attrXmlMap).forEach(([attrKey, xmlKey]) => {
+      const attrValue = schemaAttrs[attrKey];
+      if (attrValue) {
+        xmlSchemaNodeData[xmlKey] = attrValue;
+      }
     });
 
+    addNode(xmlSchemaNodeData);
+
     const simpleTypes = asArray((schemaRoot as any)?.['xs:simpleType']);
+    const complexTypes = asArray((schemaRoot as any)?.['xs:complexType']);
+    const elements = asArray((schemaRoot as any)?.['xs:element']);
+    
     simpleTypes.forEach((entry, index) => {
       if (!entry || typeof entry !== 'object') return;
       const attrs = getXmlAttrs(entry);
@@ -249,7 +378,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       }, '1');
     });
 
-    const complexTypes = asArray((schemaRoot as any)?.['xs:complexType']);
+    // complexTypes and elements already extracted above
     complexTypes.forEach((entry, index) => {
       if (!entry || typeof entry !== 'object') return;
       const attrs = getXmlAttrs(entry);
@@ -320,7 +449,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
             // It's an element
             addNode({
               id: `${compositorId}.element_${itemIndex}`,
-              label: toNodeLabel('element', elemAttrs, elemAttrs.name || `element:${itemIndex + 1}`),
+              label: toNodeLabel('element', elemAttrs, (elemAttrs.name as string) || `element:${itemIndex + 1}`),
               type: 'property',
               parent: compositorId,
               xmlNodeKind: 'element',
@@ -353,14 +482,59 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       });
     });
 
+    // elements already extracted above
+    elements.forEach((entry, index) => {
+      if (!entry || typeof entry !== 'object') return;
+      const attrs = getXmlAttrs(entry);
+      addNode({
+        id: `1.element_${index}`,
+        label: toNodeLabel('element', attrs, `element:${index + 1}`),
+        type: 'property',
+        parent: '1',
+        xmlNodeKind: 'element',
+        xmlPath: ['xs:schema', 'xs:element', index],
+        xmlName: attrs.name,
+        xmlElementType: attrs.type,
+        xmlMinOccurs: attrs.minOccurs ?? '1',
+        xmlMaxOccurs: attrs.maxOccurs ?? '1',
+      }, '1');
+    });
+
+    // Add top-level attributes to the schema
+    const attributes = asArray((schemaRoot as any)?.['xs:attribute']);
+    attributes.forEach((entry, index) => {
+      if (!entry || typeof entry !== 'object') return;
+      const attrs = getXmlAttrs(entry);
+      addNode({
+        id: `1.attribute_${index}`,
+        label: toNodeLabel('attribute', attrs, `attribute:${index + 1}`),
+        type: 'property',
+        parent: '1',
+        xmlNodeKind: 'attribute',
+        xmlPath: ['xs:schema', 'xs:attribute', index],
+        xmlName: attrs.name,
+        xmlAttributeType: attrs.type,
+        xmlAttributeUse: attrs.use || 'optional',
+      }, '1');
+    });
+
     return { nodes, edges };
   }, [asArray, getXmlAttrs, toNodeLabel]);
 
-  const updateXmlNodeAtPath = React.useCallback((sourceSchema: Record<string, unknown>, patch: Partial<NodeData>) => {
-    const node = nodesRef.current.find((n) => n.id === patch.id);
-    const xmlPath = (node?.data as any)?.xmlPath as Array<string | number> | undefined;
-    if (!xmlPath || xmlPath.length === 0) return null;
+  const updateXmlNodeAtPath = React.useCallback((sourceSchema: Record<string, unknown>, patch: Partial<NodeData>, node?: Node<SchemaNodeData>) => {
+    // Use provided node or search in nodesRef
+    const targetNode = node || nodesRef.current.find((n) => n.id === patch.id);
+    if (!targetNode) {
+      console.warn(`[updateXmlNodeAtPath] Node with id "${patch.id}" not found.`);
+      return null;
+    }
+    const xmlPath = (targetNode?.data as any)?.xmlPath as Array<string | number> | undefined;
+    if (!xmlPath || xmlPath.length === 0) {
+      console.warn(`[updateXmlNodeAtPath] No xmlPath found for node ${patch.id}`);
+      return null;
+    }
 
+    console.log('[updateXmlNodeAtPath] sourceSchema keys:', Object.keys(sourceSchema || {}));
     const cloned = JSON.parse(JSON.stringify(sourceSchema || {})) as any;
     const getAtPath = (root: any, path: Array<string | number>) => {
       let current = root;
@@ -382,8 +556,35 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       return target['@attributes'] as Record<string, unknown>;
     };
 
-    const target = getAtPath(cloned, xmlPath);
-    if (!target || typeof target !== 'object') return null;
+    let target = getAtPath(cloned, xmlPath);
+    
+    // If the target is not found at xmlPath but xmlPath is ['xs:schema'] for kind='schema',
+    // the schema might be normalized without the xs:schema wrapper.
+    // In that case, check if cloned itself looks like a schema root.
+    if (!target && xmlPath.length === 1 && xmlPath[0] === 'xs:schema' && String((node?.data as any)?.xmlNodeKind || '') === 'schema') {
+      if (Object.prototype.hasOwnProperty.call(cloned, 'xs:schema')) {
+        // The schema has xs:schema as a key - use it
+        target = cloned['xs:schema'];
+      } else {
+        // Check if cloned itself is the root schema (normalized form)
+        // In normalized form (MS SchemaObject style), properties are direct on the root
+        // Check for the presence of XSD schema property names
+        const xsdSchemaProps = ['targetNamespace', 'elementFormDefault', 'attributeFormDefault', 'blockDefault', 'finalDefault', 'version', 'id'];
+        const hasXsdProps = xsdSchemaProps.some(prop => Object.prototype.hasOwnProperty.call(cloned, prop));
+        // Also check for XML element markers
+        const hasXmlKeys = Object.keys(cloned).some(k => k.startsWith('xs:') || k === '@attributes');
+        
+        if (hasXsdProps || hasXmlKeys) {
+          // This looks like a schema root
+          target = cloned;
+        }
+      }
+    }
+    
+    if (!target || typeof target !== 'object') {
+      console.warn(`[updateXmlNodeAtPath] target not found or not an object at path ${JSON.stringify(xmlPath)}`);
+      return null;
+    }
     const kind = String((node?.data as any)?.xmlNodeKind || '');
 
     if (kind === 'simpleType') {
@@ -520,23 +721,43 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     }
 
     if (kind === 'schema') {
-      const attrs = getOrCreateAttrs(target);
-      if (!attrs) return null;
-      if (Object.prototype.hasOwnProperty.call(patch, 'xmlTargetNamespace')) {
-        const value = (patch as any).xmlTargetNamespace;
-        if (value) attrs.targetNamespace = value;
-        else delete attrs.targetNamespace;
+      // Determine if we should store properties as direct properties or in @attributes
+      // In normalized form (e.g., MS SchemaObject), they're direct properties on root
+      // In raw XML form, they're in @attributes
+      
+      const hasAttributes = Object.prototype.hasOwnProperty.call(target, '@attributes');
+      let attrs: Record<string, unknown>;
+      
+      if (hasAttributes) {
+        // XML form: store in @attributes
+        attrs = target['@attributes'] as Record<string, unknown>;
+      } else {
+        // Normalized form: store as direct properties on root
+        attrs = target as Record<string, unknown>;
       }
-      if (Object.prototype.hasOwnProperty.call(patch, 'xmlElementFormDefault')) {
-        const value = (patch as any).xmlElementFormDefault;
-        if (value) attrs.elementFormDefault = value;
-        else delete attrs.elementFormDefault;
-      }
-      if (Object.prototype.hasOwnProperty.call(patch, 'xmlAttributeFormDefault')) {
-        const value = (patch as any).xmlAttributeFormDefault;
-        if (value) attrs.attributeFormDefault = value;
-        else delete attrs.attributeFormDefault;
-      }
+
+      // Generic handler for any xml* schema attributes
+      // Maps xmlPropertyName -> propertyName (e.g., xmlTargetNamespace -> targetNamespace)
+      const xmlPropertyMap: Record<string, string> = {
+        xmlTargetNamespace: 'targetNamespace',
+        xmlElementFormDefault: 'elementFormDefault',
+        xmlAttributeFormDefault: 'attributeFormDefault',
+        xmlBlockDefault: 'blockDefault',
+        xmlFinalDefault: 'finalDefault',
+        xmlVersion: 'version',
+        xmlId: 'id',
+      };
+
+      Object.entries(xmlPropertyMap).forEach(([xmlKey, attrKey]) => {
+        if (Object.prototype.hasOwnProperty.call(patch, xmlKey)) {
+          const value = (patch as any)[xmlKey];
+          if (value !== undefined && value !== null && String(value).trim().length > 0) {
+            attrs[attrKey] = String(value);
+          } else {
+            delete attrs[attrKey];
+          }
+        }
+      });
     }
 
     // Handle attribute operations on simpleType or complexType
@@ -1738,65 +1959,25 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
   // Node property update handler
   const handleNodePropertyChange = (patch: Partial<NodeData>) => {
     if (isXmlGraphMode) {
-      const updated = updateXmlNodeAtPath(schema as Record<string, unknown>, patch);
-      if (!updated) return;
+      const updated = updateXmlNodeAtPath(schema as Record<string, unknown>, patch, selectedNode ?? undefined);
+      if (!updated) {
+        console.warn('[handleNodePropertyChange] updateXmlNodeAtPath returned null for patch:', patch);
+        return;
+      }
+      
       emitLocalSchemaUpdate(updated);
-      setNodes((prevNodes: Node<SchemaNodeData>[]) => prevNodes.map((node) => {
-        if (node.id !== patch.id) return node;
-        
-        // If this is an attribute operation on simpleType or complexType, rebuild xmlAttributes from schema
-        const kind = (node.data as any)?.xmlNodeKind;
-        const xmlPath = (node.data as any)?.xmlPath as Array<string | number> | undefined;
-        const isAttributeOperation = Object.prototype.hasOwnProperty.call(patch, 'xmlAddAttribute') || 
-                                     Object.prototype.hasOwnProperty.call(patch, 'xmlRemoveAttributeIndex') ||
-                                     Object.prototype.hasOwnProperty.call(patch, 'xmlUpdateAttributeIndex');
-        
-        const newData = { ...node.data, ...(patch as any) } as SchemaNodeData;
-        
-        if (isAttributeOperation && (kind === 'simpleType' || kind === 'complexType') && xmlPath) {
-          // Rebuild xmlAttributes from the updated schema
-          const getAtPath = (root: any, path: Array<string | number>) => {
-            let current = root;
-            for (const segment of path) {
-              if (current == null) return null;
-              if (typeof segment === 'number') {
-                if (!Array.isArray(current)) return null;
-                current = current[segment];
-              } else {
-                current = current[segment as string];
-              }
-            }
-            return current;
-          };
-          const target = getAtPath(updated, xmlPath);
-          if (target && typeof target === 'object' && Array.isArray((target as any)['xs:attribute'])) {
-            (newData as any).xmlAttributes = ((target as any)['xs:attribute'] as any[]).map((attrEntry: any) => {
-              const attrAttrs = (attrEntry && typeof attrEntry === 'object' && attrEntry['@attributes']) || {};
-              return { 
-                name: attrAttrs.name, 
-                type: attrAttrs.type, 
-                use: attrAttrs.use || 'optional' 
-              };
-            });
-          }
-        }
-        
-        // Update node type if xmlIsRef changed
-        let nodeType = node.type;
-        if (Object.prototype.hasOwnProperty.call(patch, 'xmlIsRef') && (kind === 'simpleType' || kind === 'complexType')) {
-          const isGlobalRef = Boolean((patch as any).xmlIsRef);
-          nodeType = isGlobalRef ? 'globalType' : 'property';
-        }
-        
-        return {
-          ...node,
-          type: nodeType,
-          data: newData,
-        };
-      }));
+      
+      // Rebuild the entire graph from the updated schema to ensure all changes are reflected
+      const rawRebuilt = schemaToGraph(updated as Record<string, unknown>);
+      const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+        (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
+      );
+      setNodes(laidOutNodes);
+      setEdges(applyEdgePositioning(rawRebuilt.edges, laidOutNodes) as Edge[]);
       return;
     }
-
+    
+    // Non-XML mode handling (original code below)
     // Compute rename/new id ahead of mutating nodes so we can preserve selection
     const targetNode = nodes.find((n) => n.id === patch.id);
     const oldId = targetNode?.id ?? (patch.id as string);
@@ -2004,6 +2185,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     };
     const schemaForGraph = normalizeForGraph(activeSchema);
     const rawGraph = schemaToGraph(schemaForGraph);
+    console.log('[Schema effect] rawGraph nodes:', rawGraph.nodes.length, 'edges:', rawGraph.edges.length, 'isXmlGraphMode:', isXmlGraphMode);
     const restoredExpansionState = expansionStateRef.current;
     const nodesWithRestoredExpansion = rawGraph.nodes.map((n) => {
       if (n.type === 'combiner') {
@@ -2038,7 +2220,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } }
         : n
     );
-    const edges = edgesWithRestoredExpansion;
+    const edges = applyEdgePositioning(edgesWithRestoredExpansion, nodes);
     // Only rebuild nodes/edges if the count changes (structural change)
     // Store label of selected node before graph rebuild
     setNodes(prevNodes => {
@@ -2177,7 +2359,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
   // Node click handler
   const handleNodeClick = (_: any, node: Node) => {
-    if (node.id === '1') return; // Prevent root node from being selected
+    // Allow root node selection in XML mode for schema-level property editing
+    if (node.id === '1' && !isXmlGraphMode) return;
     setSelectedNodeId(node.id);
   };
 
@@ -2281,7 +2464,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
     );
     const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, parentNode.id);
-    const rebuiltEdges = rawRebuilt.edges as Edge[];
+    const rebuiltEdges = applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[];
     setNodes(rebuiltNodes);
     setEdges(rebuiltEdges);
 
@@ -2381,7 +2564,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
     );
     const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, parentNode.id);
-    const rebuiltEdges = rawRebuilt.edges as Edge[];
+    const rebuiltEdges = applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[];
     setNodes(rebuiltNodes);
     setEdges(rebuiltEdges);
 
@@ -2513,7 +2696,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
     );
     const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, parentNode.id);
-    const rebuiltEdges = rawRebuilt.edges as Edge[];
+    const rebuiltEdges = applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[];
     setNodes(rebuiltNodes);
     setEdges(rebuiltEdges);
 
@@ -2617,11 +2800,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
       (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
     );
-    setNodes(laidOutNodes);
-    setEdges(rawRebuilt.edges as Edge[]);
+    const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, ctxNode.id);
+    setNodes(rebuiltNodes);
+    setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
 
     const newNodeId = `${ctxNode.id}.${compositorKind}`;
-    if (laidOutNodes.some((n) => n.id === newNodeId)) {
+    if (rebuiltNodes.some((n) => n.id === newNodeId)) {
       setSelectedNodeId(newNodeId);
     }
 
@@ -2673,8 +2857,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
       (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
     );
-    setNodes(laidOutNodes);
-    setEdges(rawRebuilt.edges as Edge[]);
+    const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, ctxNode.id);
+    setNodes(rebuiltNodes);
+    setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
 
     setContextMenu(null);
   };
@@ -2729,9 +2914,173 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
       (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
     );
-    setNodes(laidOutNodes);
-    setEdges(rawRebuilt.edges as Edge[]);
+    const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, ctxNode.id);
+    setNodes(rebuiltNodes);
+    setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
 
+    setContextMenu(null);
+  };
+
+  // Add element to schema
+  const addXmlElementToSchema = () => {
+    try {
+      const cloned = JSON.parse(JSON.stringify(schema || {})) as any;
+      
+      // Handle both { 'xs:schema': {...} } and direct xs:schema object
+      const schemaObj = cloned['xs:schema'] || cloned;
+      if (!schemaObj || typeof schemaObj !== 'object') {
+        setContextMenu(null);
+        return;
+      }
+      
+      if (!Array.isArray(schemaObj['xs:element'])) {
+        schemaObj['xs:element'] = [];
+      }
+      
+      const elementIndex = schemaObj['xs:element'].length;
+      schemaObj['xs:element'].push({
+        '@attributes': {
+          name: `element${elementIndex + 1}`,
+          type: 'xs:string',
+        },
+      });
+      
+      // If cloned had xs:schema wrapper, use cloned; otherwise use schemaObj
+      const toEmit = cloned['xs:schema'] ? cloned : schemaObj;
+      emitLocalSchemaUpdate(toEmit as Record<string, unknown>);
+      
+      const rawRebuilt = schemaToGraph(toEmit as Record<string, unknown>);
+      const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+        (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
+      );
+      const schemaNode = nodes.find(n => n.id === '1');
+      const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, schemaNode?.id);
+      setNodes(rebuiltNodes);
+      setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+    } catch (err) {
+      console.error('Failed to add element to schema:', err);
+    }
+    setContextMenu(null);
+  };
+
+  // Add attribute to schema
+  const addXmlAttributeToSchema = () => {
+    try {
+      const cloned = JSON.parse(JSON.stringify(schema || {})) as any;
+      
+      // Handle both { 'xs:schema': {...} } and direct xs:schema object
+      const schemaObj = cloned['xs:schema'] || cloned;
+      if (!schemaObj || typeof schemaObj !== 'object') {
+        setContextMenu(null);
+        return;
+      }
+      
+      if (!Array.isArray(schemaObj['xs:attribute'])) {
+        schemaObj['xs:attribute'] = [];
+      }
+      
+      const attributeIndex = schemaObj['xs:attribute'].length;
+      schemaObj['xs:attribute'].push({
+        '@attributes': {
+          name: `attribute${attributeIndex + 1}`,
+          type: 'xs:string',
+        },
+      });
+      
+      const toEmit = cloned['xs:schema'] ? cloned : schemaObj;
+      emitLocalSchemaUpdate(toEmit as Record<string, unknown>);
+      
+      const rawRebuilt = schemaToGraph(toEmit as Record<string, unknown>);
+      const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+        (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
+      );
+      const schemaNode = nodes.find(n => n.id === '1');
+      const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, schemaNode?.id);
+      setNodes(rebuiltNodes);
+      setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+    } catch (err) {
+      console.error('Failed to add attribute to schema:', err);
+    }
+    setContextMenu(null);
+  };
+
+  // Add complexType to schema
+  const addXmlComplexTypeToSchema = () => {
+    try {
+      const cloned = JSON.parse(JSON.stringify(schema || {})) as any;
+      
+      // Handle both { 'xs:schema': {...} } and direct xs:schema object
+      const schemaObj = cloned['xs:schema'] || cloned;
+      if (!schemaObj || typeof schemaObj !== 'object') {
+        setContextMenu(null);
+        return;
+      }
+      
+      if (!Array.isArray(schemaObj['xs:complexType'])) {
+        schemaObj['xs:complexType'] = [];
+      }
+      
+      const complexTypeIndex = schemaObj['xs:complexType'].length;
+      schemaObj['xs:complexType'].push({
+        '@attributes': {
+          name: `Type${complexTypeIndex + 1}`,
+        },
+      });
+      
+      const toEmit = cloned['xs:schema'] ? cloned : schemaObj;
+      emitLocalSchemaUpdate(toEmit as Record<string, unknown>);
+      
+      const rawRebuilt = schemaToGraph(toEmit as Record<string, unknown>);
+      const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+        (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
+      );
+      const schemaNode = nodes.find(n => n.id === '1');
+      const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, schemaNode?.id);
+      setNodes(rebuiltNodes);
+      setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+    } catch (err) {
+      console.error('Failed to add complexType to schema:', err);
+    }
+    setContextMenu(null);
+  };
+
+  // Add simpleType to schema
+  const addXmlSimpleTypeToSchema = () => {
+    try {
+      const cloned = JSON.parse(JSON.stringify(schema || {})) as any;
+      
+      // Handle both { 'xs:schema': {...} } and direct xs:schema object
+      const schemaObj = cloned['xs:schema'] || cloned;
+      if (!schemaObj || typeof schemaObj !== 'object') {
+        setContextMenu(null);
+        return;
+      }
+      
+      if (!Array.isArray(schemaObj['xs:simpleType'])) {
+        schemaObj['xs:simpleType'] = [];
+      }
+      
+      const simpleTypeIndex = schemaObj['xs:simpleType'].length;
+      schemaObj['xs:simpleType'].push({
+        '@attributes': {
+          name: `SimpleType${simpleTypeIndex + 1}`,
+        },
+      });
+      
+      const toEmit = cloned['xs:schema'] ? cloned : schemaObj;
+      emitLocalSchemaUpdate(toEmit as Record<string, unknown>);
+      
+      const rawRebuilt = schemaToGraph(toEmit as Record<string, unknown>);
+      const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+        (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
+      );
+      const schemaNode = nodes.find(n => n.id === '1');
+      const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, schemaNode?.id);
+      setNodes(rebuiltNodes);
+      setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+    } catch (err) {
+      console.error('Failed to add simpleType to schema:', err);
+    }
     setContextMenu(null);
   };
 
@@ -2750,6 +3099,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         items.push({ label: 'Add choice', onClick: () => addXmlCompositorToCompositor('choice'), disabled: false });
         items.push({ label: 'Add all', onClick: () => addXmlCompositorToCompositor('all'), disabled: false });
         items.push({ label: 'Add element', onClick: () => addXmlElementToCompositor(), disabled: false });
+      } else if (kind === 'schema') {
+        // Schema node context menu
+        items.push({ label: 'Add Element', onClick: () => addXmlElementToSchema(), disabled: false });
+        items.push({ label: 'Add Attribute', onClick: () => addXmlAttributeToSchema(), disabled: false });
+        items.push({ label: 'Add ComplexType', onClick: () => addXmlComplexTypeToSchema(), disabled: false });
+        items.push({ label: 'Add SimpleType', onClick: () => addXmlSimpleTypeToSchema(), disabled: false });
       }
       return items;
     }

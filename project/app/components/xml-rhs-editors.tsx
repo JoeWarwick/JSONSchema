@@ -14,6 +14,160 @@ export interface XmlNodeRhsEditorProps {
   onChange: (patch: Partial<NodeData>) => void;
 }
 
+/**
+ * Defines an editable property for a schema node.
+ * Supports text input, select dropdown, and checkbox field types.
+ */
+interface PropertyFieldConfig {
+  /** Label displayed to user */
+  label: string;
+  /** Data property key (e.g., 'xmlTargetNamespace') */
+  dataKey: keyof NodeData;
+  /** Field type: 'text', 'select', or 'checkbox' */
+  type: 'text' | 'select' | 'checkbox';
+  /** Placeholder text (for text inputs) */
+  placeholder?: string;
+  /** Options for select fields */
+  options?: Array<{ value: string; label: string }>;
+  /** Default value if not set */
+  defaultValue?: string | boolean;
+  /** Aria label for accessibility */
+  ariaLabel: string;
+}
+
+/**
+ * Generic property field component that renders based on type.
+ */
+function PropertyField({
+  config,
+  value,
+  onChange,
+  onBlur,
+}: {
+  config: PropertyFieldConfig;
+  value: string | boolean;
+  onChange: (val: string | boolean) => void;
+  onBlur?: () => void;
+}) {
+  if (config.type === 'select' && config.options) {
+    return (
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 12 }}>{config.label}</span>
+        <select
+          aria-label={config.ariaLabel}
+          value={String(value)}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
+          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+        >
+          {config.options.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+
+  if (config.type === 'checkbox') {
+    return (
+      <label style={{ display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+        <input
+          type="checkbox"
+          aria-label={config.ariaLabel}
+          checked={Boolean(value)}
+          onChange={(e) => onChange(e.target.checked)}
+          onBlur={onBlur}
+          style={{ width: 18, height: 18, cursor: 'pointer' }}
+        />
+        <span style={{ fontSize: 12 }}>{config.label}</span>
+      </label>
+    );
+  }
+
+  // Default: text input
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span style={{ fontSize: 12 }}>{config.label}</span>
+      <input
+        type="text"
+        aria-label={config.ariaLabel}
+        value={String(value)}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
+        style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+        placeholder={config.placeholder}
+      />
+    </label>
+  );
+}
+
+/**
+ * Generic property form component that renders fields from a config array.
+ */
+function PropertyForm({
+  title,
+  configs,
+  nodeData,
+  nodeId,
+  onChange,
+}: {
+  title: string;
+  configs: PropertyFieldConfig[];
+  nodeData: Record<string, any>;
+  nodeId: string;
+  onChange: (patch: Partial<NodeData>) => void;
+}) {
+  const [values, setValues] = React.useState<Record<string, string | boolean>>({});
+
+  // Initialize values from node data
+  React.useEffect(() => {
+    const initial: Record<string, string | boolean> = {};
+    configs.forEach((config) => {
+      const val = nodeData[config.dataKey];
+      if (config.type === 'checkbox') {
+        initial[config.dataKey] = Boolean(val);
+      } else {
+        initial[config.dataKey] = String(val ?? config.defaultValue ?? '');
+      }
+    });
+    console.log('[PropertyForm] nodeId:', nodeId, 'configs:', configs.map(c => c.dataKey), 'nodeData:', nodeData, 'initial values:', initial);
+    setValues(initial);
+  }, [nodeId, nodeData, configs]);
+
+  const handleChange = (key: keyof NodeData, value: string | boolean) => {
+    setValues((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleBlur = (key: keyof NodeData, value?: string | boolean) => {
+    // Use provided value if available (for immediate blur after onChange), otherwise read from state
+    const finalValue = value !== undefined ? value : values[key];
+    onChange({ id: nodeId, [key]: finalValue } as Partial<NodeData>);
+  };
+
+  return (
+    <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
+      <div style={{ fontWeight: 700, fontSize: 13 }}>{title}</div>
+      {configs.map((config) => (
+        <PropertyField
+          key={String(config.dataKey)}
+          config={config}
+          value={values[config.dataKey] ?? config.defaultValue ?? ''}
+          onChange={(val) => {
+            handleChange(config.dataKey, val);
+            // For select fields, immediately call handleBlur with the new value
+            if (config.type === 'select') {
+              handleBlur(config.dataKey, val);
+            }
+          }}
+          onBlur={() => handleBlur(config.dataKey)}
+        />
+      ))}
+    </form>
+  );
+}
+
 function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   if (!node) return null;
   const data = (node.data || {}) as any;
@@ -425,7 +579,10 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
           aria-label="Element Name"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          onBlur={() => onChange({ id: node.id, xmlName: name })}
+          onBlur={() => {
+            console.log('[XmlElementEditor] onBlur - node.id:', node.id, 'name:', name);
+            onChange({ id: node.id, xmlName: name });
+          }}
           style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
         />
       </label>
@@ -479,66 +636,75 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   );
 }
 
+/**
+ * Configuration for editable xs:schema properties.
+ * Easily extensible to add more properties like blockDefault, finalDefault, version, id, etc.
+ */
+const XML_SCHEMA_PROPERTY_CONFIGS: PropertyFieldConfig[] = [
+  {
+    label: 'targetNamespace',
+    dataKey: 'xmlTargetNamespace',
+    type: 'text',
+    placeholder: 'http://example.com/schema',
+    ariaLabel: 'Target Namespace',
+  },
+  {
+    label: 'elementFormDefault',
+    dataKey: 'xmlElementFormDefault',
+    type: 'select',
+    defaultValue: 'qualified',
+    options: [
+      { value: 'qualified', label: 'qualified' },
+      { value: 'unqualified', label: 'unqualified' },
+    ],
+    ariaLabel: 'Element Form Default',
+  },
+  {
+    label: 'attributeFormDefault',
+    dataKey: 'xmlAttributeFormDefault',
+    type: 'select',
+    defaultValue: 'unqualified',
+    options: [
+      { value: 'qualified', label: 'qualified' },
+      { value: 'unqualified', label: 'unqualified' },
+    ],
+    ariaLabel: 'Attribute Form Default',
+  },
+  {
+    label: 'blockDefault',
+    dataKey: 'xmlBlockDefault',
+    type: 'text',
+    placeholder: 'extension restriction substitution',
+    ariaLabel: 'Block Default',
+  },
+  {
+    label: 'finalDefault',
+    dataKey: 'xmlFinalDefault',
+    type: 'text',
+    placeholder: 'extension restriction',
+    ariaLabel: 'Final Default',
+  },
+  {
+    label: 'version',
+    dataKey: 'xmlVersion',
+    type: 'text',
+    placeholder: '1.0',
+    ariaLabel: 'Schema Version',
+  },
+];
+
 function XmlSchemaEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   if (!node) return null;
   const data = (node.data || {}) as any;
-  const [targetNamespace, setTargetNamespace] = React.useState<string>(String(data.xmlTargetNamespace || ''));
-  const [elementFormDefault, setElementFormDefault] = React.useState<string>(String(data.xmlElementFormDefault || 'qualified'));
-  const [attributeFormDefault, setAttributeFormDefault] = React.useState<string>(String(data.xmlAttributeFormDefault || 'unqualified'));
-
-  React.useEffect(() => {
-    setTargetNamespace(String(data.xmlTargetNamespace || ''));
-    setElementFormDefault(String(data.xmlElementFormDefault || 'qualified'));
-    setAttributeFormDefault(String(data.xmlAttributeFormDefault || 'unqualified'));
-  }, [node?.id, data.xmlTargetNamespace, data.xmlElementFormDefault, data.xmlAttributeFormDefault]);
 
   return (
-    <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
-      <div style={{ fontWeight: 700, fontSize: 13 }}>Schema Editor</div>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ fontSize: 12 }}>targetNamespace</span>
-        <input
-          aria-label="Target Namespace"
-          value={targetNamespace}
-          onChange={(e) => setTargetNamespace(e.target.value)}
-          onBlur={() => onChange({ id: node.id, xmlTargetNamespace: targetNamespace })}
-          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
-          placeholder="http://example.com/schema"
-        />
-      </label>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ fontSize: 12 }}>elementFormDefault</span>
-        <select
-          aria-label="Element Form Default"
-          value={elementFormDefault}
-          onChange={(e) => {
-            const nextValue = e.target.value;
-            setElementFormDefault(nextValue);
-            onChange({ id: node.id, xmlElementFormDefault: nextValue });
-          }}
-          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
-        >
-          <option value="qualified">qualified</option>
-          <option value="unqualified">unqualified</option>
-        </select>
-      </label>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ fontSize: 12 }}>attributeFormDefault</span>
-        <select
-          aria-label="Attribute Form Default"
-          value={attributeFormDefault}
-          onChange={(e) => {
-            const nextValue = e.target.value;
-            setAttributeFormDefault(nextValue);
-            onChange({ id: node.id, xmlAttributeFormDefault: nextValue });
-          }}
-          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
-        >
-          <option value="qualified">qualified</option>
-          <option value="unqualified">unqualified</option>
-        </select>
-      </label>
-    </form>
+    <PropertyForm
+      title="Schema Editor"
+      configs={XML_SCHEMA_PROPERTY_CONFIGS}
+      nodeData={data}
+      nodeId={node.id}
+      onChange={onChange}
+    />
   );
 }
 

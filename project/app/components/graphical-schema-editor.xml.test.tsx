@@ -698,5 +698,45 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
       expect(simpleType?.['@attributes']?.ref).toBeUndefined();
     });
   });
+
+  it('reflects targetNamespace attribute in RHS node data when root schema node is selected', async () => {
+    const targetNamespaceUrl = 'http://example.com/my-schema';
+    const elementFormDefault = 'qualified';
+    const attributeFormDefault = 'unqualified';
+
+    const schema = {
+      'xs:schema': {
+        '@attributes': {
+          'xmlns:xs': 'http://www.w3.org/2001/XMLSchema',
+          targetNamespace: targetNamespaceUrl,
+          elementFormDefault,
+          attributeFormDefault,
+        },
+        'xs:element': [
+          {
+            '@attributes': { name: 'root', type: 'xs:string' },
+          },
+        ],
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={schema} schemaLanguage="xml" onChange={() => {}} />);
+
+    // Click on the xs:schema root node to select it
+    const schemaNode = await screen.findByText('xs:schema');
+    fireEvent.click(schemaNode);
+
+    // Verify that the target namespace input field is populated with the correct value
+    const targetNamespaceInput = await screen.findByLabelText('Target Namespace') as HTMLInputElement;
+    expect(targetNamespaceInput.value).toBe(targetNamespaceUrl);
+
+    // Verify the elementFormDefault is set correctly
+    const elementFormSelect = await screen.findByLabelText('Element Form Default') as HTMLSelectElement;
+    expect(elementFormSelect.value).toBe(elementFormDefault);
+
+    // Verify the attributeFormDefault is set correctly
+    const attributeFormSelect = await screen.findByLabelText('Attribute Form Default') as HTMLSelectElement;
+    expect(attributeFormSelect.value).toBe(attributeFormDefault);
+  });
 });
 

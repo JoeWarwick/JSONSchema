@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" 
+           targetNamespace="http://example.com" 
+           elementFormDefault="qualified" 
+           attributeFormDefault="unqualified"
+           blockDefault="restriction"
+           finalDefault="extension"
+           version="1.0">
+  
+  <xs:simpleType name="NameType">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1"/>
+      <xs:maxLength value="100"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="PersonType">
+    <xs:sequence>
+      <xs:element name="name" type="NameType"/>
+      <xs:element name="age" type="xs:int" minOccurs="0"/>
+      <xs:element name="email" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:element name="person" type="PersonType"/>
+  
+</xs:schema>

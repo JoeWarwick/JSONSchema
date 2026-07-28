@@ -114,6 +114,7 @@ export const GroupBox = ({ children }: { title: string; children: React.ReactNod
 export const GlobalTypeNode = ({ data }: { data: SchemaNodeData }) => {
   const { label } = data;
   const badges = buildBadges(data);
+  const handleStyle = { background: '#4caf50', width: 10, height: 10, borderRadius: 5 };
   return (
     <div style={{
       background: '#e8f5e9',
@@ -126,7 +127,8 @@ export const GlobalTypeNode = ({ data }: { data: SchemaNodeData }) => {
       textAlign: 'left',
       position: 'relative',
     }}>
-      <Handle type="target" position={Position.Left} style={{ background: '#4caf50', width: 10, height: 10, borderRadius: 5 }} />
+      <Handle id="target-Left" type="target" position={Position.Left} style={handleStyle} />
+      <Handle id="target-Right" type="target" position={Position.Right} style={handleStyle} />
       <div className={styles.nodeHeader}>
         <div className={styles.nodeHeaderLeft}>
           <div className={styles.nodeLabel} style={{ color: '#2e7d32', fontWeight: 600 }}>{label}</div>
@@ -135,7 +137,8 @@ export const GlobalTypeNode = ({ data }: { data: SchemaNodeData }) => {
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
         {renderBadges(badges)}
       </div>
-      <Handle type="source" position={Position.Right} style={{ background: '#4caf50', width: 10, height: 10, borderRadius: 5 }} />
+      <Handle id="source-Left" type="source" position={Position.Left} style={handleStyle} />
+      <Handle id="source-Right" type="source" position={Position.Right} style={handleStyle} />
     </div>
   );
 };
@@ -144,6 +147,7 @@ export const GlobalTypeNode = ({ data }: { data: SchemaNodeData }) => {
 export const EnumNode = ({ data }: { data: SchemaNodeData & { enum: string[] } }) => {
   const { label, required } = data;
   const badges = buildBadges(data);
+  const handleStyle = { background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 };
   return (
     <div style={{
       background: 'var(--graph-node-bg)',
@@ -156,7 +160,8 @@ export const EnumNode = ({ data }: { data: SchemaNodeData & { enum: string[] } }
       textAlign: 'left',
       position: 'relative',
     }}>
-      <Handle type="target" position={Position.Left} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
+      <Handle id="target-Left" type="target" position={Position.Left} style={handleStyle} />
+      <Handle id="target-Right" type="target" position={Position.Right} style={handleStyle} />
       <div className={styles.nodeHeader}>
         <div className={styles.nodeHeaderLeft}>
           {data.patternKey ? <span className={styles.patternBadge}>pattern</span> : null}
@@ -196,7 +201,8 @@ export const EnumNode = ({ data }: { data: SchemaNodeData & { enum: string[] } }
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
         {renderBadges(badges)}
       </div>
-      <Handle type="source" position={Position.Right} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
+      <Handle id="source-Left" type="source" position={Position.Left} style={handleStyle} />
+      <Handle id="source-Right" type="source" position={Position.Right} style={handleStyle} />
     </div>
   );
 };
@@ -206,6 +212,12 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
   const { label, required } = data;
   const isPattern = Boolean((data as any).patternKey);
   const badges = buildBadges(data);
+  
+  // In XML mode, filter out the 'property' type badge (internal node type, not useful for display)
+  const isXmlMode = Boolean((data as any).xmlNodeKind);
+  const filteredBadges = isXmlMode 
+    ? badges.filter(b => !(b.key === 'type' && ((data as any).type === 'property' || (data as any).type === 'globalType')))
+    : badges;
   return (
     <div className={isPattern ? styles.patternNode : undefined} style={{
       background: isPattern ? undefined : 'var(--graph-node-bg)',
@@ -218,7 +230,8 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
       textAlign: 'left',
       position: 'relative',
     }}>
-      <Handle type="target" position={Position.Left} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
+      <Handle id="target-Left" type="target" position={Position.Left} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
+      <Handle id="target-Right" type="target" position={Position.Right} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
       <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4, color: 'var(--graph-node-text)' }}>
         { (data as any).patternKey ? <span className={styles.patternBadge}>pattern</span> : null }
         {required && (
@@ -264,10 +277,21 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-        {renderBadges(badges)}
+        {renderBadges(filteredBadges)}
         {Object.entries(data).map(([key, value]) => {
-          if (value === undefined) return null;
-          const hidden = ['label', 'id', 'parent', 'type', 'ofType', 'required', 'enum', 'items', 'default', 'title', 'description', '$comment', 'patternKey', 'typeUnion', 'isAdditionalProperties', 'additionalProperties', 'minProperties', 'maxProperties'];
+          if (value === undefined || value === null || value === '') return null;
+          const hidden = [
+            // JSON Schema properties
+            'label', 'id', 'parent', 'type', 'ofType', 'required', 'enum', 'items', 'default', 'title', 'description', '$comment', 'patternKey', 'typeUnion', 'isAdditionalProperties', 'additionalProperties', 'minProperties', 'maxProperties', '$ref',
+            // XML Schema metadata (path, kind, etc.)
+            'xmlPath', 'xmlNodeKind', 'xmlName', 'xmlElementType', 'xmlSimpleTypeMode', 'xmlBase', 'xmlMemberTypes', 'xmlItemType', 'xmlAttributes', 'xmlIsRef',
+            // XML Attribute properties
+            'xmlAttributeType', 'xmlAttributeUse', 'xmlMinOccurs', 'xmlMaxOccurs',
+            // XML Schema root attributes
+            'xmlTargetNamespace', 'xmlElementFormDefault', 'xmlAttributeFormDefault', 'xmlBlockDefault', 'xmlFinalDefault', 'xmlVersion', 'xmlId',
+            // XML mutation operations
+            'xmlAddAttribute', 'xmlRemoveAttributeIndex', 'xmlUpdateAttributeIndex'
+          ];
           if (hidden.includes(key)) return null;
           if (key === 'format') {
             return (
@@ -329,7 +353,8 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
           );
         })}
       </div>
-        <Handle type="source" position={Position.Right} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
+      <Handle id="source-Left" type="source" position={Position.Left} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
+      <Handle id="source-Right" type="source" position={Position.Right} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
     </div>
   );
 };
@@ -357,6 +382,8 @@ export const SchemaCard = ({ label, type, imported }: { label: string; type: Sch
 // Root node as a group box with a property card
 export const RootNode: React.FC<{ data: SchemaNodeData }> = ({ data }) => (
   <div style={{ background: 'var(--graph-node-bg-subtle)', border: '2px dashed var(--graph-node-border-accent)', borderRadius: 12, padding: '18px' }}>
+    <Handle id="target-Left" type="target" position={Position.Left} style={{ display: 'none' }} />
+    <Handle id="source-Right" type="source" position={Position.Right} />
     <div className="root-node" style={{ pointerEvents: 'none', cursor: 'default' }}>
       <SchemaCard label={data.label} type={data.type} imported={data.imported} />
     </div>
@@ -409,7 +436,8 @@ export const CombinerNode = ({ data }: { data: any }) => {
 
   return (
     <div className={styles.combinerNode}>
-      <Handle type="target" position={Position.Left} style={{ background: 'var(--color-accent-7, #7c3aed)', width: 8, height: 8, borderRadius: 4 }} />
+      <Handle id="target-Left" type="target" position={Position.Left} style={{ background: 'var(--color-accent-7, #7c3aed)', width: 8, height: 8, borderRadius: 4 }} />
+      <Handle id="target-Right" type="target" position={Position.Right} style={{ background: 'var(--color-accent-7, #7c3aed)', width: 8, height: 8, borderRadius: 4 }} />
       <div className={styles.combinerBody}>
         {/* SVG type dropdown */}
         <div className={styles.combinerTypeDropdown} ref={dropdownRef}>
@@ -452,11 +480,8 @@ export const CombinerNode = ({ data }: { data: any }) => {
         )}
       </div>
       {/* Right-edge expand/collapse toggle — always visible */}
-      <Handle
-        type="source"
-        position={Position.Right}
-        style={{ background: 'transparent', border: 'none', width: 22, height: 22, borderRadius: 11, right: -11, zIndex: 1 }}
-      />
+      <Handle id="source-Left" type="source" position={Position.Left} style={{ background: 'transparent', border: 'none', width: 8, height: 8, borderRadius: 4 }} />
+      <Handle id="source-Right" type="source" position={Position.Right} style={{ background: 'transparent', border: 'none', width: 8, height: 8, borderRadius: 4 }} />
       <button
         className={styles.combinerEdgeToggle}
         onClick={(e: React.MouseEvent) => { e.stopPropagation(); onToggleVariants && onToggleVariants(id); }}
@@ -495,7 +520,7 @@ export const VariantNode = ({ data }: { data: any }) => {
   const expandable = isExpandableVariant(data);
   return (
     <div className={`${styles.variantNode}${expandable ? '' : ` ${styles.variantNodePrimitive}`}`}>
-      <Handle type="target" position={Position.Left} style={{ background: 'var(--color-accent-7)', width: 8, height: 8, borderRadius: 4 }} />
+      <Handle id="target-Left" type="target" position={Position.Left} style={{ background: 'var(--color-accent-7)', width: 8, height: 8, borderRadius: 4 }} />
       <div className={styles.variantNodeHeader}>
         <div className={styles.variantNodeTitle}>
           <span>{(variantIndex ?? 0) + 1}. {label}</span>
@@ -516,12 +541,8 @@ export const VariantNode = ({ data }: { data: any }) => {
       {/* Expand/collapse toggle — only shown when variant has children to expand */}
       {expandable && (
         <>
-          <Handle
-            type="source"
-            position={Position.Right}
-            style={{ background: 'transparent', border: 'none', width: 20, height: 20, borderRadius: 10, right: -10, cursor: 'pointer' }}
-            onClick={(e: React.MouseEvent) => { e.stopPropagation(); onToggleVariant && onToggleVariant(id); }}
-          />
+          <Handle id="source-Left" type="source" position={Position.Left} style={{ background: 'transparent', border: 'none', width: 8, height: 8, borderRadius: 4 }} />
+          <Handle id="source-Right" type="source" position={Position.Right} style={{ background: 'transparent', border: 'none', width: 8, height: 8, borderRadius: 4 }} />
           <button
             className={styles.variantEdgeToggle}
             onClick={(e: React.MouseEvent) => { e.stopPropagation(); onToggleVariant && onToggleVariant(id); }}
@@ -531,6 +552,14 @@ export const VariantNode = ({ data }: { data: any }) => {
               ? <Loader2 size={10} className={styles.loadingSpinner} />
               : variantExpanded ? '−' : '+'}
           </button>
+        </>
+      )}
+      {!expandable && (
+        <>
+          <Handle id="source-Top" type="source" position={Position.Top} style={{ background: 'transparent', border: 'none', width: 8, height: 8, borderRadius: 4 }} />
+          <Handle id="source-Right" type="source" position={Position.Right} style={{ background: 'transparent', border: 'none', width: 8, height: 8, borderRadius: 4 }} />
+          <Handle id="source-Bottom" type="source" position={Position.Bottom} style={{ background: 'transparent', border: 'none', width: 8, height: 8, borderRadius: 4 }} />
+          <Handle id="source-Left" type="source" position={Position.Left} style={{ background: 'transparent', border: 'none', width: 8, height: 8, borderRadius: 4 }} />
         </>
       )}
     </div>
