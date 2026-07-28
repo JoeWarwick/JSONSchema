@@ -4,7 +4,12 @@ import type { NodeData } from './types';
 
 type XmlNodeKind = 'schema' | 'simpleType' | 'complexType' | 'attribute' | 'element' | 'sequence' | 'choice' | 'all';
 
-interface XmlNodeRhsEditorProps {
+/**
+ * Props for XML node RHS editors and attribute manager.
+ * - node: The selected ReactFlow node, or null if no node is selected
+ * - onChange: Callback to emit partial node data updates (patches)
+ */
+export interface XmlNodeRhsEditorProps {
   node: FlowNode<NodeData> | null;
   onChange: (patch: Partial<NodeData>) => void;
 }
@@ -103,7 +108,19 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   );
 }
 
-function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) {
+/**
+ * XmlAttributesManager - A reusable control for managing attributes on XML schema elements.
+ * Supports add, edit, and remove operations on attributes for simpleType, complexType, or any schema node.
+ * 
+ * Usage:
+ *   <XmlAttributesManager node={selectedNode} onChange={handleChange} />
+ * 
+ * The onChange callback emits patches with:
+ *   - xmlAddAttribute: { name, type, use }
+ *   - xmlRemoveAttributeIndex: number (array index)
+ *   - xmlUpdateAttributeIndex: { index, name, type, use }
+ */
+export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) {
   const data = (node?.data || {}) as any;
   const xmlPath = data.xmlPath as Array<string | number> | undefined;
   
