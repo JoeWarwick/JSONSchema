@@ -2,7 +2,7 @@ import React from 'react';
 import type { Node as FlowNode } from 'reactflow';
 import type { NodeData } from './types';
 
-type XmlNodeKind = 'schema' | 'simpleType' | 'complexType' | 'attribute' | 'sequence' | 'choice' | 'all';
+type XmlNodeKind = 'schema' | 'simpleType' | 'complexType' | 'attribute' | 'element' | 'sequence' | 'choice' | 'all';
 
 interface XmlNodeRhsEditorProps {
   node: FlowNode<NodeData> | null;
@@ -216,6 +216,71 @@ function XmlCompositorEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   );
 }
 
+function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
+  if (!node) return null;
+  const data = (node.data || {}) as any;
+  const [name, setName] = React.useState<string>(String(data.xmlName || ''));
+  const [type, setType] = React.useState<string>(String(data.xmlElementType || ''));
+  const [minOccurs, setMinOccurs] = React.useState<string>(String(data.xmlMinOccurs ?? '1'));
+  const [maxOccurs, setMaxOccurs] = React.useState<string>(String(data.xmlMaxOccurs ?? '1'));
+
+  React.useEffect(() => {
+    setName(String(data.xmlName || ''));
+    setType(String(data.xmlElementType || ''));
+    setMinOccurs(String(data.xmlMinOccurs ?? '1'));
+    setMaxOccurs(String(data.xmlMaxOccurs ?? '1'));
+  }, [node?.id, data.xmlName, data.xmlElementType, data.xmlMinOccurs, data.xmlMaxOccurs]);
+
+  return (
+    <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
+      <div style={{ fontWeight: 700, fontSize: 13 }}>Element Editor</div>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 12 }}>Name</span>
+        <input
+          aria-label="Element Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => onChange({ id: node.id, xmlName: name })}
+          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+        />
+      </label>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 12 }}>Type</span>
+        <input
+          aria-label="Element Type"
+          value={type}
+          onChange={(e) => setType(e.target.value)}
+          onBlur={() => onChange({ id: node.id, xmlElementType: type })}
+          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+          placeholder="xs:string"
+        />
+      </label>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 12 }}>minOccurs</span>
+        <input
+          aria-label="Element minOccurs"
+          value={minOccurs}
+          onChange={(e) => setMinOccurs(e.target.value)}
+          onBlur={() => onChange({ id: node.id, xmlMinOccurs: minOccurs })}
+          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+          placeholder="1"
+        />
+      </label>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 12 }}>maxOccurs</span>
+        <input
+          aria-label="Element maxOccurs"
+          value={maxOccurs}
+          onChange={(e) => setMaxOccurs(e.target.value)}
+          onBlur={() => onChange({ id: node.id, xmlMaxOccurs: maxOccurs })}
+          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+          placeholder="1 or unbounded"
+        />
+      </label>
+    </form>
+  );
+}
+
 export function XmlNodeRhsEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   if (!node) return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a node to edit XML properties.</div>;
   const data = (node.data || {}) as any;
@@ -224,7 +289,8 @@ export function XmlNodeRhsEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   if (kind === 'simpleType') return <XmlSimpleTypeEditor node={node} onChange={onChange} />;
   if (kind === 'complexType') return <XmlComplexTypeEditor node={node} onChange={onChange} />;
   if (kind === 'attribute') return <XmlAttributeEditor node={node} onChange={onChange} />;
+  if (kind === 'element') return <XmlElementEditor node={node} onChange={onChange} />;
   if (kind === 'sequence' || kind === 'choice' || kind === 'all') return <XmlCompositorEditor node={node} onChange={onChange} />;
 
-  return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a SimpleType, ComplexType, attribute, or compositor node to edit.</div>;
+  return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a SimpleType, ComplexType, attribute, element, or compositor node to edit.</div>;
 }

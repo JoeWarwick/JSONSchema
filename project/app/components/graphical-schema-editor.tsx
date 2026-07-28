@@ -273,8 +273,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         if (!first || typeof first !== 'object') return;
         const compositorAttrs = getXmlAttrs(first);
         const compositorKind = compositorKey.replace('xs:', '') as 'sequence' | 'choice' | 'all';
+        const compositorId = `${complexId}.${compositorKind}`;
         addNode({
-          id: `${complexId}.${compositorKind}`,
+          id: compositorId,
           label: compositorKey,
           type: 'property',
           parent: complexId,
@@ -283,6 +284,47 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           xmlMinOccurs: compositorAttrs.minOccurs ?? '1',
           xmlMaxOccurs: compositorAttrs.maxOccurs ?? '1',
         }, complexId);
+
+        // Add nodes for elements and nested compositors within the compositor array
+        const compositorArray = Array.isArray(compositorValue) ? compositorValue : [compositorValue];
+        compositorArray.forEach((compositorItem, itemIndex) => {
+          if (!compositorItem || typeof compositorItem !== 'object') return;
+          // Check if this item is an element
+          const elemAttrs = getXmlAttrs(compositorItem);
+          if (elemAttrs.name) {
+            // It's an element
+            addNode({
+              id: `${compositorId}.element_${itemIndex}`,
+              label: toNodeLabel('element', elemAttrs, elemAttrs.name || `element:${itemIndex + 1}`),
+              type: 'property',
+              parent: compositorId,
+              xmlNodeKind: 'element',
+              xmlPath: ['xs:schema', 'xs:complexType', index, compositorKey, itemIndex],
+              xmlName: elemAttrs.name,
+              xmlElementType: elemAttrs.type,
+              xmlMinOccurs: elemAttrs.minOccurs ?? '1',
+              xmlMaxOccurs: elemAttrs.maxOccurs ?? '1',
+            }, compositorId);
+          }
+          // Check if this item contains nested compositors
+          (['xs:sequence', 'xs:choice', 'xs:all'] as const).forEach((nestedCompositorKey) => {
+            const nestedValue = compositorItem[nestedCompositorKey];
+            if (nestedValue && typeof nestedValue === 'object') {
+              const nestedAttrs = getXmlAttrs(nestedValue);
+              const nestedKind = nestedCompositorKey.replace('xs:', '') as 'sequence' | 'choice' | 'all';
+              addNode({
+                id: `${compositorId}.${nestedKind}_${itemIndex}`,
+                label: nestedCompositorKey,
+                type: 'property',
+                parent: compositorId,
+                xmlNodeKind: nestedKind,
+                xmlPath: ['xs:schema', 'xs:complexType', index, compositorKey, itemIndex, nestedCompositorKey],
+                xmlMinOccurs: nestedAttrs.minOccurs ?? '1',
+                xmlMaxOccurs: nestedAttrs.maxOccurs ?? '1',
+              }, compositorId);
+            }
+          });
+        });
       });
     });
 
@@ -395,6 +437,31 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         const value = (patch as any).xmlAttributeUse;
         if (value) attrs.use = value;
         else delete attrs.use;
+      }
+    }
+
+    if (kind === 'element') {
+      const attrs = getOrCreateAttrs(target);
+      if (!attrs) return null;
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlName')) {
+        const value = (patch as any).xmlName;
+        if (value) attrs.name = value;
+        else delete attrs.name;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlElementType')) {
+        const value = (patch as any).xmlElementType;
+        if (value) attrs.type = value;
+        else delete attrs.type;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlMinOccurs')) {
+        const value = (patch as any).xmlMinOccurs;
+        if (value !== undefined && value !== null && String(value).length > 0) attrs.minOccurs = String(value);
+        else delete attrs.minOccurs;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlMaxOccurs')) {
+        const value = (patch as any).xmlMaxOccurs;
+        if (value !== undefined && value !== null && String(value).length > 0) attrs.maxOccurs = String(value);
+        else delete attrs.maxOccurs;
       }
     }
 
@@ -2423,6 +2490,113 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     setContextMenu(null);
   };
 
+  // Add a nested compositor (sequence/choice/all) inside another compositor
+  const addXmlCompositorToCompositor = (compositorKind: 'sequence' | 'choice' | 'all') => {
+    const ctxNode = nodes.find((n) => n.id === contextMenu?.nodeId);
+    if (!ctxNode) {
+      setContextMenu(null);
+      return;
+    }
+    const path = ((ctxNode.data as any)?.xmlPath || []) as Array<string | number>;
+    if (!Array.isArray(path) || path.length === 0) {
+      setContextMenu(null);
+      return;
+    }
+
+    const cloned = JSON.parse(JSON.stringify(schema || {})) as any;
+    let target: any = cloned;
+    for (const segment of path) {
+      if (typeof segment === 'number') {
+        if (!Array.isArray(target)) {
+          target = null;
+          break;
+        }
+        target = target[segment];
+      } else {
+        target = target?.[segment];
+      }
+      if (target == null) break;
+    }
+
+    if (!Array.isArray(target)) {
+      setContextMenu(null);
+      return;
+    }
+
+    // Add the nested compositor as an array element to the current compositor array
+    target.push({
+      [`xs:${compositorKind}`]: [],
+      '@attributes': { minOccurs: '1', maxOccurs: '1' },
+    });
+
+    emitLocalSchemaUpdate(cloned as Record<string, unknown>);
+
+    const rawRebuilt = schemaToGraph(cloned as Record<string, unknown>);
+    const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
+    );
+    setNodes(laidOutNodes);
+    setEdges(rawRebuilt.edges as Edge[]);
+
+    setContextMenu(null);
+  };
+
+  // Add an element inside a compositor
+  const addXmlElementToCompositor = () => {
+    const ctxNode = nodes.find((n) => n.id === contextMenu?.nodeId);
+    if (!ctxNode) {
+      setContextMenu(null);
+      return;
+    }
+    const path = ((ctxNode.data as any)?.xmlPath || []) as Array<string | number>;
+    if (!Array.isArray(path) || path.length === 0) {
+      setContextMenu(null);
+      return;
+    }
+
+    const cloned = JSON.parse(JSON.stringify(schema || {})) as any;
+    let target: any = cloned;
+    for (const segment of path) {
+      if (typeof segment === 'number') {
+        if (!Array.isArray(target)) {
+          target = null;
+          break;
+        }
+        target = target[segment];
+      } else {
+        target = target?.[segment];
+      }
+      if (target == null) break;
+    }
+
+    if (!Array.isArray(target)) {
+      setContextMenu(null);
+      return;
+    }
+
+    // Add an element to the compositor array
+    const elementIndex = target.length;
+    target.push({
+      '@attributes': {
+        name: `element${elementIndex + 1}`,
+        type: 'xs:string',
+        minOccurs: '1',
+        maxOccurs: '1',
+      },
+    });
+
+    emitLocalSchemaUpdate(cloned as Record<string, unknown>);
+
+    const rawRebuilt = schemaToGraph(cloned as Record<string, unknown>);
+    const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
+    );
+    setNodes(laidOutNodes);
+    setEdges(rawRebuilt.edges as Edge[]);
+
+    setContextMenu(null);
+  };
+
   const contextMenuItems = (() => {
     if (isXmlGraphMode) {
       const items: any[] = [];
@@ -2432,6 +2606,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         items.push({ label: 'Add sequence', onClick: () => addXmlCompositorToComplexType('sequence'), disabled: false });
         items.push({ label: 'Add choice', onClick: () => addXmlCompositorToComplexType('choice'), disabled: false });
         items.push({ label: 'Add all', onClick: () => addXmlCompositorToComplexType('all'), disabled: false });
+      } else if (kind === 'sequence' || kind === 'choice' || kind === 'all') {
+        // Compositor node context menu
+        items.push({ label: 'Add sequence', onClick: () => addXmlCompositorToCompositor('sequence'), disabled: false });
+        items.push({ label: 'Add choice', onClick: () => addXmlCompositorToCompositor('choice'), disabled: false });
+        items.push({ label: 'Add all', onClick: () => addXmlCompositorToCompositor('all'), disabled: false });
+        items.push({ label: 'Add element', onClick: () => addXmlElementToCompositor(), disabled: false });
       }
       return items;
     }

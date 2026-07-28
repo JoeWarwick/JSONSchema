@@ -283,4 +283,196 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
       expect(simpleType?.['xs:list']).toBeUndefined();
     });
   });
+
+  it('renders compositor nodes (sequence/choice/all) as graph nodes with elements inside', async () => {
+    const schema = {
+      'xs:schema': {
+        'xs:complexType': [
+          {
+            '@attributes': { name: 'PersonType' },
+            'xs:sequence': [
+              { '@attributes': { name: 'firstName', type: 'xs:string' } },
+              { '@attributes': { name: 'lastName', type: 'xs:string' } },
+            ],
+          },
+        ],
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={schema} schemaLanguage="xml" onChange={() => {}} />);
+
+    // Verify compositor node is rendered
+    await waitFor(() => {
+      expect(screen.getByText('xs:sequence')).toBeInTheDocument();
+    });
+
+    // Verify element nodes are rendered
+    await waitFor(() => {
+      expect(screen.getByText('firstName')).toBeInTheDocument();
+      expect(screen.getByText('lastName')).toBeInTheDocument();
+    });
+  });
+
+  it('adds element to compositor via right-click context menu', async () => {
+    const schema = {
+      'xs:schema': {
+        'xs:complexType': [
+          {
+            '@attributes': { name: 'PersonType' },
+            'xs:sequence': [{ '@attributes': { name: 'firstName', type: 'xs:string' } }],
+          },
+        ],
+      },
+    } as any;
+
+    let latestSchema = schema;
+
+    function StatefulXmlEditor() {
+      const [currentSchema, setCurrentSchema] = React.useState<any>(schema);
+      return (
+        <GraphicalSchemaEditor
+          schema={currentSchema}
+          schemaLanguage="xml"
+          onChange={(next) => {
+            latestSchema = next as any;
+            setCurrentSchema(next as any);
+          }}
+        />
+      );
+    }
+
+    render(<StatefulXmlEditor />);
+
+    // Find and right-click the compositor node
+    const compositorNode = await screen.findByText('xs:sequence');
+    fireEvent.contextMenu(compositorNode);
+
+    // Click "Add element"
+    const addElementOption = await screen.findByText('Add element');
+    fireEvent.click(addElementOption);
+
+    // Verify new element was added to the compositor
+    await waitFor(() => {
+      const complexType = latestSchema?.['xs:schema']?.['xs:complexType']?.[0];
+      const sequence = complexType?.['xs:sequence'];
+      expect(Array.isArray(sequence)).toBe(true);
+      expect(sequence?.length).toBe(2);
+      expect(sequence?.[1]?.['@attributes']?.name).toMatch(/element\d+/);
+    });
+  });
+
+  it('adds nested compositor to compositor via right-click context menu', async () => {
+    const schema = {
+      'xs:schema': {
+        'xs:complexType': [
+          {
+            '@attributes': { name: 'PersonType' },
+            'xs:sequence': [{ '@attributes': { name: 'name', type: 'xs:string' } }],
+          },
+        ],
+      },
+    } as any;
+
+    let latestSchema = schema;
+
+    function StatefulXmlEditor() {
+      const [currentSchema, setCurrentSchema] = React.useState<any>(schema);
+      return (
+        <GraphicalSchemaEditor
+          schema={currentSchema}
+          schemaLanguage="xml"
+          onChange={(next) => {
+            latestSchema = next as any;
+            setCurrentSchema(next as any);
+          }}
+        />
+      );
+    }
+
+    render(<StatefulXmlEditor />);
+
+    // Find and right-click the compositor node
+    const compositorNode = await screen.findByText('xs:sequence');
+    fireEvent.contextMenu(compositorNode);
+
+    // Click "Add choice" to add nested compositor
+    const addChoiceOption = await screen.findByText('Add choice');
+    fireEvent.click(addChoiceOption);
+
+    // Verify nested compositor was added
+    await waitFor(() => {
+      const complexType = latestSchema?.['xs:schema']?.['xs:complexType']?.[0];
+      const sequence = complexType?.['xs:sequence'];
+      expect(Array.isArray(sequence)).toBe(true);
+      // Should have original element + nested choice
+      expect(sequence?.length).toBe(2);
+      expect(sequence?.[1]?.['xs:choice']).toBeDefined();
+    });
+  });
+
+  it('edits element properties (name, type, minOccurs, maxOccurs) via RHS editor', async () => {
+    const schema = {
+      'xs:schema': {
+        'xs:complexType': [
+          {
+            '@attributes': { name: 'PersonType' },
+            'xs:sequence': [
+              { '@attributes': { name: 'firstName', type: 'xs:string', minOccurs: '0', maxOccurs: '1' } },
+            ],
+          },
+        ],
+      },
+    } as any;
+
+    let latestSchema = schema;
+
+    function StatefulXmlEditor() {
+      const [currentSchema, setCurrentSchema] = React.useState<any>(schema);
+      return (
+        <GraphicalSchemaEditor
+          schema={currentSchema}
+          schemaLanguage="xml"
+          onChange={(next) => {
+            latestSchema = next as any;
+            setCurrentSchema(next as any);
+          }}
+        />
+      );
+    }
+
+    render(<StatefulXmlEditor />);
+
+    // Click on element node to select it
+    fireEvent.click(await screen.findByText('firstName'));
+
+    // Find and modify the name input
+    const nameInput = await screen.findByLabelText('Element Name');
+    fireEvent.change(nameInput, { target: { value: 'givenName' } });
+    fireEvent.blur(nameInput);
+
+    await waitFor(() => {
+      const element = latestSchema?.['xs:schema']?.['xs:complexType']?.[0]?.['xs:sequence']?.[0];
+      expect(element?.['@attributes']?.name).toBe('givenName');
+    });
+
+    // Modify the type
+    const typeInput = await screen.findByLabelText('Element Type');
+    fireEvent.change(typeInput, { target: { value: 'xs:token' } });
+    fireEvent.blur(typeInput);
+
+    await waitFor(() => {
+      const element = latestSchema?.['xs:schema']?.['xs:complexType']?.[0]?.['xs:sequence']?.[0];
+      expect(element?.['@attributes']?.type).toBe('xs:token');
+    });
+
+    // Modify maxOccurs
+    const maxOccursInput = await screen.findByLabelText('Element maxOccurs');
+    fireEvent.change(maxOccursInput, { target: { value: 'unbounded' } });
+    fireEvent.blur(maxOccursInput);
+
+    await waitFor(() => {
+      const element = latestSchema?.['xs:schema']?.['xs:complexType']?.[0]?.['xs:sequence']?.[0];
+      expect(element?.['@attributes']?.maxOccurs).toBe('unbounded');
+    });
+  });
 });
