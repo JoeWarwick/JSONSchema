@@ -110,6 +110,36 @@ export const GroupBox = ({ children }: { title: string; children: React.ReactNod
   </div>
 );
 
+// Global type node (e.g., global simpleType, complexType) — renders as a green leaf
+export const GlobalTypeNode = ({ data }: { data: SchemaNodeData }) => {
+  const { label } = data;
+  const badges = buildBadges(data);
+  return (
+    <div style={{
+      background: '#e8f5e9',
+      border: '2px solid #4caf50',
+      borderRadius: 8,
+      padding: '7px 14px',
+      marginBottom: 12,
+      minWidth: 180,
+      boxShadow: 'var(--graph-node-shadow)',
+      textAlign: 'left',
+      position: 'relative',
+    }}>
+      <Handle type="target" position={Position.Left} style={{ background: '#4caf50', width: 10, height: 10, borderRadius: 5 }} />
+      <div className={styles.nodeHeader}>
+        <div className={styles.nodeHeaderLeft}>
+          <div className={styles.nodeLabel} style={{ color: '#2e7d32', fontWeight: 600 }}>{label}</div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+        {renderBadges(badges)}
+      </div>
+      <Handle type="source" position={Position.Right} style={{ background: '#4caf50', width: 10, height: 10, borderRadius: 5 }} />
+    </div>
+  );
+};
+
 // Enum node component for displaying enum type (no inline editor)
 export const EnumNode = ({ data }: { data: SchemaNodeData & { enum: string[] } }) => {
   const { label, required } = data;
@@ -511,6 +541,7 @@ export const VariantNode = ({ data }: { data: any }) => {
 export const nodeTypes: { [key: string]: React.FC<any> } = {
   root: RootNode,
   property: CustomNode,
+  globalType: GlobalTypeNode,
   enum: EnumNode,
   combiner: CombinerNode,
   variant: VariantNode,

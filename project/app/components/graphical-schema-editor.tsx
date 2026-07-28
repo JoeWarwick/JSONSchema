@@ -227,11 +227,15 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         const attrAttrs = getXmlAttrs(attrEntry);
         return { name: attrAttrs.name, type: attrAttrs.type, use: attrAttrs.use || 'optional' };
       });
+      
+      // Check if this simpleType is marked as a global reference
+      const isGlobalRef = Boolean(attrs.ref);
+      const nodeType = isGlobalRef ? 'globalType' : 'property';
 
       addNode({
         id: `1.simpleType_${index}`,
         label: toNodeLabel('simpleType', attrs, `simpleType:${index + 1}`),
-        type: 'property',
+        type: nodeType,
         parent: '1',
         xmlNodeKind: 'simpleType',
         xmlPath: ['xs:schema', 'xs:simpleType', index],
@@ -241,6 +245,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlMemberTypes: unionAttrs.memberTypes,
         xmlItemType: listAttrs.itemType,
         xmlAttributes: simpleTypeAttributes,
+        xmlIsRef: isGlobalRef,
       }, '1');
     });
 
@@ -253,15 +258,21 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         const attrAttrs = getXmlAttrs(attrEntry);
         return { name: attrAttrs.name, type: attrAttrs.type, use: attrAttrs.use || 'optional' };
       });
+      
+      // Check if this complexType is marked as a global reference
+      const isGlobalRef = Boolean(attrs.ref);
+      const nodeType = isGlobalRef ? 'globalType' : 'property';
+      
       addNode({
         id: complexId,
         label: toNodeLabel('complexType', attrs, `complexType:${index + 1}`),
-        type: 'property',
+        type: nodeType,
         parent: '1',
         xmlNodeKind: 'complexType',
         xmlPath: ['xs:schema', 'xs:complexType', index],
         xmlName: attrs.name,
         xmlAttributes: complexTypeAttributes,
+        xmlIsRef: isGlobalRef,
       }, '1');
 
       const attributes = asArray((entry as any)['xs:attribute']);
@@ -384,6 +395,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         else delete attrs.name;
       }
 
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlIsRef')) {
+        const value = Boolean((patch as any).xmlIsRef);
+        if (value) attrs.ref = 'true';
+        else delete attrs.ref;
+      }
+
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlSimpleTypeMode')) {
         const mode = String((patch as any).xmlSimpleTypeMode || 'restriction');
         delete (target as any)['xs:restriction'];
@@ -431,6 +448,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         const value = (patch as any).xmlName;
         if (value) attrs.name = value;
         else delete attrs.name;
+      }
+      if (attrs && Object.prototype.hasOwnProperty.call(patch, 'xmlIsRef')) {
+        const value = Boolean((patch as any).xmlIsRef);
+        if (value) attrs.ref = 'true';
+        else delete attrs.ref;
       }
     }
 
@@ -1759,8 +1781,16 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           }
         }
         
+        // Update node type if xmlIsRef changed
+        let nodeType = node.type;
+        if (Object.prototype.hasOwnProperty.call(patch, 'xmlIsRef') && (kind === 'simpleType' || kind === 'complexType')) {
+          const isGlobalRef = Boolean((patch as any).xmlIsRef);
+          nodeType = isGlobalRef ? 'globalType' : 'property';
+        }
+        
         return {
           ...node,
+          type: nodeType,
           data: newData,
         };
       }));
