@@ -22,6 +22,7 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   const [base, setBase] = React.useState<string>(String(data.xmlBase || ''));
   const [memberTypes, setMemberTypes] = React.useState<string>(String(data.xmlMemberTypes || ''));
   const [itemType, setItemType] = React.useState<string>(String(data.xmlItemType || ''));
+  const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
 
   React.useEffect(() => {
     setName(String(data.xmlName || ''));
@@ -29,7 +30,8 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
     setBase(String(data.xmlBase || ''));
     setMemberTypes(String(data.xmlMemberTypes || ''));
     setItemType(String(data.xmlItemType || ''));
-  }, [node?.id, data.xmlName, data.xmlSimpleTypeMode, data.xmlBase, data.xmlMemberTypes, data.xmlItemType]);
+    setIsRef(Boolean(data.xmlIsRef));
+  }, [node?.id, data.xmlName, data.xmlSimpleTypeMode, data.xmlBase, data.xmlMemberTypes, data.xmlItemType, data.xmlIsRef]);
 
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
@@ -103,6 +105,19 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
           />
         </label>
       )}
+      <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+        <input
+          type="checkbox"
+          checked={isRef}
+          onChange={(e) => {
+            setIsRef(e.target.checked);
+            onChange({ id: node.id, xmlIsRef: e.target.checked });
+          }}
+          aria-label="Global Reference"
+          style={{ cursor: 'pointer' }}
+        />
+        <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
+      </label>
       <XmlAttributesManager node={node} onChange={onChange} />
     </form>
   );
@@ -243,10 +258,12 @@ function XmlComplexTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   if (!node) return null;
   const data = (node.data || {}) as any;
   const [name, setName] = React.useState<string>(String(data.xmlName || ''));
+  const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
 
   React.useEffect(() => {
     setName(String(data.xmlName || ''));
-  }, [node?.id, data.xmlName]);
+    setIsRef(Boolean(data.xmlIsRef));
+  }, [node?.id, data.xmlName, data.xmlIsRef]);
 
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
@@ -260,6 +277,19 @@ function XmlComplexTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
           onBlur={() => onChange({ id: node.id, xmlName: name })}
           style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
         />
+      </label>
+      <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+        <input
+          type="checkbox"
+          checked={isRef}
+          onChange={(e) => {
+            setIsRef(e.target.checked);
+            onChange({ id: node.id, xmlIsRef: e.target.checked });
+          }}
+          aria-label="Global Reference"
+          style={{ cursor: 'pointer' }}
+        />
+        <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
       </label>
       <div style={{ fontSize: 12, color: '#666' }}>
         Author sequence/choice/all via graph right-click. Edit min/max on the selected compositor node in RHS.
@@ -275,12 +305,14 @@ function XmlAttributeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   const [name, setName] = React.useState<string>(String(data.xmlName || ''));
   const [type, setType] = React.useState<string>(String(data.xmlAttributeType || ''));
   const [useValue, setUseValue] = React.useState<string>(String(data.xmlAttributeUse || 'optional'));
+  const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
 
   React.useEffect(() => {
     setName(String(data.xmlName || ''));
     setType(String(data.xmlAttributeType || ''));
     setUseValue(String(data.xmlAttributeUse || 'optional'));
-  }, [node?.id, data.xmlName, data.xmlAttributeType, data.xmlAttributeUse]);
+    setIsRef(Boolean(data.xmlIsRef));
+  }, [node?.id, data.xmlName, data.xmlAttributeType, data.xmlAttributeUse, data.xmlIsRef]);
 
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
@@ -309,6 +341,19 @@ function XmlAttributeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
           <option value="required">required</option>
           <option value="prohibited">prohibited</option>
         </select>
+      </label>
+      <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+        <input
+          type="checkbox"
+          checked={isRef}
+          onChange={(e) => {
+            setIsRef(e.target.checked);
+            onChange({ id: node.id, xmlIsRef: e.target.checked });
+          }}
+          aria-label="Global Reference"
+          style={{ cursor: 'pointer' }}
+        />
+        <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
       </label>
     </form>
   );
@@ -361,13 +406,15 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   const [type, setType] = React.useState<string>(String(data.xmlElementType || ''));
   const [minOccurs, setMinOccurs] = React.useState<string>(String(data.xmlMinOccurs ?? '1'));
   const [maxOccurs, setMaxOccurs] = React.useState<string>(String(data.xmlMaxOccurs ?? '1'));
+  const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
 
   React.useEffect(() => {
     setName(String(data.xmlName || ''));
     setType(String(data.xmlElementType || ''));
     setMinOccurs(String(data.xmlMinOccurs ?? '1'));
     setMaxOccurs(String(data.xmlMaxOccurs ?? '1'));
-  }, [node?.id, data.xmlName, data.xmlElementType, data.xmlMinOccurs, data.xmlMaxOccurs]);
+    setIsRef(Boolean(data.xmlIsRef));
+  }, [node?.id, data.xmlName, data.xmlElementType, data.xmlMinOccurs, data.xmlMaxOccurs, data.xmlIsRef]);
 
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
@@ -414,6 +461,19 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
           style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
           placeholder="1 or unbounded"
         />
+      </label>
+      <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+        <input
+          type="checkbox"
+          checked={isRef}
+          onChange={(e) => {
+            setIsRef(e.target.checked);
+            onChange({ id: node.id, xmlIsRef: e.target.checked });
+          }}
+          aria-label="Global Reference"
+          style={{ cursor: 'pointer' }}
+        />
+        <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
       </label>
     </form>
   );
