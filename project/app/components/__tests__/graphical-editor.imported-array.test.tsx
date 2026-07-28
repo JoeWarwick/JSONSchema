@@ -1,6 +1,6 @@
 import React from 'react';
 import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { GraphicalSchemaEditor } from '../graphical-schema-editor';
 
 // Mock ReactFlow to render children without full DOM behaviour
@@ -27,10 +27,12 @@ describe('GraphicalSchemaEditor imported array context menu', () => {
     };
     const onChange = jest.fn();
     render(<GraphicalSchemaEditor schema={schema as any} onChange={onChange} />);
+
     const contactsNode = screen.getByText('contacts');
-    const contactsContainer = contactsNode.closest('[data-testid^="rf__node-"]') as HTMLElement;
-    const importedIcon = contactsContainer.querySelector('svg.lucide-link-2');
-    expect(importedIcon).toBeTruthy();
-    // Since context menu is interactive and requires DOM context, assert imported provenance by icon marker
+    fireEvent.contextMenu(contactsNode);
+
+    const overrideItem = screen.getByRole('button', { name: 'Create Local Override' });
+    expect(overrideItem).toBeInTheDocument();
+    expect(overrideItem).toBeEnabled();
   });
 });

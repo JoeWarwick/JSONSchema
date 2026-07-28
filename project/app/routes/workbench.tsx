@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect, useReducer } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useReducer } from "react";
 import useAsyncMemo from "~/hooks/useAsyncMemo";
 import { Sparkles, Copy, Check, X, Link as LinkIcon, Download, FileUp, ShieldCheck } from "lucide-react";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { toast } from "sonner";
-import { type MarkupLanguage, parseMarkup, serializeMarkup, fileExtension, mimeType, acceptAttr, markupLabel, detectMarkupLanguageFromPath, extractXmlSchemaLocations, resolveXmlSchemaLocation } from "~/utils/markup";
+import { type MarkupLanguage, parseMarkup, serializeMarkup, fileExtension, mimeType, acceptAttr, markupLabel } from "~/utils/markup";
 import {
   Menubar, MenubarMenu, MenubarTrigger, MenubarContent, MenubarItem,
   MenubarSeparator, MenubarRadioGroup, MenubarRadioItem, MenubarLabel,
@@ -11,13 +11,10 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose,
 } from "~/components/ui/dialog/dialog";
-import { ColorSchemeToggle } from "~/components/ui/color-scheme-toggle/color-scheme-toggle";
 import styles from "./workbench.module.css";
 import { generateSchema, isValidJSON } from "~/utils/schema-generator";
 import schemaReducer, { initialSchemaState, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, MERGE_RESOLVED_PATH, MERGE_RESOLVED_ALL_PATHS, ensureResolved, getPersistableSource, getEditorSchema, getResolvedSource } from "~/state/schemaReducer";
 import { resolveSchema } from "~/utils/schema-resolver";
-
-const schemaServiceBaseUrl = (typeof process !== 'undefined' && process.env?.VITE_SCHEMA_SERVICE_URL) || 'http://localhost:5080';
 
 // Utility to rename a property in an object (shallow)
 function renamePropertyInObject(obj: any, oldName: string, newName: string) {
@@ -32,11 +29,6 @@ import { SchemaEditorForm } from "~/components/schema-editor-form";
 import { JsonInstanceForm } from "~/components/json-instance-form";
 
 import { GraphicalSchemaEditor } from "~/components/graphical-schema-editor";
-import { ErdEditor } from "~/components/erd-editor";
-import { parseDbContextFiles } from "~/utils/csharp-dbcontext-parser";
-import { generateDbContextCSharp } from "~/utils/csharp-dbcontext-generator";
-import { generateErdSql } from "~/utils/sql-schema-generator";
-import type { ErdModel } from "~/types/erd";
 
 export function meta() {
   return [
@@ -64,39 +56,21 @@ const SAMPLE_JSON = `{
 
 const STORAGE_KEY = 'schema-sculptor-schema';
 const INSTANCE_STORAGE_KEY = 'schema-sculptor-instance';
-const ERD_STORAGE_KEY = 'schema-sculptor-erd-model';
 const DEREF_COMPLETE_STORAGE_KEY = 'schema-sculptor-deref-complete';
 const DEREF_ERROR_STORAGE_KEY = 'schema-sculptor-deref-error';
-
-const getInstanceStorageKey = (language: MarkupLanguage) => `${INSTANCE_STORAGE_KEY}:${language}`;
-const getSchemaStorageKey = (language: MarkupLanguage) => `${STORAGE_KEY}:${language}`;
-
-const createEmptyErdModel = (): ErdModel => ({
-  tables: [],
-  relationships: [],
-  sourceFiles: [],
-  diagnostics: [],
-});
 
 // Helper function to generate default instance data
 const generateDefaultInstance = (schema: Record<string, unknown>): unknown => {
   if (!schema || typeof schema !== 'object') return null;
-
-  if (schema.const !== undefined) return schema.const;
-  if (schema.default !== undefined) return schema.default;
   
   const type = schema.type;
   
   if (type === 'object') {
     const result: Record<string, unknown> = {};
-    const required = Array.isArray(schema.required) ? schema.required : [];
     if (schema.properties && typeof schema.properties === 'object') {
       for (const [key, propSchema] of Object.entries(schema.properties as Record<string, unknown>)) {
         if (typeof propSchema === 'object' && propSchema !== null) {
-          const childDefault = generateDefaultInstance(propSchema as Record<string, unknown>);
-          if (required.includes(key) || (propSchema as any).default !== undefined) {
-            result[key] = childDefault;
-          }
+          result[key] = generateDefaultInstance(propSchema as Record<string, unknown>);
         }
       }
     }
@@ -135,16 +109,9 @@ export default function Workbench() {
   const showDevStorageTools = typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
   const [state, dispatch] = useReducer(schemaReducer, initialSchemaState(null));
   const [instanceData, setInstanceData] = useState<unknown>(null);
-  const [jsonInput, setJsonInput] = useState(SAMPLE_JSON);
+  const [jsonInput, setJsonInput] = useState(typeof window === 'undefined' ? SAMPLE_JSON : '{}');
   const [hasHydratedPersistedState, setHasHydratedPersistedState] = useState(false);
-  const [hasMounted, setHasMounted] = useState(false);
-  const instanceTextRef = useRef<string>("");
-  const skipNextInstancePersistRef = useRef(false);
-  useEffect(() => {
-    setHasMounted(true);
-  }, []);
-
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (typeof window === 'undefined') return;
 
     const hydratePersistedState = () => {
@@ -161,40 +128,24 @@ export default function Workbench() {
 
         if (persistedSchema) {
           dispatch({ type: APPLY_SOURCE_UPDATE, payload: persistedSchema });
-          activeSchemaLanguageRef.current = 'json';
         }
 
-        const savedInstance = window.localStorage.getItem(getInstanceStorageKey('json')) || window.localStorage.getItem(INSTANCE_STORAGE_KEY);
+        const savedInstance = window.localStorage.getItem(INSTANCE_STORAGE_KEY);
         if (savedInstance) {
           try {
             const parsedInstance = JSON.parse(savedInstance);
-            instanceTextRef.current = savedInstance;
-            skipNextInstancePersistRef.current = true;
             setInstanceData(parsedInstance);
-            setJsonInput(savedInstance);
-            activeInstanceLanguageRef.current = 'json';
+            setJsonInput(JSON.stringify(parsedInstance, null, 2));
           } catch (err) {
             console.error('Failed to parse saved instance:', err);
           }
         } else if (persistedSchema) {
           try {
             const defaultInstance = generateDefaultInstance(persistedSchema);
-            const defaultInstanceText = JSON.stringify(defaultInstance, null, 2);
-            instanceTextRef.current = defaultInstanceText;
             setInstanceData(defaultInstance);
-            setJsonInput(defaultInstanceText);
+            setJsonInput(JSON.stringify(defaultInstance, null, 2));
           } catch (_) {
             // ignore
-          }
-        }
-
-        const savedErdModel = window.localStorage.getItem(ERD_STORAGE_KEY);
-        if (savedErdModel) {
-          try {
-            const parsedErdModel = JSON.parse(savedErdModel) as ErdModel;
-            setErdModel(parsedErdModel);
-          } catch (err) {
-            console.error('Failed to parse saved ERD model:', err);
           }
         }
       } catch (_) {
@@ -217,89 +168,11 @@ export default function Workbench() {
   const [isLoadingSchemaUrl, setIsLoadingSchemaUrl] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const schemaFileInputRef = useRef<HTMLInputElement>(null);
-  const erdFileInputRef = useRef<HTMLInputElement>(null);
-  const [erdModel, setErdModel] = useState<ErdModel | null>(null);
   const [compactJsonView, setCompactJsonView] = useState<boolean>(false);
   const [markupLanguage, setMarkupLanguage] = useState<MarkupLanguage>('json');
-  const [schemaMarkupLanguage, setSchemaMarkupLanguage] = useState<MarkupLanguage>('json');
   const [showMarkupUrlDialog, setShowMarkupUrlDialog] = useState(false);
   const [showSchemaUrlDialog, setShowSchemaUrlDialog] = useState(false);
   const resolutionCache = useRef<Map<string, any>>(new Map());
-  const activeInstanceLanguageRef = useRef<MarkupLanguage>('json');
-  const activeSchemaLanguageRef = useRef<MarkupLanguage>('json');
-  const skipNextSchemaPersistRef = useRef(false);
-  const isMarkupLanguageTransitionRef = useRef(false);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !hasHydratedPersistedState) return;
-    isMarkupLanguageTransitionRef.current = true;
-
-    const previousInstanceLanguage = activeInstanceLanguageRef.current;
-    const previousSchemaLanguage = activeSchemaLanguageRef.current;
-
-    if (previousInstanceLanguage !== markupLanguage) {
-      const previousInstanceText = instanceTextRef.current || jsonInput;
-      if (previousInstanceText) {
-        localStorage.setItem(getInstanceStorageKey(previousInstanceLanguage), previousInstanceText);
-        if (previousInstanceLanguage === 'json') {
-          localStorage.setItem(INSTANCE_STORAGE_KEY, previousInstanceText);
-        }
-      }
-
-      const currentSchema = getPersistableSource(state);
-      if (currentSchema) {
-        const schemaText = JSON.stringify(currentSchema);
-        localStorage.setItem(getSchemaStorageKey(previousSchemaLanguage), schemaText);
-        if (previousSchemaLanguage === 'json') {
-          localStorage.setItem(STORAGE_KEY, schemaText);
-        }
-      }
-    }
-
-    activeInstanceLanguageRef.current = markupLanguage;
-    activeSchemaLanguageRef.current = markupLanguage;
-
-    const savedSchema = window.localStorage.getItem(getSchemaStorageKey(markupLanguage)) || (markupLanguage === 'json' ? window.localStorage.getItem(STORAGE_KEY) : null);
-    if (savedSchema) {
-      try {
-        const parsedSchema = parseMarkup(savedSchema, markupLanguage);
-        skipNextSchemaPersistRef.current = true;
-        dispatch({ type: APPLY_SOURCE_UPDATE, payload: parsedSchema as any });
-        setSchemaMarkupLanguage(markupLanguage);
-      } catch {
-        // fall through to blank state
-      }
-    }
-
-    const savedInstance = window.localStorage.getItem(getInstanceStorageKey(markupLanguage)) || (markupLanguage === 'json' ? window.localStorage.getItem(INSTANCE_STORAGE_KEY) : null);
-    if (savedInstance) {
-      try {
-        const parsedInstance = parseMarkup(savedInstance, markupLanguage);
-        instanceTextRef.current = savedInstance;
-        skipNextInstancePersistRef.current = true;
-        setInstanceData(parsedInstance);
-        setJsonInput(savedInstance);
-        setError(null);
-        return;
-      } catch {
-        // fall back to a blank editor for this language
-      }
-    }
-
-    instanceTextRef.current = '';
-    skipNextInstancePersistRef.current = true;
-    setInstanceData(null);
-    setJsonInput('');
-    if (!savedSchema) {
-      skipNextSchemaPersistRef.current = true;
-      dispatch({ type: APPLY_SOURCE_UPDATE, payload: { type: 'object', properties: {} } });
-      setSchemaMarkupLanguage(markupLanguage);
-    }
-
-    window.setTimeout(() => {
-      isMarkupLanguageTransitionRef.current = false;
-    }, 0);
-  }, [markupLanguage, hasHydratedPersistedState]);
 
   // Clear cache if source changes
   useEffect(() => {
@@ -334,7 +207,6 @@ export default function Workbench() {
   // Do NOT persist to localStorage until dereferencing has completed —
   // this avoids saving a source that still contains unresolved $ref URLs.
   useEffect(() => {
-    if (!hasHydratedPersistedState) return;
     let cancelled = false;
     (async () => {
       if (cancelled) return;
@@ -345,35 +217,18 @@ export default function Workbench() {
       }
     })();
     return () => { cancelled = true; };
-  }, [state.source, hasHydratedPersistedState]);
+  }, [state.source]);
 
   // Persist canonical source only after dereferencing completes so saved
   // state does not contain unresolved $ref entries.
   useEffect(() => {
     if (typeof window === 'undefined' || !hasHydratedPersistedState) return;
-    if (isMarkupLanguageTransitionRef.current) return;
-    if (skipNextSchemaPersistRef.current) {
-      skipNextSchemaPersistRef.current = false;
-      return;
-    }
     try {
       // Only persist when no deref is in progress; this ensures any async
       // fetches have finished and `resolvedCache` is authoritative.
       if (state.derefInProgress) return;
       const toSave = getPersistableSource(state);
-      const storageLanguage = activeSchemaLanguageRef.current;
-      if (toSave) {
-        const schemaText = JSON.stringify(toSave);
-        localStorage.setItem(getSchemaStorageKey(storageLanguage), schemaText);
-        if (storageLanguage === 'json') {
-          localStorage.setItem(STORAGE_KEY, schemaText);
-        }
-      } else {
-        localStorage.removeItem(getSchemaStorageKey(storageLanguage));
-        if (storageLanguage === 'json') {
-          localStorage.removeItem(STORAGE_KEY);
-        }
-      }
+      if (toSave) localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave)); else localStorage.removeItem(STORAGE_KEY);
     } catch (err) {
       // ignore
     }
@@ -383,38 +238,12 @@ export default function Workbench() {
 
   // Auto-save instance data to localStorage whenever it changes
   useEffect(() => {
-    if (typeof window === 'undefined' || !hasHydratedPersistedState) return;
-    if (isMarkupLanguageTransitionRef.current) return;
-    if (skipNextInstancePersistRef.current) {
-      skipNextInstancePersistRef.current = false;
-      return;
-    }
     if (instanceData !== null) {
-      const currentText = instanceTextRef.current || jsonInput;
-      const storageLanguage = activeInstanceLanguageRef.current;
-      localStorage.setItem(getInstanceStorageKey(storageLanguage), currentText);
-      if (storageLanguage === 'json') {
-        localStorage.setItem(INSTANCE_STORAGE_KEY, currentText);
-      }
+      localStorage.setItem(INSTANCE_STORAGE_KEY, JSON.stringify(instanceData));
     } else {
-      const storageLanguage = activeInstanceLanguageRef.current;
-      localStorage.removeItem(getInstanceStorageKey(storageLanguage));
-      if (storageLanguage === 'json') {
-        localStorage.removeItem(INSTANCE_STORAGE_KEY);
-      }
+      localStorage.removeItem(INSTANCE_STORAGE_KEY);
     }
-  }, [instanceData, hasHydratedPersistedState, jsonInput]);
-
-  // Auto-save ERD state to localStorage whenever it changes.
-  useEffect(() => {
-    if (typeof window === 'undefined' || !hasHydratedPersistedState) return;
-    try {
-      if (erdModel) localStorage.setItem(ERD_STORAGE_KEY, JSON.stringify(erdModel));
-      else localStorage.removeItem(ERD_STORAGE_KEY);
-    } catch {
-      // ignore
-    }
-  }, [erdModel, hasHydratedPersistedState]);
+  }, [instanceData]);
 
   /**
    * Clear all variant storage when loading a fresh JSON document
@@ -436,147 +265,17 @@ export default function Workbench() {
     } catch { /* ignore */ }
   };
 
-  const parseSchemaInput = (content: string, schemaLanguage: MarkupLanguage): Record<string, unknown> => {
-    const parsed = parseMarkup(content, schemaLanguage);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new Error(`Schema input must be a ${markupLabel[schemaLanguage].toLowerCase()} object`);
-    }
-    return parsed as Record<string, unknown>;
-  };
-
-  const postSchemaService = async <T,>(path: string, body: unknown): Promise<T> => {
-    const response = await fetch(`${schemaServiceBaseUrl}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    return response.json() as Promise<T>;
-  };
-
-  const applySchemaContent = (content: string, schemaLanguage: MarkupLanguage) => {
-    const parsedSchema = parseSchemaInput(content, schemaLanguage);
-    setSchemaMarkupLanguage(schemaLanguage);
-    activeSchemaLanguageRef.current = schemaLanguage;
-    dispatch({ type: APPLY_SOURCE_UPDATE, payload: parsedSchema });
-    if (schemaLanguage !== 'xml') {
-      setInstanceData((prev: any) => {
-        if (prev == null) {
-          const defaultInstance = generateDefaultInstance(parsedSchema);
-          const defaultInstanceText = JSON.stringify(defaultInstance, null, 2);
-          instanceTextRef.current = defaultInstanceText;
-          setJsonInput(defaultInstanceText);
-          return defaultInstance;
-        }
-        return prev;
-      });
-    }
-    return parsedSchema;
-  };
-
-  const loadDefaultInstanceFromXmlSchema = async (schemaText: string, schemaLanguage: MarkupLanguage) => {
-    if (schemaLanguage !== 'xml') return;
-
-    try {
-      const response = await postSchemaService<{ xml?: string; warnings?: string[] }>('/api/schema/default-instance', { schema: schemaText });
-      if (response.xml) {
-        const parsedInstance = parseMarkup(response.xml, 'xml');
-        setInstanceData((prev: any) => {
-          if (prev == null) {
-            instanceTextRef.current = response.xml ?? '';
-            setJsonInput(response.xml ?? '');
-            return parsedInstance;
-          }
-          return prev;
-        });
-      }
-    } catch (err) {
-      setError(`Failed to generate default XML instance: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    }
-  };
-
-  const loadSchemaFromUrl = async (schemaSourceUrl: string) => {
-    const response = await fetch(schemaSourceUrl);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const schemaLanguage = (() => {
-      try {
-        return detectMarkupLanguageFromPath(new URL(schemaSourceUrl).pathname);
-      } catch {
-        return detectMarkupLanguageFromPath(schemaSourceUrl);
-      }
-    })();
-    const text = await response.text();
-    applySchemaContent(text, schemaLanguage);
-    if (schemaLanguage === 'xml') {
-      void loadDefaultInstanceFromXmlSchema(text, schemaLanguage);
-    }
-    setSchemaUrl('');
-    setActiveTab('schema');
-    return { text, schemaLanguage };
-  };
-
-  const tryLoadSchemaFromXmlInstance = async (content: string, sourceUrl?: string) => {
-    const schemaLocations = extractXmlSchemaLocations(content);
-    for (const location of schemaLocations) {
-      const resolvedUrl = resolveXmlSchemaLocation(location, sourceUrl);
-      if (!resolvedUrl) continue;
-      try {
-        await loadSchemaFromUrl(resolvedUrl);
-        return true;
-      } catch {
-        // keep trying remaining hints
-      }
-    }
-
-    try {
-      const result = await postSchemaService<{ mode: string; inferredSchema?: string; schemaUrls?: string[]; warnings?: string[] }>('/api/schema/from-xml', {
-        content,
-        language: 'xml',
-        sourceUri: sourceUrl,
-        preferSchemaLocation: true,
-      });
-
-      if (result.mode === 'schemaLocation' && Array.isArray(result.schemaUrls) && result.schemaUrls.length > 0) {
-        await loadSchemaFromUrl(result.schemaUrls[0]);
-        return true;
-      }
-
-      if (result.mode === 'inferred' && result.inferredSchema) {
-        applySchemaContent(result.inferredSchema, 'xml');
-        setSchemaUrl('');
-        setActiveTab('schema');
-        return true;
-      }
-    } catch (err) {
-      setError(`Failed to infer XML schema: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    }
-
-    return false;
-  };
-
   const handleClearLocalStorage = () => {
     if (typeof localStorage === 'undefined') return;
     try {
-      for (const language of ['json', 'yaml', 'xml'] as MarkupLanguage[]) {
-        localStorage.removeItem(getInstanceStorageKey(language));
-        localStorage.removeItem(getSchemaStorageKey(language));
-      }
       localStorage.removeItem(STORAGE_KEY);
       localStorage.removeItem(INSTANCE_STORAGE_KEY);
-      localStorage.removeItem(ERD_STORAGE_KEY);
       localStorage.removeItem(DEREF_COMPLETE_STORAGE_KEY);
       localStorage.removeItem(DEREF_ERROR_STORAGE_KEY);
       clearVariantStorage();
       dispatch({ type: APPLY_SOURCE_UPDATE, payload: { type: 'object', properties: {} } });
       setInstanceData(null);
       setJsonInput('{}');
-      setErdModel(null);
       setError(null);
       toast.success('Local storage cleared');
     } catch {
@@ -592,35 +291,6 @@ export default function Workbench() {
       return;
     }
 
-    if (markupLanguage === 'xml') {
-      void (async () => {
-        try {
-          const result = await postSchemaService<{ mode: string; inferredSchema?: string; schemaUrls?: string[]; warnings?: string[] }>('/api/schema/from-xml', {
-            content: jsonInput,
-            language: 'xml',
-            sourceUri: undefined,
-            preferSchemaLocation: true,
-          });
-
-          if (result.mode === 'schemaLocation' && Array.isArray(result.schemaUrls) && result.schemaUrls.length > 0) {
-            await loadSchemaFromUrl(result.schemaUrls[0]);
-            return;
-          }
-
-          if (result.mode === 'inferred' && result.inferredSchema) {
-            applySchemaContent(result.inferredSchema, 'xml');
-            setActiveTab('schema');
-            return;
-          }
-
-          setError('Failed to infer an XML schema from the current instance.');
-        } catch (err) {
-          setError(`Failed to infer XML schema: ${err instanceof Error ? err.message : 'Unknown error'}`);
-        }
-      })();
-      return;
-    }
-
     if (!isValidJSON(jsonInput)) {
       setError("Invalid JSON format. Please check your input.");
       return;
@@ -631,7 +301,6 @@ export default function Workbench() {
       const generatedSchema = generateSchema(parsed);
       dispatch({ type: APPLY_SOURCE_UPDATE, payload: generatedSchema });
       setInstanceData(parsed);
-      instanceTextRef.current = jsonInput;
       // Clear variant storage when loading fresh JSON (version 1 approach)
       clearVariantStorage();
     } catch (err) {
@@ -661,12 +330,9 @@ export default function Workbench() {
       const content = e.target?.result as string;
       try {
         const parsed = parseMarkup(content, markupLanguage);
-        instanceTextRef.current = content;
-        setJsonInput(content);
+        const asJson = JSON.stringify(parsed, null, 2);
+        setJsonInput(asJson);
         setInstanceData(parsed);
-        if (markupLanguage === 'xml') {
-          void tryLoadSchemaFromXmlInstance(content);
-        }
         clearVariantStorage();
         setError(null);
       } catch (err) {
@@ -700,12 +366,9 @@ export default function Workbench() {
       }
       const text = await response.text();
       const parsed = parseMarkup(text, markupLanguage);
-      instanceTextRef.current = text;
-      setJsonInput(text);
+      const asJson = JSON.stringify(parsed, null, 2);
+      setJsonInput(asJson);
       setInstanceData(parsed);
-      if (markupLanguage === 'xml') {
-        void tryLoadSchemaFromXmlInstance(text, jsonUrl);
-      }
       clearVariantStorage();
       setJsonUrl('');
     } catch (err) {
@@ -724,68 +387,24 @@ export default function Workbench() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const schemaLanguage = detectMarkupLanguageFromPath(file.name);
-
     const reader = new FileReader();
     reader.onload = (e) => {
       const content = e.target?.result as string;
       try {
-        applySchemaContent(content, schemaLanguage);
+        const parsedSchema = JSON.parse(content);
+        dispatch({ type: APPLY_SOURCE_UPDATE, payload: parsedSchema });
+        // Only generate a default instance when none is present — preserve user-loaded instance
+        setInstanceData((prev: any) => (prev == null ? generateDefaultInstance(parsedSchema) : prev));
+         
         setError(null);
       } catch (err) {
-        setError(`Invalid schema file. Please upload a valid ${markupLabel[schemaLanguage].toLowerCase()} schema.`);
+        setError("Invalid schema file. Please upload a valid JSON schema.");
       }
     };
     reader.onerror = () => {
       setError("Failed to read schema file");
     };
     reader.readAsText(file);
-  };
-
-  const handleErdFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
-    if (files.length === 0) return;
-    try {
-      const sourceFiles = await Promise.all(files.map(async (file) => ({
-        name: file.name,
-        content: await file.text(),
-      })));
-      setErdModel(parseDbContextFiles(sourceFiles));
-      setActiveTab('erd');
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? `Failed to read C# files: ${err.message}` : 'Failed to read C# files');
-    } finally {
-      event.target.value = '';
-    }
-  };
-
-  const handleNewErd = () => {
-    setErdModel(createEmptyErdModel());
-    setActiveTab('erd');
-    setError(null);
-  };
-
-  const handleExportErd = () => {
-    if (!erdModel) return;
-    const blob = new Blob([generateDbContextCSharp(erdModel)], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'generated-erd.cs';
-    anchor.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleExportErdSql = () => {
-    if (!erdModel) return;
-    const blob = new Blob([generateErdSql(erdModel)], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'generated-erd.sql';
-    anchor.click();
-    URL.revokeObjectURL(url);
   };
 
   const handleLoadSchemaFromUrl = async () => {
@@ -798,7 +417,15 @@ export default function Workbench() {
     setError(null);
 
     try {
-      await loadSchemaFromUrl(schemaUrl);
+      const response = await fetch(schemaUrl);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      dispatch({ type: APPLY_SOURCE_UPDATE, payload: data });
+      // Only generate a default instance when none is present — preserve user-loaded instance
+      setInstanceData((prev: any) => (prev == null ? generateDefaultInstance(data) : prev));
+      setSchemaUrl("");
     } catch (err) {
       setError(`Failed to load schema from URL: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
@@ -810,12 +437,11 @@ export default function Workbench() {
     const toSave = getPersistableSource(state);
     if (!toSave) return;
 
-    const content = serializeMarkup(toSave, schemaMarkupLanguage);
-    const blob = new Blob([content], { type: mimeType(schemaMarkupLanguage) });
+    const blob = new Blob([JSON.stringify(toSave, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `schema${fileExtension(schemaMarkupLanguage)}`;
+    a.download = 'schema.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -826,12 +452,11 @@ export default function Workbench() {
     const toSave = getResolvedSource(state);
     if (!toSave) return;
 
-    const content = serializeMarkup(toSave, schemaMarkupLanguage);
-    const blob = new Blob([content], { type: mimeType(schemaMarkupLanguage) });
+    const blob = new Blob([JSON.stringify(toSave, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `schema-resolved${fileExtension(schemaMarkupLanguage)}`;
+    a.download = 'schema-resolved.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -841,7 +466,13 @@ export default function Workbench() {
   const handleSaveMarkup = () => {
     if (!jsonInput.trim()) return;
     try {
-      const content = jsonInput;
+      let content: string;
+      if (markupLanguage === 'json') {
+        content = jsonInput;
+      } else {
+        const data = JSON.parse(jsonInput);
+        content = serializeMarkup(data, markupLanguage);
+      }
       const blob = new Blob([content], { type: mimeType(markupLanguage) });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -895,7 +526,7 @@ export default function Workbench() {
   };
 
   // Tabbed UI state
-  const [activeTab, setActiveTab] = useState<'json' | 'schema' | 'instance' | 'output' | 'graph' | 'erd'>('json');
+  const [activeTab, setActiveTab] = useState<'json' | 'schema' | 'instance' | 'output' | 'graph'>('json');
 
   // Debug: record tab changes and resolved/source swap events for E2E/manual debugging
   useEffect(() => {
@@ -989,24 +620,12 @@ export default function Workbench() {
     }
   }, [editorSchema]);
 
-  if (!hasMounted) {
-    return (
-      <div className={styles.container} aria-busy="true">
-        <div className={styles.menuBar}>
-          <span className={styles.menuLogo}>Schema Sculptor</span>
-        </div>
-        <div style={{ padding: 24, color: 'var(--color-neutral-10)' }}>Loading workbench…</div>
-      </div>
-    );
-  }
-
   return (
     <TooltipProvider>
     <div className={styles.container}>
       {/* Hidden file inputs — top-level so menu items can trigger them from any active tab */}
       <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept={acceptAttr(markupLanguage)} style={{ display: 'none' }} />
-      <input type="file" ref={schemaFileInputRef} onChange={handleSchemaFileUpload} accept=".json,.yaml,.yml,.xml,.xsd,application/json,text/yaml,application/xml" style={{ display: 'none' }} />
-      <input type="file" ref={erdFileInputRef} onChange={handleErdFileUpload} accept=".cs,text/plain" multiple style={{ display: 'none' }} />
+      <input type="file" ref={schemaFileInputRef} onChange={handleSchemaFileUpload} accept=".json,application/json" style={{ display: 'none' }} />
 
       {/* ── App menu bar ────────────────────────────────────────────── */}
       <div className={styles.menuBar}>
@@ -1018,8 +637,8 @@ export default function Workbench() {
             <MenubarContent>
               <MenubarRadioGroup value={markupLanguage} onValueChange={(v) => setMarkupLanguage(v as MarkupLanguage)}>
                 <MenubarRadioItem value="json">JSON</MenubarRadioItem>
-                <MenubarRadioItem value="yaml">YAML</MenubarRadioItem>
-                <MenubarRadioItem value="xml">XML</MenubarRadioItem>
+                <MenubarRadioItem value="yaml" disabled title="Coming soon">YAML</MenubarRadioItem>
+                <MenubarRadioItem value="xml" disabled title="Coming soon">XML</MenubarRadioItem>
               </MenubarRadioGroup>
             </MenubarContent>
           </MenubarMenu>
@@ -1091,29 +710,6 @@ export default function Workbench() {
             </MenubarContent>
           </MenubarMenu>
 
-          {/* Entity Relationship Diagram operations */}
-          <MenubarMenu>
-            <MenubarTrigger>ERD</MenubarTrigger>
-            <MenubarContent>
-              <MenubarItem onSelect={handleNewErd}>
-                <Sparkles size={14} style={{ marginRight: 6 }} />
-                New blank ERD
-              </MenubarItem>
-              <MenubarItem onSelect={() => erdFileInputRef.current?.click()}>
-                <FileUp size={14} style={{ marginRight: 6 }} />
-                Open DbContext files&hellip;
-              </MenubarItem>
-              <MenubarItem onSelect={handleExportErd} disabled={!erdModel}>
-                <Download size={14} style={{ marginRight: 6 }} />
-                Export C#
-              </MenubarItem>
-              <MenubarItem onSelect={handleExportErdSql} disabled={!erdModel}>
-                <Download size={14} style={{ marginRight: 6 }} />
-                Export SQL
-              </MenubarItem>
-            </MenubarContent>
-          </MenubarMenu>
-
           {/* About */}
           <MenubarMenu>
             <MenubarTrigger>About</MenubarTrigger>
@@ -1129,12 +725,9 @@ export default function Workbench() {
             </MenubarContent>
           </MenubarMenu>
         </Menubar>
-        <div className={styles.menuBarEnd}>
-          <ColorSchemeToggle />
-          <small className={styles.menuStatusBadge} suppressHydrationWarning data-testid="schema-source-badge">
-            Source: {state.resolvedCache ? 'resolved' : state.source ? 'source' : 'none'}
-          </small>
-        </div>
+        <small className={styles.menuStatusBadge} suppressHydrationWarning data-testid="schema-source-badge">
+          Source: {state.resolvedCache ? 'resolved' : state.source ? 'source' : 'none'}
+        </small>
       </div>
 
       {/* ── URL load dialog — markup document ───────────────────────── */}
@@ -1220,26 +813,15 @@ export default function Workbench() {
         <button className={activeTab === 'instance' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('instance')}>Instance Editor</button>
         <button className={activeTab === 'schema' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('schema')}>Schema Input</button>
         <button className={activeTab === 'graph' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('graph')}>Schema Editor</button>
-        <button className={activeTab === 'erd' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('erd')}>ERD</button>
       </div>
 
-      <div className={`${styles.tabPanel}${activeTab === 'graph' || activeTab === 'erd' ? ` ${styles.tabPanelFlush}` : ''}`}>
-        {activeTab === 'erd' && (
-          erdModel ? (
-            <ErdEditor model={erdModel} onChange={setErdModel} />
-          ) : (
-            <div className={styles.emptyState}>
-              <p>Open one or more DbContext C# files to create an ERD, or start from scratch.</p>
-              <button type="button" className={styles.generateButton} onClick={handleNewErd}>Create blank ERD</button>
-            </div>
-          )
-        )}
+      <div className={`${styles.tabPanel}${activeTab === 'graph' ? ` ${styles.tabPanelFlush}` : ''}`}>
         {activeTab === 'graph' && (
           <>
             {editorSchema ? (
               <GraphicalSchemaEditor
                 schema={editorSchema as any}
-                schemaLanguage={schemaMarkupLanguage}
+                schemaLanguage={markupLanguage}
                 onChange={(newSchema) => {
                   // Editor emits edits to the resolved view; reducer will rehydrate into source
                   dispatch({ type: APPLY_RESOLVED_EDIT, payload: newSchema });
@@ -1423,14 +1005,13 @@ export default function Workbench() {
                       setError(null);
                       // Try to parse and update instance form if valid
                       try {
-                        const parsed = parseMarkup(e.target.value, markupLanguage);
-                        instanceTextRef.current = e.target.value;
+                        const parsed = JSON.parse(e.target.value);
                         setInstanceData(parsed);
                       } catch {
                         // ignore invalid
                       }
                     }}
-                    placeholder={markupLanguage === 'yaml' ? 'Paste your YAML here...' : markupLanguage === 'xml' ? 'Paste your XML here...' : 'Paste your JSON here...'}
+                    placeholder="Paste your JSON here..."
                     spellCheck={false}
                     style={{ width: '100%', height: '100%', minHeight: 240, boxSizing: 'border-box' }}
                   />
@@ -1443,7 +1024,7 @@ export default function Workbench() {
         {activeTab === 'instance' && (
           <div className={styles.panel}>
             <div className={styles.panelHeader}>
-              <h2 className={styles.panelTitle}>{markupLabel[markupLanguage]} Instance Editor</h2>
+              <h2 className={styles.panelTitle}>Instance Editor</h2>
             </div>
             {editorSchema ? (
               <div className={styles.editorContainer}>
@@ -1452,9 +1033,7 @@ export default function Workbench() {
                   value={instanceData ?? generateDefaultInstance(editorSchema)}
                   onChange={(newData) => {
                     setInstanceData(newData);
-                    const newDataText = JSON.stringify(newData, null, 2);
-                    instanceTextRef.current = newDataText;
-                    setJsonInput(newDataText);
+                    setJsonInput(JSON.stringify(newData, null, 2));
                   }}
                 />
               </div>

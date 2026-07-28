@@ -984,3 +984,9 @@ const NodePropertyEditorBody: React.FC<NodePropertyEditorProps> = ({ node, onCha
 };
 
 export const MemoizedNodePropertyEditor = React.memo(NodePropertyEditor);
+
+export const JsonRhsControl: React.FC<NodePropertyEditorProps> = (props) => {
+  return <NodePropertyEditor {...props} />;
+};
+
+export const MemoizedJsonRhsControl = React.memo(JsonRhsControl);

@@ -1,6 +1,5 @@
 import React from 'react';
 import * as dagreLib from 'dagre';
-import { MemoizedNodePropertyEditor } from './NodePropertyEditor';
 import { ContextMenu } from "./ContextMenu";
 import {
   addPropertyToSchema,
@@ -16,11 +15,11 @@ import ReactFlow, {
   useNodesState,
   useEdgesState,
 } from "reactflow";
-import { Printer } from "lucide-react";
 import { TooltipProvider } from "./ui/tooltip/tooltip";
 import { HorizontalSplitPane } from "./ui/split-pane";
 import { getVariantLabel } from '../utils/labels';
 import { applySnappedDagreLayout } from './graphical-schema-layout-snapped';
+import { GraphicalSchemaRhsControl } from './graphical-schema-rhs-control';
 import type { Connection, Edge, Node, OnConnect } from "reactflow"
 import type { SchemaNodeData } from "./schema-behaviors";
 import type { NodeData, GraphicalSchemaEditorProps } from './types';
@@ -153,8 +152,278 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     return `${parentId}.${safeLabel}`;
   };
 
+  const isXmlGraphMode = React.useMemo(() => {
+    if (schemaLanguage === 'xml') return true;
+    const s = schema as any;
+    return Boolean(s && typeof s === 'object' && s['xs:schema']);
+  }, [schema, schemaLanguage]);
+
+  const asArray = React.useCallback((value: unknown): any[] => {
+    if (Array.isArray(value)) return value;
+    if (value == null) return [];
+    return [value];
+  }, []);
+
+  const toNodeLabel = React.useCallback((kind: string, attrs: Record<string, unknown> | undefined, fallback: string) => {
+    const name = typeof attrs?.name === 'string' ? attrs.name : '';
+    if (name) return `${kind}:${name}`;
+    return fallback;
+  }, []);
+
+  const getXmlAttrs = React.useCallback((node: any): Record<string, unknown> => {
+    if (!node || typeof node !== 'object') return {};
+    const attrs = node['@attributes'];
+    return attrs && typeof attrs === 'object' ? attrs as Record<string, unknown> : {};
+  }, []);
+
+  const xmlSchemaToGraph = React.useCallback((xmlDoc: Record<string, unknown>): { nodes: Node<SchemaNodeData>[]; edges: Edge[] } => {
+    const nodes: Node<SchemaNodeData>[] = [];
+    const edges: Edge[] = [];
+
+    const schemaRoot = ((xmlDoc as any)?.['xs:schema'] && typeof (xmlDoc as any)['xs:schema'] === 'object')
+      ? (xmlDoc as any)['xs:schema']
+      : xmlDoc;
+
+    const addNode = (data: any, parentId?: string) => {
+      const id = data.id as string;
+      nodes.push({
+        id,
+        type: data.type || 'property',
+        data,
+        position: { x: data.x ?? 0, y: data.y ?? 0 },
+      } as Node<SchemaNodeData>);
+      if (parentId) {
+        edges.push({ id: `e${parentId}-${id}`, source: parentId, target: id, type: 'default' });
+      }
+    };
+
+    addNode({
+      id: '1',
+      label: 'xs:schema',
+      type: 'object',
+      xmlNodeKind: 'schema',
+      xmlPath: ['xs:schema'],
+    });
+
+    const simpleTypes = asArray((schemaRoot as any)?.['xs:simpleType']);
+    simpleTypes.forEach((entry, index) => {
+      if (!entry || typeof entry !== 'object') return;
+      const attrs = getXmlAttrs(entry);
+      const restriction = (entry as any)['xs:restriction'];
+      const union = (entry as any)['xs:union'];
+      const list = (entry as any)['xs:list'];
+      let mode = 'restriction';
+      if (union) mode = 'union';
+      if (list) mode = 'list';
+
+      const restrictionAttrs = restriction && typeof restriction === 'object' ? getXmlAttrs(restriction) : {};
+      const unionAttrs = union && typeof union === 'object' ? getXmlAttrs(union) : {};
+      const listAttrs = list && typeof list === 'object' ? getXmlAttrs(list) : {};
+
+      addNode({
+        id: `1.simpleType_${index}`,
+        label: toNodeLabel('simpleType', attrs, `simpleType:${index + 1}`),
+        type: 'property',
+        parent: '1',
+        xmlNodeKind: 'simpleType',
+        xmlPath: ['xs:schema', 'xs:simpleType', index],
+        xmlName: attrs.name,
+        xmlSimpleTypeMode: mode,
+        xmlBase: restrictionAttrs.base,
+        xmlMemberTypes: unionAttrs.memberTypes,
+        xmlItemType: listAttrs.itemType,
+      }, '1');
+    });
+
+    const complexTypes = asArray((schemaRoot as any)?.['xs:complexType']);
+    complexTypes.forEach((entry, index) => {
+      if (!entry || typeof entry !== 'object') return;
+      const attrs = getXmlAttrs(entry);
+      const complexId = `1.complexType_${index}`;
+      addNode({
+        id: complexId,
+        label: toNodeLabel('complexType', attrs, `complexType:${index + 1}`),
+        type: 'property',
+        parent: '1',
+        xmlNodeKind: 'complexType',
+        xmlPath: ['xs:schema', 'xs:complexType', index],
+        xmlName: attrs.name,
+      }, '1');
+
+      const attributes = asArray((entry as any)['xs:attribute']);
+      attributes.forEach((attributeEntry, attributeIndex) => {
+        if (!attributeEntry || typeof attributeEntry !== 'object') return;
+        const attributeAttrs = getXmlAttrs(attributeEntry);
+        addNode({
+          id: `${complexId}.attribute_${attributeIndex}`,
+          label: toNodeLabel('attribute', attributeAttrs, `attribute:${attributeIndex + 1}`),
+          type: 'property',
+          parent: complexId,
+          xmlNodeKind: 'attribute',
+          xmlPath: ['xs:schema', 'xs:complexType', index, 'xs:attribute', attributeIndex],
+          xmlName: attributeAttrs.name,
+          xmlAttributeType: attributeAttrs.type,
+          xmlAttributeUse: attributeAttrs.use || 'optional',
+        }, complexId);
+      });
+
+      (['xs:sequence', 'xs:choice', 'xs:all'] as const).forEach((compositorKey) => {
+        const compositorValue = (entry as any)[compositorKey];
+        const first = Array.isArray(compositorValue) ? compositorValue[0] : compositorValue;
+        if (!first || typeof first !== 'object') return;
+        const compositorAttrs = getXmlAttrs(first);
+        const compositorKind = compositorKey.replace('xs:', '') as 'sequence' | 'choice' | 'all';
+        addNode({
+          id: `${complexId}.${compositorKind}`,
+          label: compositorKey,
+          type: 'property',
+          parent: complexId,
+          xmlNodeKind: compositorKind,
+          xmlPath: ['xs:schema', 'xs:complexType', index, compositorKey],
+          xmlMinOccurs: compositorAttrs.minOccurs ?? '1',
+          xmlMaxOccurs: compositorAttrs.maxOccurs ?? '1',
+        }, complexId);
+      });
+    });
+
+    return { nodes, edges };
+  }, [asArray, getXmlAttrs, toNodeLabel]);
+
+  const updateXmlNodeAtPath = React.useCallback((sourceSchema: Record<string, unknown>, patch: Partial<NodeData>) => {
+    const node = nodesRef.current.find((n) => n.id === patch.id);
+    const xmlPath = (node?.data as any)?.xmlPath as Array<string | number> | undefined;
+    if (!xmlPath || xmlPath.length === 0) return null;
+
+    const cloned = JSON.parse(JSON.stringify(sourceSchema || {})) as any;
+    const getAtPath = (root: any, path: Array<string | number>) => {
+      let current = root;
+      for (const segment of path) {
+        if (current == null) return null;
+        if (typeof segment === 'number') {
+          if (!Array.isArray(current)) return null;
+          current = current[segment];
+        } else {
+          current = current[segment as string];
+        }
+      }
+      return current;
+    };
+
+    const getOrCreateAttrs = (target: any) => {
+      if (!target || typeof target !== 'object') return null;
+      if (!target['@attributes'] || typeof target['@attributes'] !== 'object') target['@attributes'] = {};
+      return target['@attributes'] as Record<string, unknown>;
+    };
+
+    const target = getAtPath(cloned, xmlPath);
+    if (!target || typeof target !== 'object') return null;
+    const kind = String((node?.data as any)?.xmlNodeKind || '');
+
+    if (kind === 'simpleType') {
+      const attrs = getOrCreateAttrs(target);
+      if (!attrs) return null;
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlName')) {
+        const value = (patch as any).xmlName;
+        if (value) attrs.name = value;
+        else delete attrs.name;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlSimpleTypeMode')) {
+        const mode = String((patch as any).xmlSimpleTypeMode || 'restriction');
+        delete (target as any)['xs:restriction'];
+        delete (target as any)['xs:union'];
+        delete (target as any)['xs:list'];
+        if (mode === 'restriction') (target as any)['xs:restriction'] = { '@attributes': { base: 'xs:string' } };
+        if (mode === 'union') (target as any)['xs:union'] = { '@attributes': { memberTypes: '' } };
+        if (mode === 'list') (target as any)['xs:list'] = { '@attributes': { itemType: 'xs:string' } };
+      }
+
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlBase')) {
+        if (!(target as any)['xs:restriction']) (target as any)['xs:restriction'] = { '@attributes': {} };
+        const rAttrs = getOrCreateAttrs((target as any)['xs:restriction']);
+        if (rAttrs) {
+          const value = (patch as any).xmlBase;
+          if (value) rAttrs.base = value;
+          else delete rAttrs.base;
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlMemberTypes')) {
+        if (!(target as any)['xs:union']) (target as any)['xs:union'] = { '@attributes': {} };
+        const uAttrs = getOrCreateAttrs((target as any)['xs:union']);
+        if (uAttrs) {
+          const value = (patch as any).xmlMemberTypes;
+          if (value) uAttrs.memberTypes = value;
+          else delete uAttrs.memberTypes;
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlItemType')) {
+        if (!(target as any)['xs:list']) (target as any)['xs:list'] = { '@attributes': {} };
+        const lAttrs = getOrCreateAttrs((target as any)['xs:list']);
+        if (lAttrs) {
+          const value = (patch as any).xmlItemType;
+          if (value) lAttrs.itemType = value;
+          else delete lAttrs.itemType;
+        }
+      }
+    }
+
+    if (kind === 'complexType') {
+      const attrs = getOrCreateAttrs(target);
+      if (attrs && Object.prototype.hasOwnProperty.call(patch, 'xmlName')) {
+        const value = (patch as any).xmlName;
+        if (value) attrs.name = value;
+        else delete attrs.name;
+      }
+    }
+
+    if (kind === 'attribute') {
+      const attrs = getOrCreateAttrs(target);
+      if (!attrs) return null;
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlName')) {
+        const value = (patch as any).xmlName;
+        if (value) attrs.name = value;
+        else delete attrs.name;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlAttributeType')) {
+        const value = (patch as any).xmlAttributeType;
+        if (value) attrs.type = value;
+        else delete attrs.type;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlAttributeUse')) {
+        const value = (patch as any).xmlAttributeUse;
+        if (value) attrs.use = value;
+        else delete attrs.use;
+      }
+    }
+
+    if (kind === 'sequence' || kind === 'choice' || kind === 'all') {
+      const compositor = target as any;
+      const compositorNode = Array.isArray(compositor) ? compositor[0] : compositor;
+      if (compositorNode && typeof compositorNode === 'object') {
+        const attrs = getOrCreateAttrs(compositorNode);
+        if (attrs && Object.prototype.hasOwnProperty.call(patch, 'xmlMinOccurs')) {
+          const value = (patch as any).xmlMinOccurs;
+          if (value !== undefined && value !== null && String(value).length > 0) attrs.minOccurs = String(value);
+          else delete attrs.minOccurs;
+        }
+        if (attrs && Object.prototype.hasOwnProperty.call(patch, 'xmlMaxOccurs')) {
+          const value = (patch as any).xmlMaxOccurs;
+          if (value !== undefined && value !== null && String(value).length > 0) attrs.maxOccurs = String(value);
+          else delete attrs.maxOccurs;
+        }
+      }
+    }
+
+    return cloned as Record<string, unknown>;
+  }, []);
+
   // Full schemaToGraph implementation
   const schemaToGraph = React.useCallback((schema: Record<string, unknown>): { nodes: Node<SchemaNodeData>[]; edges: Edge[] } => {
+    if (isXmlGraphMode) {
+      return xmlSchemaToGraph(schema);
+    }
     const nodes: Node<SchemaNodeData>[] = [];
     const edges: Edge[] = [];
 
@@ -502,7 +771,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     }
     walkSchema(schema, undefined, 'Root', 0, 200);
     return { nodes, edges };
-  }, []);
+  }, [isXmlGraphMode, xmlSchemaToGraph]);
 
   // Relayout nodes into a horizontal tree using Dagre when available.
   // If Dagre is unavailable or fails, preserve current positions.
@@ -1306,6 +1575,23 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
   // Node property update handler
   const handleNodePropertyChange = (patch: Partial<NodeData>) => {
+    if (isXmlGraphMode) {
+      const updated = updateXmlNodeAtPath(schema as Record<string, unknown>, patch);
+      if (!updated) return;
+      emitLocalSchemaUpdate(updated);
+      setNodes((prevNodes: Node<SchemaNodeData>[]) => prevNodes.map((node) => {
+        if (node.id !== patch.id) return node;
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            ...(patch as any),
+          } as SchemaNodeData,
+        };
+      }));
+      return;
+    }
+
     // Compute rename/new id ahead of mutating nodes so we can preserve selection
     const targetNode = nodes.find((n) => n.id === patch.id);
     const oldId = targetNode?.id ?? (patch.id as string);
@@ -2035,6 +2321,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
   // Delete Property action (with confirmation)
   const handleDeleteProperty = () => {
+    if (isXmlGraphMode) {
+      setContextMenu(null);
+      return;
+    }
     if (!contextMenu?.nodeId) return;
     const node = nodes.find(n => n.id === contextMenu.nodeId);
     if (!node) return;
@@ -2079,7 +2369,73 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
   };
 
   // Context menu items; only include override when node is imported
+  const addXmlCompositorToComplexType = (compositorKind: 'sequence' | 'choice' | 'all') => {
+    const ctxNode = nodes.find((n) => n.id === contextMenu?.nodeId);
+    if (!ctxNode) {
+      setContextMenu(null);
+      return;
+    }
+    const path = ((ctxNode.data as any)?.xmlPath || []) as Array<string | number>;
+    if (!Array.isArray(path) || path.length === 0) {
+      setContextMenu(null);
+      return;
+    }
+
+    const cloned = JSON.parse(JSON.stringify(schema || {})) as any;
+    let target: any = cloned;
+    for (const segment of path) {
+      if (typeof segment === 'number') {
+        if (!Array.isArray(target)) {
+          target = null;
+          break;
+        }
+        target = target[segment];
+      } else {
+        target = target?.[segment];
+      }
+      if (target == null) break;
+    }
+
+    if (!target || typeof target !== 'object') {
+      setContextMenu(null);
+      return;
+    }
+
+    const key = `xs:${compositorKind}`;
+    if (!target[key] || typeof target[key] !== 'object') {
+      target[key] = { '@attributes': { minOccurs: '1', maxOccurs: '1' } };
+    }
+
+    emitLocalSchemaUpdate(cloned as Record<string, unknown>);
+
+    const rawRebuilt = schemaToGraph(cloned as Record<string, unknown>);
+    const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
+    );
+    setNodes(laidOutNodes);
+    setEdges(rawRebuilt.edges as Edge[]);
+
+    const newNodeId = `${ctxNode.id}.${compositorKind}`;
+    if (laidOutNodes.some((n) => n.id === newNodeId)) {
+      setSelectedNodeId(newNodeId);
+    }
+
+    setContextMenu(null);
+  };
+
   const contextMenuItems = (() => {
+    if (isXmlGraphMode) {
+      const items: any[] = [];
+      const ctxNode = nodes.find((n) => n.id === contextMenu?.nodeId);
+      const kind = String((ctxNode?.data as any)?.xmlNodeKind || '');
+      if (kind === 'complexType') {
+        items.push({ label: 'Add sequence', onClick: () => addXmlCompositorToComplexType('sequence'), disabled: false });
+        items.push({ label: 'Add choice', onClick: () => addXmlCompositorToComplexType('choice'), disabled: false });
+        items.push({ label: 'Add all', onClick: () => addXmlCompositorToComplexType('all'), disabled: false });
+      }
+      return items;
+    }
+
     const items: any[] = [];
     items.push({
       label: 'Add Property',
@@ -2128,9 +2484,13 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       })(),
     });
 
-    // Only show Create Local Override for imported nodes
+    // Only show Create Local Override for imported nodes, including imported array nodes.
     const selNode = nodes.find(n => n.id === contextMenu?.nodeId);
-    const canShowOverride = !!selNode && !!selNode.data.imported && (selNode.data.type === 'object' || (selNode.data.type === 'array' && selNode.data.ofType === 'object'));
+    const canShowOverride = Boolean(
+      selNode &&
+      (selNode.data as any).imported &&
+      (selNode.data.type === 'object' || selNode.data.type === 'array')
+    );
     if (canShowOverride) {
       items.push({
         label: 'Create Local Override',
@@ -2230,63 +2590,17 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         </TooltipProvider>
       </div>
       <div className={styles.sidebarPanel}>
-        <div className={styles.editorSidebar}>
-          <div className={styles.editorSidebarHeader}>
-            <div className={styles.sidebarHeaderGroup}>
-              <span className={styles.schemaDialectBadge} title="Current schema dialect">{schemaDialectLabel}</span>
-              {showXmlDetails && (
-                <button
-                  type="button"
-                  className={styles.printButton}
-                  onClick={() => setShowSchemaDetails(prev => !prev)}
-                  title="Toggle XML schema details"
-                  aria-label="Toggle XML schema details"
-                >
-                  <span>{showSchemaDetails ? 'Hide XML details' : 'XML details'}</span>
-                </button>
-              )}
-              <button type="button" className={styles.printButton} onClick={handlePrintGraph} title="Print graph" aria-label="Print graph">
-                <Printer size={16} />
-                <span>Print graph</span>
-              </button>
-            </div>
-          </div>
-          {showXmlDetails && showSchemaDetails && (
-            <div className={styles.schemaDetailsPanel} aria-label="XML schema details">
-              {xmlSchemaDetails.targetNamespace && (
-                <div className={styles.schemaDetailRow}>
-                  <span className={styles.schemaDetailLabel}>targetNamespace</span>
-                  <span className={styles.schemaDetailValue}>{xmlSchemaDetails.targetNamespace}</span>
-                </div>
-              )}
-              {xmlSchemaDetails.elementFormDefault && (
-                <div className={styles.schemaDetailRow}>
-                  <span className={styles.schemaDetailLabel}>elementFormDefault</span>
-                  <span className={styles.schemaDetailValue}>{xmlSchemaDetails.elementFormDefault}</span>
-                </div>
-              )}
-              {xmlSchemaDetails.attributeFormDefault && (
-                <div className={styles.schemaDetailRow}>
-                  <span className={styles.schemaDetailLabel}>attributeFormDefault</span>
-                  <span className={styles.schemaDetailValue}>{xmlSchemaDetails.attributeFormDefault}</span>
-                </div>
-              )}
-              {xmlSchemaDetails.xmlnsEntries.length > 0 && (
-                <div className={styles.schemaDetailStack}>
-                  <span className={styles.schemaDetailLabel}>xmlns</span>
-                  {xmlSchemaDetails.xmlnsEntries.map(([key, value]) => (
-                    <div className={styles.schemaDetailRow} key={key}>
-                      <span className={styles.schemaDetailValue}>{key}</span>
-                      <span className={styles.schemaDetailValue}>{String(value)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          {/* Always show NodePropertyEditor for selected node, including enum node */}
-          <MemoizedNodePropertyEditor node={selectedNode} onChange={handleNodePropertyChange} />
-        </div>
+        <GraphicalSchemaRhsControl
+          selectedNode={selectedNode}
+          onChange={handleNodePropertyChange}
+          schemaLanguage={schemaLanguage}
+          schemaDialectLabel={schemaDialectLabel}
+          showXmlDetails={showXmlDetails}
+          showSchemaDetails={showSchemaDetails}
+          xmlSchemaDetails={xmlSchemaDetails}
+          onToggleSchemaDetails={() => setShowSchemaDetails(prev => !prev)}
+          onPrintGraph={handlePrintGraph}
+        />
       </div>
     </HorizontalSplitPane>
     {contextMenu?.visible && (

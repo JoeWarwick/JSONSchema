@@ -57,7 +57,7 @@ function attachEdgePositions(edge: Edge<ErdRelationshipEdgeData>, sourceNode: No
     targetPosition,
     sourceHandle: handleId('source', sourcePosition),
     targetHandle: handleId('target', targetPosition),
-  };
+  } as unknown as Edge<ErdRelationshipEdgeData>;
 }
 
 function pruneGraphEdges(edges: Edge<ErdRelationshipEdgeData>[], nodes: Node<ErdTableNodeData>[]): Edge<ErdRelationshipEdgeData>[] {
