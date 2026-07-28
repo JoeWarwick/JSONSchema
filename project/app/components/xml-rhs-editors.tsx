@@ -98,7 +98,127 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
           />
         </label>
       )}
+      <XmlAttributesManager node={node} onChange={onChange} />
     </form>
+  );
+}
+
+function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) {
+  const data = (node?.data || {}) as any;
+  const xmlPath = data.xmlPath as Array<string | number> | undefined;
+  
+  // Get attributes from node data (passed from graphical-schema-editor)
+  const attributes = data.xmlAttributes || [];
+  const [newAttrName, setNewAttrName] = React.useState('');
+  const [newAttrType, setNewAttrType] = React.useState('xs:string');
+  const [newAttrUse, setNewAttrUse] = React.useState('optional');
+
+  const handleAddAttribute = () => {
+    if (!newAttrName.trim()) return;
+    if (!node) return;
+    onChange({ 
+      id: node.id, 
+      xmlAddAttribute: { name: newAttrName, type: newAttrType, use: newAttrUse } 
+    });
+    setNewAttrName('');
+    setNewAttrType('xs:string');
+    setNewAttrUse('optional');
+  };
+
+  const handleRemoveAttribute = (index: number) => {
+    if (!node) return;
+    onChange({ id: node.id, xmlRemoveAttributeIndex: index });
+  };
+
+  const handleUpdateAttribute = (index: number, field: string, value: string) => {
+    if (!node) return;
+    const updated = { ...attributes[index], [field]: value };
+    onChange({ id: node.id, xmlUpdateAttributeIndex: { index, ...updated } });
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0', borderTop: '1px solid #eee', marginTop: 8 }}>
+      <div style={{ fontWeight: 600, fontSize: 12 }}>Attributes</div>
+      
+      {/* List existing attributes */}
+      {attributes.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {attributes.map((attr: any, index: number) => (
+            <div key={index} style={{ display: 'flex', gap: 4, fontSize: 11, padding: 4, backgroundColor: '#f5f5f5', borderRadius: 4 }}>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <input
+                  type="text"
+                  value={attr.name || ''}
+                  onChange={(e) => handleUpdateAttribute(index, 'name', e.target.value)}
+                  placeholder="name"
+                  style={{ padding: 3, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
+                />
+                <input
+                  type="text"
+                  value={attr.type || ''}
+                  onChange={(e) => handleUpdateAttribute(index, 'type', e.target.value)}
+                  placeholder="type"
+                  style={{ padding: 3, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
+                />
+                <select
+                  value={attr.use || 'optional'}
+                  onChange={(e) => handleUpdateAttribute(index, 'use', e.target.value)}
+                  style={{ padding: 3, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
+                >
+                  <option value="optional">optional</option>
+                  <option value="required">required</option>
+                  <option value="prohibited">prohibited</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleRemoveAttribute(index)}
+                style={{ padding: '4px 8px', fontSize: 11, backgroundColor: '#fee', color: '#c33', border: '1px solid #fcc', borderRadius: 3, cursor: 'pointer' }}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add new attribute */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 6, backgroundColor: '#f9f9f9', borderRadius: 4 }}>
+        <span style={{ fontSize: 11, fontWeight: 500 }}>Add Attribute</span>
+        <input
+          type="text"
+          value={newAttrName}
+          onChange={(e) => setNewAttrName(e.target.value)}
+          placeholder="Attribute name"
+          onKeyDown={(e) => e.key === 'Enter' && handleAddAttribute()}
+          style={{ padding: 4, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
+        />
+        <input
+          type="text"
+          value={newAttrType}
+          onChange={(e) => setNewAttrType(e.target.value)}
+          placeholder="Type (e.g., xs:string)"
+          style={{ padding: 4, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
+        />
+        <select
+          value={newAttrUse}
+          onChange={(e) => setNewAttrUse(e.target.value)}
+          style={{ padding: 4, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
+        >
+          <option value="optional">optional</option>
+          <option value="required">required</option>
+          <option value="prohibited">prohibited</option>
+        </select>
+        <button
+          type="button"
+          onClick={handleAddAttribute}
+          disabled={!newAttrName.trim()}
+          style={{ padding: 4, fontSize: 11, backgroundColor: newAttrName.trim() ? '#e8f5e9' : '#f0f0f0', color: newAttrName.trim() ? '#2e7d32' : '#999', border: newAttrName.trim() ? '1px solid #c8e6c9' : '1px solid #ddd', borderRadius: 3, cursor: newAttrName.trim() ? 'pointer' : 'not-allowed' }}
+        >
+          Add
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -127,6 +247,7 @@ function XmlComplexTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
       <div style={{ fontSize: 12, color: '#666' }}>
         Author sequence/choice/all via graph right-click. Edit min/max on the selected compositor node in RHS.
       </div>
+      <XmlAttributesManager node={node} onChange={onChange} />
     </form>
   );
 }

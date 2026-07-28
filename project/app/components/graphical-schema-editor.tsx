@@ -223,6 +223,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const restrictionAttrs = restriction && typeof restriction === 'object' ? getXmlAttrs(restriction) : {};
       const unionAttrs = union && typeof union === 'object' ? getXmlAttrs(union) : {};
       const listAttrs = list && typeof list === 'object' ? getXmlAttrs(list) : {};
+      const simpleTypeAttributes = asArray((entry as any)?.['xs:attribute']).map((attrEntry: any) => {
+        const attrAttrs = getXmlAttrs(attrEntry);
+        return { name: attrAttrs.name, type: attrAttrs.type, use: attrAttrs.use || 'optional' };
+      });
 
       addNode({
         id: `1.simpleType_${index}`,
@@ -236,6 +240,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlBase: restrictionAttrs.base,
         xmlMemberTypes: unionAttrs.memberTypes,
         xmlItemType: listAttrs.itemType,
+        xmlAttributes: simpleTypeAttributes,
       }, '1');
     });
 
@@ -244,6 +249,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       if (!entry || typeof entry !== 'object') return;
       const attrs = getXmlAttrs(entry);
       const complexId = `1.complexType_${index}`;
+      const complexTypeAttributes = asArray((entry as any)?.['xs:attribute']).map((attrEntry: any) => {
+        const attrAttrs = getXmlAttrs(attrEntry);
+        return { name: attrAttrs.name, type: attrAttrs.type, use: attrAttrs.use || 'optional' };
+      });
       addNode({
         id: complexId,
         label: toNodeLabel('complexType', attrs, `complexType:${index + 1}`),
@@ -252,6 +261,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlNodeKind: 'complexType',
         xmlPath: ['xs:schema', 'xs:complexType', index],
         xmlName: attrs.name,
+        xmlAttributes: complexTypeAttributes,
       }, '1');
 
       const attributes = asArray((entry as any)['xs:attribute']);
@@ -504,6 +514,45 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         const value = (patch as any).xmlAttributeFormDefault;
         if (value) attrs.attributeFormDefault = value;
         else delete attrs.attributeFormDefault;
+      }
+    }
+
+    // Handle attribute operations on simpleType or complexType
+    if ((kind === 'simpleType' || kind === 'complexType') && target && typeof target === 'object') {
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlAddAttribute')) {
+        const newAttr = (patch as any).xmlAddAttribute;
+        if (!Array.isArray(target['xs:attribute'])) target['xs:attribute'] = [];
+        const attrObj: any = { '@attributes': {} };
+        if (newAttr.name) attrObj['@attributes'].name = newAttr.name;
+        if (newAttr.type) attrObj['@attributes'].type = newAttr.type;
+        if (newAttr.use && newAttr.use !== 'optional') attrObj['@attributes'].use = newAttr.use;
+        (target['xs:attribute'] as any[]).push(attrObj);
+      }
+
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlRemoveAttributeIndex')) {
+        const index = (patch as any).xmlRemoveAttributeIndex;
+        if (Array.isArray(target['xs:attribute']) && index >= 0 && index < target['xs:attribute'].length) {
+          (target['xs:attribute'] as any[]).splice(index, 1);
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlUpdateAttributeIndex')) {
+        const update = (patch as any).xmlUpdateAttributeIndex;
+        const index = update.index;
+        if (Array.isArray(target['xs:attribute']) && index >= 0 && index < target['xs:attribute'].length) {
+          const attrEntry = target['xs:attribute'][index];
+          if (attrEntry && typeof attrEntry === 'object') {
+            const attrs = getOrCreateAttrs(attrEntry);
+            if (attrs) {
+              if (update.name) attrs.name = update.name;
+              else delete attrs.name;
+              if (update.type) attrs.type = update.type;
+              else delete attrs.type;
+              if (update.use && update.use !== 'optional') attrs.use = update.use;
+              else delete attrs.use;
+            }
+          }
+        }
       }
     }
 
@@ -1672,12 +1721,47 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       emitLocalSchemaUpdate(updated);
       setNodes((prevNodes: Node<SchemaNodeData>[]) => prevNodes.map((node) => {
         if (node.id !== patch.id) return node;
+        
+        // If this is an attribute operation on simpleType or complexType, rebuild xmlAttributes from schema
+        const kind = (node.data as any)?.xmlNodeKind;
+        const xmlPath = (node.data as any)?.xmlPath as Array<string | number> | undefined;
+        const isAttributeOperation = Object.prototype.hasOwnProperty.call(patch, 'xmlAddAttribute') || 
+                                     Object.prototype.hasOwnProperty.call(patch, 'xmlRemoveAttributeIndex') ||
+                                     Object.prototype.hasOwnProperty.call(patch, 'xmlUpdateAttributeIndex');
+        
+        const newData = { ...node.data, ...(patch as any) } as SchemaNodeData;
+        
+        if (isAttributeOperation && (kind === 'simpleType' || kind === 'complexType') && xmlPath) {
+          // Rebuild xmlAttributes from the updated schema
+          const getAtPath = (root: any, path: Array<string | number>) => {
+            let current = root;
+            for (const segment of path) {
+              if (current == null) return null;
+              if (typeof segment === 'number') {
+                if (!Array.isArray(current)) return null;
+                current = current[segment];
+              } else {
+                current = current[segment as string];
+              }
+            }
+            return current;
+          };
+          const target = getAtPath(updated, xmlPath);
+          if (target && typeof target === 'object' && Array.isArray((target as any)['xs:attribute'])) {
+            (newData as any).xmlAttributes = ((target as any)['xs:attribute'] as any[]).map((attrEntry: any) => {
+              const attrAttrs = (attrEntry && typeof attrEntry === 'object' && attrEntry['@attributes']) || {};
+              return { 
+                name: attrAttrs.name, 
+                type: attrAttrs.type, 
+                use: attrAttrs.use || 'optional' 
+              };
+            });
+          }
+        }
+        
         return {
           ...node,
-          data: {
-            ...node.data,
-            ...(patch as any),
-          } as SchemaNodeData,
+          data: newData,
         };
       }));
       return;

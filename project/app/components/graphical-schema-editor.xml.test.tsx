@@ -533,4 +533,82 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
       expect(attrs?.elementFormDefault).toBe('unqualified');
     });
   });
+
+  it('adds, edits, and removes attributes via RHS editor on complexType', async () => {
+    const initialSchema = {
+      'xs:schema': {
+        'xs:complexType': [
+          {
+            '@attributes': { name: 'PersonType' },
+            'xs:sequence': [
+              { '@attributes': { minOccurs: '1', maxOccurs: '1' } },
+            ],
+          },
+        ],
+      },
+    } as any;
+
+    let latestSchema = initialSchema;
+
+    function StatefulXmlEditor() {
+      const [currentSchema, setCurrentSchema] = React.useState<any>(initialSchema);
+      return (
+        <GraphicalSchemaEditor
+          schema={currentSchema}
+          schemaLanguage="xml"
+          onChange={(next) => {
+            latestSchema = next as any;
+            setCurrentSchema(next as any);
+          }}
+        />
+      );
+    }
+
+    render(<StatefulXmlEditor />);
+
+    // Click on the complexType node
+    const complexTypeNode = await screen.findByText('complexType:PersonType');
+    fireEvent.click(complexTypeNode);
+
+    // Verify the complexType editor is shown
+    expect(await screen.findByText('ComplexType Editor')).toBeInTheDocument();
+
+    // Add a new attribute
+    const attrNameInput = await screen.findByPlaceholderText('Attribute name');
+    fireEvent.change(attrNameInput, { target: { value: 'id' } });
+    
+    const attrTypeInputs = await screen.findAllByPlaceholderText('Type (e.g., xs:string)');
+    fireEvent.change(attrTypeInputs[0], { target: { value: 'xs:string' } });
+    
+    const addButton = await screen.findByRole('button', { name: 'Add' });
+    fireEvent.click(addButton);
+
+    await waitFor(() => {
+      const attributes = latestSchema?.['xs:schema']?.['xs:complexType']?.[0]?.['xs:attribute'];
+      expect(Array.isArray(attributes)).toBe(true);
+      expect(attributes?.length).toBe(1);
+      expect(attributes?.[0]?.['@attributes']?.name).toBe('id');
+      expect(attributes?.[0]?.['@attributes']?.type).toBe('xs:string');
+    });
+
+    // Edit the existing attribute
+    const attributeNameInput = await screen.findByDisplayValue('id');
+    fireEvent.change(attributeNameInput, { target: { value: 'personId' } });
+    fireEvent.blur(attributeNameInput);
+
+    await waitFor(() => {
+      const attributes = latestSchema?.['xs:schema']?.['xs:complexType']?.[0]?.['xs:attribute'];
+      expect(attributes?.[0]?.['@attributes']?.name).toBe('personId');
+    });
+
+    // Remove the attribute
+    const removeButton = await screen.findByRole('button', { name: 'Remove' });
+    fireEvent.click(removeButton);
+
+    await waitFor(() => {
+      const attributes = latestSchema?.['xs:schema']?.['xs:complexType']?.[0]?.['xs:attribute'];
+      expect(attributes?.length).toBe(0);
+    });
+  });
 });
+
