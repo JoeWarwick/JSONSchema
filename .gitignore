@@ -72,6 +72,12 @@ coverage/
 build/
 dist/
 bin/
+obj/
+**/bin/
+**/obj/
+*.bin
+*.exe
+*.pdb
 
 # Optional: ignore test output
 /test-output/
