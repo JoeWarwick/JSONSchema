@@ -14,10 +14,10 @@ export function ErdTableNode({ data }: { data: ErdTableNodeData }) {
   const { table } = data;
   return (
     <section className={styles.tableNode} aria-label={`Table ${table.name}`}>
-      <Handle id="target-top" type="target" position={Position.Top} className={styles.handle} />
-      <Handle id="target-right" type="target" position={Position.Right} className={styles.handle} />
-      <Handle id="target-bottom" type="target" position={Position.Bottom} className={styles.handle} />
-      <Handle id="target-left" type="target" position={Position.Left} className={styles.handle} />
+      <Handle id="target-Top" type="target" position={Position.Top} className={styles.handle} />
+      <Handle id="target-Right" type="target" position={Position.Right} className={styles.handle} />
+      <Handle id="target-Bottom" type="target" position={Position.Bottom} className={styles.handle} />
+      <Handle id="target-Left" type="target" position={Position.Left} className={styles.handle} />
       <header className={styles.tableHeader}>{table.name}</header>
       <div className={styles.sectionLabel}>Properties</div>
       <div className={styles.columnList}>
@@ -39,10 +39,10 @@ export function ErdTableNode({ data }: { data: ErdTableNodeData }) {
           </div>
         </>
       )}
-      <Handle id="source-top" type="source" position={Position.Top} className={styles.handle} />
-      <Handle id="source-right" type="source" position={Position.Right} className={styles.handle} />
-      <Handle id="source-bottom" type="source" position={Position.Bottom} className={styles.handle} />
-      <Handle id="source-left" type="source" position={Position.Left} className={styles.handle} />
+      <Handle id="source-Top" type="source" position={Position.Top} className={styles.handle} />
+      <Handle id="source-Right" type="source" position={Position.Right} className={styles.handle} />
+      <Handle id="source-Bottom" type="source" position={Position.Bottom} className={styles.handle} />
+      <Handle id="source-Left" type="source" position={Position.Left} className={styles.handle} />
     </section>
   );
 }

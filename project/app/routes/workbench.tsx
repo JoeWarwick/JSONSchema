@@ -26,10 +26,12 @@ function renamePropertyInObject(obj: any, oldName: string, newName: string) {
   delete newObj[oldName];
   return newObj;
 }
-import { SchemaEditorForm } from "~/components/schema-editor-form";
-import { JsonInstanceForm } from "~/components/json-instance-form";
 
+import { JsonInstanceForm } from "~/components/json-instance-form";
+import { SchemaEditorForm } from "~/components/schema-editor-form";
 import { GraphicalSchemaEditor } from "~/components/graphical-schema-editor";
+import { ErdEditor } from "~/components/erd-editor";
+import type { ErdModel } from "~/types/erd";
 
 export function meta() {
   return [
@@ -750,7 +752,8 @@ export default function Workbench() {
   };
 
   // Tabbed UI state
-  const [activeTab, setActiveTab] = useState<'json' | 'schema' | 'instance' | 'output' | 'graph'>('json');
+  const [activeTab, setActiveTab] = useState<'json' | 'schema' | 'instance' | 'output' | 'graph' | 'erd'>('json');
+  const [erdModel, setErdModel] = useState<ErdModel>({ tables: [], relationships: [], sourceFiles: [], diagnostics: [] });
 
   // Debug: record tab changes and resolved/source swap events for E2E/manual debugging
   useEffect(() => {
@@ -1056,6 +1059,7 @@ export default function Workbench() {
         <button className={activeTab === 'instance' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('instance')}>Instance Editor</button>
         <button className={activeTab === 'schema' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('schema')}>Schema Input</button>
         <button className={activeTab === 'graph' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('graph')}>Schema Editor</button>
+        <button className={activeTab === 'erd' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('erd')}>ERD</button>
       </div>
 
       <div className={`${styles.tabPanel}${activeTab === 'graph' ? ` ${styles.tabPanelFlush}` : ''}`}>
@@ -1333,6 +1337,21 @@ export default function Workbench() {
             ) : (
               <div className={styles.emptyState}>Your generated schema will appear here</div>
             )}
+          </div>
+        )}
+        {activeTab === 'erd' && (
+          <div className={styles.panel}>
+            <div className={styles.panelHeader}>
+              <h2 className={styles.panelTitle}>Entity Relationship Diagram</h2>
+            </div>
+            <div className={styles.editorContainer}>
+              <ErdEditor
+                model={erdModel}
+                onChange={(newModel) => {
+                  setErdModel(newModel);
+                }}
+              />
+            </div>
           </div>
         )}
       </div>
