@@ -378,6 +378,10 @@
   border: 1px solid var(--graph-node-border);
   color: var(--graph-node-text);
 }
+.badge_xmlKind {
+  border: 1px solid currentColor;
+  font-weight: 700;
+}
 .badge_format {
   background: var(--color-error-3);
   border: 1px solid var(--color-error-6);
@@ -390,6 +394,20 @@
   color: var(--color-accent-11);
   font-weight: 700;
 }
+/* Cardinality label (minOccurs/maxOccurs) rendered on an edge near its target node */
+.cardinalityLabel {
+  position: absolute;
+  background: var(--graph-node-bg);
+  border: 1px solid var(--graph-node-border);
+  color: var(--graph-node-muted);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 /* Icons rendered inside nodes for description and $comment - flow layout (not absolute) */
 .nodeIcons {
   display: flex;

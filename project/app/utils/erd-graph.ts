@@ -1,10 +1,12 @@
 import * as dagre from 'dagre';
-import { Position } from 'reactflow';
+import { Position, MarkerType } from 'reactflow';
 import type { Edge, Node } from 'reactflow';
-import type { ErdModel, ErdRelationship, ErdTable } from '../types/erd';
+import type { ErdModel, ErdNavigation, ErdRelationship, ErdTable } from '../types/erd';
 
 export interface ErdTableNodeData {
   table: ErdTable;
+  onNavigationClick?: (navigation: ErdNavigation) => void;
+  highlightedNavigationName?: string;
 }
 
 export interface ErdRelationshipEdgeData {
@@ -16,8 +18,8 @@ export interface ErdGraph {
   edges: Edge<ErdRelationshipEdgeData>[];
 }
 
-const tableWidth = (table: ErdTable): number => Math.max(240, Math.min(360, table.name.length * 10 + 80));
-const tableHeight = (table: ErdTable): number => 52 + Math.max(1, table.columns.length) * 26 + (table.navigations.length > 0 ? 34 : 0);
+export const tableWidth = (table: ErdTable): number => Math.max(240, Math.min(360, table.name.length * 10 + 80));
+export const tableHeight = (table: ErdTable): number => 52 + Math.max(1, table.columns.length) * 26 + (table.navigations.length > 0 ? 34 : 0);
 
 function positionForDirection(dx: number, dy: number): Position {
   if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? Position.Right : Position.Left;
@@ -99,6 +101,7 @@ export function erdModelToGraph(model: ErdModel): ErdGraph {
     label: `${cardinalityLabel(relationship.dependentCardinality)} : ${cardinalityLabel(relationship.principalCardinality)}`,
     data: { relationship },
     animated: false,
+    markerEnd: { type: MarkerType.ArrowClosed },
   }));
   const laidOutGraph = layoutErdGraph({ nodes, edges });
   const positionedNodes = laidOutGraph.nodes.map((node) => ({

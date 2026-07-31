@@ -24,15 +24,17 @@ import { GraphicalSchemaRhsControl } from './graphical-schema-rhs-control';
 import type { Connection, Edge, Node, OnConnect } from "reactflow"
 import type { SchemaNodeData } from "./schema-behaviors";
 import type { NodeData, GraphicalSchemaEditorProps } from './types';
-import { nodeTypes, initialNodes, initialEdges } from './schema-node-types';
+import { nodeTypes, edgeTypes, initialNodes, initialEdges } from './schema-node-types';
 import { printGraphSection } from '../utils/print-graph';
 import "reactflow/dist/style.css";
 import styles from "./graphical-schema-editor.module.css";
 
 // Helper functions for edge positioning — connect to the nearest side of parent nodes
-function positionForDirection(dx: number, dy: number): Position {
-  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? Position.Right : Position.Left;
-  return dy >= 0 ? Position.Bottom : Position.Top;
+function positionForDirection(dx: number): Position {
+  // Only Left/Right handles are guaranteed to exist on every node type (Top/Bottom
+  // are only rendered by the non-expandable VariantNode); picking Top/Bottom here for
+  // any other node silently fails to render the edge (React Flow error #008).
+  return dx >= 0 ? Position.Right : Position.Left;
 }
 
 function oppositePosition(position: Position): Position {
@@ -48,7 +50,25 @@ function handleId(kind: 'source' | 'target', position: Position): string {
   return `${kind}-${capitalizedPosition}`;
 }
 
+// Formats an XML element/compositor's minOccurs/maxOccurs as a short cardinality
+// label (e.g. "0..1", "1..∞"), collapsing to a single number when min === max.
+// Returns undefined when neither bound is present (nothing to label).
+function formatCardinality(minOccurs: unknown, maxOccurs: unknown): string | undefined {
+  if (minOccurs === undefined && maxOccurs === undefined) return undefined;
+  const min = minOccurs !== undefined && minOccurs !== null ? String(minOccurs) : '1';
+  const maxRaw = maxOccurs !== undefined && maxOccurs !== null ? String(maxOccurs) : '1';
+  const max = maxRaw === 'unbounded' ? '\u221E' : maxRaw;
+  return min === max ? min : `${min}..${max}`;
+}
+
+function isXmlCompositorNode(node: Node<SchemaNodeData>): boolean {
+  const xmlKind = (node.data as any)?.xmlNodeKind as string | undefined;
+  return xmlKind === 'sequence' || xmlKind === 'choice' || xmlKind === 'all';
+}
+
 function estimateNodeWidth(node: Node<SchemaNodeData>): number {
+  // Compositor nodes render only a small icon chip, not a text label.
+  if (isXmlCompositorNode(node)) return 44;
   const label = (node.data?.label as string) || '';
   const CHAR_WIDTH = 8;
   const MIN_WIDTH = 180;
@@ -84,7 +104,7 @@ function attachEdgePositions(edge: Edge, sourceNode: Node<SchemaNodeData>, targe
   if (sourceNode.type === 'root') {
     sourcePosition = Position.Right;
   } else {
-    sourcePosition = positionForDirection(targetCenter.x - sourceCenter.x, targetCenter.y - sourceCenter.y);
+    sourcePosition = positionForDirection(targetCenter.x - sourceCenter.x);
   }
   
   if (targetNode.type === 'root') {
@@ -254,12 +274,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
   const toNodeLabel = React.useCallback((kind: string, attrs: Record<string, unknown> | undefined, fallback: string) => {
     const name = typeof attrs?.name === 'string' ? attrs.name : '';
-    if (name) {
-      // For elements, just return the name without prefix
-      if (kind === 'element') return name;
-      return `${kind}:${name}`;
-    }
-    return fallback;
+    // The node's kind is conveyed via a badge, so the label is just the name.
+    return name || fallback;
   }, []);
 
   const getXmlAttrs = React.useCallback((node: any): Record<string, unknown> => {
@@ -302,10 +318,201 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         position: { x: data.x ?? 0, y: data.y ?? 0 },
       } as Node<SchemaNodeData>);
       if (parentId) {
-        edges.push({ id: `e${parentId}-${id}`, source: parentId, target: id, type: 'default' });
+        const cardinality = formatCardinality(data.xmlMinOccurs, data.xmlMaxOccurs);
+        edges.push({
+          id: `e${parentId}-${id}`,
+          source: parentId,
+          target: id,
+          type: cardinality ? 'cardinality' : 'default',
+          ...(cardinality ? { data: { cardinality } } : {}),
+        } as Edge);
       }
     };
-    
+
+    const XML_COMPOSITOR_TAG_KEYS = ['xs:sequence', 'xs:choice', 'xs:all'] as const;
+    type XmlCompositorTagKey = typeof XML_COMPOSITOR_TAG_KEYS[number];
+
+    // Strips a namespace prefix (e.g. "tns:TreeNode" -> "TreeNode") so element `type`
+    // attributes can be matched against locally-declared complexType names.
+    const localTypeName = (type: string) => (type.includes(':') ? type.split(':').pop()! : type);
+
+    // Looks up whether an element's `type` attribute references a global complexType,
+    // and whether that type has already been expanded once on this branch (circular reference).
+    const resolveElementTypeExpansion = (elemAttrs: Record<string, unknown>, ancestors: Set<string>) => {
+      const rawType = typeof elemAttrs.type === 'string' ? elemAttrs.type : undefined;
+      const typeName = rawType ? localTypeName(rawType) : undefined;
+      const referenced = typeName ? complexTypesByName.get(typeName) : undefined;
+      return { referenced, typeName, circular: Boolean(referenced && typeName && ancestors.has(typeName)) };
+    };
+
+    // Adds an `element` node under `parentId`, recursing into any inline
+    // (anonymous) complexType defined directly on the element (e.g. an
+    // `xs:element` whose type is declared inline rather than referenced by name),
+    // or, failing that, the global complexType named by the element's `type` attribute.
+    // `ancestors` tracks complexType names already expanded on this branch so a type
+    // that (directly or transitively) references itself is expanded once, then stopped
+    // and flagged with an `isRef` badge instead of recursing forever.
+    const addXmlElementNode = (elemEntry: any, parentId: string, elementPath: Array<string | number>, index: number, ancestors: Set<string> = new Set()) => {
+      if (!elemEntry || typeof elemEntry !== 'object') return;
+      const elemAttrs = getXmlAttrs(elemEntry);
+      const elementId = `${parentId}.element_${index}`;
+      const { referenced, typeName, circular } = resolveElementTypeExpansion(elemAttrs, ancestors);
+      addNode({
+        id: elementId,
+        label: toNodeLabel('element', elemAttrs, (elemAttrs.name as string) || (elemAttrs.ref as string) || `${index + 1}`),
+        type: 'property',
+        parent: parentId,
+        xmlNodeKind: 'element',
+        xmlPath: elementPath,
+        xmlName: elemAttrs.name,
+        xmlElementType: elemAttrs.type,
+        xmlMinOccurs: elemAttrs.minOccurs ?? '1',
+        xmlMaxOccurs: elemAttrs.maxOccurs ?? '1',
+        ...(circular ? { isRef: true } : {}),
+      }, parentId);
+
+      const inlineComplexType = (elemEntry as any)['xs:complexType'];
+      if (inlineComplexType && typeof inlineComplexType === 'object') {
+        addInlineComplexTypeChildren(inlineComplexType, elementId, [...elementPath, 'xs:complexType'], ancestors);
+      } else if (referenced && typeName && !circular) {
+        addInlineComplexTypeChildren(referenced.entry, elementId, ['xs:schema', 'xs:complexType', referenced.index], new Set(ancestors).add(typeName));
+      }
+    };
+
+    // Adds the attribute and compositor children found on an inline (anonymous)
+    // complexType, e.g. `<xs:element><xs:complexType>...</xs:complexType></xs:element>`,
+    // or a named complexType being expanded inline under an element that references it by type.
+    // `idSuffix` disambiguates node ids when this function is invoked more than once for the
+    // same `parentId` (currently only happens for `xs:complexContent`/`xs:extension`, where the
+    // base type's own children and the extension's own children are both merged in under the
+    // same parent), so base-type ids don't collide with the extension's own attribute/compositor ids.
+    const addInlineComplexTypeChildren = (complexTypeValue: any, parentId: string, basePath: Array<string | number>, ancestors: Set<string> = new Set(), idSuffix: string = '') => {
+      if (!complexTypeValue || typeof complexTypeValue !== 'object') return;
+
+      // `xs:complexContent` replaces the direct content model with `xs:extension`/`xs:restriction`
+      // of a `base` type: expand the base type's own children first (inherited), then merge in
+      // the attributes/compositor declared directly on the extension/restriction itself.
+      const complexContent = (complexTypeValue as any)['xs:complexContent'];
+      if (complexContent && typeof complexContent === 'object') {
+        const derivationKey = (['xs:extension', 'xs:restriction'] as const).find((key) => (complexContent as any)[key] !== undefined);
+        const derivation = derivationKey ? (complexContent as any)[derivationKey] : undefined;
+        if (derivation && typeof derivation === 'object') {
+          const derivationAttrs = getXmlAttrs(derivation);
+          const rawBase = typeof derivationAttrs.base === 'string' ? derivationAttrs.base : undefined;
+          const baseTypeName = rawBase ? localTypeName(rawBase) : undefined;
+          const baseType = baseTypeName ? complexTypesByName.get(baseTypeName) : undefined;
+          if (baseType && baseTypeName && !ancestors.has(baseTypeName)) {
+            addInlineComplexTypeChildren(baseType.entry, parentId, ['xs:schema', 'xs:complexType', baseType.index], new Set(ancestors).add(baseTypeName), `${idSuffix}.base`);
+          }
+          addInlineComplexTypeChildren(derivation, parentId, [...basePath, 'xs:complexContent', derivationKey!], ancestors, idSuffix);
+        }
+        return;
+      }
+
+      const attributeValue = (complexTypeValue as any)['xs:attribute'];
+      asArray(attributeValue).forEach((attributeEntry, attributeIndex) => {
+        if (!attributeEntry || typeof attributeEntry !== 'object') return;
+        const attributeAttrs = getXmlAttrs(attributeEntry);
+        const attrPath = Array.isArray(attributeValue)
+          ? [...basePath, 'xs:attribute', attributeIndex]
+          : [...basePath, 'xs:attribute'];
+        addNode({
+          id: `${parentId}${idSuffix}.attribute_${attributeIndex}`,
+          label: toNodeLabel('attribute', attributeAttrs, `${attributeIndex + 1}`),
+          type: 'property',
+          parent: parentId,
+          xmlNodeKind: 'attribute',
+          xmlPath: attrPath,
+          xmlName: attributeAttrs.name,
+          xmlAttributeType: attributeAttrs.type,
+          xmlAttributeUse: attributeAttrs.use || 'optional',
+        }, parentId);
+      });
+
+      XML_COMPOSITOR_TAG_KEYS.forEach((compositorKey) => {
+        const compositorValue = (complexTypeValue as any)[compositorKey];
+        if (compositorValue !== undefined && compositorValue !== null) {
+          addCompositorNode(compositorValue, parentId, [...basePath, compositorKey], compositorKey, undefined, ancestors, idSuffix);
+        }
+      });
+    };
+
+    // Adds a compositor node (sequence/choice/all) under `parentId` and recurses
+    // into its own element / nested-compositor children so deeply-nested
+    // content (e.g. a sequence nested inside a choice) renders correctly.
+    const addCompositorNode = (
+      compositorValue: any,
+      parentId: string,
+      path: Array<string | number>,
+      compositorKey: XmlCompositorTagKey,
+      suffixIndex?: number,
+      ancestors: Set<string> = new Set(),
+      idSuffix: string = '',
+    ) => {
+      if (compositorValue === undefined || compositorValue === null) return;
+      const first = Array.isArray(compositorValue) ? compositorValue[0] : compositorValue;
+      if (!first || typeof first !== 'object') return;
+      const compositorAttrs = getXmlAttrs(first);
+      const compositorKind = compositorKey.replace('xs:', '') as 'sequence' | 'choice' | 'all';
+      const compositorId = `${parentId}${idSuffix}.${compositorKind}${suffixIndex !== undefined ? `_${suffixIndex}` : ''}`;
+      addNode({
+        id: compositorId,
+        label: compositorKey,
+        type: 'property',
+        parent: parentId,
+        xmlNodeKind: compositorKind,
+        xmlPath: path,
+        xmlMinOccurs: compositorAttrs.minOccurs ?? '1',
+        xmlMaxOccurs: compositorAttrs.maxOccurs ?? '1',
+      }, parentId);
+
+      addCompositorChildren(compositorValue, compositorId, path, ancestors);
+    };
+
+    // Processes the children living under a compositor's raw value (or a
+    // top-level complexType's compositor). Supports both the flat-array
+    // convention used by this editor's own context-menu "Add element"/"Add
+    // sequence|choice|all" actions, and the tag-keyed shape produced by
+    // parsing real XSD documents (e.g. `{ 'xs:sequence': {...}, 'xs:element': {...} }`).
+    const addCompositorChildren = (containerValue: any, parentId: string, basePath: Array<string | number>, ancestors: Set<string> = new Set()) => {
+      if (!containerValue || typeof containerValue !== 'object') return;
+
+      if (Array.isArray(containerValue)) {
+        containerValue.forEach((item, itemIndex) => {
+          if (!item || typeof item !== 'object') return;
+          const itemPath = [...basePath, itemIndex];
+          const nestedCompositorKey = XML_COMPOSITOR_TAG_KEYS.find((key) => (item as any)[key] !== undefined);
+          if (nestedCompositorKey) {
+            addCompositorNode((item as any)[nestedCompositorKey], parentId, [...itemPath, nestedCompositorKey], nestedCompositorKey, undefined, ancestors);
+            return;
+          }
+          const itemAttrs = getXmlAttrs(item);
+          if (itemAttrs.name || itemAttrs.ref) {
+            addXmlElementNode(item, parentId, itemPath, itemIndex, ancestors);
+          }
+        });
+        return;
+      }
+
+      // Object shape (real XSD-parsed documents): child particles are keyed by tag name.
+      const elementValue = (containerValue as any)['xs:element'];
+      if (elementValue !== undefined && elementValue !== null) {
+        asArray(elementValue).forEach((elemEntry, elemIndex) => {
+          const elementPath = Array.isArray(elementValue)
+            ? [...basePath, 'xs:element', elemIndex]
+            : [...basePath, 'xs:element'];
+          addXmlElementNode(elemEntry, parentId, elementPath, elemIndex, ancestors);
+        });
+      }
+
+      XML_COMPOSITOR_TAG_KEYS.forEach((nestedKey) => {
+        const nestedValue = (containerValue as any)[nestedKey];
+        if (nestedValue !== undefined && nestedValue !== null) {
+          addCompositorNode(nestedValue, parentId, [...basePath, nestedKey], nestedKey, undefined, ancestors);
+        }
+      });
+    };
+
     // Extract all schema attributes generically
     const xmlSchemaNodeData: any = {
       id: '1',
@@ -338,7 +545,16 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     const simpleTypes = asArray((schemaRoot as any)?.['xs:simpleType']);
     const complexTypes = asArray((schemaRoot as any)?.['xs:complexType']);
     const elements = asArray((schemaRoot as any)?.['xs:element']);
-    
+
+    // Name -> definition/index lookup so element `type` attributes can be resolved and
+    // expanded inline (with circular-reference protection via resolveElementTypeExpansion).
+    const complexTypesByName = new Map<string, { entry: any; index: number }>();
+    complexTypes.forEach((ct: any, idx: number) => {
+      if (!ct || typeof ct !== 'object') return;
+      const ctAttrs = getXmlAttrs(ct);
+      if (typeof ctAttrs.name === 'string' && ctAttrs.name) complexTypesByName.set(ctAttrs.name, { entry: ct, index: idx });
+    });
+
     simpleTypes.forEach((entry, index) => {
       if (!entry || typeof entry !== 'object') return;
       const attrs = getXmlAttrs(entry);
@@ -363,7 +579,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
       addNode({
         id: `1.simpleType_${index}`,
-        label: toNodeLabel('simpleType', attrs, `simpleType:${index + 1}`),
+        label: toNodeLabel('simpleType', attrs, `${index + 1}`),
         type: nodeType,
         parent: '1',
         xmlNodeKind: 'simpleType',
@@ -394,7 +610,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       
       addNode({
         id: complexId,
-        label: toNodeLabel('complexType', attrs, `complexType:${index + 1}`),
+        label: toNodeLabel('complexType', attrs, `${index + 1}`),
         type: nodeType,
         parent: '1',
         xmlNodeKind: 'complexType',
@@ -404,100 +620,19 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlIsRef: isGlobalRef,
       }, '1');
 
-      const attributes = asArray((entry as any)['xs:attribute']);
-      attributes.forEach((attributeEntry, attributeIndex) => {
-        if (!attributeEntry || typeof attributeEntry !== 'object') return;
-        const attributeAttrs = getXmlAttrs(attributeEntry);
-        addNode({
-          id: `${complexId}.attribute_${attributeIndex}`,
-          label: toNodeLabel('attribute', attributeAttrs, `attribute:${attributeIndex + 1}`),
-          type: 'property',
-          parent: complexId,
-          xmlNodeKind: 'attribute',
-          xmlPath: ['xs:schema', 'xs:complexType', index, 'xs:attribute', attributeIndex],
-          xmlName: attributeAttrs.name,
-          xmlAttributeType: attributeAttrs.type,
-          xmlAttributeUse: attributeAttrs.use || 'optional',
-        }, complexId);
-      });
-
-      (['xs:sequence', 'xs:choice', 'xs:all'] as const).forEach((compositorKey) => {
-        const compositorValue = (entry as any)[compositorKey];
-        const first = Array.isArray(compositorValue) ? compositorValue[0] : compositorValue;
-        if (!first || typeof first !== 'object') return;
-        const compositorAttrs = getXmlAttrs(first);
-        const compositorKind = compositorKey.replace('xs:', '') as 'sequence' | 'choice' | 'all';
-        const compositorId = `${complexId}.${compositorKind}`;
-        addNode({
-          id: compositorId,
-          label: compositorKey,
-          type: 'property',
-          parent: complexId,
-          xmlNodeKind: compositorKind,
-          xmlPath: ['xs:schema', 'xs:complexType', index, compositorKey],
-          xmlMinOccurs: compositorAttrs.minOccurs ?? '1',
-          xmlMaxOccurs: compositorAttrs.maxOccurs ?? '1',
-        }, complexId);
-
-        // Add nodes for elements and nested compositors within the compositor array
-        const compositorArray = Array.isArray(compositorValue) ? compositorValue : [compositorValue];
-        compositorArray.forEach((compositorItem, itemIndex) => {
-          if (!compositorItem || typeof compositorItem !== 'object') return;
-          // Check if this item is an element
-          const elemAttrs = getXmlAttrs(compositorItem);
-          if (elemAttrs.name) {
-            // It's an element
-            addNode({
-              id: `${compositorId}.element_${itemIndex}`,
-              label: toNodeLabel('element', elemAttrs, (elemAttrs.name as string) || `element:${itemIndex + 1}`),
-              type: 'property',
-              parent: compositorId,
-              xmlNodeKind: 'element',
-              xmlPath: ['xs:schema', 'xs:complexType', index, compositorKey, itemIndex],
-              xmlName: elemAttrs.name,
-              xmlElementType: elemAttrs.type,
-              xmlMinOccurs: elemAttrs.minOccurs ?? '1',
-              xmlMaxOccurs: elemAttrs.maxOccurs ?? '1',
-            }, compositorId);
-          }
-          // Check if this item contains nested compositors
-          (['xs:sequence', 'xs:choice', 'xs:all'] as const).forEach((nestedCompositorKey) => {
-            const nestedValue = compositorItem[nestedCompositorKey];
-            if (nestedValue && typeof nestedValue === 'object') {
-              const nestedAttrs = getXmlAttrs(nestedValue);
-              const nestedKind = nestedCompositorKey.replace('xs:', '') as 'sequence' | 'choice' | 'all';
-              addNode({
-                id: `${compositorId}.${nestedKind}_${itemIndex}`,
-                label: nestedCompositorKey,
-                type: 'property',
-                parent: compositorId,
-                xmlNodeKind: nestedKind,
-                xmlPath: ['xs:schema', 'xs:complexType', index, compositorKey, itemIndex, nestedCompositorKey],
-                xmlMinOccurs: nestedAttrs.minOccurs ?? '1',
-                xmlMaxOccurs: nestedAttrs.maxOccurs ?? '1',
-              }, compositorId);
-            }
-          });
-        });
-      });
+      // Seed the ancestor set with this type's own name so a child element that
+      // references the SAME complexType (a self-reference) is immediately flagged
+      // circular (isRef) rather than expanding one unwanted extra level first. This also
+      // covers `xs:complexContent`/`xs:extension` (e.g. `arrayOfType extends modelType`),
+      // routed through the shared helper so base-type attributes/compositors merge in too.
+      const ownTypeAncestors = typeof attrs.name === 'string' && attrs.name ? new Set([attrs.name]) : new Set<string>();
+      addInlineComplexTypeChildren(entry, complexId, ['xs:schema', 'xs:complexType', index], ownTypeAncestors);
     });
 
-    // elements already extracted above
+    // elements already extracted above; routed through addXmlElementNode so a global
+    // element's `type` attribute can be expanded inline (with circular-ref protection).
     elements.forEach((entry, index) => {
-      if (!entry || typeof entry !== 'object') return;
-      const attrs = getXmlAttrs(entry);
-      addNode({
-        id: `1.element_${index}`,
-        label: toNodeLabel('element', attrs, `element:${index + 1}`),
-        type: 'property',
-        parent: '1',
-        xmlNodeKind: 'element',
-        xmlPath: ['xs:schema', 'xs:element', index],
-        xmlName: attrs.name,
-        xmlElementType: attrs.type,
-        xmlMinOccurs: attrs.minOccurs ?? '1',
-        xmlMaxOccurs: attrs.maxOccurs ?? '1',
-      }, '1');
+      addXmlElementNode(entry, '1', ['xs:schema', 'xs:element', index], index);
     });
 
     // Add top-level attributes to the schema
@@ -507,7 +642,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const attrs = getXmlAttrs(entry);
       addNode({
         id: `1.attribute_${index}`,
-        label: toNodeLabel('attribute', attrs, `attribute:${index + 1}`),
+        label: toNodeLabel('attribute', attrs, `${index + 1}`),
         type: 'property',
         parent: '1',
         xmlNodeKind: 'attribute',
@@ -896,13 +1031,20 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       return undefined;
     }
 
-    function walkSchema(obj: any, parentId?: string, label?: string, x = 0, y = 0, parentRequired?: string[]): string {
+    function walkSchema(obj: any, parentId?: string, label?: string, x = 0, y = 0, parentRequired?: string[], refAncestors: Set<string> = new Set()): string {
       const id = makeId(parentId, label);
+      // Set when a $ref points back to a definition already being expanded on this branch (circular reference).
+      let circularRefPath: string | undefined;
       // Resolve local $ref and oneOf refs that reference definitions within the schema so we can traverse referenced definitions
       const resolveLocalRef = (candidate: any): any => {
         if (!candidate || typeof candidate !== 'object') return candidate;
         // Direct $ref to local definition — resolve and merge
         if (typeof candidate.$ref === 'string' && candidate.$ref.startsWith('#/')) {
+          if (refAncestors.has(candidate.$ref)) {
+            // Already expanded this definition once on this branch — stop here instead of recursing forever.
+            circularRefPath = candidate.$ref;
+            return candidate;
+          }
           const path = candidate.$ref.replace(/^#\//, '').split('/');
           let target: any = schema;
           for (const p of path) {
@@ -920,7 +1062,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         // They are handled by the combiner node creation logic in walkSchema below.
         return candidate;
       };
+      const resolvedRefPath = typeof obj?.$ref === 'string' ? obj.$ref : undefined;
       obj = resolveLocalRef(obj);
+      // Children inherit this ref on their ancestor chain so a repeat of the same $ref further down is caught.
+      const childRefAncestors = (resolvedRefPath && !circularRefPath) ? new Set(refAncestors).add(resolvedRefPath) : refAncestors;
 
       // Normalize type values so we can handle arrays like ['object','null'] and implicit objects/arrays
       const rawType = obj.type;
@@ -951,7 +1096,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       if (Array.isArray(rawType)) nodeData.typeUnion = rawType;
       // Mark nodes that originate from a $ref or external provenance so the UI can show an indicator
       try {
-        if (obj && typeof obj === 'object') {
+        if (circularRefPath) {
+          // Circular $ref: show as a reference stub with its own badge instead of "imported"
+          nodeData.isRef = true;
+          nodeData.$ref = circularRefPath;
+        } else if (obj && typeof obj === 'object') {
           if (typeof obj.$ref === 'string') nodeData.imported = true;
           else if (Array.isArray(obj.allOf) && obj.allOf.some((e: any) => e && typeof e.$ref === 'string')) nodeData.imported = true;
           else if ((obj as any).__from) nodeData.imported = true;
@@ -1031,7 +1180,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         let propY = y - 80;
         if (obj.properties) {
           for (const [key, propSchema] of Object.entries(obj.properties).filter(([k]) => !k.startsWith('__'))) {
-            walkSchema(propSchema, id, key, x + 250, propY, obj.required || []);
+            walkSchema(propSchema, id, key, x + 250, propY, obj.required || [], childRefAncestors);
             propY += 140;
           }
         }
@@ -1040,7 +1189,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           for (const [pat, subschema] of Object.entries(obj.patternProperties)) {
             // Use a deterministic unique label for ID generation but display a concise 'pattern' label on the node
             const patLabelForId = `pattern: ${pat}`;
-            const createdId = walkSchema(subschema, id, patLabelForId, x + 250, propY, obj.required || []);
+            const createdId = walkSchema(subschema, id, patLabelForId, x + 250, propY, obj.required || [], childRefAncestors);
             // Attach the raw pattern key to the node data so we can round-trip back to schema.patternProperties and show it in the RHS editor
             const createdNode = nodes.find(n => n.id === createdId);
             if (createdNode) {
@@ -1058,7 +1207,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
             ...(obj.additionalProperties as Record<string, unknown>),
             __autoExpandVariants: true,
           } as Record<string, unknown>;
-          const additionalId = walkSchema(additionalPropertiesSchema, id, 'additionalProperties', x + 250, propY, obj.required || []);
+          const additionalId = walkSchema(additionalPropertiesSchema, id, 'additionalProperties', x + 250, propY, obj.required || [], childRefAncestors);
           const additionalNode = nodes.find(n => n.id === additionalId);
           if (additionalNode) {
             (additionalNode.data as any).isAdditionalProperties = true;
@@ -1070,7 +1219,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       if (type === 'array' && obj.items && ((Array.isArray(obj.items.type) && obj.items.type.includes('object')) || obj.items.type === 'object' || obj.items.properties)) {
         let propY = y - 80;
         for (const [key, propSchema] of Object.entries(obj.items.properties || {}).filter(([k]) => !k.startsWith('__'))) {
-          walkSchema(propSchema, id, key, x + 250, propY, obj.items.required || []);
+          walkSchema(propSchema, id, key, x + 250, propY, obj.items.required || [], childRefAncestors);
           propY += 140;
         }
       }
@@ -1173,6 +1322,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     const H_PADDING = 40;
 
     const estimateWidth = (n: Node<SchemaNodeData>) => {
+      // Compositor nodes render only a small icon chip, not a text label.
+      if (isXmlCompositorNode(n)) return 44;
       const lbl = (n.data && (n.data.label as string)) || '';
       // Combiner/variant nodes render fit-content and are compact; use a smaller minimum.
       const minW = (n.type === 'combiner' || n.type === 'variant') ? 80 : MIN_WIDTH;
@@ -3244,6 +3395,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
                   onEdgesChange={handleEdgesChange}
                   onConnect={onConnect}
                   nodeTypes={nodeTypes}
+                  edgeTypes={edgeTypes}
                   onInit={(instance) => {
                     reactFlowInstanceRef.current = instance;
                   }}

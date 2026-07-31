@@ -151,6 +151,16 @@
 .columnName { flex: 1; }
 .columnType { color: var(--erd-subtitle); font-size: 11px; }
 .navigationList div { padding: 2px 14px; }
+.navigationItem { cursor: pointer; border-radius: 3px; }
+.navigationItem:hover { background: color-mix(in srgb, var(--erd-section-bg) 60%, transparent); }
+.navigationItem:focus-visible { outline: 2px solid var(--erd-node-header-bg); outline-offset: -2px; }
+.navigationItemHighlighted { background: var(--erd-section-bg); font-weight: 700; animation: navigationHighlightFlash 1.6s ease-out; }
+
+@keyframes navigationHighlightFlash {
+  0% { background: var(--erd-node-header-bg); }
+  100% { background: var(--erd-section-bg); }
+}
+
 .handle { width: 8px; height: 8px; border: 1px solid var(--erd-node-border); background: var(--erd-node-bg); }
 
 @media print {

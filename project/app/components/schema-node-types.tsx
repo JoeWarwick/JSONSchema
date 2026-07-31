@@ -1,6 +1,6 @@
 import React from 'react';
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip/tooltip";
-import { AlertCircle, FileText, Link2, Loader2, Regex, Trash2 } from "lucide-react";
+import { AlertCircle, FileText, GitFork, Link2, ListOrdered, Loader2, Regex, Shuffle, Trash2 } from "lucide-react";
 
 // Inline fork SVGs — stem left, branches right
 const ForkIconOneOf = () => (
@@ -61,6 +61,28 @@ const COMBINER_ICONS: Record<string, React.FC> = {
   allOf: ForkIconAllOf,
 };
 
+// XSD compositor (sequence/choice/all) icon + tooltip + color scheme — shown
+// in place of the node label so these compact nodes stay short.
+const XML_COMPOSITOR_ICONS: Record<string, React.FC<{ size?: number }>> = {
+  sequence: ListOrdered,
+  choice: GitFork,
+  all: Shuffle,
+};
+
+const XML_COMPOSITOR_TITLES: Record<string, string> = {
+  sequence: 'sequence — children occur in this exact order',
+  choice: 'choice — exactly one child occurs',
+  all: 'all — every child occurs, in any order',
+};
+
+// Inverted relative to the node's own light background: a light chip with a
+// dark, kind-specific foreground icon.
+const XML_COMPOSITOR_STYLES: Record<string, { bg: string; color: string }> = {
+  sequence: { bg: '#e0e7ff', color: '#3730a3' },
+  choice: { bg: '#fae8ff', color: '#86198f' },
+  all: { bg: '#d1fae5', color: '#065f46' },
+};
+
 const COMBINER_LABELS: Record<string, string> = {
   oneOf: 'oneOf',
   anyOf: 'anyOf',
@@ -72,8 +94,8 @@ const COMBINER_TITLES: Record<string, string> = {
   anyOf: 'anyOf — one or more must match',
   allOf: 'allOf — all must match',
 };
-import { Handle, Position } from "reactflow";
-import type { Edge, Node } from "reactflow"
+import { Handle, Position, BaseEdge, EdgeLabelRenderer, getBezierPath } from "reactflow";
+import type { Edge, EdgeProps, Node } from "reactflow"
 import type { SchemaNodeData } from "./schema-behaviors";
 import styles from "./graphical-schema-editor.module.css";
 import { renderTooltipContentChildren } from './tooltip-utils';
@@ -212,6 +234,8 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
   const { label, required } = data;
   const isPattern = Boolean((data as any).patternKey);
   const badges = buildBadges(data);
+  const compositorKind = (data as any).xmlNodeKind as string | undefined;
+  const CompositorIcon = compositorKind ? XML_COMPOSITOR_ICONS[compositorKind] : undefined;
   
   // In XML mode, filter out the 'property' type badge (internal node type, not useful for display)
   const isXmlMode = Boolean((data as any).xmlNodeKind);
@@ -223,9 +247,10 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
       background: isPattern ? undefined : 'var(--graph-node-bg)',
       border: '2px solid var(--graph-node-border)',
       borderRadius: 8,
-      padding: '7px 14px',
+      // Compositor nodes render only an icon, so shrink the box to fit it instead of the default text minWidth.
+      padding: CompositorIcon ? '4px 6px' : '7px 14px',
       marginBottom: 12,
-      minWidth: 180,
+      minWidth: CompositorIcon ? 'fit-content' : 180,
       boxShadow: 'var(--graph-node-shadow)',
       textAlign: 'left',
       position: 'relative',
@@ -242,7 +267,30 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
             <TooltipContent>Required property</TooltipContent>
           </Tooltip>
         )}
-        {label}
+        {CompositorIcon ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                aria-label={`${compositorKind} compositor`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 24,
+                  height: 24,
+                  borderRadius: 6,
+                  verticalAlign: 'middle',
+                  cursor: 'help',
+                  background: XML_COMPOSITOR_STYLES[compositorKind as string].bg,
+                  color: XML_COMPOSITOR_STYLES[compositorKind as string].color,
+                }}
+              >
+                <CompositorIcon size={14} />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{XML_COMPOSITOR_TITLES[compositorKind as string]}</TooltipContent>
+          </Tooltip>
+        ) : label}
         {data.imported && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -566,6 +614,41 @@ export const VariantNode = ({ data }: { data: any }) => {
   );
 };
 
+// Edge that renders a small cardinality label (minOccurs/maxOccurs) beside its
+// target node's incoming handle, e.g. "0..1", "1..∞" — used for XML element/
+// compositor edges where `data.cardinality` is set.
+export const CardinalityEdge = ({
+  id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, markerEnd, data,
+}: EdgeProps) => {
+  const [edgePath] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  const cardinality = (data as any)?.cardinality as string | undefined;
+
+  // Nudge the label out from the target node's connecting side, toward the edge.
+  const LABEL_OFFSET = 20;
+  let labelX = targetX;
+  let labelY = targetY;
+  if (targetPosition === Position.Left) labelX = targetX - LABEL_OFFSET;
+  else if (targetPosition === Position.Right) labelX = targetX + LABEL_OFFSET;
+  else if (targetPosition === Position.Top) labelY = targetY - LABEL_OFFSET;
+  else labelY = targetY + LABEL_OFFSET;
+
+  return (
+    <>
+      <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} />
+      {cardinality && (
+        <EdgeLabelRenderer>
+          <div
+            className={styles.cardinalityLabel}
+            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
+          >
+            {cardinality}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+};
+
 // Define nodeTypes
 export const nodeTypes: { [key: string]: React.FC<any> } = {
   root: RootNode,
@@ -576,6 +659,11 @@ export const nodeTypes: { [key: string]: React.FC<any> } = {
   variant: VariantNode,
   propertiesGroup: PropertiesGroupNode,
   itemsGroup: ItemsGroupNode,
+};
+
+// Define edgeTypes
+export const edgeTypes: { [key: string]: React.FC<any> } = {
+  cardinality: CardinalityEdge,
 };
 
 // Only define a root node as needed (empty schema)

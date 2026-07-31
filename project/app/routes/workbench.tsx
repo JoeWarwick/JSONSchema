@@ -32,6 +32,9 @@ import { SchemaEditorForm } from "~/components/schema-editor-form";
 import { GraphicalSchemaEditor } from "~/components/graphical-schema-editor";
 import { ErdEditor } from "~/components/erd-editor";
 import type { ErdModel } from "~/types/erd";
+import { parseDbContextFiles } from "~/utils/csharp-dbcontext-parser";
+import { generateDbContextCSharp } from "~/utils/csharp-dbcontext-generator";
+import { generateErdSql } from "~/utils/sql-schema-generator";
 
 export function meta() {
   return [
@@ -47,6 +50,7 @@ const STORAGE_KEY = 'schema-sculptor-schema';
 const INSTANCE_STORAGE_KEY = 'schema-sculptor-instance';
 const DEREF_COMPLETE_STORAGE_KEY = 'schema-sculptor-deref-complete';
 const DEREF_ERROR_STORAGE_KEY = 'schema-sculptor-deref-error';
+const ERD_STORAGE_KEY = 'schema-sculptor-erd';
 
 // Language-specific storage keys for preserving markup across language switches
 const getLanguageInstanceKey = (lang: MarkupLanguage) => `schema-sculptor-instance-${lang}`;
@@ -104,6 +108,7 @@ export default function Workbench() {
   const [instanceData, setInstanceData] = useState<unknown>(null);
   const [jsonInput, setJsonInput] = useState('');
   const [hasHydratedPersistedState, setHasHydratedPersistedState] = useState(false);
+  const [erdModel, setErdModel] = useState<ErdModel | null>(null);
   
   // Move hydration to useEffect to avoid synchronous storage access during render
   // Use setTimeout to defer until next macrotask so test's render() doesn't detect storage access
@@ -173,6 +178,17 @@ export default function Workbench() {
             // ignore
           }
         }
+
+        // 5. Load ERD model from localStorage
+        try {
+          const savedErdJson = window.localStorage.getItem(ERD_STORAGE_KEY);
+          if (savedErdJson) {
+            const parsedErd = JSON.parse(savedErdJson) as ErdModel;
+            setErdModel(parsedErd);
+          }
+        } catch (err) {
+          console.error('Failed to parse persisted ERD model:', err);
+        }
       } catch (_) {
         // ignore
       } finally {
@@ -194,6 +210,7 @@ export default function Workbench() {
   const [isLoadingSchemaUrl, setIsLoadingSchemaUrl] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const schemaFileInputRef = useRef<HTMLInputElement>(null);
+  const erdFileInputRef = useRef<HTMLInputElement>(null);
   const [compactJsonView, setCompactJsonView] = useState<boolean>(false);
   const [markupLanguage, setMarkupLanguageState] = useState<MarkupLanguage>('json');
   const [showMarkupUrlDialog, setShowMarkupUrlDialog] = useState(false);
@@ -365,6 +382,25 @@ export default function Workbench() {
       }
     }
   }, [jsonInput, instanceData, markupLanguage, hasHydratedPersistedState]);
+
+  // Auto-save ERD model to localStorage whenever it changes
+  useEffect(() => {
+    if (typeof window === 'undefined' || !hasHydratedPersistedState) return;
+    
+    if (erdModel) {
+      try {
+        localStorage.setItem(ERD_STORAGE_KEY, JSON.stringify(erdModel));
+      } catch (err) {
+        console.error('Failed to save ERD model:', err);
+      }
+    } else {
+      try {
+        localStorage.removeItem(ERD_STORAGE_KEY);
+      } catch (err) {
+        console.error('Failed to clear ERD model from storage:', err);
+      }
+    }
+  }, [erdModel, hasHydratedPersistedState]);
 
   /**
    * Clear all variant storage when loading a fresh JSON document
@@ -751,9 +787,59 @@ export default function Workbench() {
     }
   };
 
+  // ERD handlers
+  const handleErdFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+    try {
+      const sourceFiles = await Promise.all(files.map(async (file) => ({
+        name: file.name,
+        content: await file.text(),
+      })));
+      setErdModel(parseDbContextFiles(sourceFiles));
+      setActiveTab('erd');
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? `Failed to read C# files: ${err.message}` : 'Failed to read C# files');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const handleExportErd = () => {
+    if (!erdModel) return;
+    const blob = new Blob([generateDbContextCSharp(erdModel)], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'generated-erd.cs';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportSql = () => {
+    if (!erdModel) return;
+    const blob = new Blob([generateErdSql(erdModel)], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'generated-schema.sql';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleNewErd = () => {
+    setErdModel({
+      tables: [],
+      relationships: [],
+      sourceFiles: [],
+      diagnostics: [],
+    });
+    setActiveTab('erd');
+  };
+
   // Tabbed UI state
   const [activeTab, setActiveTab] = useState<'json' | 'schema' | 'instance' | 'output' | 'graph' | 'erd'>('json');
-  const [erdModel, setErdModel] = useState<ErdModel>({ tables: [], relationships: [], sourceFiles: [], diagnostics: [] });
 
   // Debug: record tab changes and resolved/source swap events for E2E/manual debugging
   useEffect(() => {
@@ -853,6 +939,7 @@ export default function Workbench() {
       {/* Hidden file inputs — top-level so menu items can trigger them from any active tab */}
       <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept={acceptAttr(markupLanguage)} style={{ display: 'none' }} />
       <input type="file" ref={schemaFileInputRef} onChange={handleSchemaFileUpload} accept=".json,.xml,.xsd,.yaml,.yml,application/json,application/xml" style={{ display: 'none' }} />
+      <input type="file" ref={erdFileInputRef} onChange={handleErdFileUpload} accept=".cs,text/plain" multiple style={{ display: 'none' }} />
 
       {/* ── App menu bar ────────────────────────────────────────────── */}
       <div className={styles.menuBar}>
@@ -955,6 +1042,30 @@ export default function Workbench() {
               </MenubarContent>
             </MenubarMenu>
           )}
+
+          {/* Entity Relationship Diagram operations */}
+          <MenubarMenu>
+            <MenubarTrigger>ERD</MenubarTrigger>
+            <MenubarContent>
+              <MenubarItem onSelect={handleNewErd}>
+                <FileUp size={14} style={{ marginRight: 6 }} />
+                New Entity Diagram
+              </MenubarItem>
+              <MenubarItem onSelect={() => erdFileInputRef.current?.click()}>
+                <FileUp size={14} style={{ marginRight: 6 }} />
+                Open DbContext files&hellip;
+              </MenubarItem>
+              <MenubarSeparator />
+              <MenubarItem onSelect={handleExportErd} disabled={!erdModel}>
+                <Download size={14} style={{ marginRight: 6 }} />
+                Export C#
+              </MenubarItem>
+              <MenubarItem onSelect={handleExportSql} disabled={!erdModel}>
+                <Download size={14} style={{ marginRight: 6 }} />
+                Export SQL
+              </MenubarItem>
+            </MenubarContent>
+          </MenubarMenu>
 
           {/* About */}
           <MenubarMenu>
@@ -1062,7 +1173,7 @@ export default function Workbench() {
         <button className={activeTab === 'erd' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('erd')}>ERD</button>
       </div>
 
-      <div className={`${styles.tabPanel}${activeTab === 'graph' ? ` ${styles.tabPanelFlush}` : ''}`}>
+      <div className={`${styles.tabPanel}${activeTab === 'graph' ? ` ${styles.tabPanelFlush}` : ''}${activeTab === 'erd' ? ` ${styles.tabPanelFlush}` : ''}`}>
         {activeTab === 'graph' && (
           <>
             {editorSchema ? (
@@ -1340,19 +1451,14 @@ export default function Workbench() {
           </div>
         )}
         {activeTab === 'erd' && (
-          <div className={styles.panel}>
-            <div className={styles.panelHeader}>
-              <h2 className={styles.panelTitle}>Entity Relationship Diagram</h2>
-            </div>
-            <div className={styles.editorContainer}>
-              <ErdEditor
-                model={erdModel}
-                onChange={(newModel) => {
-                  setErdModel(newModel);
-                }}
-              />
-            </div>
-          </div>
+          erdModel ? (
+            <ErdEditor
+              model={erdModel}
+              onChange={setErdModel}
+            />
+          ) : (
+            <div className={styles.emptyState}>Open one or more DbContext C# files to create an ERD.</div>
+          )
         )}
       </div>
     </div>

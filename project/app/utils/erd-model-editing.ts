@@ -508,3 +508,35 @@ export function updateErdRelationship(model: ErdModel, relationshipId: string, u
 export function relatedRelationships(model: ErdModel, tableId: string): ErdRelationship[] {
   return model.relationships.filter((relationship) => relationship.principalTable === tableId || relationship.dependentTable === tableId);
 }
+
+export interface ErdNavigationFocusTarget {
+  /** The entity the navigation property points at. */
+  targetTableId: string;
+  /** The navigation property on the target entity that points back to the source entity, if any. */
+  counterpartNavigationName?: string;
+  /** True when the clicked navigation is a single-valued (reference) property rather than a collection. */
+  isReference: boolean;
+}
+
+/**
+ * Resolves what clicking a navigation property should focus on: the reverse ("rhs") navigation
+ * property item on the target entity, or the target entity as a whole when the clicked navigation
+ * is a reference (single-valued) property.
+ */
+export function resolveNavigationFocusTarget(model: ErdModel, tableId: string, navigation: ErdNavigation): ErdNavigationFocusTarget {
+  const relationship = model.relationships.find((rel) => {
+    if (rel.dependentTable === tableId && rel.principalTable === navigation.targetTable && rel.dependentNavigation === navigation.name) return true;
+    if (rel.principalTable === tableId && rel.dependentTable === navigation.targetTable && rel.principalNavigation === navigation.name) return true;
+    return false;
+  });
+
+  const counterpartNavigationName = relationship
+    ? (relationship.dependentTable === tableId ? relationship.principalNavigation : relationship.dependentNavigation)
+    : undefined;
+
+  return {
+    targetTableId: navigation.targetTable,
+    counterpartNavigationName,
+    isReference: navigation.cardinality !== 'many',
+  };
+}

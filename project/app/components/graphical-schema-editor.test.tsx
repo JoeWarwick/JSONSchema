@@ -1573,3 +1573,58 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     expect(maxPropsAction).toBeInTheDocument();
   });
 });
+
+describe('GraphicalSchemaEditor - circular $ref handling', () => {
+  it('stops expanding a self-referential $ref after one level and shows an isRef badge', async () => {
+    const testSchema = {
+      type: 'object',
+      definitions: {
+        node: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            child: { $ref: '#/definitions/node' },
+          },
+        },
+      },
+      properties: {
+        root: { $ref: '#/definitions/node' },
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => {}} />);
+
+    // First level expands normally: root -> name, child
+    await screen.findByText('root');
+    await screen.findByText('name');
+    const childNode = await screen.findByText('child');
+
+    // The circular re-encounter of the same $ref is stopped and flagged with an isRef badge
+    expect(await screen.findByText('isRef')).toBeInTheDocument();
+
+    // The stopped node must not itself expand into another nested "name"/"child" pair
+    expect(screen.getAllByText('name')).toHaveLength(1);
+    expect(screen.getAllByText('child')).toHaveLength(1);
+    expect(childNode).toBeInTheDocument();
+  });
+
+  it('does not infinitely recurse for mutually-referential definitions', async () => {
+    const testSchema = {
+      type: 'object',
+      definitions: {
+        a: { type: 'object', properties: { b: { $ref: '#/definitions/b' } } },
+        b: { type: 'object', properties: { a: { $ref: '#/definitions/a' } } },
+      },
+      properties: {
+        start: { $ref: '#/definitions/a' },
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={testSchema} onChange={() => {}} />);
+
+    await screen.findByText('start');
+    await screen.findByText('b');
+    await screen.findByText('a');
+    expect(await screen.findByText('isRef')).toBeInTheDocument();
+  });
+});

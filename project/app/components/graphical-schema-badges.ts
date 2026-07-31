@@ -64,6 +64,19 @@ export const BADGE_DEFS: Record<string, BadgeDef> = {
     color: '#7b4397',
     badgeVisible: true,
   },
+  isRef: {
+    key: 'isRef',
+    condition: (d: any) => !!d.isRef,
+    label: () => 'isRef',
+    tooltip: (d: any) => {
+      const ref = d.$ref || d.xmlElementType;
+      return ref ? `Circular reference to ${ref} \u2014 not expanded further` : 'Circular reference \u2014 not expanded further';
+    },
+    variant: 'isRef',
+    bg: '#fdecea',
+    color: '#c0392b',
+    badgeVisible: true,
+  },
   minLength: {
     key: 'minLength',
     condition: (d: any) => d.minLength !== undefined,
@@ -114,8 +127,25 @@ import React from 'react';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip/tooltip';
 import styles from './graphical-schema-editor.module.css';
 
+// Colors for the XML schema node-kind badge (element/attribute/simpleType/complexType).
+const XML_KIND_STYLES: Record<string, { bg: string; color: string }> = {
+  element: { bg: '#e3f2fd', color: '#1565c0' },
+  attribute: { bg: '#fff3e0', color: '#e65100' },
+  simpleType: { bg: '#e8f5e9', color: '#2e7d32' },
+  complexType: { bg: '#f3e8ff', color: '#7b1fa2' },
+};
+
 export const buildBadges = (data: any) => {
   const badges: Array<any> = [];
+  if (BADGE_DEFS.isRef.condition(data)) {
+    const def = BADGE_DEFS.isRef;
+    badges.push({ key: def.key, label: def.label(data), tooltip: def.tooltip && def.tooltip(data), variant: def.variant, bg: def.bg, color: def.color });
+  }
+  const xmlKind = typeof data.xmlNodeKind === 'string' ? data.xmlNodeKind : undefined;
+  if (xmlKind && XML_KIND_STYLES[xmlKind]) {
+    const { bg, color } = XML_KIND_STYLES[xmlKind];
+    badges.push({ key: 'xmlKind', label: xmlKind, variant: 'xmlKind', bg, color });
+  }
   if (BADGE_DEFS.typeUnion.condition(data)) {
     const def = BADGE_DEFS.typeUnion;
     badges.push({ key: def.key, label: def.label(data), tooltip: def.tooltip && def.tooltip(data), variant: def.variant, bg: def.bg, color: def.color });

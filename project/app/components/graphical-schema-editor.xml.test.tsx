@@ -47,7 +47,7 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
 
     render(<GraphicalSchemaEditor schema={schema} schemaLanguage="xml" onChange={() => {}} />);
 
-    fireEvent.click(await screen.findByText('simpleType:StatusCode'));
+    fireEvent.click(await screen.findByText('StatusCode'));
 
     expect(await screen.findByText('SimpleType Editor')).toBeInTheDocument();
     expect(screen.getByLabelText('SimpleType Name')).toHaveValue('StatusCode');
@@ -86,7 +86,7 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
 
     render(<StatefulXmlEditor />);
 
-    const complexTypeNodeLabel = await screen.findByText('complexType:PersonType');
+    const complexTypeNodeLabel = await screen.findByText('PersonType');
     fireEvent.contextMenu(complexTypeNodeLabel);
     fireEvent.click(await screen.findByRole('button', { name: 'Add sequence' }));
 
@@ -155,7 +155,7 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
 
     render(<StatefulXmlEditor />);
 
-    const complexTypeNodeLabel = await screen.findByText('complexType:AccountType');
+    const complexTypeNodeLabel = await screen.findByText('AccountType');
     fireEvent.contextMenu(complexTypeNodeLabel);
     fireEvent.click(await screen.findByRole('button', { name: `Add ${kind}` }));
 
@@ -219,7 +219,7 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
 
     render(<StatefulXmlEditor />);
 
-    fireEvent.click(await screen.findByText('simpleType:TokenList'));
+    fireEvent.click(await screen.findByText('TokenList'));
     const modeSelect = await screen.findByLabelText('SimpleType Mode');
 
     await waitFor(() => {
@@ -301,9 +301,9 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
 
     render(<GraphicalSchemaEditor schema={schema} schemaLanguage="xml" onChange={() => {}} />);
 
-    // Verify compositor node is rendered
+    // Verify compositor node is rendered (label shown as an icon with a tooltip)
     await waitFor(() => {
-      expect(screen.getByText('xs:sequence')).toBeInTheDocument();
+      expect(screen.getByLabelText('sequence compositor')).toBeInTheDocument();
     });
 
     // Verify element nodes are rendered
@@ -343,8 +343,8 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
 
     render(<StatefulXmlEditor />);
 
-    // Find and right-click the compositor node
-    const compositorNode = await screen.findByText('xs:sequence');
+    // Find and right-click the compositor node (label shown as an icon with a tooltip)
+    const compositorNode = await screen.findByLabelText('sequence compositor');
     fireEvent.contextMenu(compositorNode);
 
     // Click "Add element"
@@ -391,8 +391,8 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
 
     render(<StatefulXmlEditor />);
 
-    // Find and right-click the compositor node
-    const compositorNode = await screen.findByText('xs:sequence');
+    // Find and right-click the compositor node (label shown as an icon with a tooltip)
+    const compositorNode = await screen.findByLabelText('sequence compositor');
     fireEvent.contextMenu(compositorNode);
 
     // Click "Add choice" to add nested compositor
@@ -567,7 +567,7 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     render(<StatefulXmlEditor />);
 
     // Click on the complexType node
-    const complexTypeNode = await screen.findByText('complexType:PersonType');
+    const complexTypeNode = await screen.findByText('PersonType');
     fireEvent.click(complexTypeNode);
 
     // Verify the complexType editor is shown
@@ -665,7 +665,7 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     render(<StatefulXmlEditor />);
 
     // Click on the simpleType node to open its editor
-    fireEvent.click(await screen.findByText('simpleType:StatusCode'));
+    fireEvent.click(await screen.findByText('StatusCode'));
 
     // Verify the SimpleType Editor is shown
     expect(await screen.findByText('SimpleType Editor')).toBeInTheDocument();
@@ -737,6 +737,81 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     // Verify the attributeFormDefault is set correctly
     const attributeFormSelect = await screen.findByLabelText('Attribute Form Default') as HTMLSelectElement;
     expect(attributeFormSelect.value).toBe(attributeFormDefault);
+  });
+});
+
+describe('GraphicalSchemaEditor - XML circular type-reference handling', () => {
+  beforeEach(() => {
+    delete (globalThis as any).__graphicalSchemaExpansionState;
+  });
+
+  it('expands a global element\'s named type one level and stops a self-referential child with an isRef badge', async () => {
+    const schema = {
+      'xs:schema': {
+        'xs:complexType': [
+          {
+            '@attributes': { name: 'TreeNode' },
+            'xs:sequence': {
+              'xs:element': {
+                '@attributes': { name: 'child', type: 'TreeNode', minOccurs: '0', maxOccurs: 'unbounded' },
+              },
+            },
+          },
+        ],
+        'xs:element': [
+          { '@attributes': { name: 'root', type: 'TreeNode' } },
+        ],
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={schema} schemaLanguage="xml" onChange={() => {}} />);
+
+    // The global element expands its named type inline: root -> sequence -> child.
+    // The TreeNode complexType's own flat definition also renders its own "child" element,
+    // so "child" appears twice (once per rendered tree) — both stopped immediately since
+    // they reference the same TreeNode type that's already being expanded.
+    await screen.findByText('root');
+    await waitFor(() => {
+      expect(screen.getAllByText('child')).toHaveLength(2);
+    });
+
+    // Every self-referential "child" (type="TreeNode") is stopped and flagged with an isRef badge
+    const isRefBadges = await screen.findAllByText('isRef');
+    expect(isRefBadges.length).toBe(2);
+  });
+
+  it('does not infinitely recurse for mutually-referential complexTypes', async () => {
+    const schema = {
+      'xs:schema': {
+        'xs:complexType': [
+          {
+            '@attributes': { name: 'A' },
+            'xs:sequence': {
+              'xs:element': { '@attributes': { name: 'toB', type: 'B' } },
+            },
+          },
+          {
+            '@attributes': { name: 'B' },
+            'xs:sequence': {
+              'xs:element': { '@attributes': { name: 'toA', type: 'A' } },
+            },
+          },
+        ],
+        'xs:element': [
+          { '@attributes': { name: 'start', type: 'A' } },
+        ],
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={schema} schemaLanguage="xml" onChange={() => {}} />);
+
+    await screen.findByText('start');
+    await waitFor(() => {
+      expect(screen.getAllByText('toB').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('toA').length).toBeGreaterThan(0);
+    });
+    // Mutual A <-> B recursion terminates and at least one side is flagged circular.
+    expect((await screen.findAllByText('isRef')).length).toBeGreaterThan(0);
   });
 });
 

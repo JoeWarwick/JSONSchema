@@ -1,10 +1,10 @@
 import React from 'react';
-import ReactFlow, { Background, Controls, ReactFlowProvider, useEdgesState, useNodesState } from 'reactflow';
+import ReactFlow, { Background, Controls, ReactFlowProvider, useEdgesState, useNodesState, useReactFlow } from 'reactflow';
 import type { Node } from 'reactflow';
 import { ChevronDown, Printer, Trash2 } from 'lucide-react';
-import type { ErdModel } from '../types/erd';
-import { erdModelToGraph, type ErdTableNodeData } from '../utils/erd-graph';
-import { addErdRelationship, addErdTable, addErdTableColumn, deleteErdRelationship, deleteErdTable, deleteErdTableColumn, normalizeErdModel, reorderErdTableColumns, renameErdTable, relatedRelationships, updateErdRelationship, updateErdTableColumn } from '../utils/erd-model-editing';
+import type { ErdModel, ErdNavigation } from '../types/erd';
+import { erdModelToGraph, tableHeight, tableWidth, type ErdTableNodeData } from '../utils/erd-graph';
+import { addErdRelationship, addErdTable, addErdTableColumn, deleteErdRelationship, deleteErdTable, deleteErdTableColumn, normalizeErdModel, reorderErdTableColumns, renameErdTable, relatedRelationships, resolveNavigationFocusTarget, updateErdRelationship, updateErdTableColumn } from '../utils/erd-model-editing';
 import { printErdModel } from '../utils/print-erd';
 import { erdNodeTypes } from './erd-node-types';
 import { HorizontalSplitPane } from './ui/split-pane';
@@ -23,6 +23,27 @@ function isTimestampColumnType(type: string): boolean {
   return ['DateTime', 'DateTimeOffset'].includes(type.replace(/\?$/, ''));
 }
 
+interface ErdFocusRequest {
+  tableId: string;
+  token: number;
+}
+
+/** Lives inside ReactFlowProvider so it can pan/zoom the canvas to center on a focused entity. */
+function ErdFocusController({ focusRequest }: { focusRequest: ErdFocusRequest | null }) {
+  const { getNode, setCenter } = useReactFlow();
+
+  React.useEffect(() => {
+    if (!focusRequest) return;
+    const node = getNode(focusRequest.tableId) as Node<ErdTableNodeData> | undefined;
+    if (!node) return;
+    const width = node.width ?? tableWidth(node.data.table);
+    const height = node.height ?? tableHeight(node.data.table);
+    setCenter(node.position.x + width / 2, node.position.y + height / 2, { zoom: 1, duration: 500 });
+  }, [focusRequest, getNode, setCenter]);
+
+  return null;
+}
+
 export interface ErdEditorProps {
   model: ErdModel;
   onChange?: (model: ErdModel) => void;
@@ -36,6 +57,9 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
   const [selectedTableId, setSelectedTableId] = React.useState<string | null>(null);
   const [draggedColumnName, setDraggedColumnName] = React.useState<string | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = React.useState(false);
+  const [focusedNavigation, setFocusedNavigation] = React.useState<{ tableId: string; navigationName: string } | null>(null);
+  const [focusRequest, setFocusRequest] = React.useState<ErdFocusRequest | null>(null);
+  const focusTokenRef = React.useRef(0);
   const selectedTable = normalizedModel.tables.find((table) => table.id === selectedTableId);
   const tableRelationships = React.useMemo(() => selectedTable ? relatedRelationships(normalizedModel, selectedTable.id) : [], [normalizedModel, selectedTable]);
 
@@ -47,11 +71,41 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
     setEdges(graph.edges);
   }, [graph.edges, setEdges]);
 
+  // Briefly flash the target navigation property item, then clear the highlight.
+  React.useEffect(() => {
+    if (!focusedNavigation) return;
+    const timer = window.setTimeout(() => setFocusedNavigation(null), 1600);
+    return () => window.clearTimeout(timer);
+  }, [focusedNavigation]);
+
+  const handleNavigationClick = (sourceTableId: string, navigation: ErdNavigation) => {
+    const target = resolveNavigationFocusTarget(normalizedModel, sourceTableId, navigation);
+    setSelectedTableId(target.targetTableId);
+    setFocusedNavigation(
+      !target.isReference && target.counterpartNavigationName
+        ? { tableId: target.targetTableId, navigationName: target.counterpartNavigationName }
+        : null,
+    );
+    focusTokenRef.current += 1;
+    setFocusRequest({ tableId: target.targetTableId, token: focusTokenRef.current });
+  };
+
+  // Inject the per-node click handler and highlight state without recomputing the layout.
+  const displayNodes = React.useMemo(() => nodes.map((node) => ({
+    ...node,
+    data: {
+      ...node.data,
+      onNavigationClick: (navigation: ErdNavigation) => handleNavigationClick(node.id, navigation),
+      highlightedNavigationName: focusedNavigation?.tableId === node.id ? focusedNavigation.navigationName : undefined,
+    },
+  })), [nodes, focusedNavigation, normalizedModel]);
+
   const commitModel = (nextModel: ErdModel) => {
     onChange?.(nextModel);
   };
 
   const addSelectedTable = () => {
+
     const { model: nextModel, tableId } = addErdTable(normalizedModel);
     setSelectedTableId(tableId);
     commitModel(nextModel);
@@ -131,7 +185,7 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
         <div className={styles.flow}>
           <ReactFlowProvider>
             <ReactFlow
-              nodes={nodes}
+              nodes={displayNodes}
               edges={edges}
               nodeTypes={erdNodeTypes}
               fitView
@@ -152,6 +206,7 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
             >
               <Controls />
               <Background />
+              <ErdFocusController focusRequest={focusRequest} />
             </ReactFlow>
           </ReactFlowProvider>
         </div>
