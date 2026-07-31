@@ -332,7 +332,11 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
             // JSON Schema properties
             'label', 'id', 'parent', 'type', 'ofType', 'required', 'enum', 'items', 'default', 'title', 'description', '$comment', 'patternKey', 'typeUnion', 'isAdditionalProperties', 'additionalProperties', 'minProperties', 'maxProperties', '$ref',
             // XML Schema metadata (path, kind, etc.)
-            'xmlPath', 'xmlNodeKind', 'xmlName', 'xmlElementType', 'xmlSimpleTypeMode', 'xmlBase', 'xmlMemberTypes', 'xmlItemType', 'xmlAttributes', 'xmlIsRef',
+            'xmlPath', 'xmlNodeKind', 'xmlName', 'xmlElementType', 'xmlSimpleTypeMode', 'xmlBase', 'xmlMemberTypes', 'xmlItemType', 'xmlEnumerations', 'xmlAttributes', 'xmlIsRef', 'xmlAttributeInlineSimpleType', 'xmlAttributeReferencedEnumerations', 'xmlAttributeReferencedTypeName', 'xmlMyTypeNames', 'xmlMyElementNames',
+            // xs:complexContent inheritance metadata (used only to compute the inheritance-group bounding box, never shown as a badge)
+            'xmlExtendsType', 'xmlInheritedFrom',
+            // xs:attributeGroup ref metadata (drives the isRef badge tooltip, not a separate badge)
+            'xmlAttributeGroupRef',
             // XML Attribute properties
             'xmlAttributeType', 'xmlAttributeUse', 'xmlMinOccurs', 'xmlMaxOccurs',
             // XML Schema root attributes
@@ -447,6 +451,28 @@ export const PropertiesGroupNode = ({ children }: { children?: React.ReactNode }
 export const ItemsGroupNode = ({ data }: { data: SchemaNodeData }) => (
   <div style={{ background: 'var(--graph-node-bg-subtle)', border: '2px dashed var(--graph-node-border-accent)', borderRadius: 12, padding: '18px' }}>
     <SchemaCard label={data.label} type={data.type} imported={data.imported} />
+  </div>
+);
+
+// Decorative background box drawn behind an XML element/complexType node and the
+// descendant nodes it inherited via `xs:complexContent`/`xs:extension` (or `xs:restriction`)
+// — purely visual, not draggable/selectable; sized and positioned by the caller (relayoutNodes)
+// to bound the owning node together with its inherited-from-base-type children.
+export const InheritanceGroupNode = ({ data }: { data: any }) => (
+  <div
+    style={{
+      width: '100%',
+      height: '100%',
+      boxSizing: 'border-box',
+      background: 'var(--graph-node-bg-subtle)',
+      border: '2px dashed var(--graph-node-border-accent)',
+      borderRadius: 12,
+      pointerEvents: 'none',
+    }}
+  >
+    {data?.label && (
+      <div style={{ padding: '4px 10px', fontSize: 11, opacity: 0.7 }}>{data.label}</div>
+    )}
   </div>
 );
 
@@ -659,6 +685,7 @@ export const nodeTypes: { [key: string]: React.FC<any> } = {
   variant: VariantNode,
   propertiesGroup: PropertiesGroupNode,
   itemsGroup: ItemsGroupNode,
+  inheritanceGroup: InheritanceGroupNode,
 };
 
 // Define edgeTypes

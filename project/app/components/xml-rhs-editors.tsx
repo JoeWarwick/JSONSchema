@@ -1,8 +1,8 @@
 import React from 'react';
 import type { Node as FlowNode } from 'reactflow';
-import type { NodeData } from './types';
+import type { NodeData, InlineSimpleTypeData } from './types';
 
-type XmlNodeKind = 'schema' | 'simpleType' | 'complexType' | 'attribute' | 'element' | 'sequence' | 'choice' | 'all';
+type XmlNodeKind = 'schema' | 'simpleType' | 'complexType' | 'attributeGroup' | 'attribute' | 'element' | 'sequence' | 'choice' | 'all';
 
 /**
  * Props for XML node RHS editors and attribute manager.
@@ -176,6 +176,7 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   const [base, setBase] = React.useState<string>(String(data.xmlBase || ''));
   const [memberTypes, setMemberTypes] = React.useState<string>(String(data.xmlMemberTypes || ''));
   const [itemType, setItemType] = React.useState<string>(String(data.xmlItemType || ''));
+  const [enumerations, setEnumerations] = React.useState<string[]>(Array.isArray(data.xmlEnumerations) ? data.xmlEnumerations : []);
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
 
   React.useEffect(() => {
@@ -184,8 +185,14 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
     setBase(String(data.xmlBase || ''));
     setMemberTypes(String(data.xmlMemberTypes || ''));
     setItemType(String(data.xmlItemType || ''));
+    setEnumerations(Array.isArray(data.xmlEnumerations) ? data.xmlEnumerations : []);
     setIsRef(Boolean(data.xmlIsRef));
-  }, [node?.id, data.xmlName, data.xmlSimpleTypeMode, data.xmlBase, data.xmlMemberTypes, data.xmlItemType, data.xmlIsRef]);
+  }, [node?.id, data.xmlName, data.xmlSimpleTypeMode, data.xmlBase, data.xmlMemberTypes, data.xmlItemType, data.xmlEnumerations, data.xmlIsRef]);
+
+  const handleEnumerationsChange = (next: string[]) => {
+    setEnumerations(next);
+    onChange({ id: node.id, xmlEnumerations: next });
+  };
 
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
@@ -219,31 +226,32 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
       </label>
 
       {mode === 'restriction' && (
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={{ fontSize: 12 }}>Base</span>
-          <input
-            aria-label="Restriction Base"
-            value={base}
-            onChange={(e) => setBase(e.target.value)}
-            onBlur={() => onChange({ id: node.id, xmlBase: base })}
-            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
-            placeholder="xs:string"
-          />
-        </label>
+        <>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 12 }}>Base</span>
+            <input
+              aria-label="Restriction Base"
+              value={base}
+              onChange={(e) => setBase(e.target.value)}
+              onBlur={() => onChange({ id: node.id, xmlBase: base })}
+              style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+              placeholder="xs:string"
+            />
+          </label>
+          <EnumerationListEditor values={enumerations} onChange={handleEnumerationsChange} ariaPrefix="SimpleType enumeration" />
+        </>
       )}
 
       {mode === 'union' && (
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={{ fontSize: 12 }}>memberTypes</span>
-          <input
-            aria-label="Union Member Types"
-            value={memberTypes}
-            onChange={(e) => setMemberTypes(e.target.value)}
-            onBlur={() => onChange({ id: node.id, xmlMemberTypes: memberTypes })}
-            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
-            placeholder="tns:TypeA tns:TypeB"
-          />
-        </label>
+        <MemberTypesListEditor
+          value={memberTypes}
+          onChange={(next) => {
+            setMemberTypes(next);
+            onChange({ id: node.id, xmlMemberTypes: next });
+          }}
+          myTypeNames={Array.isArray(data.xmlMyTypeNames) ? data.xmlMyTypeNames : []}
+          ariaPrefix="Union Member Types"
+        />
       )}
 
       {mode === 'list' && (
@@ -453,6 +461,509 @@ function XmlComplexTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   );
 }
 
+function XmlAttributeGroupEditor({ node, onChange }: XmlNodeRhsEditorProps) {
+  if (!node) return null;
+  const data = (node.data || {}) as any;
+  const [name, setName] = React.useState<string>(String(data.xmlName || ''));
+
+  React.useEffect(() => {
+    setName(String(data.xmlName || ''));
+  }, [node?.id, data.xmlName]);
+
+  return (
+    <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
+      <div style={{ fontWeight: 700, fontSize: 13 }}>AttributeGroup Editor</div>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 12 }}>Name</span>
+        <input
+          aria-label="AttributeGroup Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => onChange({ id: node.id, xmlName: name })}
+          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+        />
+      </label>
+      <div style={{ fontSize: 12, color: '#666' }}>
+        Attributes added here are shared by every <code>xs:attributeGroup ref="{name || '...'}"</code> that references this group.
+      </div>
+      <XmlAttributesManager node={node} onChange={onChange} />
+    </form>
+  );
+}
+
+/**
+ * Read-only display of enumeration values inherited from a named simpleType referenced via
+ * `type="X"` (as opposed to an inline/anonymous simpleType owned by this node) — editing must
+ * happen on that named simpleType's own node since the values are shared across every
+ * attribute/element referencing it.
+ */
+function ReferencedEnumerationList({ values, typeName }: { values: string[]; typeName?: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{ fontSize: 12 }}>
+        Enumeration values {typeName ? <>(from <code>{typeName}</code>, read-only)</> : '(read-only)'}
+      </span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        {values.map((value, index) => (
+          <span
+            key={index}
+            aria-label={`Referenced enumeration value ${index + 1}`}
+            style={{
+              padding: '2px 8px',
+              fontSize: 11,
+              borderRadius: 3,
+              border: '1px solid var(--color-neutral-6)',
+              background: 'var(--color-neutral-3)',
+              color: 'var(--color-neutral-12)',
+            }}
+          >
+            {value}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Add/edit/remove/reorder control for a flat list of `xs:enumeration` values
+ * (used by restriction-mode simpleTypes, inline or top-level).
+ */
+function EnumerationListEditor({
+  values,
+  onChange,
+  ariaPrefix,
+}: {
+  values: string[];
+  onChange: (next: string[]) => void;
+  ariaPrefix: string;
+}) {
+  const [newValue, setNewValue] = React.useState('');
+
+  const handleAdd = () => {
+    if (!newValue.trim()) return;
+    onChange([...values, newValue]);
+    setNewValue('');
+  };
+  const handleUpdate = (index: number, value: string) => {
+    const next = [...values];
+    next[index] = value;
+    onChange(next);
+  };
+  const handleRemove = (index: number) => {
+    onChange(values.filter((_, i) => i !== index));
+  };
+  const handleMove = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= values.length) return;
+    const next = [...values];
+    [next[index], next[target]] = [next[target], next[index]];
+    onChange(next);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{ fontSize: 12, fontWeight: 500 }}>Enumeration values</span>
+      {values.length === 0 && <div style={{ fontSize: 11, color: '#888', fontStyle: 'italic' }}>No values yet.</div>}
+      {values.map((value, index) => (
+        <div key={index} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <input
+            type="text"
+            aria-label={`${ariaPrefix} value ${index + 1}`}
+            value={value}
+            onChange={(e) => handleUpdate(index, e.target.value)}
+            style={{ flex: 1, padding: 4, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
+          />
+          <button
+            type="button"
+            aria-label={`${ariaPrefix} move up ${index + 1}`}
+            disabled={index === 0}
+            onClick={() => handleMove(index, -1)}
+            style={{ padding: '2px 6px', fontSize: 11, cursor: index === 0 ? 'not-allowed' : 'pointer' }}
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            aria-label={`${ariaPrefix} move down ${index + 1}`}
+            disabled={index === values.length - 1}
+            onClick={() => handleMove(index, 1)}
+            style={{ padding: '2px 6px', fontSize: 11, cursor: index === values.length - 1 ? 'not-allowed' : 'pointer' }}
+          >
+            ↓
+          </button>
+          <button
+            type="button"
+            aria-label={`${ariaPrefix} remove ${index + 1}`}
+            onClick={() => handleRemove(index)}
+            style={{ padding: '2px 8px', fontSize: 11, backgroundColor: '#fee', color: '#c33', border: '1px solid #fcc', borderRadius: 3, cursor: 'pointer' }}
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: 4 }}>
+        <input
+          type="text"
+          aria-label={`${ariaPrefix} new value`}
+          value={newValue}
+          onChange={(e) => setNewValue(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+          placeholder="New enumeration value"
+          style={{ flex: 1, padding: 4, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
+        />
+        <button
+          type="button"
+          onClick={handleAdd}
+          disabled={!newValue.trim()}
+          style={{ padding: '2px 8px', fontSize: 11, backgroundColor: newValue.trim() ? '#e8f5e9' : '#f0f0f0', color: newValue.trim() ? '#2e7d32' : '#999', border: '1px solid #c8e6c9', borderRadius: 3, cursor: newValue.trim() ? 'pointer' : 'not-allowed' }}
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Recursive editor for an `xs:attribute`'s inline (anonymous) `xs:simpleType`.
+ * Supports restriction (base + enumeration add/edit/remove/reorder), union (memberTypes
+ * text plus any number of anonymous nested member simpleTypes), and list (itemType text
+ * plus a single optional anonymous nested item simpleType) — each nested simpleType
+ * recurses back into this same component, mirroring real XSD's arbitrary nesting.
+ */
+function InlineSimpleTypeEditor({
+  value,
+  onChange,
+  depth = 0,
+  pathLabel = 'SimpleType',
+}: {
+  value: InlineSimpleTypeData;
+  onChange: (next: InlineSimpleTypeData) => void;
+  depth?: number;
+  pathLabel?: string;
+}) {
+  const mode = value.mode;
+
+  const handleModeChange = (nextMode: 'restriction' | 'union' | 'list') => {
+    if (nextMode === mode) return;
+    if (nextMode === 'restriction') onChange({ mode: 'restriction', base: value.base || 'xs:string', enumerations: value.enumerations || [] });
+    else if (nextMode === 'union') onChange({ mode: 'union', memberTypes: value.memberTypes || '', memberSimpleTypes: value.memberSimpleTypes || [] });
+    else onChange({ mode: 'list', itemType: value.itemType || 'xs:string', itemSimpleType: value.itemSimpleType });
+  };
+
+  const handleAddMember = () => {
+    const members = value.memberSimpleTypes || [];
+    onChange({ ...value, memberSimpleTypes: [...members, { mode: 'restriction', base: 'xs:string', enumerations: [] }] });
+  };
+  const handleRemoveMember = (index: number) => {
+    const members = value.memberSimpleTypes || [];
+    onChange({ ...value, memberSimpleTypes: members.filter((_, i) => i !== index) });
+  };
+  const handleUpdateMember = (index: number, next: InlineSimpleTypeData) => {
+    const members = [...(value.memberSimpleTypes || [])];
+    members[index] = next;
+    onChange({ ...value, memberSimpleTypes: members });
+  };
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        padding: 8,
+        marginLeft: depth * 10,
+        border: '1px solid var(--color-neutral-6)',
+        borderRadius: 6,
+        background: depth % 2 === 1 ? 'var(--color-neutral-3)' : 'var(--color-neutral-2)',
+        color: 'var(--color-neutral-12)',
+      }}
+    >
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 12 }}>{pathLabel} Mode</span>
+        <select
+          aria-label={`${pathLabel} Mode`}
+          value={mode}
+          onChange={(e) => handleModeChange(e.target.value as 'restriction' | 'union' | 'list')}
+          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+        >
+          <option value="restriction">restriction</option>
+          <option value="union">union</option>
+          <option value="list">list</option>
+        </select>
+      </label>
+
+      {mode === 'restriction' && (
+        <>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 12 }}>Base</span>
+            <input
+              aria-label={`${pathLabel} Restriction Base`}
+              value={value.base || ''}
+              onChange={(e) => onChange({ ...value, base: e.target.value })}
+              style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+              placeholder="xs:string"
+            />
+          </label>
+          <EnumerationListEditor
+            values={value.enumerations || []}
+            onChange={(next) => onChange({ ...value, enumerations: next })}
+            ariaPrefix={`${pathLabel} enumeration`}
+          />
+        </>
+      )}
+
+      {mode === 'union' && (
+        <>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 12 }}>memberTypes (named types)</span>
+            <input
+              aria-label={`${pathLabel} Union Member Types`}
+              value={value.memberTypes || ''}
+              onChange={(e) => onChange({ ...value, memberTypes: e.target.value })}
+              style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+              placeholder="xs:string tns:OtherType"
+            />
+          </label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 500 }}>Anonymous member simpleTypes</span>
+            {(value.memberSimpleTypes || []).map((member, index) => (
+              <div key={index} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    aria-label={`${pathLabel} remove member ${index + 1}`}
+                    onClick={() => handleRemoveMember(index)}
+                    style={{ padding: '2px 8px', fontSize: 11, backgroundColor: '#fee', color: '#c33', border: '1px solid #fcc', borderRadius: 3, cursor: 'pointer' }}
+                  >
+                    Remove member
+                  </button>
+                </div>
+                <InlineSimpleTypeEditor
+                  value={member}
+                  onChange={(next) => handleUpdateMember(index, next)}
+                  depth={depth + 1}
+                  pathLabel={`${pathLabel} member ${index + 1}`}
+                />
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={handleAddMember}
+              style={{ padding: '4px 8px', fontSize: 11, backgroundColor: '#e8f5e9', color: '#2e7d32', border: '1px solid #c8e6c9', borderRadius: 3, cursor: 'pointer', alignSelf: 'flex-start' }}
+            >
+              Add member simpleType
+            </button>
+          </div>
+        </>
+      )}
+
+      {mode === 'list' && (
+        <>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 12 }}>itemType (named type)</span>
+            <input
+              aria-label={`${pathLabel} List Item Type`}
+              value={value.itemType || ''}
+              onChange={(e) => onChange({ ...value, itemType: e.target.value })}
+              style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+              placeholder="xs:string"
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              aria-label={`${pathLabel} has nested simpleType`}
+              checked={Boolean(value.itemSimpleType)}
+              onChange={(e) => {
+                if (e.target.checked) onChange({ ...value, itemSimpleType: { mode: 'restriction', base: 'xs:string', enumerations: [] } });
+                else onChange({ ...value, itemSimpleType: undefined });
+              }}
+            />
+            <span style={{ fontSize: 12 }}>Anonymous item simpleType (instead of itemType)</span>
+          </label>
+          {value.itemSimpleType && (
+            <InlineSimpleTypeEditor
+              value={value.itemSimpleType}
+              onChange={(next) => onChange({ ...value, itemSimpleType: next })}
+              depth={depth + 1}
+              pathLabel={`${pathLabel} item`}
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// Built-in XSD simple types, offered under the "Simple" group of `XmlTypeSelector`.
+const XSD_BUILTIN_SIMPLE_TYPES = [
+  'xs:anySimpleType', 'xs:anyType', 'xs:anyURI', 'xs:base64Binary', 'xs:boolean', 'xs:byte',
+  'xs:date', 'xs:dateTime', 'xs:decimal', 'xs:double', 'xs:duration', 'xs:ENTITIES', 'xs:ENTITY',
+  'xs:float', 'xs:gDay', 'xs:gMonth', 'xs:gMonthDay', 'xs:gYear', 'xs:gYearMonth', 'xs:hexBinary',
+  'xs:ID', 'xs:IDREF', 'xs:IDREFS', 'xs:int', 'xs:integer', 'xs:language', 'xs:long', 'xs:Name',
+  'xs:NCName', 'xs:negativeInteger', 'xs:NMTOKEN', 'xs:NMTOKENS', 'xs:nonNegativeInteger',
+  'xs:nonPositiveInteger', 'xs:normalizedString', 'xs:NOTATION', 'xs:positiveInteger', 'xs:QName',
+  'xs:short', 'xs:string', 'xs:time', 'xs:token', 'xs:unsignedByte', 'xs:unsignedInt',
+  'xs:unsignedLong', 'xs:unsignedShort',
+];
+
+/**
+ * "Type" dropdown for `xs:attribute`/`xs:element`, grouped into built-in "Simple" XSD types and
+ * "My Types" (named simpleType/complexType definitions from this schema, via `xmlMyTypeNames`).
+ * Falls back to a free-text input (via the "Custom…" option) for any value not in either group,
+ * e.g. a namespace-prefixed type from an imported/included schema not represented locally.
+ */
+function XmlTypeSelector({
+  value,
+  onChange,
+  myTypeNames,
+  ariaLabel,
+  disabled,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  myTypeNames: string[];
+  ariaLabel: string;
+  disabled?: boolean;
+}) {
+  const isKnownValue = (v: string) => v === '' || XSD_BUILTIN_SIMPLE_TYPES.includes(v) || myTypeNames.includes(v);
+  const [isCustom, setIsCustom] = React.useState(!isKnownValue(value));
+  const [customText, setCustomText] = React.useState(value);
+
+  React.useEffect(() => {
+    setIsCustom(!isKnownValue(value));
+    setCustomText(value);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, myTypeNames.join('\u0000')]);
+
+  if (isCustom) {
+    return (
+      <div style={{ display: 'flex', gap: 4 }}>
+        <input
+          aria-label={ariaLabel}
+          value={customText}
+          disabled={disabled}
+          onChange={(e) => setCustomText(e.target.value)}
+          onBlur={() => onChange(customText)}
+          style={{ flex: 1, padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+          placeholder="xs:string"
+        />
+        <button
+          type="button"
+          aria-label={`${ariaLabel} use list`}
+          disabled={disabled}
+          onClick={() => setIsCustom(false)}
+          style={{ padding: '4px 8px', fontSize: 11, cursor: disabled ? 'not-allowed' : 'pointer' }}
+        >
+          List
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <select
+      aria-label={ariaLabel}
+      value={value}
+      disabled={disabled}
+      onChange={(e) => {
+        if (e.target.value === '__custom__') {
+          setIsCustom(true);
+          setCustomText('');
+          return;
+        }
+        onChange(e.target.value);
+      }}
+      style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+    >
+      <option value="">(none)</option>
+      <optgroup label="Simple">
+        {XSD_BUILTIN_SIMPLE_TYPES.map((t) => (
+          <option key={t} value={t}>{t}</option>
+        ))}
+      </optgroup>
+      {myTypeNames.length > 0 && (
+        <optgroup label="My Types">
+          {myTypeNames.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </optgroup>
+      )}
+      <option value="__custom__">Custom…</option>
+    </select>
+  );
+}
+
+/**
+ * Editor for an `xs:union`'s space-separated `memberTypes` attribute, as a list of constrained
+ * `XmlTypeSelector` dropdowns (one per member type) with per-row remove buttons and an "+ Add"
+ * button, rather than a single freeform text input.
+ */
+function MemberTypesListEditor({
+  value,
+  onChange,
+  myTypeNames,
+  ariaPrefix,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  myTypeNames: string[];
+  ariaPrefix: string;
+}) {
+  const members = value.trim() ? value.trim().split(/\s+/) : [];
+
+  const emit = (next: string[]) => onChange(next.join(' '));
+
+  const handleUpdate = (index: number, next: string) => {
+    const updated = [...members];
+    updated[index] = next;
+    emit(updated);
+  };
+  const handleRemove = (index: number) => {
+    emit(members.filter((_, i) => i !== index));
+  };
+  const handleAdd = () => {
+    emit([...members, myTypeNames[0] || 'xs:string']);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{ fontSize: 12, fontWeight: 500 }}>memberTypes</span>
+      {members.length === 0 && <div style={{ fontSize: 11, color: '#888', fontStyle: 'italic' }}>No member types yet.</div>}
+      {members.map((member, index) => (
+        <div key={index} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <div style={{ flex: 1 }}>
+            <XmlTypeSelector
+              value={member}
+              onChange={(next) => handleUpdate(index, next)}
+              myTypeNames={myTypeNames}
+              ariaLabel={`${ariaPrefix} member ${index + 1}`}
+            />
+          </div>
+          <button
+            type="button"
+            aria-label={`${ariaPrefix} remove member ${index + 1}`}
+            onClick={() => handleRemove(index)}
+            style={{ padding: '4px 8px', fontSize: 11, backgroundColor: '#fee', color: '#c33', border: '1px solid #fcc', borderRadius: 3, cursor: 'pointer' }}
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        aria-label={`${ariaPrefix} add member`}
+        onClick={handleAdd}
+        style={{ padding: '4px 8px', fontSize: 11, backgroundColor: '#e8f5e9', color: '#2e7d32', border: '1px solid #c8e6c9', borderRadius: 3, cursor: 'pointer', alignSelf: 'flex-start' }}
+      >
+        + Add
+      </button>
+    </div>
+  );
+}
+
 function XmlAttributeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   if (!node) return null;
   const data = (node.data || {}) as any;
@@ -460,13 +971,69 @@ function XmlAttributeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   const [type, setType] = React.useState<string>(String(data.xmlAttributeType || ''));
   const [useValue, setUseValue] = React.useState<string>(String(data.xmlAttributeUse || 'optional'));
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
+  const [inlineSimpleType, setInlineSimpleType] = React.useState<InlineSimpleTypeData | undefined>(
+    data.xmlAttributeInlineSimpleType as InlineSimpleTypeData | undefined,
+  );
+  // Attributes pulled in via `xs:attributeGroup ref="..."` belong to the shared group
+  // definition, not this local type — edit them at the group's own node instead.
+  const attributeGroupRef = data.xmlAttributeGroupRef as string | undefined;
+  const readOnly = Boolean(attributeGroupRef);
+  // When `type=` references a named simpleType that itself declares enumerations (e.g.
+  // `type="typesType"`), show those values read-only here — they belong to the shared type
+  // definition, not this attribute; edit them on the `typesType` simpleType node instead.
+  const referencedEnumerations = Array.isArray(data.xmlAttributeReferencedEnumerations) ? data.xmlAttributeReferencedEnumerations as string[] : [];
+  const referencedTypeName = data.xmlAttributeReferencedTypeName as string | undefined;
 
   React.useEffect(() => {
     setName(String(data.xmlName || ''));
     setType(String(data.xmlAttributeType || ''));
     setUseValue(String(data.xmlAttributeUse || 'optional'));
     setIsRef(Boolean(data.xmlIsRef));
-  }, [node?.id, data.xmlName, data.xmlAttributeType, data.xmlAttributeUse, data.xmlIsRef]);
+    setInlineSimpleType(data.xmlAttributeInlineSimpleType as InlineSimpleTypeData | undefined);
+  }, [node?.id, data.xmlName, data.xmlAttributeType, data.xmlAttributeUse, data.xmlIsRef, data.xmlAttributeInlineSimpleType]);
+
+  const handleToggleInlineSimpleType = (checked: boolean) => {
+    if (checked) {
+      const next: InlineSimpleTypeData = { mode: 'restriction', base: type || 'xs:string', enumerations: [] };
+      setInlineSimpleType(next);
+      setType('');
+      onChange({ id: node.id, xmlAttributeInlineSimpleType: next });
+    } else {
+      setInlineSimpleType(undefined);
+      onChange({ id: node.id, xmlAttributeInlineSimpleType: undefined });
+    }
+  };
+
+  const handleInlineSimpleTypeChange = (next: InlineSimpleTypeData) => {
+    setInlineSimpleType(next);
+    onChange({ id: node.id, xmlAttributeInlineSimpleType: next });
+  };
+
+  if (readOnly) {
+    return (
+      <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
+        <div style={{ fontWeight: 700, fontSize: 13 }}>Attribute Editor</div>
+        <div style={{ fontSize: 12, color: '#666' }}>
+          Inherited from <code>xs:attributeGroup ref="{attributeGroupRef}"</code> — read-only here. Edit it on the <strong>{attributeGroupRef}</strong> attributeGroup node instead.
+        </div>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 12 }}>Name</span>
+          <input aria-label="Attribute Name" value={name} readOnly disabled style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5' }} />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 12 }}>Type</span>
+          <input aria-label="Attribute Type" value={type} readOnly disabled style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5' }} />
+        </label>
+        {referencedEnumerations.length > 0 && (
+          <ReferencedEnumerationList values={referencedEnumerations} typeName={referencedTypeName} />
+        )}
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 12 }}>Use</span>
+          <input aria-label="Attribute Use" value={useValue} readOnly disabled style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5' }} />
+        </label>
+      </form>
+    );
+  }
 
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
@@ -477,8 +1044,20 @@ function XmlAttributeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
       </label>
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ fontSize: 12 }}>Type</span>
-        <input aria-label="Attribute Type" value={type} onChange={(e) => setType(e.target.value)} onBlur={() => onChange({ id: node.id, xmlAttributeType: type })} style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }} placeholder="xs:string" />
+        <XmlTypeSelector
+          value={type}
+          onChange={(next) => {
+            setType(next);
+            onChange({ id: node.id, xmlAttributeType: next });
+          }}
+          myTypeNames={Array.isArray(data.xmlMyTypeNames) ? data.xmlMyTypeNames : []}
+          ariaLabel="Attribute Type"
+          disabled={Boolean(inlineSimpleType)}
+        />
       </label>
+      {referencedEnumerations.length > 0 && (
+        <ReferencedEnumerationList values={referencedEnumerations} typeName={referencedTypeName} />
+      )}
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ fontSize: 12 }}>Use</span>
         <select
@@ -509,6 +1088,19 @@ function XmlAttributeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
         />
         <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
       </label>
+      <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center', paddingTop: 4, borderTop: '1px solid #eee' }}>
+        <input
+          type="checkbox"
+          checked={Boolean(inlineSimpleType)}
+          onChange={(e) => handleToggleInlineSimpleType(e.target.checked)}
+          aria-label="Inline SimpleType"
+          style={{ cursor: 'pointer' }}
+        />
+        <span style={{ fontSize: 12 }}>Inline SimpleType (restriction/union/list, instead of Type)</span>
+      </label>
+      {inlineSimpleType && (
+        <InlineSimpleTypeEditor value={inlineSimpleType} onChange={handleInlineSimpleTypeChange} pathLabel="Inline SimpleType" />
+      )}
     </form>
   );
 }
@@ -573,29 +1165,46 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>Element Editor</div>
+      {!isRef && (
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 12 }}>Name</span>
+          <input
+            aria-label="Element Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={() => {
+              console.log('[XmlElementEditor] onBlur - node.id:', node.id, 'name:', name);
+              onChange({ id: node.id, xmlName: name });
+            }}
+            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+          />
+        </label>
+      )}
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ fontSize: 12 }}>Name</span>
-        <input
-          aria-label="Element Name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={() => {
-            console.log('[XmlElementEditor] onBlur - node.id:', node.id, 'name:', name);
-            onChange({ id: node.id, xmlName: name });
-          }}
-          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
-        />
-      </label>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ fontSize: 12 }}>Type</span>
-        <input
-          aria-label="Element Type"
-          value={type}
-          onChange={(e) => setType(e.target.value)}
-          onBlur={() => onChange({ id: node.id, xmlElementType: type })}
-          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
-          placeholder="xs:string"
-        />
+        <span style={{ fontSize: 12 }}>{isRef ? 'ref' : 'Type'}</span>
+        {isRef ? (
+          <XmlTypeSelector
+            value={name}
+            onChange={(next) => {
+              setName(next);
+              // A `ref`-only element's display name lives on `@ref`, not `@type` — writing
+              // `xmlName` here round-trips to the `ref` attribute (see `updateXmlNodeAtPath`).
+              onChange({ id: node.id, xmlName: next });
+            }}
+            myTypeNames={Array.isArray(data.xmlMyElementNames) ? data.xmlMyElementNames : []}
+            ariaLabel="Element Ref Target"
+          />
+        ) : (
+          <XmlTypeSelector
+            value={type}
+            onChange={(next) => {
+              setType(next);
+              onChange({ id: node.id, xmlElementType: next });
+            }}
+            myTypeNames={Array.isArray(data.xmlMyTypeNames) ? data.xmlMyTypeNames : []}
+            ariaLabel="Element Type"
+          />
+        )}
       </label>
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ fontSize: 12 }}>minOccurs</span>
@@ -716,6 +1325,7 @@ export function XmlNodeRhsEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   if (kind === 'schema') return <XmlSchemaEditor node={node} onChange={onChange} />;
   if (kind === 'simpleType') return <XmlSimpleTypeEditor node={node} onChange={onChange} />;
   if (kind === 'complexType') return <XmlComplexTypeEditor node={node} onChange={onChange} />;
+  if (kind === 'attributeGroup') return <XmlAttributeGroupEditor node={node} onChange={onChange} />;
   if (kind === 'attribute') return <XmlAttributeEditor node={node} onChange={onChange} />;
   if (kind === 'element') return <XmlElementEditor node={node} onChange={onChange} />;
   if (kind === 'sequence' || kind === 'choice' || kind === 'all') return <XmlCompositorEditor node={node} onChange={onChange} />;

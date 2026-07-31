@@ -3,6 +3,19 @@ import type { Node as FlowNode } from 'reactflow';
 
 export type NodeData = Record<string, any>;
 
+// Recursive shape for an XSD attribute's inline (anonymous) `xs:simpleType`, e.g.
+// `<xs:attribute><xs:simpleType><xs:union>...</xs:union></xs:simpleType></xs:attribute>`.
+// `union`/`list` can each nest further anonymous `xs:simpleType` members, mirroring real XSD.
+export interface InlineSimpleTypeData {
+  mode: 'restriction' | 'union' | 'list';
+  base?: string;
+  enumerations?: string[];
+  memberTypes?: string;
+  memberSimpleTypes?: InlineSimpleTypeData[];
+  itemType?: string;
+  itemSimpleType?: InlineSimpleTypeData;
+}
+
 export interface NodePropertyEditorProps {
   node: FlowNode<NodeData> | null;
   onChange: (patch: Partial<NodeData>) => void;

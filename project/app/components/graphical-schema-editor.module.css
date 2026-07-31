@@ -19,6 +19,7 @@
   --graph-node-bg-subtle: var(--color-neutral-2);
   --graph-node-border: var(--color-neutral-6);
   --graph-node-border-accent: var(--color-accent-7);
+  --graph-node-border-selected: var(--color-accent-9);
   --graph-node-text: var(--color-neutral-12);
   --graph-node-muted: var(--color-neutral-11);
   --graph-node-shadow: 0 2px 8px rgba(0,0,0,0.08);
@@ -41,6 +42,25 @@
 
 .flowPanel {
   background: var(--graph-flow-bg);
+}
+
+/* Node hover/selected states — overrides React Flow's stock (unstyled-for-custom-nodes)
+   defaults. Scoped to this editor's wrapper so it doesn't leak into the ERD editor's
+   own React Flow instance. */
+.flowWrapper :global(.react-flow__node) {
+  transition: box-shadow 120ms ease, outline-color 120ms ease;
+}
+
+.flowWrapper :global(.react-flow__node:hover) {
+  z-index: 10;
+  box-shadow: var(--graph-node-shadow-strong);
+}
+
+.flowWrapper :global(.react-flow__node.selected) {
+  z-index: 10;
+  outline: 2px solid var(--graph-node-border-selected, var(--color-accent-9));
+  outline-offset: 2px;
+  box-shadow: var(--graph-node-shadow-strong);
 }
 
 .patternNode {

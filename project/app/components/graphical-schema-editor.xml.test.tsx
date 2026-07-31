@@ -239,9 +239,24 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
       expect(simpleType?.['xs:list']).toBeUndefined();
     });
 
-    const unionMemberTypesInput = await screen.findByLabelText('Union Member Types');
-    fireEvent.change(unionMemberTypesInput, { target: { value: 'tns:CodeA tns:CodeB' } });
-    fireEvent.blur(unionMemberTypesInput);
+    const addMemberButton = await screen.findByLabelText('Union Member Types add member');
+    fireEvent.click(addMemberButton);
+    const member1Select = await screen.findByLabelText('Union Member Types member 1');
+    fireEvent.change(member1Select, { target: { value: '__custom__' } });
+    const member1Input = await screen.findByLabelText('Union Member Types member 1');
+    fireEvent.change(member1Input, { target: { value: 'tns:CodeA' } });
+    fireEvent.blur(member1Input);
+    await waitFor(() => {
+      const simpleType = latestSchema?.['xs:schema']?.['xs:simpleType']?.[0];
+      expect(simpleType?.['xs:union']?.['@attributes']?.memberTypes).toBe('tns:CodeA');
+    });
+
+    fireEvent.click(await screen.findByLabelText('Union Member Types add member'));
+    const member2Select = await screen.findByLabelText('Union Member Types member 2');
+    fireEvent.change(member2Select, { target: { value: '__custom__' } });
+    const member2Input = await screen.findByLabelText('Union Member Types member 2');
+    fireEvent.change(member2Input, { target: { value: 'tns:CodeB' } });
+    fireEvent.blur(member2Input);
     await waitFor(() => {
       const simpleType = latestSchema?.['xs:schema']?.['xs:simpleType']?.[0];
       expect(simpleType?.['xs:union']?.['@attributes']?.memberTypes).toBe('tns:CodeA tns:CodeB');

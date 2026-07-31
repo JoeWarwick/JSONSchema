@@ -23,7 +23,7 @@ import { applySnappedDagreLayout } from './graphical-schema-layout-snapped';
 import { GraphicalSchemaRhsControl } from './graphical-schema-rhs-control';
 import type { Connection, Edge, Node, OnConnect } from "reactflow"
 import type { SchemaNodeData } from "./schema-behaviors";
-import type { NodeData, GraphicalSchemaEditorProps } from './types';
+import type { NodeData, GraphicalSchemaEditorProps, InlineSimpleTypeData } from './types';
 import { nodeTypes, edgeTypes, initialNodes, initialEdges } from './schema-node-types';
 import { printGraphSection } from '../utils/print-graph';
 import "reactflow/dist/style.css";
@@ -133,6 +133,81 @@ function applyEdgePositioning(edges: Edge[], nodes: Node<SchemaNodeData>[]): Edg
     }
     return edge;
   });
+}
+
+// Minimal, dependency-free versions of getXmlAttrs/asArray for the pure parse/serialize
+// helpers below (those live at module scope, outside the component's useCallback closures).
+function rawXmlAttrs(node: any): Record<string, unknown> {
+  if (!node || typeof node !== 'object') return {};
+  return node['@attributes'] && typeof node['@attributes'] === 'object' ? (node['@attributes'] as Record<string, unknown>) : {};
+}
+function rawAsArray(value: unknown): any[] {
+  if (Array.isArray(value)) return value;
+  if (value == null) return [];
+  return [value];
+}
+
+// Parses an `xs:attribute`'s inline (anonymous) `xs:simpleType` — including arbitrarily
+// nested `xs:union`/`xs:list` member simpleTypes — into a plain serializable tree so it can
+// be edited in the RHS and written back via `serializeInlineSimpleType`.
+function parseInlineSimpleType(simpleTypeValue: any): InlineSimpleTypeData | undefined {
+  if (!simpleTypeValue || typeof simpleTypeValue !== 'object') return undefined;
+  const restriction = simpleTypeValue['xs:restriction'];
+  const union = simpleTypeValue['xs:union'];
+  const list = simpleTypeValue['xs:list'];
+
+  if (restriction && typeof restriction === 'object') {
+    const attrs = rawXmlAttrs(restriction);
+    const enumerations = rawAsArray(restriction['xs:enumeration'])
+      .map((entry: any) => rawXmlAttrs(entry).value)
+      .filter((value: unknown): value is string => typeof value === 'string');
+    return { mode: 'restriction', base: typeof attrs.base === 'string' ? attrs.base : undefined, enumerations };
+  }
+  if (union && typeof union === 'object') {
+    const attrs = rawXmlAttrs(union);
+    const memberSimpleTypes = rawAsArray(union['xs:simpleType'])
+      .map((entry: any) => parseInlineSimpleType(entry))
+      .filter((entry): entry is InlineSimpleTypeData => Boolean(entry));
+    return { mode: 'union', memberTypes: typeof attrs.memberTypes === 'string' ? attrs.memberTypes : undefined, memberSimpleTypes };
+  }
+  if (list && typeof list === 'object') {
+    const attrs = rawXmlAttrs(list);
+    const rawNested = Array.isArray(list['xs:simpleType']) ? list['xs:simpleType'][0] : list['xs:simpleType'];
+    const itemSimpleType = rawNested ? parseInlineSimpleType(rawNested) : undefined;
+    return { mode: 'list', itemType: typeof attrs.itemType === 'string' ? attrs.itemType : undefined, itemSimpleType };
+  }
+  return undefined;
+}
+
+// Inverse of parseInlineSimpleType: turns the edited tree back into the raw XML JSON shape
+// expected under an `xs:attribute`'s `xs:simpleType` key.
+function serializeInlineSimpleType(data: InlineSimpleTypeData): any {
+  if (data.mode === 'union') {
+    const attrs: Record<string, unknown> = {};
+    if (data.memberTypes) attrs.memberTypes = data.memberTypes;
+    const result: any = { '@attributes': attrs };
+    const members = (data.memberSimpleTypes || []).map(serializeInlineSimpleType);
+    // Follows this codebase's convention: a single occurrence is a plain object, only
+    // repeated occurrences (2+) become an array (see `xmlSchemaToGraph`'s `asArray` reads,
+    // which already accept either shape when parsing this back).
+    if (members.length === 1) result['xs:simpleType'] = members[0];
+    else if (members.length > 1) result['xs:simpleType'] = members;
+    return { 'xs:union': result };
+  }
+  if (data.mode === 'list') {
+    const attrs: Record<string, unknown> = {};
+    if (data.itemType) attrs.itemType = data.itemType;
+    const result: any = { '@attributes': attrs };
+    if (data.itemSimpleType) result['xs:simpleType'] = serializeInlineSimpleType(data.itemSimpleType);
+    return { 'xs:list': result };
+  }
+  // restriction (default)
+  const attrs: Record<string, unknown> = {};
+  if (data.base) attrs.base = data.base;
+  const result: any = { '@attributes': attrs };
+  const enumerations = (data.enumerations || []).filter((value) => value !== undefined && value !== null);
+  if (enumerations.length > 0) result['xs:enumeration'] = enumerations.map((value) => ({ '@attributes': { value } }));
+  return { 'xs:restriction': result };
 }
 
 export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLanguage }: GraphicalSchemaEditorProps) {
@@ -345,6 +420,35 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       return { referenced, typeName, circular: Boolean(referenced && typeName && ancestors.has(typeName)) };
     };
 
+    // Reads `xs:complexContent`/`xs:extension` (or `xs:restriction`) off a complexType value and
+    // returns the local (namespace-stripped) name of its `base` type, if any.
+    const getComplexContentBaseInfo = (complexTypeValue: any): { baseTypeName: string; derivationKey: 'xs:extension' | 'xs:restriction' } | undefined => {
+      const complexContent = complexTypeValue?.['xs:complexContent'];
+      if (!complexContent || typeof complexContent !== 'object') return undefined;
+      const derivationKey = (['xs:extension', 'xs:restriction'] as const).find((key) => (complexContent as any)[key] !== undefined);
+      const derivation = derivationKey ? (complexContent as any)[derivationKey] : undefined;
+      if (!derivation || typeof derivation !== 'object') return undefined;
+      const rawBase = getXmlAttrs(derivation).base;
+      if (typeof rawBase !== 'string' || !rawBase) return undefined;
+      return { baseTypeName: localTypeName(rawBase), derivationKey: derivationKey! };
+    };
+
+    // Reads `xs:simpleContent`/`xs:extension` (or `xs:restriction`) off a complexType value —
+    // this is a complexType whose content is just text (of `base`, a simple type) plus attributes,
+    // e.g. `<xs:complexType><xs:simpleContent><xs:extension base="xs:string"><xs:attribute .../>`.
+    // `base` is returned raw (not namespace-stripped) since it's shown/edited the same way a plain
+    // `xs:simpleType`'s `xmlBase` is (may be a built-in like "xs:string" or a named simple/complex type).
+    const getSimpleContentBaseInfo = (complexTypeValue: any): { base: string; derivationKey: 'xs:extension' | 'xs:restriction'; derivation: any } | undefined => {
+      const simpleContent = complexTypeValue?.['xs:simpleContent'];
+      if (!simpleContent || typeof simpleContent !== 'object') return undefined;
+      const derivationKey = (['xs:extension', 'xs:restriction'] as const).find((key) => (simpleContent as any)[key] !== undefined);
+      const derivation = derivationKey ? (simpleContent as any)[derivationKey] : undefined;
+      if (!derivation || typeof derivation !== 'object') return undefined;
+      const rawBase = getXmlAttrs(derivation).base;
+      if (typeof rawBase !== 'string' || !rawBase) return undefined;
+      return { base: rawBase, derivationKey: derivationKey!, derivation };
+    };
+
     // Adds an `element` node under `parentId`, recursing into any inline
     // (anonymous) complexType defined directly on the element (e.g. an
     // `xs:element` whose type is declared inline rather than referenced by name),
@@ -352,11 +456,17 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     // `ancestors` tracks complexType names already expanded on this branch so a type
     // that (directly or transitively) references itself is expanded once, then stopped
     // and flagged with an `isRef` badge instead of recursing forever.
-    const addXmlElementNode = (elemEntry: any, parentId: string, elementPath: Array<string | number>, index: number, ancestors: Set<string> = new Set()) => {
+    // `inheritedFrom`, when set, means this whole element was reached while expanding a
+    // `complexContent`/`extension` base type — it's tagged onto the node so the graph can
+    // later draw a background box grouping the owning node with its inherited descendants.
+    const addXmlElementNode = (elemEntry: any, parentId: string, elementPath: Array<string | number>, index: number, ancestors: Set<string> = new Set(), inheritedFrom?: string) => {
       if (!elemEntry || typeof elemEntry !== 'object') return;
       const elemAttrs = getXmlAttrs(elemEntry);
       const elementId = `${parentId}.element_${index}`;
       const { referenced, typeName, circular } = resolveElementTypeExpansion(elemAttrs, ancestors);
+      const inlineComplexType = (elemEntry as any)['xs:complexType'];
+      const ownBaseInfo = inlineComplexType && typeof inlineComplexType === 'object' ? getComplexContentBaseInfo(inlineComplexType) : undefined;
+      const ownSimpleContentInfo = inlineComplexType && typeof inlineComplexType === 'object' ? getSimpleContentBaseInfo(inlineComplexType) : undefined;
       addNode({
         id: elementId,
         label: toNodeLabel('element', elemAttrs, (elemAttrs.name as string) || (elemAttrs.ref as string) || `${index + 1}`),
@@ -364,19 +474,79 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         parent: parentId,
         xmlNodeKind: 'element',
         xmlPath: elementPath,
-        xmlName: elemAttrs.name,
+        // A `ref`-only element (e.g. `<xs:element ref="Enum"/>`) has no `name` attribute at
+        // all — fall back to `ref` so the RHS Name field isn't blank, matching the graph label.
+        xmlName: (elemAttrs.name as string) || (elemAttrs.ref as string),
         xmlElementType: elemAttrs.type,
         xmlMinOccurs: elemAttrs.minOccurs ?? '1',
         xmlMaxOccurs: elemAttrs.maxOccurs ?? '1',
+        xmlMyTypeNames: namedElementTypeNames,
+        xmlMyElementNames: namedGlobalElementNames,
+        xmlIsRef: Boolean(elemAttrs.ref),
         ...(circular ? { isRef: true } : {}),
+        ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
+        ...(ownBaseInfo ? { xmlExtendsType: ownBaseInfo.baseTypeName } : {}),
+        // A `simpleContent` complexType is a simple type (text + attributes) under the hood, so
+        // tag it with the same `xmlSimpleTypeMode`/`xmlBase` fields a real `xs:simpleType` uses.
+        ...(ownSimpleContentInfo ? { xmlSimpleTypeMode: ownSimpleContentInfo.derivationKey === 'xs:extension' ? 'extension' : 'restriction', xmlBase: ownSimpleContentInfo.base } : {}),
       }, parentId);
 
-      const inlineComplexType = (elemEntry as any)['xs:complexType'];
       if (inlineComplexType && typeof inlineComplexType === 'object') {
-        addInlineComplexTypeChildren(inlineComplexType, elementId, [...elementPath, 'xs:complexType'], ancestors);
+        addInlineComplexTypeChildren(inlineComplexType, elementId, [...elementPath, 'xs:complexType'], ancestors, '', inheritedFrom);
       } else if (referenced && typeName && !circular) {
-        addInlineComplexTypeChildren(referenced.entry, elementId, ['xs:schema', 'xs:complexType', referenced.index], new Set(ancestors).add(typeName));
+        addInlineComplexTypeChildren(referenced.entry, elementId, ['xs:schema', 'xs:complexType', referenced.index], new Set(ancestors).add(typeName), '', inheritedFrom);
       }
+    };
+
+    // Adds every attribute declared on a top-level `xs:attributeGroup name="..."` (looked up by
+    // `groupName` via `attributeGroupsByName`, populated later in this closure) as `attribute`
+    // nodes directly under `parentId`. Each attribute is tagged `isRef: true` plus
+    // `xmlAttributeGroupRef: groupName` so it renders the shared `isRef` badge and is treated as
+    // read-only in the RHS editor (it belongs to the shared group definition, not the local type).
+    // `ancestors` (shared with the complexType/element expansion ancestor set, using an
+    // `attributeGroup:`-prefixed key so it can't collide with a complexType/element name) guards
+    // against a group that (directly or transitively) references itself.
+    const addAttributeGroupAttributes = (groupName: string, parentId: string, ancestors: Set<string> = new Set(), idSuffix: string = '', inheritedFrom?: string) => {
+      const group = attributeGroupsByName.get(groupName);
+      const ancestorKey = `attributeGroup:${groupName}`;
+      if (!group || ancestors.has(ancestorKey)) return;
+      const nextAncestors = new Set(ancestors).add(ancestorKey);
+
+      const attributeValue = (group.entry as any)['xs:attribute'];
+      asArray(attributeValue).forEach((attributeEntry: any, attributeIndex: number) => {
+        if (!attributeEntry || typeof attributeEntry !== 'object') return;
+        const attributeAttrs = getXmlAttrs(attributeEntry);
+        const attrPath = Array.isArray(attributeValue)
+          ? ['xs:schema', 'xs:attributeGroup', group.index, 'xs:attribute', attributeIndex]
+          : ['xs:schema', 'xs:attributeGroup', group.index, 'xs:attribute'];
+        const inlineSimpleType = (attributeEntry as any)['xs:simpleType'] ? parseInlineSimpleType((attributeEntry as any)['xs:simpleType']) : undefined;
+        addNode({
+          id: `${parentId}${idSuffix}.attributeGroupRef_${groupName}_${attributeIndex}`,
+          label: toNodeLabel('attribute', attributeAttrs, `${attributeIndex + 1}`),
+          type: 'property',
+          parent: parentId,
+          xmlNodeKind: 'attribute',
+          xmlPath: attrPath,
+          xmlName: attributeAttrs.name,
+          xmlAttributeType: attributeAttrs.type,
+          xmlAttributeUse: attributeAttrs.use || 'optional',
+          isRef: true,
+          xmlAttributeGroupRef: groupName,
+          ...(inlineSimpleType ? { xmlAttributeInlineSimpleType: inlineSimpleType } : {}),
+          ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
+          ...referencedEnumFields(attributeAttrs.type),
+          xmlMyTypeNames: namedSimpleTypeNames,
+        }, parentId);
+      });
+
+      // An attributeGroup may itself reference other attributeGroups — expand those too.
+      asArray((group.entry as any)['xs:attributeGroup']).forEach((nestedEntry: any) => {
+        if (!nestedEntry || typeof nestedEntry !== 'object') return;
+        const nestedAttrs = getXmlAttrs(nestedEntry);
+        if (typeof nestedAttrs.ref === 'string' && nestedAttrs.ref) {
+          addAttributeGroupAttributes(localTypeName(nestedAttrs.ref), parentId, nextAncestors, idSuffix, inheritedFrom);
+        }
+      });
     };
 
     // Adds the attribute and compositor children found on an inline (anonymous)
@@ -386,26 +556,74 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     // same `parentId` (currently only happens for `xs:complexContent`/`xs:extension`, where the
     // base type's own children and the extension's own children are both merged in under the
     // same parent), so base-type ids don't collide with the extension's own attribute/compositor ids.
-    const addInlineComplexTypeChildren = (complexTypeValue: any, parentId: string, basePath: Array<string | number>, ancestors: Set<string> = new Set(), idSuffix: string = '') => {
+    // `inheritedFrom`, when set, tags every node created here as having come from an ancestor
+    // base type (propagated down from an enclosing complexContent expansion); the base type's own
+    // recursive call additionally sets/overrides it to that base type's name.
+    const addInlineComplexTypeChildren = (complexTypeValue: any, parentId: string, basePath: Array<string | number>, ancestors: Set<string> = new Set(), idSuffix: string = '', inheritedFrom?: string) => {
       if (!complexTypeValue || typeof complexTypeValue !== 'object') return;
 
       // `xs:complexContent` replaces the direct content model with `xs:extension`/`xs:restriction`
       // of a `base` type: expand the base type's own children first (inherited), then merge in
       // the attributes/compositor declared directly on the extension/restriction itself.
-      const complexContent = (complexTypeValue as any)['xs:complexContent'];
-      if (complexContent && typeof complexContent === 'object') {
-        const derivationKey = (['xs:extension', 'xs:restriction'] as const).find((key) => (complexContent as any)[key] !== undefined);
-        const derivation = derivationKey ? (complexContent as any)[derivationKey] : undefined;
-        if (derivation && typeof derivation === 'object') {
-          const derivationAttrs = getXmlAttrs(derivation);
-          const rawBase = typeof derivationAttrs.base === 'string' ? derivationAttrs.base : undefined;
-          const baseTypeName = rawBase ? localTypeName(rawBase) : undefined;
-          const baseType = baseTypeName ? complexTypesByName.get(baseTypeName) : undefined;
-          if (baseType && baseTypeName && !ancestors.has(baseTypeName)) {
-            addInlineComplexTypeChildren(baseType.entry, parentId, ['xs:schema', 'xs:complexType', baseType.index], new Set(ancestors).add(baseTypeName), `${idSuffix}.base`);
-          }
-          addInlineComplexTypeChildren(derivation, parentId, [...basePath, 'xs:complexContent', derivationKey!], ancestors, idSuffix);
+      const baseInfo = getComplexContentBaseInfo(complexTypeValue);
+      if (baseInfo) {
+        const { baseTypeName, derivationKey } = baseInfo;
+        const derivation = (complexTypeValue as any)['xs:complexContent'][derivationKey];
+        const baseType = complexTypesByName.get(baseTypeName);
+        if (baseType && !ancestors.has(baseTypeName)) {
+          addInlineComplexTypeChildren(baseType.entry, parentId, ['xs:schema', 'xs:complexType', baseType.index], new Set(ancestors).add(baseTypeName), `${idSuffix}.base`, baseTypeName);
         }
+        addInlineComplexTypeChildren(derivation, parentId, [...basePath, 'xs:complexContent', derivationKey], ancestors, idSuffix, inheritedFrom);
+        return;
+      }
+
+      // `xs:simpleContent` means the content is just text (of `base`) plus whatever attributes
+      // are declared on the extension/restriction — there's no compositor content and no direct
+      // `xs:attribute` on `complexTypeValue` itself, so exit early after adding those attributes
+      // (this complexType behaves like a simpleType under the hood; the owning node is tagged
+      // with `xmlSimpleTypeMode`/`xmlBase` by the caller).
+      const simpleContentInfo = getSimpleContentBaseInfo(complexTypeValue);
+      if (simpleContentInfo) {
+        const { base, derivationKey: simpleDerivationKey, derivation: simpleDerivation } = simpleContentInfo;
+        // The base may itself be a locally-declared complexType with its OWN simpleContent
+        // (attribute chaining) — merge its attributes in first (inherited), then this
+        // derivation's own attributes, same pattern as the complexContent base-merge above.
+        const baseLocalName = localTypeName(base);
+        const baseType = complexTypesByName.get(baseLocalName);
+        if (baseType && !ancestors.has(baseLocalName) && getSimpleContentBaseInfo(baseType.entry)) {
+          addInlineComplexTypeChildren(baseType.entry, parentId, ['xs:schema', 'xs:complexType', baseType.index], new Set(ancestors).add(baseLocalName), `${idSuffix}.base`, baseLocalName);
+        }
+        const derivationAttrValue = (simpleDerivation as any)['xs:attribute'];
+        asArray(derivationAttrValue).forEach((attributeEntry: any, attributeIndex: number) => {
+          if (!attributeEntry || typeof attributeEntry !== 'object') return;
+          const attributeAttrs = getXmlAttrs(attributeEntry);
+          const attrPath = Array.isArray(derivationAttrValue)
+            ? [...basePath, 'xs:simpleContent', simpleDerivationKey, 'xs:attribute', attributeIndex]
+            : [...basePath, 'xs:simpleContent', simpleDerivationKey, 'xs:attribute'];
+          const inlineSimpleType = (attributeEntry as any)['xs:simpleType'] ? parseInlineSimpleType((attributeEntry as any)['xs:simpleType']) : undefined;
+          addNode({
+            id: `${parentId}${idSuffix}.attribute_${attributeIndex}`,
+            label: toNodeLabel('attribute', attributeAttrs, `${attributeIndex + 1}`),
+            type: 'property',
+            parent: parentId,
+            xmlNodeKind: 'attribute',
+            xmlPath: attrPath,
+            xmlName: attributeAttrs.name,
+            xmlAttributeType: attributeAttrs.type,
+            xmlAttributeUse: attributeAttrs.use || 'optional',
+            ...(inlineSimpleType ? { xmlAttributeInlineSimpleType: inlineSimpleType } : {}),
+            ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
+            ...referencedEnumFields(attributeAttrs.type),
+            xmlMyTypeNames: namedSimpleTypeNames,
+          }, parentId);
+        });
+        asArray((simpleDerivation as any)['xs:attributeGroup']).forEach((agEntry: any) => {
+          if (!agEntry || typeof agEntry !== 'object') return;
+          const agAttrs = getXmlAttrs(agEntry);
+          if (typeof agAttrs.ref === 'string' && agAttrs.ref) {
+            addAttributeGroupAttributes(localTypeName(agAttrs.ref), parentId, ancestors, idSuffix, inheritedFrom);
+          }
+        });
         return;
       }
 
@@ -416,6 +634,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         const attrPath = Array.isArray(attributeValue)
           ? [...basePath, 'xs:attribute', attributeIndex]
           : [...basePath, 'xs:attribute'];
+        const inlineSimpleType = (attributeEntry as any)['xs:simpleType'] ? parseInlineSimpleType((attributeEntry as any)['xs:simpleType']) : undefined;
         addNode({
           id: `${parentId}${idSuffix}.attribute_${attributeIndex}`,
           label: toNodeLabel('attribute', attributeAttrs, `${attributeIndex + 1}`),
@@ -426,13 +645,27 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           xmlName: attributeAttrs.name,
           xmlAttributeType: attributeAttrs.type,
           xmlAttributeUse: attributeAttrs.use || 'optional',
+          ...(inlineSimpleType ? { xmlAttributeInlineSimpleType: inlineSimpleType } : {}),
+          ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
+          ...referencedEnumFields(attributeAttrs.type),
+          xmlMyTypeNames: namedSimpleTypeNames,
         }, parentId);
+      });
+
+      // `xs:attributeGroup ref="..."` pulls in a shared group of attribute declarations —
+      // expand those into read-only (isRef) attribute nodes right alongside this type's own.
+      asArray((complexTypeValue as any)['xs:attributeGroup']).forEach((agEntry: any) => {
+        if (!agEntry || typeof agEntry !== 'object') return;
+        const agAttrs = getXmlAttrs(agEntry);
+        if (typeof agAttrs.ref === 'string' && agAttrs.ref) {
+          addAttributeGroupAttributes(localTypeName(agAttrs.ref), parentId, ancestors, idSuffix, inheritedFrom);
+        }
       });
 
       XML_COMPOSITOR_TAG_KEYS.forEach((compositorKey) => {
         const compositorValue = (complexTypeValue as any)[compositorKey];
         if (compositorValue !== undefined && compositorValue !== null) {
-          addCompositorNode(compositorValue, parentId, [...basePath, compositorKey], compositorKey, undefined, ancestors, idSuffix);
+          addCompositorNode(compositorValue, parentId, [...basePath, compositorKey], compositorKey, undefined, ancestors, idSuffix, inheritedFrom);
         }
       });
     };
@@ -448,6 +681,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       suffixIndex?: number,
       ancestors: Set<string> = new Set(),
       idSuffix: string = '',
+      inheritedFrom?: string,
     ) => {
       if (compositorValue === undefined || compositorValue === null) return;
       const first = Array.isArray(compositorValue) ? compositorValue[0] : compositorValue;
@@ -464,9 +698,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlPath: path,
         xmlMinOccurs: compositorAttrs.minOccurs ?? '1',
         xmlMaxOccurs: compositorAttrs.maxOccurs ?? '1',
+        ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
       }, parentId);
 
-      addCompositorChildren(compositorValue, compositorId, path, ancestors);
+      addCompositorChildren(compositorValue, compositorId, path, ancestors, inheritedFrom);
     };
 
     // Processes the children living under a compositor's raw value (or a
@@ -474,7 +709,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     // convention used by this editor's own context-menu "Add element"/"Add
     // sequence|choice|all" actions, and the tag-keyed shape produced by
     // parsing real XSD documents (e.g. `{ 'xs:sequence': {...}, 'xs:element': {...} }`).
-    const addCompositorChildren = (containerValue: any, parentId: string, basePath: Array<string | number>, ancestors: Set<string> = new Set()) => {
+    const addCompositorChildren = (containerValue: any, parentId: string, basePath: Array<string | number>, ancestors: Set<string> = new Set(), inheritedFrom?: string) => {
       if (!containerValue || typeof containerValue !== 'object') return;
 
       if (Array.isArray(containerValue)) {
@@ -483,12 +718,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           const itemPath = [...basePath, itemIndex];
           const nestedCompositorKey = XML_COMPOSITOR_TAG_KEYS.find((key) => (item as any)[key] !== undefined);
           if (nestedCompositorKey) {
-            addCompositorNode((item as any)[nestedCompositorKey], parentId, [...itemPath, nestedCompositorKey], nestedCompositorKey, undefined, ancestors);
+            addCompositorNode((item as any)[nestedCompositorKey], parentId, [...itemPath, nestedCompositorKey], nestedCompositorKey, undefined, ancestors, '', inheritedFrom);
             return;
           }
           const itemAttrs = getXmlAttrs(item);
           if (itemAttrs.name || itemAttrs.ref) {
-            addXmlElementNode(item, parentId, itemPath, itemIndex, ancestors);
+            addXmlElementNode(item, parentId, itemPath, itemIndex, ancestors, inheritedFrom);
           }
         });
         return;
@@ -501,14 +736,14 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           const elementPath = Array.isArray(elementValue)
             ? [...basePath, 'xs:element', elemIndex]
             : [...basePath, 'xs:element'];
-          addXmlElementNode(elemEntry, parentId, elementPath, elemIndex, ancestors);
+          addXmlElementNode(elemEntry, parentId, elementPath, elemIndex, ancestors, inheritedFrom);
         });
       }
 
       XML_COMPOSITOR_TAG_KEYS.forEach((nestedKey) => {
         const nestedValue = (containerValue as any)[nestedKey];
         if (nestedValue !== undefined && nestedValue !== null) {
-          addCompositorNode(nestedValue, parentId, [...basePath, nestedKey], nestedKey, undefined, ancestors);
+          addCompositorNode(nestedValue, parentId, [...basePath, nestedKey], nestedKey, undefined, ancestors, '', inheritedFrom);
         }
       });
     };
@@ -545,6 +780,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     const simpleTypes = asArray((schemaRoot as any)?.['xs:simpleType']);
     const complexTypes = asArray((schemaRoot as any)?.['xs:complexType']);
     const elements = asArray((schemaRoot as any)?.['xs:element']);
+    const attributeGroups = asArray((schemaRoot as any)?.['xs:attributeGroup']);
 
     // Name -> definition/index lookup so element `type` attributes can be resolved and
     // expanded inline (with circular-reference protection via resolveElementTypeExpansion).
@@ -554,6 +790,60 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const ctAttrs = getXmlAttrs(ct);
       if (typeof ctAttrs.name === 'string' && ctAttrs.name) complexTypesByName.set(ctAttrs.name, { entry: ct, index: idx });
     });
+
+    // Name -> definition/index lookup so `xs:attributeGroup ref="..."` can be resolved
+    // and its attributes expanded inline (see `addAttributeGroupAttributes` above).
+    const attributeGroupsByName = new Map<string, { entry: any; index: number }>();
+    attributeGroups.forEach((ag: any, idx: number) => {
+      if (!ag || typeof ag !== 'object') return;
+      const agAttrs = getXmlAttrs(ag);
+      if (typeof agAttrs.name === 'string' && agAttrs.name) attributeGroupsByName.set(agAttrs.name, { entry: ag, index: idx });
+    });
+
+    // Name -> enumeration values, so an `xs:attribute type="X"` referencing a named simpleType
+    // by name (rather than declaring its own inline simpleType) can show that type's enumeration
+    // values read-only in the RHS attribute editor (see `xmlAttributeReferencedEnumerations` below).
+    const simpleTypesByName = new Map<string, { enumerations: string[] }>();
+    simpleTypes.forEach((st: any) => {
+      if (!st || typeof st !== 'object') return;
+      const stAttrs = getXmlAttrs(st);
+      if (typeof stAttrs.name !== 'string' || !stAttrs.name) return;
+      const restriction = (st as any)['xs:restriction'];
+      if (!restriction || typeof restriction !== 'object') return;
+      const enumerations = asArray((restriction as any)['xs:enumeration'])
+        .map((enumEntry: any) => getXmlAttrs(enumEntry).value)
+        .filter((value): value is string => typeof value === 'string');
+      if (enumerations.length > 0) simpleTypesByName.set(stAttrs.name, { enumerations });
+    });
+
+    // Looks up `type` (namespace-stripped) against `simpleTypesByName`; returns the extra node-data
+    // fields to spread onto an attribute node, or `{}` when `type` isn't a named enum simpleType.
+    const referencedEnumFields = (type: unknown) => {
+      if (typeof type !== 'string' || !type) return {};
+      const referenced = simpleTypesByName.get(localTypeName(type));
+      if (!referenced) return {};
+      return { xmlAttributeReferencedEnumerations: referenced.enumerations, xmlAttributeReferencedTypeName: localTypeName(type) };
+    };
+
+    // Names of every top-level named `xs:simpleType`/`xs:complexType`, so the RHS "Type" dropdown
+    // (`XmlTypeSelector` in xml-rhs-editors.tsx) can offer them under a "My Types" group alongside
+    // the built-in XSD simple types. Attributes may only be a simpleType; elements may be either.
+    const namedSimpleTypeNames = simpleTypes
+      .map((st: any) => (st && typeof st === 'object' ? getXmlAttrs(st).name : undefined))
+      .filter((n): n is string => typeof n === 'string' && n.length > 0)
+      .sort((a, b) => a.localeCompare(b));
+    const namedComplexTypeNames = complexTypes
+      .map((ct: any) => (ct && typeof ct === 'object' ? getXmlAttrs(ct).name : undefined))
+      .filter((n): n is string => typeof n === 'string' && n.length > 0)
+      .sort((a, b) => a.localeCompare(b));
+    const namedElementTypeNames = [...namedSimpleTypeNames, ...namedComplexTypeNames].sort((a, b) => a.localeCompare(b));
+
+    // Names of every top-level named `xs:element`, so a `ref="..."` element's RHS dropdown
+    // (repurposing `XmlTypeSelector`) can offer valid ref targets instead of a freeform text box.
+    const namedGlobalElementNames = elements
+      .map((el: any) => (el && typeof el === 'object' ? getXmlAttrs(el).name : undefined))
+      .filter((n): n is string => typeof n === 'string' && n.length > 0)
+      .sort((a, b) => a.localeCompare(b));
 
     simpleTypes.forEach((entry, index) => {
       if (!entry || typeof entry !== 'object') return;
@@ -568,6 +858,13 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const restrictionAttrs = restriction && typeof restriction === 'object' ? getXmlAttrs(restriction) : {};
       const unionAttrs = union && typeof union === 'object' ? getXmlAttrs(union) : {};
       const listAttrs = list && typeof list === 'object' ? getXmlAttrs(list) : {};
+      // `xs:restriction`'s `xs:enumeration` children (e.g. `modelNames`'s Item/Aggregation/...)
+      // so the RHS can show/edit them the same way an inline attribute simpleType's do.
+      const enumerations = restriction && typeof restriction === 'object'
+        ? asArray((restriction as any)['xs:enumeration'])
+            .map((enumEntry: any) => getXmlAttrs(enumEntry).value)
+            .filter((value): value is string => typeof value === 'string')
+        : [];
       const simpleTypeAttributes = asArray((entry as any)?.['xs:attribute']).map((attrEntry: any) => {
         const attrAttrs = getXmlAttrs(attrEntry);
         return { name: attrAttrs.name, type: attrAttrs.type, use: attrAttrs.use || 'optional' };
@@ -589,8 +886,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlBase: restrictionAttrs.base,
         xmlMemberTypes: unionAttrs.memberTypes,
         xmlItemType: listAttrs.itemType,
+        xmlEnumerations: enumerations,
         xmlAttributes: simpleTypeAttributes,
         xmlIsRef: isGlobalRef,
+        xmlMyTypeNames: namedSimpleTypeNames,
       }, '1');
     });
 
@@ -599,7 +898,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       if (!entry || typeof entry !== 'object') return;
       const attrs = getXmlAttrs(entry);
       const complexId = `1.complexType_${index}`;
-      const complexTypeAttributes = asArray((entry as any)?.['xs:attribute']).map((attrEntry: any) => {
+      const simpleContentInfo = getSimpleContentBaseInfo(entry);
+      // A `simpleContent` complexType declares its attributes on the extension/restriction, not
+      // directly on itself, so the RHS "manage attributes" list must read from there instead.
+      const attributeSourceValue = simpleContentInfo ? (simpleContentInfo.derivation as any)['xs:attribute'] : (entry as any)?.['xs:attribute'];
+      const complexTypeAttributes = asArray(attributeSourceValue).map((attrEntry: any) => {
         const attrAttrs = getXmlAttrs(attrEntry);
         return { name: attrAttrs.name, type: attrAttrs.type, use: attrAttrs.use || 'optional' };
       });
@@ -607,7 +910,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       // Check if this complexType is marked as a global reference
       const isGlobalRef = Boolean(attrs.ref);
       const nodeType = isGlobalRef ? 'globalType' : 'property';
-      
+      const baseInfo = getComplexContentBaseInfo(entry);
+
       addNode({
         id: complexId,
         label: toNodeLabel('complexType', attrs, `${index + 1}`),
@@ -618,6 +922,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlName: attrs.name,
         xmlAttributes: complexTypeAttributes,
         xmlIsRef: isGlobalRef,
+        ...(baseInfo ? { xmlExtendsType: baseInfo.baseTypeName } : {}),
+        // A `simpleContent` complexType is a simple type (text + attributes) under the hood, so
+        // tag it with the same `xmlSimpleTypeMode`/`xmlBase` fields a real `xs:simpleType` uses.
+        ...(simpleContentInfo ? { xmlSimpleTypeMode: simpleContentInfo.derivationKey === 'xs:extension' ? 'extension' : 'restriction', xmlBase: simpleContentInfo.base } : {}),
       }, '1');
 
       // Seed the ancestor set with this type's own name so a child element that
@@ -629,11 +937,46 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       addInlineComplexTypeChildren(entry, complexId, ['xs:schema', 'xs:complexType', index], ownTypeAncestors);
     });
 
+    // attributeGroups already extracted above; rendered as a top-level node showing its own
+    // attributes, reusing `addInlineComplexTypeChildren` (it only picks up `xs:attribute`/
+    // `xs:attributeGroup`/compositor keys, none of which conflict with an attributeGroup's shape)
+    // so a group that itself references another group (`xs:attributeGroup ref="..."`) expands too.
+    attributeGroups.forEach((entry, index) => {
+      if (!entry || typeof entry !== 'object') return;
+      const attrs = getXmlAttrs(entry);
+      const groupId = `1.attributeGroup_${index}`;
+      const attributeGroupAttributes = asArray((entry as any)?.['xs:attribute']).map((attrEntry: any) => {
+        const attrAttrs = getXmlAttrs(attrEntry);
+        return { name: attrAttrs.name, type: attrAttrs.type, use: attrAttrs.use || 'optional' };
+      });
+
+      const isGlobalRef = Boolean(attrs.ref);
+      const nodeType = isGlobalRef ? 'globalType' : 'property';
+
+      addNode({
+        id: groupId,
+        label: toNodeLabel('attributeGroup', attrs, `${index + 1}`),
+        type: nodeType,
+        parent: '1',
+        xmlNodeKind: 'attributeGroup',
+        xmlPath: ['xs:schema', 'xs:attributeGroup', index],
+        xmlName: attrs.name,
+        xmlAttributes: attributeGroupAttributes,
+        xmlIsRef: isGlobalRef,
+      }, '1');
+
+      // Seed with this group's own name so a self-referencing group (or one reached again via
+      // a nested ref chain) is stopped rather than expanding forever.
+      const ownGroupAncestors = typeof attrs.name === 'string' && attrs.name ? new Set([`attributeGroup:${attrs.name}`]) : new Set<string>();
+      addInlineComplexTypeChildren(entry, groupId, ['xs:schema', 'xs:attributeGroup', index], ownGroupAncestors);
+    });
+
     // elements already extracted above; routed through addXmlElementNode so a global
     // element's `type` attribute can be expanded inline (with circular-ref protection).
     elements.forEach((entry, index) => {
       addXmlElementNode(entry, '1', ['xs:schema', 'xs:element', index], index);
     });
+
 
     // Add top-level attributes to the schema
     const attributes = asArray((schemaRoot as any)?.['xs:attribute']);
@@ -650,6 +993,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlName: attrs.name,
         xmlAttributeType: attrs.type,
         xmlAttributeUse: attrs.use || 'optional',
+        ...referencedEnumFields(attrs.type),
+        xmlMyTypeNames: namedSimpleTypeNames,
       }, '1');
     });
 
@@ -757,6 +1102,13 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         }
       }
 
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlEnumerations')) {
+        if (!(target as any)['xs:restriction']) (target as any)['xs:restriction'] = { '@attributes': {} };
+        const values = (((patch as any).xmlEnumerations as string[] | undefined) || []).filter((value) => value !== undefined && value !== null);
+        if (values.length > 0) (target as any)['xs:restriction']['xs:enumeration'] = values.map((value) => ({ '@attributes': { value } }));
+        else delete (target as any)['xs:restriction']['xs:enumeration'];
+      }
+
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlMemberTypes')) {
         if (!(target as any)['xs:union']) (target as any)['xs:union'] = { '@attributes': {} };
         const uAttrs = getOrCreateAttrs((target as any)['xs:union']);
@@ -792,6 +1144,20 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       }
     }
 
+    if (kind === 'attributeGroup') {
+      const attrs = getOrCreateAttrs(target);
+      if (attrs && Object.prototype.hasOwnProperty.call(patch, 'xmlName')) {
+        const value = (patch as any).xmlName;
+        if (value) attrs.name = value;
+        else delete attrs.name;
+      }
+      if (attrs && Object.prototype.hasOwnProperty.call(patch, 'xmlIsRef')) {
+        const value = Boolean((patch as any).xmlIsRef);
+        if (value) attrs.ref = 'true';
+        else delete attrs.ref;
+      }
+    }
+
     if (kind === 'attribute') {
       const attrs = getOrCreateAttrs(target);
       if (!attrs) return null;
@@ -810,6 +1176,16 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         if (value) attrs.use = value;
         else delete attrs.use;
       }
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlAttributeInlineSimpleType')) {
+        const value = (patch as any).xmlAttributeInlineSimpleType as InlineSimpleTypeData | undefined | null;
+        if (value) {
+          (target as any)['xs:simpleType'] = serializeInlineSimpleType(value);
+          // An attribute can't have both a `type=` attribute and an inline `xs:simpleType`.
+          delete attrs.type;
+        } else {
+          delete (target as any)['xs:simpleType'];
+        }
+      }
     }
 
     if (kind === 'element') {
@@ -817,8 +1193,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       if (!attrs) return null;
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlName')) {
         const value = (patch as any).xmlName;
-        if (value) attrs.name = value;
-        else delete attrs.name;
+        // A `ref`-only element stores its display name on `ref`, not `name` — write back
+        // to whichever attribute is actually present so we don't add a stray `name`.
+        const nameField = attrs.ref !== undefined ? 'ref' : 'name';
+        if (value) attrs[nameField] = value;
+        else delete attrs[nameField];
       }
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlElementType')) {
         const value = (patch as any).xmlElementType;
@@ -895,8 +1274,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       });
     }
 
-    // Handle attribute operations on simpleType or complexType
-    if ((kind === 'simpleType' || kind === 'complexType') && target && typeof target === 'object') {
+    // Handle attribute operations on simpleType, complexType, or attributeGroup
+    if ((kind === 'simpleType' || kind === 'complexType' || kind === 'attributeGroup') && target && typeof target === 'object') {
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlAddAttribute')) {
         const newAttr = (patch as any).xmlAddAttribute;
         if (!Array.isArray(target['xs:attribute'])) target['xs:attribute'] = [];
@@ -1307,8 +1686,13 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
   // Relayout nodes into a horizontal tree using Dagre when available.
   // If Dagre is unavailable or fails, preserve current positions.
-  const relayoutNodes = React.useCallback((inputNodes: Node<SchemaNodeData>[], inputEdges: Edge[]) => {
-    if (!Array.isArray(inputNodes) || inputNodes.length === 0) return inputNodes;
+  const relayoutNodes = React.useCallback((rawInputNodes: Node<SchemaNodeData>[], inputEdges: Edge[]) => {
+    if (!Array.isArray(rawInputNodes) || rawInputNodes.length === 0) return rawInputNodes;
+
+    // Strip any inheritance-group boxes from a previous relayout pass — they're purely
+    // decorative and recomputed fresh below from the new positions, never carried over.
+    const inputNodes = rawInputNodes.filter(n => n.type !== 'inheritanceGroup');
+    if (inputNodes.length === 0) return inputNodes;
 
     const visibleNodes = inputNodes.filter(n => !n.hidden);
     const hiddenNodes = inputNodes.filter(n => n.hidden);
@@ -1335,6 +1719,59 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       if (n.type === 'variant') return VARIANT_HEIGHT;
       return NODE_HEIGHT;
     };
+
+    // Builds a decorative background box (`inheritanceGroup` node) behind each XML element/
+    // complexType node tagged `xmlExtendsType` (via `xs:complexContent`/`xs:extension`) and the
+    // descendant nodes tagged `xmlInheritedFrom` that same base type name, so inherited fields
+    // are visually grouped with the node that inherits them. Purely additive/decorative — never
+    // affects dagre's own layout, since it's computed from already-final node positions.
+    const GROUP_PADDING = 16;
+    const buildInheritanceGroupNodes = (laidOutNodes: Node<SchemaNodeData>[]): Node<SchemaNodeData>[] => {
+      const visible = laidOutNodes.filter(n => !n.hidden);
+      const groups: Node<SchemaNodeData>[] = [];
+      visible.forEach((owner) => {
+        const baseTypeName = (owner.data as any)?.xmlExtendsType;
+        if (!baseTypeName) return;
+        const memberPrefix = `${owner.id}.`;
+        const members = visible.filter(n => n.id !== owner.id && n.id.startsWith(memberPrefix) && (n.data as any)?.xmlInheritedFrom === baseTypeName);
+        if (members.length === 0) return;
+
+        // Anchor the box's left edge at the owner node's own right edge (not around the owner
+        // itself) so it wraps only the inherited descendant nodes, like a bracket around "just
+        // the properties" rather than enclosing the owner node too. Left edge is fixed there
+        // (no padding) so the box never overlaps back over the owner node.
+        const minX = owner.position.x + estimateWidth(owner);
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        members.forEach((m) => {
+          minY = Math.min(minY, m.position.y);
+          maxX = Math.max(maxX, m.position.x + estimateWidth(m));
+          maxY = Math.max(maxY, m.position.y + estimateHeight(m));
+        });
+
+        groups.push({
+          id: `${owner.id}.inheritance-group`,
+          type: 'inheritanceGroup',
+          position: { x: minX, y: minY - GROUP_PADDING },
+          style: { width: maxX - minX + GROUP_PADDING, height: maxY - minY + GROUP_PADDING * 2 },
+          data: { label: `inherits ${baseTypeName}` } as any,
+          draggable: false,
+          selectable: false,
+          focusable: false,
+          zIndex: -1,
+        } as Node<SchemaNodeData>);
+      });
+      return groups;
+    };
+
+    // Appended (not prepended) so `nodes[0]` stays the real root/first node — several
+    // selection fallbacks elsewhere default to `nodes[0]` when nothing is selected, and an
+    // inheritanceGroup node accidentally becoming that default selection shows a bogus
+    // generic property editor. `zIndex: -1` (set on each group node) keeps them rendered
+    // behind everything else regardless of array order.
+    const withInheritanceGroups = (laidOutNodes: Node<SchemaNodeData>[]): Node<SchemaNodeData>[] =>
+      [...laidOutNodes, ...buildInheritanceGroupNodes(laidOutNodes)];
 
     const getSortLabel = (n: Node<SchemaNodeData>) => (((n.data as any)?.label as string) || '').toString();
     const compareLayoutSiblings = (a: Node<SchemaNodeData>, b: Node<SchemaNodeData>) => {
@@ -1401,11 +1838,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         // Current default keeps Dagre positions for combiner + variant nodes.
         const COMBINER_VARIANT_LAYOUT_MODE: 'manual' | 'dagre-variants' | 'dagre-all' = 'dagre-all';
         if (COMBINER_VARIANT_LAYOUT_MODE === 'dagre-all') {
-          return [...finalLaid, ...hiddenNodes];
+          return withInheritanceGroups([...finalLaid, ...hiddenNodes]);
         }
 
         const useDagreVariantLayout = COMBINER_VARIANT_LAYOUT_MODE === 'dagre-variants';
-        return applySnappedDagreLayout({
+        return withInheritanceGroups(applySnappedDagreLayout({
           finalLaid,
           hiddenNodes,
           dagreNodeFor: (id) => g.node(id),
@@ -1416,14 +1853,14 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           nodeGap: 16,
           ranksep: 35,
           additionalPropertiesGap: 60,
-        });
+        }));
       } catch (err) {
         // If Dagre fails, keep current positions.
       }
     }
 
     // No heuristic fallback: preserve current positions when Dagre isn't available.
-    return inputNodes;
+    return withInheritanceGroups(inputNodes);
   }, []);
 
   const preserveAnchorY = React.useCallback((
@@ -3235,6 +3672,110 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     setContextMenu(null);
   };
 
+  // Add attributeGroup (top-level) to schema
+  const addXmlAttributeGroupToSchema = () => {
+    try {
+      const cloned = JSON.parse(JSON.stringify(schema || {})) as any;
+      
+      // Handle both { 'xs:schema': {...} } and direct xs:schema object
+      const schemaObj = cloned['xs:schema'] || cloned;
+      if (!schemaObj || typeof schemaObj !== 'object') {
+        setContextMenu(null);
+        return;
+      }
+      
+      if (!Array.isArray(schemaObj['xs:attributeGroup'])) {
+        schemaObj['xs:attributeGroup'] = [];
+      }
+      
+      const attributeGroupIndex = schemaObj['xs:attributeGroup'].length;
+      schemaObj['xs:attributeGroup'].push({
+        '@attributes': {
+          name: `AttributeGroup${attributeGroupIndex + 1}`,
+        },
+      });
+      
+      const toEmit = cloned['xs:schema'] ? cloned : schemaObj;
+      emitLocalSchemaUpdate(toEmit as Record<string, unknown>);
+      
+      const rawRebuilt = schemaToGraph(toEmit as Record<string, unknown>);
+      const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+        (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
+      );
+      const schemaNode = nodes.find(n => n.id === '1');
+      const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, schemaNode?.id);
+      setNodes(rebuiltNodes);
+      setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+    } catch (err) {
+      console.error('Failed to add attributeGroup to schema:', err);
+    }
+    setContextMenu(null);
+  };
+
+  // Resolves a right-clicked XML node's `ref`/`type`/attributeGroup-ref/complexContent-base
+  // back to the id of the top-level node that actually defines it, so "Go to type definition"
+  // can jump there. Returns null when the node doesn't reference anything resolvable in-graph
+  // (e.g. a built-in type like `xs:string`, or a plain non-ref node).
+  const resolveXmlRefTarget = React.useCallback((node: Node<SchemaNodeData> | undefined): string | null => {
+    if (!node) return null;
+    const data = node.data as any;
+    const kind = data.xmlNodeKind as string | undefined;
+    const localName = (name: string) => (name.includes(':') ? name.split(':').pop()! : name);
+
+    // `<xs:element ref="Foo"/>` — jump to the global `<xs:element name="Foo">` declaration.
+    if (kind === 'element' && data.xmlIsRef && typeof data.xmlName === 'string' && data.xmlName) {
+      const target = nodes.find((n) => {
+        const nd = n.data as any;
+        return nd?.xmlNodeKind === 'element' && nd?.parent === '1' && nd?.xmlName === data.xmlName && n.id !== node.id;
+      });
+      if (target) return target.id;
+    }
+
+    // `type="Foo"` on an element/attribute — jump to the named complexType/simpleType.
+    const typeName = kind === 'element' ? data.xmlElementType : kind === 'attribute' ? (data.xmlAttributeType || data.xmlAttributeReferencedTypeName) : undefined;
+    if (typeof typeName === 'string' && typeName) {
+      const name = localName(typeName);
+      const target = nodes.find((n) => {
+        const nd = n.data as any;
+        return (nd?.xmlNodeKind === 'complexType' || nd?.xmlNodeKind === 'simpleType') && nd?.parent === '1' && nd?.xmlName === name;
+      });
+      if (target) return target.id;
+    }
+
+    // `xs:attributeGroup ref="Foo"` expansion — jump to the top-level group definition.
+    if (typeof data.xmlAttributeGroupRef === 'string' && data.xmlAttributeGroupRef) {
+      const target = nodes.find((n) => {
+        const nd = n.data as any;
+        return nd?.xmlNodeKind === 'attributeGroup' && nd?.parent === '1' && nd?.xmlName === data.xmlAttributeGroupRef;
+      });
+      if (target) return target.id;
+    }
+
+    // `xs:complexContent`/`xs:extension base="Foo"` — jump to the base complexType.
+    if (typeof data.xmlExtendsType === 'string' && data.xmlExtendsType) {
+      const target = nodes.find((n) => {
+        const nd = n.data as any;
+        return nd?.xmlNodeKind === 'complexType' && nd?.parent === '1' && nd?.xmlName === data.xmlExtendsType;
+      });
+      if (target) return target.id;
+    }
+
+    return null;
+  }, [nodes]);
+
+  // Selects the referenced definition's node and pans/zooms the canvas to center on it.
+  const goToXmlRefTarget = React.useCallback((targetId: string) => {
+    setSelectedNodeId(targetId);
+    const rf = reactFlowInstanceRef.current;
+    const targetNode = nodes.find((n) => n.id === targetId);
+    if (rf && targetNode) {
+      const width = estimateNodeWidth(targetNode);
+      const height = estimateNodeHeight(targetNode);
+      rf.setCenter(targetNode.position.x + width / 2, targetNode.position.y + height / 2, { zoom: 1, duration: 500 });
+    }
+    setContextMenu(null);
+  }, [nodes]);
+
   const contextMenuItems = (() => {
     if (isXmlGraphMode) {
       const items: any[] = [];
@@ -3256,6 +3797,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         items.push({ label: 'Add Attribute', onClick: () => addXmlAttributeToSchema(), disabled: false });
         items.push({ label: 'Add ComplexType', onClick: () => addXmlComplexTypeToSchema(), disabled: false });
         items.push({ label: 'Add SimpleType', onClick: () => addXmlSimpleTypeToSchema(), disabled: false });
+        items.push({ label: 'Add AttributeGroup', onClick: () => addXmlAttributeGroupToSchema(), disabled: false });
+      }
+      const refTargetId = resolveXmlRefTarget(ctxNode);
+      if (refTargetId) {
+        items.push({ label: 'Go to type definition', onClick: () => goToXmlRefTarget(refTargetId), disabled: false });
       }
       return items;
     }

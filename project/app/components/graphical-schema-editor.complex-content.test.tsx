@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { GraphicalSchemaEditor } from './graphical-schema-editor';
 import { parseMarkup } from '../utils/markup';
@@ -22,5 +22,13 @@ describe('GraphicalSchemaEditor - xs:complexContent/xs:extension', () => {
 
     // arrayOfType (global complexType) extends modelType via complexContent too.
     expect(await screen.findByText('arrayOfType')).toBeInTheDocument();
+
+    // A decorative background box should be drawn grouping each extending node with its
+    // inherited-from-modelType descendants (one for the Model element, one for arrayOfType).
+    await waitFor(() => {
+      const groupBoxes = document.querySelectorAll('.react-flow__node[data-id$=".inheritance-group"]');
+      expect(groupBoxes.length).toBeGreaterThanOrEqual(2);
+    });
   });
 });
+

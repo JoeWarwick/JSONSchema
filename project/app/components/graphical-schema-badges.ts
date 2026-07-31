@@ -69,6 +69,9 @@ export const BADGE_DEFS: Record<string, BadgeDef> = {
     condition: (d: any) => !!d.isRef,
     label: () => 'isRef',
     tooltip: (d: any) => {
+      if (d.xmlAttributeGroupRef) {
+        return `From attributeGroup "${d.xmlAttributeGroupRef}" \u2014 reference, read-only here`;
+      }
       const ref = d.$ref || d.xmlElementType;
       return ref ? `Circular reference to ${ref} \u2014 not expanded further` : 'Circular reference \u2014 not expanded further';
     },
@@ -133,6 +136,7 @@ const XML_KIND_STYLES: Record<string, { bg: string; color: string }> = {
   attribute: { bg: '#fff3e0', color: '#e65100' },
   simpleType: { bg: '#e8f5e9', color: '#2e7d32' },
   complexType: { bg: '#f3e8ff', color: '#7b1fa2' },
+  attributeGroup: { bg: '#fce4ec', color: '#ad1457' },
 };
 
 export const buildBadges = (data: any) => {
