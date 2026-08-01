@@ -368,10 +368,23 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     });
     // Merge: direct properties override @attributes
     const merged = { ...fromAttrs, ...directProps };
-    if (Object.keys(merged).length > 0) {
-      console.log('[getXmlAttrs] @attributes:', fromAttrs, 'directProps:', directProps, 'merged:', merged);
-    }
     return merged;
+  }, []);
+
+  // Reads the text of `xs:annotation/xs:documentation` off a raw XSD node (any kind — schema,
+  // simpleType, complexType, attributeGroup, attribute, element, or a compositor), so the RHS can
+  // show/edit it as a single "Annotation" field two-way bound to that XML structure.
+  const getXmlAnnotationDoc = React.useCallback((node: any): string | undefined => {
+    if (!node || typeof node !== 'object') return undefined;
+    const annotation = Array.isArray(node['xs:annotation']) ? node['xs:annotation'][0] : node['xs:annotation'];
+    if (!annotation || typeof annotation !== 'object') return undefined;
+    const documentation = Array.isArray(annotation['xs:documentation']) ? annotation['xs:documentation'][0] : annotation['xs:documentation'];
+    if (typeof documentation === 'string') return documentation;
+    if (documentation && typeof documentation === 'object') {
+      const text = (documentation as any)['#text'];
+      if (typeof text === 'string') return text;
+    }
+    return undefined;
   }, []);
 
   const xmlSchemaToGraph = React.useCallback((xmlDoc: Record<string, unknown>): { nodes: Node<SchemaNodeData>[]; edges: Edge[] } => {
@@ -402,6 +415,30 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           ...(cardinality ? { data: { cardinality } } : {}),
         } as Edge);
       }
+    };
+
+    // An `xs:attribute`'s inline (anonymous) `xs:simpleType` gets its own child graph node
+    // (rather than being edited inline within the attribute's own RHS form) so it can be
+    // selected and edited via the same "SimpleType Editor" experience as a named simpleType.
+    // `xmlIsAnonymous` distinguishes it from a real top-level named simpleType node so the RHS
+    // routes it to the anonymous-simpleType editor and the reducer patches its own `xs:simpleType`
+    // object in place (at `attrPath` + 'xs:simpleType') instead of a named simpleType's flat fields.
+    const addAttributeInlineSimpleTypeChild = (attributeEntry: any, attributeId: string, attrPath: Array<string | number>) => {
+      const simpleTypeValue = (attributeEntry as any)?.['xs:simpleType'];
+      if (!simpleTypeValue || typeof simpleTypeValue !== 'object') return;
+      const inlineSimpleType = parseInlineSimpleType(simpleTypeValue);
+      if (!inlineSimpleType) return;
+      addNode({
+        id: `${attributeId}.simpleType`,
+        label: 'SimpleType',
+        type: 'property',
+        parent: attributeId,
+        xmlNodeKind: 'simpleType',
+        xmlIsAnonymous: true,
+        xmlPath: [...attrPath, 'xs:simpleType'],
+        xmlAttributeInlineSimpleType: inlineSimpleType,
+        ...(getXmlAnnotationDoc(simpleTypeValue) ? { xmlAnnotation: getXmlAnnotationDoc(simpleTypeValue) } : {}),
+      }, attributeId);
     };
 
     const XML_COMPOSITOR_TAG_KEYS = ['xs:sequence', 'xs:choice', 'xs:all'] as const;
@@ -483,6 +520,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlMyTypeNames: namedElementTypeNames,
         xmlMyElementNames: namedGlobalElementNames,
         xmlIsRef: Boolean(elemAttrs.ref),
+        // Inline `xs:complexType` (no `type` attribute) — the RHS Type field has nothing to show
+        // via `xmlElementType`, so flag it to display "complexType - <name>" (or "- Anon" when the
+        // inline complexType itself has no `name`) instead of blank/(none).
+        ...(inlineComplexType && typeof inlineComplexType === 'object' ? { xmlHasInlineComplexType: true, xmlInlineComplexTypeName: getXmlAttrs(inlineComplexType).name } : {}),
+        ...(getXmlAnnotationDoc(elemEntry) ? { xmlAnnotation: getXmlAnnotationDoc(elemEntry) } : {}),
         ...(circular ? { isRef: true } : {}),
         ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
         ...(ownBaseInfo ? { xmlExtendsType: ownBaseInfo.baseTypeName } : {}),
@@ -519,9 +561,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         const attrPath = Array.isArray(attributeValue)
           ? ['xs:schema', 'xs:attributeGroup', group.index, 'xs:attribute', attributeIndex]
           : ['xs:schema', 'xs:attributeGroup', group.index, 'xs:attribute'];
-        const inlineSimpleType = (attributeEntry as any)['xs:simpleType'] ? parseInlineSimpleType((attributeEntry as any)['xs:simpleType']) : undefined;
+        const attributeId = `${parentId}${idSuffix}.attributeGroupRef_${groupName}_${attributeIndex}`;
+        const hasInlineSimpleType = Boolean((attributeEntry as any)['xs:simpleType']);
         addNode({
-          id: `${parentId}${idSuffix}.attributeGroupRef_${groupName}_${attributeIndex}`,
+          id: attributeId,
           label: toNodeLabel('attribute', attributeAttrs, `${attributeIndex + 1}`),
           type: 'property',
           parent: parentId,
@@ -530,13 +573,17 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           xmlName: attributeAttrs.name,
           xmlAttributeType: attributeAttrs.type,
           xmlAttributeUse: attributeAttrs.use || 'optional',
+          required: (attributeAttrs.use || 'optional') === 'required',
           isRef: true,
           xmlAttributeGroupRef: groupName,
-          ...(inlineSimpleType ? { xmlAttributeInlineSimpleType: inlineSimpleType } : {}),
+          ...(attributeAttrs.default !== undefined ? { xmlAttributeDefault: attributeAttrs.default } : {}),
+          ...(hasInlineSimpleType ? { xmlHasInlineSimpleType: true } : {}),
           ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
           ...referencedEnumFields(attributeAttrs.type),
+          ...(getXmlAnnotationDoc(attributeEntry) ? { xmlAnnotation: getXmlAnnotationDoc(attributeEntry) } : {}),
           xmlMyTypeNames: namedSimpleTypeNames,
         }, parentId);
+        addAttributeInlineSimpleTypeChild(attributeEntry, attributeId, attrPath);
       });
 
       // An attributeGroup may itself reference other attributeGroups — expand those too.
@@ -600,9 +647,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           const attrPath = Array.isArray(derivationAttrValue)
             ? [...basePath, 'xs:simpleContent', simpleDerivationKey, 'xs:attribute', attributeIndex]
             : [...basePath, 'xs:simpleContent', simpleDerivationKey, 'xs:attribute'];
-          const inlineSimpleType = (attributeEntry as any)['xs:simpleType'] ? parseInlineSimpleType((attributeEntry as any)['xs:simpleType']) : undefined;
+          const attributeId = `${parentId}${idSuffix}.attribute_${attributeIndex}`;
+          const hasInlineSimpleType = Boolean((attributeEntry as any)['xs:simpleType']);
           addNode({
-            id: `${parentId}${idSuffix}.attribute_${attributeIndex}`,
+            id: attributeId,
             label: toNodeLabel('attribute', attributeAttrs, `${attributeIndex + 1}`),
             type: 'property',
             parent: parentId,
@@ -611,11 +659,15 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
             xmlName: attributeAttrs.name,
             xmlAttributeType: attributeAttrs.type,
             xmlAttributeUse: attributeAttrs.use || 'optional',
-            ...(inlineSimpleType ? { xmlAttributeInlineSimpleType: inlineSimpleType } : {}),
+            required: (attributeAttrs.use || 'optional') === 'required',
+            ...(attributeAttrs.default !== undefined ? { xmlAttributeDefault: attributeAttrs.default } : {}),
+            ...(hasInlineSimpleType ? { xmlHasInlineSimpleType: true } : {}),
             ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
             ...referencedEnumFields(attributeAttrs.type),
+            ...(getXmlAnnotationDoc(attributeEntry) ? { xmlAnnotation: getXmlAnnotationDoc(attributeEntry) } : {}),
             xmlMyTypeNames: namedSimpleTypeNames,
           }, parentId);
+          addAttributeInlineSimpleTypeChild(attributeEntry, attributeId, attrPath);
         });
         asArray((simpleDerivation as any)['xs:attributeGroup']).forEach((agEntry: any) => {
           if (!agEntry || typeof agEntry !== 'object') return;
@@ -634,9 +686,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         const attrPath = Array.isArray(attributeValue)
           ? [...basePath, 'xs:attribute', attributeIndex]
           : [...basePath, 'xs:attribute'];
-        const inlineSimpleType = (attributeEntry as any)['xs:simpleType'] ? parseInlineSimpleType((attributeEntry as any)['xs:simpleType']) : undefined;
+        const attributeId = `${parentId}${idSuffix}.attribute_${attributeIndex}`;
+        const hasInlineSimpleType = Boolean((attributeEntry as any)['xs:simpleType']);
         addNode({
-          id: `${parentId}${idSuffix}.attribute_${attributeIndex}`,
+          id: attributeId,
           label: toNodeLabel('attribute', attributeAttrs, `${attributeIndex + 1}`),
           type: 'property',
           parent: parentId,
@@ -645,11 +698,15 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           xmlName: attributeAttrs.name,
           xmlAttributeType: attributeAttrs.type,
           xmlAttributeUse: attributeAttrs.use || 'optional',
-          ...(inlineSimpleType ? { xmlAttributeInlineSimpleType: inlineSimpleType } : {}),
+          required: (attributeAttrs.use || 'optional') === 'required',
+          ...(attributeAttrs.default !== undefined ? { xmlAttributeDefault: attributeAttrs.default } : {}),
+          ...(hasInlineSimpleType ? { xmlHasInlineSimpleType: true } : {}),
           ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
           ...referencedEnumFields(attributeAttrs.type),
+          ...(getXmlAnnotationDoc(attributeEntry) ? { xmlAnnotation: getXmlAnnotationDoc(attributeEntry) } : {}),
           xmlMyTypeNames: namedSimpleTypeNames,
         }, parentId);
+        addAttributeInlineSimpleTypeChild(attributeEntry, attributeId, attrPath);
       });
 
       // `xs:attributeGroup ref="..."` pulls in a shared group of attribute declarations —
@@ -699,6 +756,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlMinOccurs: compositorAttrs.minOccurs ?? '1',
         xmlMaxOccurs: compositorAttrs.maxOccurs ?? '1',
         ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
+        ...(getXmlAnnotationDoc(first) ? { xmlAnnotation: getXmlAnnotationDoc(first) } : {}),
       }, parentId);
 
       addCompositorChildren(compositorValue, compositorId, path, ancestors, inheritedFrom);
@@ -774,6 +832,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlSchemaNodeData[xmlKey] = attrValue;
       }
     });
+
+    const schemaAnnotation = getXmlAnnotationDoc(schemaRoot);
+    if (schemaAnnotation) xmlSchemaNodeData.xmlAnnotation = schemaAnnotation;
 
     addNode(xmlSchemaNodeData);
 
@@ -890,6 +951,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlAttributes: simpleTypeAttributes,
         xmlIsRef: isGlobalRef,
         xmlMyTypeNames: namedSimpleTypeNames,
+        ...(getXmlAnnotationDoc(entry) ? { xmlAnnotation: getXmlAnnotationDoc(entry) } : {}),
       }, '1');
     });
 
@@ -926,6 +988,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         // A `simpleContent` complexType is a simple type (text + attributes) under the hood, so
         // tag it with the same `xmlSimpleTypeMode`/`xmlBase` fields a real `xs:simpleType` uses.
         ...(simpleContentInfo ? { xmlSimpleTypeMode: simpleContentInfo.derivationKey === 'xs:extension' ? 'extension' : 'restriction', xmlBase: simpleContentInfo.base } : {}),
+        ...(getXmlAnnotationDoc(entry) ? { xmlAnnotation: getXmlAnnotationDoc(entry) } : {}),
       }, '1');
 
       // Seed the ancestor set with this type's own name so a child element that
@@ -963,6 +1026,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlName: attrs.name,
         xmlAttributes: attributeGroupAttributes,
         xmlIsRef: isGlobalRef,
+        ...(getXmlAnnotationDoc(entry) ? { xmlAnnotation: getXmlAnnotationDoc(entry) } : {}),
       }, '1');
 
       // Seed with this group's own name so a self-referencing group (or one reached again via
@@ -983,19 +1047,27 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     attributes.forEach((entry, index) => {
       if (!entry || typeof entry !== 'object') return;
       const attrs = getXmlAttrs(entry);
+      const attributeId = `1.attribute_${index}`;
+      const attrPath = ['xs:schema', 'xs:attribute', index];
+      const hasInlineSimpleType = Boolean((entry as any)['xs:simpleType']);
       addNode({
-        id: `1.attribute_${index}`,
+        id: attributeId,
         label: toNodeLabel('attribute', attrs, `${index + 1}`),
         type: 'property',
         parent: '1',
         xmlNodeKind: 'attribute',
-        xmlPath: ['xs:schema', 'xs:attribute', index],
+        xmlPath: attrPath,
         xmlName: attrs.name,
         xmlAttributeType: attrs.type,
         xmlAttributeUse: attrs.use || 'optional',
+        required: (attrs.use || 'optional') === 'required',
+        ...(attrs.default !== undefined ? { xmlAttributeDefault: attrs.default } : {}),
+        ...(hasInlineSimpleType ? { xmlHasInlineSimpleType: true } : {}),
         ...referencedEnumFields(attrs.type),
         xmlMyTypeNames: namedSimpleTypeNames,
+        ...(getXmlAnnotationDoc(entry) ? { xmlAnnotation: getXmlAnnotationDoc(entry) } : {}),
       }, '1');
+      addAttributeInlineSimpleTypeChild(entry, attributeId, attrPath);
     });
 
     return { nodes, edges };
@@ -1014,7 +1086,6 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       return null;
     }
 
-    console.log('[updateXmlNodeAtPath] sourceSchema keys:', Object.keys(sourceSchema || {}));
     const cloned = JSON.parse(JSON.stringify(sourceSchema || {})) as any;
     const getAtPath = (root: any, path: Array<string | number>) => {
       let current = root;
@@ -1067,7 +1138,26 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     }
     const kind = String((node?.data as any)?.xmlNodeKind || '');
 
-    if (kind === 'simpleType') {
+    // `xs:annotation/xs:documentation` is a free-text field common to every XSD node kind, so it's
+    // handled generically here (once) rather than duplicated in each kind-specific branch below.
+    // (A compositor's `target` may be an array — e.g. multiple `xs:sequence` siblings — so unwrap
+    // to the first entry the same way the minOccurs/maxOccurs handling below does.)
+    if (Object.prototype.hasOwnProperty.call(patch, 'xmlAnnotation')) {
+      const annotationTarget = Array.isArray(target) ? target[0] : target;
+      if (annotationTarget && typeof annotationTarget === 'object') {
+        const value = (patch as any).xmlAnnotation;
+        if (typeof value === 'string' && value.trim().length > 0) {
+          annotationTarget['xs:annotation'] = { 'xs:documentation': { '#text': value } };
+        } else {
+          delete annotationTarget['xs:annotation'];
+        }
+      }
+    }
+
+    // A named top-level simpleType's flat mode/base/enumerations/memberTypes/itemType fields —
+    // does not apply to an attribute's anonymous inline simpleType child (handled separately
+    // below via `xmlAttributeInlineSimpleType`, which replaces its whole tree at once).
+    if (kind === 'simpleType' && !(node?.data as any)?.xmlIsAnonymous) {
       const attrs = getOrCreateAttrs(target);
       if (!attrs) return null;
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlName')) {
@@ -1130,6 +1220,21 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       }
     }
 
+    // An attribute's anonymous inline `xs:simpleType` child node — `target` here IS the
+    // `xs:simpleType` object itself (per its own xmlPath), so the whole tree is replaced in
+    // place rather than patched via the flat xmlSimpleTypeMode/xmlBase/... fields above (which
+    // only apply to a real named simpleType's own `target`, one level up from its content).
+    if (kind === 'simpleType' && Boolean((node?.data as any)?.xmlIsAnonymous) && Object.prototype.hasOwnProperty.call(patch, 'xmlAttributeInlineSimpleType')) {
+      const value = (patch as any).xmlAttributeInlineSimpleType as InlineSimpleTypeData | undefined | null;
+      if (value) {
+        const serialized = serializeInlineSimpleType(value);
+        delete (target as any)['xs:restriction'];
+        delete (target as any)['xs:union'];
+        delete (target as any)['xs:list'];
+        Object.assign(target as any, serialized);
+      }
+    }
+
     if (kind === 'complexType') {
       const attrs = getOrCreateAttrs(target);
       if (attrs && Object.prototype.hasOwnProperty.call(patch, 'xmlName')) {
@@ -1175,6 +1280,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         const value = (patch as any).xmlAttributeUse;
         if (value) attrs.use = value;
         else delete attrs.use;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlAttributeDefault')) {
+        const value = (patch as any).xmlAttributeDefault;
+        if (value) attrs.default = value;
+        else delete attrs.default;
       }
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlAttributeInlineSimpleType')) {
         const value = (patch as any).xmlAttributeInlineSimpleType as InlineSimpleTypeData | undefined | null;
@@ -2265,6 +2375,79 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     });
   }, [edgesRef, injectHandlers, nodeHandlersRef, resolveRefInSchema, schemaToGraph, relayoutNodes, preserveAnchorY, setEdges, setNodes, setVariantExpandedPersisted, setCombinerExpandedPersisted]);
 
+  // Whether a node's own children (properties/descendants) are currently displayed —
+  // used when expanding an ancestor so we don't blow past a nested node's own collapsed state.
+  const isNodeDisplayCollapsed = (n: Node<SchemaNodeData>): boolean => {
+    const d = n.data as any;
+    if (n.type === 'variant') return !d.variantExpanded;
+    if (n.type === 'combiner') return !d.variantsExpanded;
+    return Boolean(d.childrenCollapsed);
+  };
+
+  const collectDescendantIds = React.useCallback((parentId: string, allNodes: Node<SchemaNodeData>[]): string[] => {
+    const result: string[] = [];
+    const walk = (pid: string) => {
+      allNodes.forEach(n => {
+        if ((n.data as any)?.parent === pid) {
+          result.push(n.id);
+          walk(n.id);
+        }
+      });
+    };
+    walk(parentId);
+    return result;
+  }, []);
+
+  // Generic collapse/expand toggle for any node's children — mirrors the variant/combiner
+  // collapse pattern above, but works for plain property/globalType/enum/root nodes whose
+  // children already exist in the graph (no lazy $ref resolution needed).
+  const handleToggleNodeChildren = React.useCallback((nodeId: string) => {
+    setNodes((prev: Node<SchemaNodeData>[]) => {
+      const targetNode = prev.find(n => n.id === nodeId);
+      if (!targetNode) return prev;
+      const willCollapse = !(targetNode.data as any)?.childrenCollapsed;
+
+      if (willCollapse) {
+        const toHide = new Set(collectDescendantIds(nodeId, prev));
+        const nextEdges = edgesRef.current.map((e: Edge) =>
+          (toHide.has(e.source) || toHide.has(e.target)) ? { ...e, hidden: true } : e
+        );
+        setEdges(() => nextEdges);
+        const updated = prev.map((n: Node<SchemaNodeData>) => {
+          if (n.id === nodeId) return { ...n, data: { ...n.data, childrenCollapsed: true } };
+          if (toHide.has(n.id)) return { ...n, hidden: true };
+          return n;
+        });
+        pendingCenterRef.current = true;
+        return relayoutNodes(updated, nextEdges);
+      }
+
+      // Expanding: reveal descendants, but stop descending past any node that is itself
+      // still collapsed (nested combiner/variant/childrenCollapsed state is preserved).
+      const toShow = new Set<string>();
+      const walk = (parentId: string) => {
+        prev.forEach((n: Node<SchemaNodeData>) => {
+          if ((n.data as any)?.parent === parentId) {
+            toShow.add(n.id);
+            if (!isNodeDisplayCollapsed(n)) walk(n.id);
+          }
+        });
+      };
+      walk(nodeId);
+      const nextEdges = edgesRef.current.map((e: Edge) =>
+        (toShow.has(e.source) || toShow.has(e.target)) ? { ...e, hidden: false } : e
+      );
+      setEdges(() => nextEdges);
+      const updated = prev.map((n: Node<SchemaNodeData>) => {
+        if (n.id === nodeId) return { ...n, data: { ...n.data, childrenCollapsed: false } };
+        if (toShow.has(n.id)) return { ...n, hidden: false };
+        return n;
+      });
+      const laid = relayoutNodes(updated, nextEdges);
+      return preserveAnchorY(laid, prev, nodeId);
+    });
+  }, [collectDescendantIds, edgesRef, relayoutNodes, preserveAnchorY, setEdges, setNodes]);
+
   // Add a new blank variant to a combiner node
   const handleAddVariant = React.useCallback((combinerId: string) => {
     setNodes((prev: Node<SchemaNodeData>[]) => {
@@ -2555,8 +2738,33 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       
       emitLocalSchemaUpdate(updated);
       
-      // Rebuild the entire graph from the updated schema to ensure all changes are reflected
+      // Rebuild the graph data from the updated schema so all changes are reflected.
       const rawRebuilt = schemaToGraph(updated as Record<string, unknown>);
+      const currentNodesById = new Map(nodesRef.current.map((n) => [n.id, n]));
+      const currentEdgeIds = new Set(edgesRef.current.map((e) => e.id));
+      const sameStructure =
+        rawRebuilt.nodes.length === nodesRef.current.length &&
+        rawRebuilt.edges.length === edgesRef.current.length &&
+        rawRebuilt.nodes.every((n) => currentNodesById.has(n.id)) &&
+        rawRebuilt.edges.every((e) => currentEdgeIds.has(e.id));
+
+      if (sameStructure) {
+        // A simple field edit (name/type/use/default/annotation/...) doesn't add or remove any
+        // node/edge — reuse existing positions instead of re-running the (expensive) dagre
+        // layout, which otherwise re-lays-out the whole graph on every keystroke commit.
+        const positionedNodes = rawRebuilt.nodes.map((n) => {
+          const existing = currentNodesById.get(n.id);
+          const merged = existing ? { ...n, position: existing.position } : n;
+          return (merged.type === 'combiner' || merged.type === 'variant')
+            ? { ...merged, data: { ...merged.data, id: merged.id, ...nodeHandlersRef.current } }
+            : merged;
+        });
+        setNodes(positionedNodes);
+        setEdges(rawRebuilt.edges as Edge[]);
+        return;
+      }
+
+      // Structural change (e.g. adding/removing an inline SimpleType's own node) — do a full relayout.
       const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
         (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
       );
@@ -2773,7 +2981,6 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     };
     const schemaForGraph = normalizeForGraph(activeSchema);
     const rawGraph = schemaToGraph(schemaForGraph);
-    console.log('[Schema effect] rawGraph nodes:', rawGraph.nodes.length, 'edges:', rawGraph.edges.length, 'isXmlGraphMode:', isXmlGraphMode);
     const restoredExpansionState = expansionStateRef.current;
     const nodesWithRestoredExpansion = rawGraph.nodes.map((n) => {
       if (n.type === 'combiner') {
@@ -2803,12 +3010,42 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       return e;
     });
 
-    const nodes = relayoutNodes(nodesWithRestoredExpansion, edgesWithRestoredExpansion).map(n =>
+    // On the very first successful graph build (prevNodeCount still at its initial 0), collapse
+    // everything except the root so only top-level items are visible — mirrors the collapse
+    // semantics of `handleToggleNodeChildren` but applied up front instead of via user clicks.
+    const isInitialLoad = prevNodeCount.current === 0 && prevEdgeCount.current === 0;
+    const rootNodeForCollapse = nodesWithRestoredExpansion.find((n) => n.type === 'root');
+    let initialNodesForLayout = nodesWithRestoredExpansion;
+    let initialEdgesForLayout = edgesWithRestoredExpansion;
+    if (isInitialLoad && rootNodeForCollapse) {
+      const parentIds = new Set<string>();
+      nodesWithRestoredExpansion.forEach((n) => {
+        const parent = (n.data as any)?.parent;
+        if (parent) parentIds.add(parent);
+      });
+      const topLevelIds = new Set(
+        nodesWithRestoredExpansion
+          .filter((n) => (n.data as any)?.parent === rootNodeForCollapse.id)
+          .map((n) => n.id)
+      );
+      const keepVisible = new Set<string>([rootNodeForCollapse.id, ...topLevelIds]);
+      initialNodesForLayout = nodesWithRestoredExpansion.map((n) => {
+        if (n.id === rootNodeForCollapse.id) return n;
+        const needsCollapseFlag = (n.type === 'property' || n.type === 'globalType' || n.type === 'enum') && parentIds.has(n.id);
+        const data = needsCollapseFlag ? { ...n.data, childrenCollapsed: true } : n.data;
+        return keepVisible.has(n.id) ? { ...n, data } : { ...n, data, hidden: true };
+      });
+      initialEdgesForLayout = edgesWithRestoredExpansion.map((e) =>
+        (keepVisible.has(e.source) && keepVisible.has(e.target)) ? e : { ...e, hidden: true }
+      );
+    }
+
+    const nodes = relayoutNodes(initialNodesForLayout, initialEdgesForLayout).map(n =>
       (n.type === 'combiner' || n.type === 'variant')
         ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } }
         : n
     );
-    const edges = applyEdgePositioning(edgesWithRestoredExpansion, nodes);
+    const edges = applyEdgePositioning(initialEdgesForLayout, nodes);
     // Only rebuild nodes/edges if the count changes (structural change)
     // Store label of selected node before graph rebuild
     setNodes(prevNodes => {
@@ -3776,6 +4013,116 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     setContextMenu(null);
   }, [nodes]);
 
+  // Adds a default anonymous `xs:simpleType` (restriction base="xs:string") to an `xs:attribute`,
+  // clearing its `type=` attribute since the two are mutually exclusive in XSD. The new
+  // `xs:simpleType` becomes its own child graph node (see `addAttributeInlineSimpleTypeChild`
+  // in `xmlSchemaToGraph`), selected immediately so the user can start editing it.
+  const addXmlSimpleTypeToAttribute = () => {
+    const ctxNode = nodes.find((n) => n.id === contextMenu?.nodeId);
+    if (!ctxNode) {
+      setContextMenu(null);
+      return;
+    }
+    const path = ((ctxNode.data as any)?.xmlPath || []) as Array<string | number>;
+    if (!Array.isArray(path) || path.length === 0) {
+      setContextMenu(null);
+      return;
+    }
+
+    const cloned = JSON.parse(JSON.stringify(schema || {})) as any;
+    let target: any = cloned;
+    for (const segment of path) {
+      if (typeof segment === 'number') {
+        if (!Array.isArray(target)) {
+          target = null;
+          break;
+        }
+        target = target[segment];
+      } else {
+        target = target?.[segment];
+      }
+      if (target == null) break;
+    }
+
+    if (!target || typeof target !== 'object') {
+      setContextMenu(null);
+      return;
+    }
+
+    const existingType = (target['@attributes'] as any)?.type;
+    if (target['@attributes']) delete (target['@attributes'] as any).type;
+    target['xs:simpleType'] = { 'xs:restriction': { '@attributes': { base: existingType || 'xs:string' } } };
+
+    emitLocalSchemaUpdate(cloned as Record<string, unknown>);
+
+    const rawRebuilt = schemaToGraph(cloned as Record<string, unknown>);
+    const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
+    );
+    const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, ctxNode.id);
+    setNodes(rebuiltNodes);
+    setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+
+    const newNodeId = `${ctxNode.id}.simpleType`;
+    if (rebuiltNodes.some((n) => n.id === newNodeId)) {
+      setSelectedNodeId(newNodeId);
+    }
+
+    setContextMenu(null);
+  };
+
+  // Removes an `xs:attribute`'s inline (anonymous) `xs:simpleType`, restoring a plain
+  // `type="xs:string"` so the attribute still has a valid type afterward.
+  const removeXmlSimpleTypeFromAttribute = () => {
+    const ctxNode = nodes.find((n) => n.id === contextMenu?.nodeId);
+    if (!ctxNode) {
+      setContextMenu(null);
+      return;
+    }
+    const path = ((ctxNode.data as any)?.xmlPath || []) as Array<string | number>;
+    if (!Array.isArray(path) || path.length === 0) {
+      setContextMenu(null);
+      return;
+    }
+
+    const cloned = JSON.parse(JSON.stringify(schema || {})) as any;
+    let target: any = cloned;
+    for (const segment of path) {
+      if (typeof segment === 'number') {
+        if (!Array.isArray(target)) {
+          target = null;
+          break;
+        }
+        target = target[segment];
+      } else {
+        target = target?.[segment];
+      }
+      if (target == null) break;
+    }
+
+    if (!target || typeof target !== 'object') {
+      setContextMenu(null);
+      return;
+    }
+
+    delete target['xs:simpleType'];
+    if (!target['@attributes']) target['@attributes'] = {};
+    if (!target['@attributes'].type) target['@attributes'].type = 'xs:string';
+
+    emitLocalSchemaUpdate(cloned as Record<string, unknown>);
+
+    const rawRebuilt = schemaToGraph(cloned as Record<string, unknown>);
+    const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
+    );
+    const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, ctxNode.id);
+    setNodes(rebuiltNodes);
+    setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+    setSelectedNodeId(ctxNode.id);
+
+    setContextMenu(null);
+  };
+
   const contextMenuItems = (() => {
     if (isXmlGraphMode) {
       const items: any[] = [];
@@ -3798,6 +4145,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         items.push({ label: 'Add ComplexType', onClick: () => addXmlComplexTypeToSchema(), disabled: false });
         items.push({ label: 'Add SimpleType', onClick: () => addXmlSimpleTypeToSchema(), disabled: false });
         items.push({ label: 'Add AttributeGroup', onClick: () => addXmlAttributeGroupToSchema(), disabled: false });
+      } else if (kind === 'attribute') {
+        // Attribute node context menu — add/remove its inline (anonymous) xs:simpleType.
+        const hasInlineSimpleType = Boolean((ctxNode?.data as any)?.xmlHasInlineSimpleType);
+        items.push({ label: 'Add SimpleType', onClick: () => addXmlSimpleTypeToAttribute(), disabled: hasInlineSimpleType });
+        items.push({ label: 'Remove SimpleType', onClick: () => removeXmlSimpleTypeFromAttribute(), disabled: !hasInlineSimpleType });
       }
       const refTargetId = resolveXmlRefTarget(ctxNode);
       if (refTargetId) {
@@ -3924,6 +4276,20 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     printGraphSection('graphical');
   }, []);
 
+  // Adds `hasChildren`/`onToggleChildren` to every node without touching the many mutation
+  // call sites that build `nodes` state — computed fresh from the current parent/child graph.
+  const renderNodes = React.useMemo(() => {
+    const parentIds = new Set<string>();
+    nodes.forEach(n => {
+      const parent = (n.data as any)?.parent;
+      if (parent) parentIds.add(parent);
+    });
+    return nodes.map(n => ({
+      ...n,
+      data: { ...n.data, hasChildren: parentIds.has(n.id), onToggleChildren: handleToggleNodeChildren },
+    }));
+  }, [nodes, handleToggleNodeChildren]);
+
   return (
     <>
     <HorizontalSplitPane className={styles.graphicalEditorContainer} defaultRightWidth={320} minRightWidth={280} minLeftWidth={360}>
@@ -3934,7 +4300,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
               {canRenderFlow ? (
                 <ReactFlow
                   style={{ width: '100%', height: explicitHeight ? `${explicitHeight}px` : '100%' }}
-                  nodes={nodes}
+                  nodes={renderNodes}
                   edges={edges.map(e => ({ ...e, style: { stroke: '#00e676', strokeWidth: 3 } }))}
                   minZoom={0.16}
                   onNodesChange={handleNodesChange}

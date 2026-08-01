@@ -161,6 +161,15 @@ export const GlobalTypeNode = ({ data }: { data: SchemaNodeData }) => {
       </div>
       <Handle id="source-Left" type="source" position={Position.Left} style={handleStyle} />
       <Handle id="source-Right" type="source" position={Position.Right} style={handleStyle} />
+      {(data as any).hasChildren && (
+        <button
+          className={styles.variantEdgeToggle}
+          onClick={(e: React.MouseEvent) => { e.stopPropagation(); (data as any).onToggleChildren?.((data as any).id); }}
+          title={(data as any).childrenCollapsed ? 'Expand children' : 'Collapse children'}
+        >
+          {(data as any).childrenCollapsed ? '+' : '\u2212'}
+        </button>
+      )}
     </div>
   );
 };
@@ -225,6 +234,15 @@ export const EnumNode = ({ data }: { data: SchemaNodeData & { enum: string[] } }
       </div>
       <Handle id="source-Left" type="source" position={Position.Left} style={handleStyle} />
       <Handle id="source-Right" type="source" position={Position.Right} style={handleStyle} />
+      {(data as any).hasChildren && (
+        <button
+          className={styles.variantEdgeToggle}
+          onClick={(e: React.MouseEvent) => { e.stopPropagation(); (data as any).onToggleChildren?.((data as any).id); }}
+          title={(data as any).childrenCollapsed ? 'Expand children' : 'Collapse children'}
+        >
+          {(data as any).childrenCollapsed ? '+' : '\u2212'}
+        </button>
+      )}
     </div>
   );
 };
@@ -332,7 +350,7 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
             // JSON Schema properties
             'label', 'id', 'parent', 'type', 'ofType', 'required', 'enum', 'items', 'default', 'title', 'description', '$comment', 'patternKey', 'typeUnion', 'isAdditionalProperties', 'additionalProperties', 'minProperties', 'maxProperties', '$ref',
             // XML Schema metadata (path, kind, etc.)
-            'xmlPath', 'xmlNodeKind', 'xmlName', 'xmlElementType', 'xmlSimpleTypeMode', 'xmlBase', 'xmlMemberTypes', 'xmlItemType', 'xmlEnumerations', 'xmlAttributes', 'xmlIsRef', 'xmlAttributeInlineSimpleType', 'xmlAttributeReferencedEnumerations', 'xmlAttributeReferencedTypeName', 'xmlMyTypeNames', 'xmlMyElementNames',
+            'xmlPath', 'xmlNodeKind', 'xmlName', 'xmlElementType', 'xmlHasInlineComplexType', 'xmlInlineComplexTypeName', 'xmlSimpleTypeMode', 'xmlBase', 'xmlMemberTypes', 'xmlItemType', 'xmlEnumerations', 'xmlAttributes', 'xmlIsRef', 'xmlIsAnonymous', 'xmlAttributeInlineSimpleType', 'xmlHasInlineSimpleType', 'xmlAttributeReferencedEnumerations', 'xmlAttributeReferencedTypeName', 'xmlMyTypeNames', 'xmlMyElementNames', 'xmlAnnotation',
             // xs:complexContent inheritance metadata (used only to compute the inheritance-group bounding box, never shown as a badge)
             'xmlExtendsType', 'xmlInheritedFrom',
             // xs:attributeGroup ref metadata (drives the isRef badge tooltip, not a separate badge)
@@ -342,7 +360,9 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
             // XML Schema root attributes
             'xmlTargetNamespace', 'xmlElementFormDefault', 'xmlAttributeFormDefault', 'xmlBlockDefault', 'xmlFinalDefault', 'xmlVersion', 'xmlId',
             // XML mutation operations
-            'xmlAddAttribute', 'xmlRemoveAttributeIndex', 'xmlUpdateAttributeIndex'
+            'xmlAddAttribute', 'xmlRemoveAttributeIndex', 'xmlUpdateAttributeIndex',
+            // Generic per-node collapse/expand-children toggle metadata (rendered as a button, not a badge)
+            'hasChildren', 'childrenCollapsed', 'onToggleChildren',
           ];
           if (hidden.includes(key)) return null;
           if (key === 'format') {
@@ -369,6 +389,7 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
               </Tooltip>
             );
           }
+          if (key === 'xmlAttributeDefault') return null;
           if (Object.prototype.hasOwnProperty.call(BADGE_DEFS, key)) return null;
           if (key === 'imported' && value === true) {
             return (
@@ -407,6 +428,15 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
       </div>
       <Handle id="source-Left" type="source" position={Position.Left} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
       <Handle id="source-Right" type="source" position={Position.Right} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
+      {(data as any).hasChildren && (
+        <button
+          className={styles.variantEdgeToggle}
+          onClick={(e: React.MouseEvent) => { e.stopPropagation(); (data as any).onToggleChildren?.((data as any).id); }}
+          title={(data as any).childrenCollapsed ? 'Expand children' : 'Collapse children'}
+        >
+          {(data as any).childrenCollapsed ? '+' : '\u2212'}
+        </button>
+      )}
     </div>
   );
 };
@@ -433,12 +463,22 @@ export const SchemaCard = ({ label, type, imported }: { label: string; type: Sch
 
 // Root node as a group box with a property card
 export const RootNode: React.FC<{ data: SchemaNodeData }> = ({ data }) => (
-  <div style={{ background: 'var(--graph-node-bg-subtle)', border: '2px dashed var(--graph-node-border-accent)', borderRadius: 12, padding: '18px' }}>
+  <div style={{ background: 'var(--graph-node-bg-subtle)', border: '2px dashed var(--graph-node-border-accent)', borderRadius: 12, padding: '18px', position: 'relative' }}>
     <Handle id="target-Left" type="target" position={Position.Left} style={{ display: 'none' }} />
     <Handle id="source-Right" type="source" position={Position.Right} />
     <div className="root-node" style={{ pointerEvents: 'none', cursor: 'default' }}>
       <SchemaCard label={data.label} type={data.type} imported={data.imported} />
     </div>
+    {(data as any).hasChildren && (
+      <button
+        className={styles.variantEdgeToggle}
+        style={{ pointerEvents: 'auto' }}
+        onClick={(e: React.MouseEvent) => { e.stopPropagation(); (data as any).onToggleChildren?.((data as any).id); }}
+        title={(data as any).childrenCollapsed ? 'Expand children' : 'Collapse children'}
+      >
+        {(data as any).childrenCollapsed ? '+' : '\u2212'}
+      </button>
+    )}
   </div>
 );
 

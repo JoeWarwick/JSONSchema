@@ -70,8 +70,8 @@ describe('GraphicalSchemaEditor - XML named simpleType restriction enumeration e
     fireEvent.click(await screen.findByText('modelNames'));
     await screen.findByLabelText('SimpleType enumeration value 1');
 
-    // Add a new value (there are two "Add" buttons on screen — this simpleType editor's own
-    // enumeration "Add" plus the disabled "Add attribute" button from XmlAttributesManager below it)
+    // Add a new value (using getAllByRole/find in case the XmlAttributesManager's own
+    // add-attribute form is also open with a disabled "Add" button)
     const newValueInput = await screen.findByLabelText('SimpleType enumeration new value');
     fireEvent.change(newValueInput, { target: { value: 'CustomKind' } });
     const addButtons = screen.getAllByRole('button', { name: 'Add' });

@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { GraphicalSchemaEditor } from './graphical-schema-editor';
 import { parseMarkup } from '../utils/markup';
+import { expandAllGraphNodes } from './test-fixtures/expand-all-nodes';
 
 describe('GraphicalSchemaEditor - xs:attributeGroup', () => {
   it('renders a top-level attributeGroup with its own attributes', async () => {
@@ -16,6 +17,7 @@ describe('GraphicalSchemaEditor - xs:attributeGroup', () => {
     const parsed = parseMarkup(xsd, 'xml');
 
     render(<GraphicalSchemaEditor schema={parsed as any} schemaLanguage="xml" />);
+    await expandAllGraphNodes();
 
     expect(await screen.findByText('default-specifier')).toBeInTheDocument();
     expect(await screen.findByText('default-value')).toBeInTheDocument();
@@ -38,6 +40,7 @@ describe('GraphicalSchemaEditor - xs:attributeGroup', () => {
     const parsed = parseMarkup(xsd, 'xml');
 
     render(<GraphicalSchemaEditor schema={parsed as any} schemaLanguage="xml" />);
+    await expandAllGraphNodes();
 
     // fieldType's own attribute renders normally.
     expect((await screen.findAllByText('name')).length).toBeGreaterThan(0);
@@ -46,7 +49,7 @@ describe('GraphicalSchemaEditor - xs:attributeGroup', () => {
     expect((await screen.findAllByText('default-value')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('cstype-name')).length).toBeGreaterThan(0);
 
-    // ...and each is flagged as a read-only reference (isRef badge).
-    expect((await screen.findAllByText('isRef')).length).toBeGreaterThan(0);
+    // ...and each is flagged as a read-only reference (Ref badge).
+    expect((await screen.findAllByText('Ref')).length).toBeGreaterThan(0);
   });
 });

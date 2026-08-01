@@ -1599,8 +1599,8 @@ describe('GraphicalSchemaEditor - circular $ref handling', () => {
     await screen.findByText('name');
     const childNode = await screen.findByText('child');
 
-    // The circular re-encounter of the same $ref is stopped and flagged with an isRef badge
-    expect(await screen.findByText('isRef')).toBeInTheDocument();
+    // The circular re-encounter of the same $ref is stopped and flagged with a Ref badge
+    expect(await screen.findByText('Ref')).toBeInTheDocument();
 
     // The stopped node must not itself expand into another nested "name"/"child" pair
     expect(screen.getAllByText('name')).toHaveLength(1);
@@ -1625,6 +1625,6 @@ describe('GraphicalSchemaEditor - circular $ref handling', () => {
     await screen.findByText('start');
     await screen.findByText('b');
     await screen.findByText('a');
-    expect(await screen.findByText('isRef')).toBeInTheDocument();
+    expect(await screen.findByText('Ref')).toBeInTheDocument();
   });
 });

@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { GraphicalSchemaEditor } from './graphical-schema-editor';
+import { expandAllGraphNodes } from './test-fixtures/expand-all-nodes';
 
 // Covers `xs:attribute type="typesType"` referencing a NAMED simpleType (by name, not an inline
 // anonymous simpleType) that itself has enumerations — the attribute's RHS editor should show
@@ -40,6 +41,7 @@ describe('GraphicalSchemaEditor - XML attribute referencing a named enum simpleT
 
   it('shows referenced enumeration values read-only on the "type" attribute of Field', async () => {
     render(<GraphicalSchemaEditor schema={buildSchema()} schemaLanguage="xml" onChange={() => {}} />);
+    await expandAllGraphNodes();
 
     const typeAttributeNodes = await screen.findAllByText('type');
     fireEvent.click(typeAttributeNodes[typeAttributeNodes.length - 1]);
@@ -58,6 +60,7 @@ describe('GraphicalSchemaEditor - XML attribute referencing a named enum simpleT
 
   it('does not show any referenced enumeration UI for a plain xs:string attribute', async () => {
     render(<GraphicalSchemaEditor schema={buildSchema()} schemaLanguage="xml" onChange={() => {}} />);
+    await expandAllGraphNodes();
 
     const nameAttributeNodes = await screen.findAllByText('name');
     fireEvent.click(nameAttributeNodes[0]);

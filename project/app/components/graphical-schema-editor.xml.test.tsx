@@ -3,6 +3,7 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { waitFor } from '@testing-library/react';
 import { GraphicalSchemaEditor } from './graphical-schema-editor';
+import { expandAllGraphNodes } from './test-fixtures/expand-all-nodes';
 
 describe('GraphicalSchemaEditor - XML RHS Editing', () => {
   beforeEach(() => {
@@ -315,6 +316,7 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     } as any;
 
     render(<GraphicalSchemaEditor schema={schema} schemaLanguage="xml" onChange={() => {}} />);
+    await expandAllGraphNodes();
 
     // Verify compositor node is rendered (label shown as an icon with a tooltip)
     await waitFor(() => {
@@ -357,6 +359,7 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     }
 
     render(<StatefulXmlEditor />);
+    await expandAllGraphNodes();
 
     // Find and right-click the compositor node (label shown as an icon with a tooltip)
     const compositorNode = await screen.findByLabelText('sequence compositor');
@@ -405,6 +408,7 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     }
 
     render(<StatefulXmlEditor />);
+    await expandAllGraphNodes();
 
     // Find and right-click the compositor node (label shown as an icon with a tooltip)
     const compositorNode = await screen.findByLabelText('sequence compositor');
@@ -456,6 +460,7 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     }
 
     render(<StatefulXmlEditor />);
+    await expandAllGraphNodes();
 
     // Click on element node to select it
     fireEvent.click(await screen.findByText('firstName'));
@@ -587,6 +592,9 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
 
     // Verify the complexType editor is shown
     expect(await screen.findByText('ComplexType Editor')).toBeInTheDocument();
+
+    // Reveal the "Add Attribute" form
+    fireEvent.click(await screen.findByRole('button', { name: '+ Add Attribute' }));
 
     // Add a new attribute
     const attrNameInput = await screen.findByPlaceholderText('Attribute name');
@@ -780,6 +788,7 @@ describe('GraphicalSchemaEditor - XML circular type-reference handling', () => {
     } as any;
 
     render(<GraphicalSchemaEditor schema={schema} schemaLanguage="xml" onChange={() => {}} />);
+    await expandAllGraphNodes();
 
     // The global element expands its named type inline: root -> sequence -> child.
     // The TreeNode complexType's own flat definition also renders its own "child" element,
@@ -790,8 +799,8 @@ describe('GraphicalSchemaEditor - XML circular type-reference handling', () => {
       expect(screen.getAllByText('child')).toHaveLength(2);
     });
 
-    // Every self-referential "child" (type="TreeNode") is stopped and flagged with an isRef badge
-    const isRefBadges = await screen.findAllByText('isRef');
+    // Every self-referential "child" (type="TreeNode") is stopped and flagged with a Ref badge
+    const isRefBadges = await screen.findAllByText('Ref');
     expect(isRefBadges.length).toBe(2);
   });
 
@@ -819,6 +828,7 @@ describe('GraphicalSchemaEditor - XML circular type-reference handling', () => {
     } as any;
 
     render(<GraphicalSchemaEditor schema={schema} schemaLanguage="xml" onChange={() => {}} />);
+    await expandAllGraphNodes();
 
     await screen.findByText('start');
     await waitFor(() => {
@@ -826,7 +836,53 @@ describe('GraphicalSchemaEditor - XML circular type-reference handling', () => {
       expect(screen.getAllByText('toA').length).toBeGreaterThan(0);
     });
     // Mutual A <-> B recursion terminates and at least one side is flagged circular.
-    expect((await screen.findAllByText('isRef')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('Ref')).length).toBeGreaterThan(0);
+  });
+
+  it('loads and round-trips xs:annotation/xs:documentation for a simpleType node', async () => {
+    const initialSchema = {
+      'xs:schema': {
+        'xs:simpleType': [
+          {
+            '@attributes': { name: 'StatusCode' },
+            'xs:annotation': { 'xs:documentation': { '#text': 'Existing docs.' } },
+            'xs:restriction': { '@attributes': { base: 'xs:string' } },
+          },
+        ],
+      },
+    } as any;
+
+    let latestSchema = initialSchema;
+
+    function StatefulXmlEditor() {
+      const [currentSchema, setCurrentSchema] = React.useState<any>(initialSchema);
+      return (
+        <GraphicalSchemaEditor
+          schema={currentSchema}
+          schemaLanguage="xml"
+          onChange={(next) => {
+            latestSchema = next as any;
+            setCurrentSchema(next as any);
+          }}
+        />
+      );
+    }
+
+    render(<StatefulXmlEditor />);
+
+    fireEvent.click(await screen.findByText('StatusCode'));
+    await screen.findByText('SimpleType Editor');
+
+    const annotationField = screen.getByLabelText('Annotation') as HTMLTextAreaElement;
+    expect(annotationField).toHaveValue('Existing docs.');
+
+    fireEvent.change(annotationField, { target: { value: 'Updated docs.' } });
+    fireEvent.blur(annotationField);
+
+    await waitFor(() => {
+      const simpleType = latestSchema?.['xs:schema']?.['xs:simpleType']?.[0];
+      expect(simpleType?.['xs:annotation']?.['xs:documentation']?.['#text']).toBe('Updated docs.');
+    });
   });
 });
 

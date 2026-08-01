@@ -5,6 +5,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { GraphicalSchemaEditor } from './graphical-schema-editor';
 import { parseMarkup } from '../utils/markup';
+import { expandNodeByLabel, expandNodeByDataId } from './test-fixtures/expand-all-nodes';
 
 describe('GraphicalSchemaEditor - xs:complexContent/xs:extension', () => {
   it('expands inherited base-type attributes for an element with an inline complexContent extension', async () => {
@@ -13,6 +14,18 @@ describe('GraphicalSchemaEditor - xs:complexContent/xs:extension', () => {
     const parsed = parseMarkup(xsd, 'xml');
 
     render(<GraphicalSchemaEditor schema={parsed as any} schemaLanguage="xml" />);
+
+    // "UpgradeStep" is the root's direct child; "Models" and "Model" are nested progressively
+    // deeper inside it.
+    await expandNodeByDataId('1.element_0'); // UpgradeStep
+    await expandNodeByDataId('1.element_0.sequence');
+    await expandNodeByDataId('1.element_0.sequence.element_0'); // Models
+    await expandNodeByDataId('1.element_0.sequence.element_0.sequence');
+    await expandNodeByDataId('1.element_0.sequence.element_0.sequence.element_0'); // Model
+    await expandNodeByDataId('1.element_0.sequence.element_0.sequence.element_0.sequence'); // Model's own sequence (PostScript)
+    // arrayOfType is itself a root-level global complexType; expand it to reveal its
+    // inherited-from-modelType members for the inheritance group box assertion below.
+    await expandNodeByLabel('arrayOfType');
 
     // The Model element's inline complexType uses complexContent/extension base="modelType";
     // its own extra field (PostScript) and the inherited modelType attribute (e.g. "name") should both render.
@@ -29,6 +42,6 @@ describe('GraphicalSchemaEditor - xs:complexContent/xs:extension', () => {
       const groupBoxes = document.querySelectorAll('.react-flow__node[data-id$=".inheritance-group"]');
       expect(groupBoxes.length).toBeGreaterThanOrEqual(2);
     });
-  });
+  }, 20000);
 });
 

@@ -132,7 +132,6 @@ function PropertyForm({
         initial[config.dataKey] = String(val ?? config.defaultValue ?? '');
       }
     });
-    console.log('[PropertyForm] nodeId:', nodeId, 'configs:', configs.map(c => c.dataKey), 'nodeData:', nodeData, 'initial values:', initial);
     setValues(initial);
   }, [nodeId, nodeData, configs]);
 
@@ -165,6 +164,42 @@ function PropertyForm({
         />
       ))}
     </form>
+  );
+}
+
+/**
+ * Shared "Annotation" (`xs:annotation/xs:documentation`) text field, two-way bound to
+ * `xmlAnnotation` on the node's data — offered by every XML node editor kind (schema,
+ * simpleType, complexType, attributeGroup, attribute, element, compositor).
+ */
+function XmlAnnotationField({
+  nodeId,
+  value,
+  onChange,
+}: {
+  nodeId: string;
+  value: string;
+  onChange: (patch: Partial<NodeData>) => void;
+}) {
+  const [text, setText] = React.useState<string>(value);
+
+  React.useEffect(() => {
+    setText(value);
+  }, [nodeId, value]);
+
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span style={{ fontSize: 12 }}>Annotation</span>
+      <textarea
+        aria-label="Annotation"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => onChange({ id: nodeId, xmlAnnotation: text } as Partial<NodeData>)}
+        rows={3}
+        style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', fontFamily: 'inherit', resize: 'vertical' }}
+        placeholder="Documentation for this schema item"
+      />
+    </label>
   );
 }
 
@@ -281,6 +316,7 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
         <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
       </label>
       <XmlAttributesManager node={node} onChange={onChange} />
+      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
     </form>
   );
 }
@@ -299,13 +335,19 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
  */
 export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) {
   const data = (node?.data || {}) as any;
-  const xmlPath = data.xmlPath as Array<string | number> | undefined;
-  
+
   // Get attributes from node data (passed from graphical-schema-editor)
   const attributes = data.xmlAttributes || [];
+  const [showAddForm, setShowAddForm] = React.useState(false);
   const [newAttrName, setNewAttrName] = React.useState('');
   const [newAttrType, setNewAttrType] = React.useState('xs:string');
   const [newAttrUse, setNewAttrUse] = React.useState('optional');
+
+  const resetAddForm = () => {
+    setNewAttrName('');
+    setNewAttrType('xs:string');
+    setNewAttrUse('optional');
+  };
 
   const handleAddAttribute = () => {
     if (!newAttrName.trim()) return;
@@ -314,9 +356,12 @@ export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) 
       id: node.id, 
       xmlAddAttribute: { name: newAttrName, type: newAttrType, use: newAttrUse } 
     });
-    setNewAttrName('');
-    setNewAttrType('xs:string');
-    setNewAttrUse('optional');
+    resetAddForm();
+  };
+
+  const handleCancelAdd = () => {
+    resetAddForm();
+    setShowAddForm(false);
   };
 
   const handleRemoveAttribute = (index: number) => {
@@ -330,34 +375,36 @@ export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) 
     onChange({ id: node.id, xmlUpdateAttributeIndex: { index, ...updated } });
   };
 
+  const fieldStyle = { padding: 3, borderRadius: 3, border: '1px solid var(--graph-node-border)', background: 'var(--graph-node-bg)', color: 'var(--graph-node-text)', fontSize: 11 };
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0', borderTop: '1px solid #eee', marginTop: 8 }}>
-      <div style={{ fontWeight: 600, fontSize: 12 }}>Attributes</div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0', borderTop: '1px solid var(--graph-sidebar-border)', marginTop: 8 }}>
+      <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--graph-text)' }}>Attributes</div>
       
       {/* List existing attributes */}
       {attributes.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {attributes.map((attr: any, index: number) => (
-            <div key={index} style={{ display: 'flex', gap: 4, fontSize: 11, padding: 4, backgroundColor: '#f5f5f5', borderRadius: 4 }}>
+            <div key={index} style={{ display: 'flex', gap: 4, fontSize: 11, padding: 4, backgroundColor: 'var(--graph-node-bg-subtle)', borderRadius: 4 }}>
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <input
                   type="text"
                   value={attr.name || ''}
                   onChange={(e) => handleUpdateAttribute(index, 'name', e.target.value)}
                   placeholder="name"
-                  style={{ padding: 3, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
+                  style={fieldStyle}
                 />
                 <input
                   type="text"
                   value={attr.type || ''}
                   onChange={(e) => handleUpdateAttribute(index, 'type', e.target.value)}
                   placeholder="type"
-                  style={{ padding: 3, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
+                  style={fieldStyle}
                 />
                 <select
                   value={attr.use || 'optional'}
                   onChange={(e) => handleUpdateAttribute(index, 'use', e.target.value)}
-                  style={{ padding: 3, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
+                  style={fieldStyle}
                 >
                   <option value="optional">optional</option>
                   <option value="required">required</option>
@@ -367,7 +414,7 @@ export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) 
               <button
                 type="button"
                 onClick={() => handleRemoveAttribute(index)}
-                style={{ padding: '4px 8px', fontSize: 11, backgroundColor: '#fee', color: '#c33', border: '1px solid #fcc', borderRadius: 3, cursor: 'pointer' }}
+                style={{ padding: '4px 8px', fontSize: 11, backgroundColor: 'var(--color-error-4)', color: 'var(--color-error-11)', border: '1px solid var(--color-error-7)', borderRadius: 3, cursor: 'pointer' }}
               >
                 Remove
               </button>
@@ -376,42 +423,63 @@ export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) 
         </div>
       )}
 
-      {/* Add new attribute */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 6, backgroundColor: '#f9f9f9', borderRadius: 4 }}>
-        <span style={{ fontSize: 11, fontWeight: 500 }}>Add Attribute</span>
-        <input
-          type="text"
-          value={newAttrName}
-          onChange={(e) => setNewAttrName(e.target.value)}
-          placeholder="Attribute name"
-          onKeyDown={(e) => e.key === 'Enter' && handleAddAttribute()}
-          style={{ padding: 4, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
-        />
-        <input
-          type="text"
-          value={newAttrType}
-          onChange={(e) => setNewAttrType(e.target.value)}
-          placeholder="Type (e.g., xs:string)"
-          style={{ padding: 4, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
-        />
-        <select
-          value={newAttrUse}
-          onChange={(e) => setNewAttrUse(e.target.value)}
-          style={{ padding: 4, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
-        >
-          <option value="optional">optional</option>
-          <option value="required">required</option>
-          <option value="prohibited">prohibited</option>
-        </select>
+      {/* Add new attribute, hidden behind a toggle button until requested */}
+      {!showAddForm && (
         <button
           type="button"
-          onClick={handleAddAttribute}
-          disabled={!newAttrName.trim()}
-          style={{ padding: 4, fontSize: 11, backgroundColor: newAttrName.trim() ? '#e8f5e9' : '#f0f0f0', color: newAttrName.trim() ? '#2e7d32' : '#999', border: newAttrName.trim() ? '1px solid #c8e6c9' : '1px solid #ddd', borderRadius: 3, cursor: newAttrName.trim() ? 'pointer' : 'not-allowed' }}
+          onClick={() => setShowAddForm(true)}
+          style={{ alignSelf: 'flex-start', padding: '4px 10px', fontSize: 11, fontWeight: 500, backgroundColor: 'var(--graph-node-bg-subtle)', color: 'var(--graph-text)', border: '1px solid var(--graph-node-border)', borderRadius: 3, cursor: 'pointer' }}
         >
-          Add
+          + Add Attribute
         </button>
-      </div>
+      )}
+      {showAddForm && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 6, backgroundColor: 'var(--graph-node-bg-subtle)', border: '1px solid var(--graph-node-border)', borderRadius: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--graph-text)' }}>Add Attribute</span>
+          <input
+            type="text"
+            value={newAttrName}
+            onChange={(e) => setNewAttrName(e.target.value)}
+            placeholder="Attribute name"
+            autoFocus
+            onKeyDown={(e) => e.key === 'Enter' && handleAddAttribute()}
+            style={fieldStyle}
+          />
+          <input
+            type="text"
+            value={newAttrType}
+            onChange={(e) => setNewAttrType(e.target.value)}
+            placeholder="Type (e.g., xs:string)"
+            style={fieldStyle}
+          />
+          <select
+            value={newAttrUse}
+            onChange={(e) => setNewAttrUse(e.target.value)}
+            style={fieldStyle}
+          >
+            <option value="optional">optional</option>
+            <option value="required">required</option>
+            <option value="prohibited">prohibited</option>
+          </select>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button
+              type="button"
+              onClick={handleAddAttribute}
+              disabled={!newAttrName.trim()}
+              style={{ flex: 1, padding: 4, fontSize: 11, backgroundColor: newAttrName.trim() ? 'var(--color-success-4)' : 'var(--graph-node-bg)', color: newAttrName.trim() ? 'var(--color-success-11)' : 'var(--graph-muted)', border: newAttrName.trim() ? '1px solid var(--color-success-7)' : '1px solid var(--graph-node-border)', borderRadius: 3, cursor: newAttrName.trim() ? 'pointer' : 'not-allowed' }}
+            >
+              Add
+            </button>
+            <button
+              type="button"
+              onClick={handleCancelAdd}
+              style={{ padding: 4, fontSize: 11, backgroundColor: 'var(--graph-node-bg)', color: 'var(--graph-muted)', border: '1px solid var(--graph-node-border)', borderRadius: 3, cursor: 'pointer' }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -457,6 +525,7 @@ function XmlComplexTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
         Author sequence/choice/all via graph right-click. Edit min/max on the selected compositor node in RHS.
       </div>
       <XmlAttributesManager node={node} onChange={onChange} />
+      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
     </form>
   );
 }
@@ -487,6 +556,7 @@ function XmlAttributeGroupEditor({ node, onChange }: XmlNodeRhsEditorProps) {
         Attributes added here are shared by every <code>xs:attributeGroup ref="{name || '...'}"</code> that references this group.
       </div>
       <XmlAttributesManager node={node} onChange={onChange} />
+      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
     </form>
   );
 }
@@ -835,7 +905,6 @@ function XmlTypeSelector({
   React.useEffect(() => {
     setIsCustom(!isKnownValue(value));
     setCustomText(value);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, myTypeNames.join('\u0000')]);
 
   if (isCustom) {
@@ -964,6 +1033,37 @@ function MemberTypesListEditor({
   );
 }
 
+/**
+ * RHS editor for an `xs:attribute`'s inline (anonymous) `xs:simpleType` child node. Thin wrapper
+ * around the fully-recursive `InlineSimpleTypeEditor` (preserving nested union-member/list-item
+ * editing), presented with the same "SimpleType Editor" title/framing as a named simpleType.
+ * Has no Name/Ref fields since an anonymous simpleType has neither.
+ */
+function XmlAttributeSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
+  if (!node) return null;
+  const data = (node.data || {}) as any;
+  const [value, setValue] = React.useState<InlineSimpleTypeData>(
+    (data.xmlAttributeInlineSimpleType as InlineSimpleTypeData | undefined) || { mode: 'restriction', base: 'xs:string', enumerations: [] },
+  );
+
+  React.useEffect(() => {
+    setValue((data.xmlAttributeInlineSimpleType as InlineSimpleTypeData | undefined) || { mode: 'restriction', base: 'xs:string', enumerations: [] });
+  }, [node?.id, data.xmlAttributeInlineSimpleType]);
+
+  const handleChange = (next: InlineSimpleTypeData) => {
+    setValue(next);
+    onChange({ id: node.id, xmlAttributeInlineSimpleType: next });
+  };
+
+  return (
+    <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
+      <div style={{ fontWeight: 700, fontSize: 13 }}>SimpleType Editor</div>
+      <InlineSimpleTypeEditor value={value} onChange={handleChange} pathLabel="SimpleType" />
+      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
+    </form>
+  );
+}
+
 function XmlAttributeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   if (!node) return null;
   const data = (node.data || {}) as any;
@@ -971,9 +1071,13 @@ function XmlAttributeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   const [type, setType] = React.useState<string>(String(data.xmlAttributeType || ''));
   const [useValue, setUseValue] = React.useState<string>(String(data.xmlAttributeUse || 'optional'));
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
-  const [inlineSimpleType, setInlineSimpleType] = React.useState<InlineSimpleTypeData | undefined>(
-    data.xmlAttributeInlineSimpleType as InlineSimpleTypeData | undefined,
-  );
+  const [defaultValue, setDefaultValue] = React.useState<string>(String(data.xmlAttributeDefault ?? ''));
+  // The default-value input is only shown once toggled on via the "+ default" badge (or if a
+  // default already exists on load), keeping the common case (no default) visually compact.
+  const [showDefault, setShowDefault] = React.useState<boolean>(data.xmlAttributeDefault !== undefined && data.xmlAttributeDefault !== '');
+  // An inline (anonymous) `xs:simpleType` on this attribute is now its own child graph node —
+  // select it there to edit; this flag just disables the Type field and shows a pointer to it.
+  const hasInlineSimpleType = Boolean(data.xmlHasInlineSimpleType);
   // Attributes pulled in via `xs:attributeGroup ref="..."` belong to the shared group
   // definition, not this local type — edit them at the group's own node instead.
   const attributeGroupRef = data.xmlAttributeGroupRef as string | undefined;
@@ -989,25 +1093,20 @@ function XmlAttributeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
     setType(String(data.xmlAttributeType || ''));
     setUseValue(String(data.xmlAttributeUse || 'optional'));
     setIsRef(Boolean(data.xmlIsRef));
-    setInlineSimpleType(data.xmlAttributeInlineSimpleType as InlineSimpleTypeData | undefined);
-  }, [node?.id, data.xmlName, data.xmlAttributeType, data.xmlAttributeUse, data.xmlIsRef, data.xmlAttributeInlineSimpleType]);
+    setDefaultValue(String(data.xmlAttributeDefault ?? ''));
+    setShowDefault(data.xmlAttributeDefault !== undefined && data.xmlAttributeDefault !== '');
+  }, [node?.id, data.xmlName, data.xmlAttributeType, data.xmlAttributeUse, data.xmlIsRef, data.xmlAttributeDefault]);
 
-  const handleToggleInlineSimpleType = (checked: boolean) => {
-    if (checked) {
-      const next: InlineSimpleTypeData = { mode: 'restriction', base: type || 'xs:string', enumerations: [] };
-      setInlineSimpleType(next);
-      setType('');
-      onChange({ id: node.id, xmlAttributeInlineSimpleType: next });
-    } else {
-      setInlineSimpleType(undefined);
-      onChange({ id: node.id, xmlAttributeInlineSimpleType: undefined });
-    }
-  };
-
-  const handleInlineSimpleTypeChange = (next: InlineSimpleTypeData) => {
-    setInlineSimpleType(next);
-    onChange({ id: node.id, xmlAttributeInlineSimpleType: next });
-  };
+  const badgePillStyle = (active: boolean): React.CSSProperties => ({
+    padding: '3px 10px',
+    fontSize: 11,
+    fontWeight: 600,
+    borderRadius: 999,
+    cursor: 'pointer',
+    border: `1px solid ${active ? 'var(--color-accent-7)' : 'var(--graph-node-border)'}`,
+    background: active ? 'var(--color-accent-4)' : 'var(--graph-node-bg-subtle)',
+    color: active ? 'var(--color-accent-11)' : 'var(--graph-muted)',
+  });
 
   if (readOnly) {
     return (
@@ -1031,6 +1130,13 @@ function XmlAttributeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
           <span style={{ fontSize: 12 }}>Use</span>
           <input aria-label="Attribute Use" value={useValue} readOnly disabled style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5' }} />
         </label>
+        {showDefault && (
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 12 }}>Default</span>
+            <input aria-label="Attribute Default Value" value={defaultValue} readOnly disabled style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5' }} />
+          </label>
+        )}
+        <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
       </form>
     );
   }
@@ -1052,9 +1158,14 @@ function XmlAttributeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
           }}
           myTypeNames={Array.isArray(data.xmlMyTypeNames) ? data.xmlMyTypeNames : []}
           ariaLabel="Attribute Type"
-          disabled={Boolean(inlineSimpleType)}
+          disabled={hasInlineSimpleType}
         />
       </label>
+      {hasInlineSimpleType && (
+        <div style={{ fontSize: 12, color: 'var(--graph-muted)' }}>
+          This attribute has an inline SimpleType — select its child node in the graph to edit it.
+        </div>
+      )}
       {referencedEnumerations.length > 0 && (
         <ReferencedEnumerationList values={referencedEnumerations} typeName={referencedTypeName} />
       )}
@@ -1075,6 +1186,55 @@ function XmlAttributeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
           <option value="prohibited">prohibited</option>
         </select>
       </label>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          aria-pressed={useValue === 'required'}
+          aria-label="Toggle Required"
+          onClick={() => {
+            const next = useValue === 'required' ? 'optional' : 'required';
+            setUseValue(next);
+            onChange({ id: node.id, xmlAttributeUse: next });
+          }}
+          style={badgePillStyle(useValue === 'required')}
+        >
+          required
+        </button>
+        {!showDefault ? (
+          <button
+            type="button"
+            aria-label="Add Default Value"
+            onClick={() => setShowDefault(true)}
+            style={badgePillStyle(false)}
+          >
+            + default
+          </button>
+        ) : (
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <input
+              aria-label="Attribute Default Value"
+              value={defaultValue}
+              onChange={(e) => setDefaultValue(e.target.value)}
+              onBlur={() => onChange({ id: node.id, xmlAttributeDefault: defaultValue || undefined })}
+              placeholder="default value"
+              style={{ padding: '3px 8px', fontSize: 11, borderRadius: 999, border: '1px solid var(--color-accent-7)', background: 'var(--graph-node-bg)', color: 'var(--graph-node-text)', width: 120 }}
+            />
+            <button
+              type="button"
+              aria-label="Remove Default Value"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                setDefaultValue('');
+                setShowDefault(false);
+                onChange({ id: node.id, xmlAttributeDefault: undefined });
+              }}
+              style={{ ...badgePillStyle(false), padding: '3px 6px' }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+      </div>
       <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
         <input
           type="checkbox"
@@ -1088,19 +1248,7 @@ function XmlAttributeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
         />
         <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
       </label>
-      <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center', paddingTop: 4, borderTop: '1px solid #eee' }}>
-        <input
-          type="checkbox"
-          checked={Boolean(inlineSimpleType)}
-          onChange={(e) => handleToggleInlineSimpleType(e.target.checked)}
-          aria-label="Inline SimpleType"
-          style={{ cursor: 'pointer' }}
-        />
-        <span style={{ fontSize: 12 }}>Inline SimpleType (restriction/union/list, instead of Type)</span>
-      </label>
-      {inlineSimpleType && (
-        <InlineSimpleTypeEditor value={inlineSimpleType} onChange={handleInlineSimpleTypeChange} pathLabel="Inline SimpleType" />
-      )}
+      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
     </form>
   );
 }
@@ -1141,6 +1289,7 @@ function XmlCompositorEditor({ node, onChange }: XmlNodeRhsEditorProps) {
           placeholder="1 or unbounded"
         />
       </label>
+      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
     </form>
   );
 }
@@ -1173,7 +1322,6 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             onBlur={() => {
-              console.log('[XmlElementEditor] onBlur - node.id:', node.id, 'name:', name);
               onChange({ id: node.id, xmlName: name });
             }}
             style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
@@ -1194,6 +1342,11 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
             myTypeNames={Array.isArray(data.xmlMyElementNames) ? data.xmlMyElementNames : []}
             ariaLabel="Element Ref Target"
           />
+        ) : data.xmlHasInlineComplexType ? (
+          // No `type` attribute to show — the element's type is an inline `xs:complexType` defined
+          // directly under it, so label it (using its `name` if it has one, else "Anon") instead of
+          // showing blank/(none).
+          <span aria-label="Element Type" style={{ padding: 6, fontStyle: 'italic', color: '#666' }}>complexType - {data.xmlInlineComplexTypeName || 'Anon'}</span>
         ) : (
           <XmlTypeSelector
             value={type}
@@ -1241,6 +1394,7 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
         />
         <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
       </label>
+      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
     </form>
   );
 }
@@ -1307,13 +1461,16 @@ function XmlSchemaEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   const data = (node.data || {}) as any;
 
   return (
-    <PropertyForm
-      title="Schema Editor"
-      configs={XML_SCHEMA_PROPERTY_CONFIGS}
-      nodeData={data}
-      nodeId={node.id}
-      onChange={onChange}
-    />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <PropertyForm
+        title="Schema Editor"
+        configs={XML_SCHEMA_PROPERTY_CONFIGS}
+        nodeData={data}
+        nodeId={node.id}
+        onChange={onChange}
+      />
+      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
+    </div>
   );
 }
 
@@ -1323,6 +1480,7 @@ export function XmlNodeRhsEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   const kind = (data.xmlNodeKind || '') as XmlNodeKind;
 
   if (kind === 'schema') return <XmlSchemaEditor node={node} onChange={onChange} />;
+  if (kind === 'simpleType' && data.xmlIsAnonymous) return <XmlAttributeSimpleTypeEditor node={node} onChange={onChange} />;
   if (kind === 'simpleType') return <XmlSimpleTypeEditor node={node} onChange={onChange} />;
   if (kind === 'complexType') return <XmlComplexTypeEditor node={node} onChange={onChange} />;
   if (kind === 'attributeGroup') return <XmlAttributeGroupEditor node={node} onChange={onChange} />;

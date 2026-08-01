@@ -67,7 +67,7 @@ export const BADGE_DEFS: Record<string, BadgeDef> = {
   isRef: {
     key: 'isRef',
     condition: (d: any) => !!d.isRef,
-    label: () => 'isRef',
+    label: () => 'Ref',
     tooltip: (d: any) => {
       if (d.xmlAttributeGroupRef) {
         return `From attributeGroup "${d.xmlAttributeGroupRef}" \u2014 reference, read-only here`;

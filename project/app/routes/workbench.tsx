@@ -109,6 +109,30 @@ export default function Workbench() {
   const [jsonInput, setJsonInput] = useState('');
   const [hasHydratedPersistedState, setHasHydratedPersistedState] = useState(false);
   const [erdModel, setErdModel] = useState<ErdModel | null>(null);
+
+  // Wholesale schema replacement (new/open/load-from-url/generate) — bumps `schemaGeneration`
+  // so `<GraphicalSchemaEditor key>` fully unmounts/remounts instead of diffing the old
+  // (possibly huge) graph against an unrelated new one in place.
+  const applySourceUpdate = (payload: Record<string, unknown>) => {
+    setSchemaGeneration((g) => g + 1);
+    dispatch({ type: APPLY_SOURCE_UPDATE, payload });
+  };
+
+  // In-place edits (APPLY_RESOLVED_EDIT) already produce a fully-resolved
+  // `resolvedCache` synchronously in the reducer — they don't need another
+  // round-trip through the async `ensureResolved`/`resolveSchema` pipeline.
+  // That pipeline is only needed when loading a brand-new `source` that may
+  // contain unresolved (possibly remote) `$ref`s. Without this guard, every
+  // single small edit (e.g. toggling a default value) changes `state.source`,
+  // which re-triggers a full async re-resolution of the ENTIRE schema below,
+  // producing a second `resolvedCache` update that looks like a render loop
+  // on large real-world schemas. Set this ref immediately before dispatching
+  // `APPLY_RESOLVED_EDIT` so the `ensureResolved` effect can skip that pass.
+  const skipEnsureResolvedRef = useRef(false);
+  const applyResolvedEdit = (newSchema: Record<string, unknown>) => {
+    skipEnsureResolvedRef.current = true;
+    dispatch({ type: APPLY_RESOLVED_EDIT, payload: newSchema });
+  };
   
   // Move hydration to useEffect to avoid synchronous storage access during render
   // Use setTimeout to defer until next macrotask so test's render() doesn't detect storage access
@@ -208,6 +232,12 @@ export default function Workbench() {
   const [isLoadingUrl, setIsLoadingUrl] = useState(false);
   const [schemaUrl, setSchemaUrl] = useState("");
   const [isLoadingSchemaUrl, setIsLoadingSchemaUrl] = useState(false);
+  // Bumped on every wholesale schema replacement (new/open/load-from-url/generate) and used as
+  // `<GraphicalSchemaEditor key>` so it fully unmounts/remounts instead of diffing the old
+  // (possibly huge) graph against the new one in place — that in-place diff of stale refs
+  // (nodesRef, expansion state, node counts) against an unrelated document is what hung the
+  // page when switching schemas.
+  const [schemaGeneration, setSchemaGeneration] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const schemaFileInputRef = useRef<HTMLInputElement>(null);
   const erdFileInputRef = useRef<HTMLInputElement>(null);
@@ -331,6 +361,10 @@ export default function Workbench() {
   // Do NOT persist to localStorage until dereferencing has completed —
   // this avoids saving a source that still contains unresolved $ref URLs.
   useEffect(() => {
+    if (skipEnsureResolvedRef.current) {
+      skipEnsureResolvedRef.current = false;
+      return;
+    }
     let cancelled = false;
     (async () => {
       if (cancelled) return;
@@ -435,7 +469,7 @@ export default function Workbench() {
       localStorage.removeItem(getLanguageInstanceKey('yaml'));
       localStorage.removeItem(getLanguageInstanceKey('xml'));
       clearVariantStorage();
-      dispatch({ type: APPLY_SOURCE_UPDATE, payload: { type: 'object', properties: {} } });
+      applySourceUpdate({ type: 'object', properties: {} });
       setInstanceData(null);
       setJsonInput('{}');
       setMarkupLanguageState('json');
@@ -462,7 +496,7 @@ export default function Workbench() {
     try {
       const parsed = JSON.parse(jsonInput);
       const generatedSchema = generateSchema(parsed);
-      dispatch({ type: APPLY_SOURCE_UPDATE, payload: generatedSchema });
+      applySourceUpdate(generatedSchema);
       setInstanceData(parsed);
       // Clear variant storage when loading fresh JSON (version 1 approach)
       clearVariantStorage();
@@ -580,7 +614,7 @@ export default function Workbench() {
         }
         
         const parsedSchema = parseMarkup(content, lang) as Record<string, unknown>;
-        dispatch({ type: APPLY_SOURCE_UPDATE, payload: parsedSchema });
+        applySourceUpdate(parsedSchema);
         // Only generate a default instance when none is present — preserve user-loaded instance
         setInstanceData((prev: any) => (prev == null ? generateDefaultInstance(parsedSchema) : prev));
          
@@ -623,7 +657,7 @@ export default function Workbench() {
       }
       
       const data = parseMarkup(text, lang) as Record<string, unknown>;
-      dispatch({ type: APPLY_SOURCE_UPDATE, payload: data });
+      applySourceUpdate(data);
       // Only generate a default instance when none is present — preserve user-loaded instance
       setInstanceData((prev: any) => (prev == null ? generateDefaultInstance(data) : prev));
       setSchemaUrl("");
@@ -705,7 +739,7 @@ export default function Workbench() {
       };
     }
     
-    dispatch({ type: APPLY_SOURCE_UPDATE, payload: newSchema });
+    applySourceUpdate(newSchema);
     setInstanceData(null);
     setError(null);
   };
@@ -1178,11 +1212,12 @@ export default function Workbench() {
           <>
             {editorSchema ? (
               <GraphicalSchemaEditor
+                key={schemaGeneration}
                 schema={editorSchema as any}
                 schemaLanguage={markupLanguage}
                 onChange={(newSchema) => {
                   // Editor emits edits to the resolved view; reducer will rehydrate into source
-                  dispatch({ type: APPLY_RESOLVED_EDIT, payload: newSchema });
+                  applyResolvedEdit(newSchema);
                   setInstanceData((prev: unknown) => prev == null ? generateDefaultInstance(newSchema) : prev);
                 }}
               />
@@ -1205,7 +1240,7 @@ export default function Workbench() {
                     schema={editorSchema as any}
                     onChange={(newSchema) => {
                       // Editor edits resolved view; reducer will rehydrate and update source
-                      dispatch({ type: APPLY_RESOLVED_EDIT, payload: newSchema });
+                      applyResolvedEdit(newSchema);
                     }}
                     isSchemaImported={isSchemaImported}
                     instanceData={instanceData}

@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { GraphicalSchemaEditor } from './graphical-schema-editor';
 import { parseMarkup } from '../utils/markup';
+import { expandAllGraphNodes } from './test-fixtures/expand-all-nodes';
 
 describe('GraphicalSchemaEditor - xs:simpleContent/xs:extension', () => {
   it('expands attributes for a complexType and an inline element complexType using simpleContent', async () => {
@@ -38,6 +39,7 @@ describe('GraphicalSchemaEditor - xs:simpleContent/xs:extension', () => {
 
     // MoneyType (top-level complexType with simpleContent) shows its own extension attribute.
     expect(await screen.findByText('MoneyType')).toBeInTheDocument();
+    await expandAllGraphNodes();
     expect((await screen.findAllByText('currency')).length).toBeGreaterThan(0);
 
     // Price references MoneyType by name -> its inline expansion should also show "currency".

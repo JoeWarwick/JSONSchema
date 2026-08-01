@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { GraphicalSchemaEditor } from './graphical-schema-editor';
+import { expandAllGraphNodes } from './test-fixtures/expand-all-nodes';
 
 // Covers the "Type" dropdown on Attribute/Element editors: it should offer built-in XSD simple
 // types under a "Simple" group and this schema's own named simpleType/complexType definitions
@@ -46,6 +47,7 @@ describe('GraphicalSchemaEditor - XML Type selector dropdown (Simple / My Types)
 
   it('renders the Attribute Type select with Simple and My Types option groups', async () => {
     render(<GraphicalSchemaEditor schema={buildSchema()} schemaLanguage="xml" onChange={() => {}} />);
+    await expandAllGraphNodes();
 
     const typeAttributeNodes = await screen.findAllByText('type');
     fireEvent.click(typeAttributeNodes[typeAttributeNodes.length - 1]);
@@ -68,6 +70,7 @@ describe('GraphicalSchemaEditor - XML Type selector dropdown (Simple / My Types)
   it('changing the select to a built-in simple type patches xmlAttributeType directly', async () => {
     let latestSchema = buildSchema();
     render(<StatefulXmlEditor initialSchema={latestSchema} onLatest={(s) => { latestSchema = s; }} />);
+    await expandAllGraphNodes();
 
     const typeAttributeNodes = await screen.findAllByText('type');
     fireEvent.click(typeAttributeNodes[typeAttributeNodes.length - 1]);
@@ -81,6 +84,7 @@ describe('GraphicalSchemaEditor - XML Type selector dropdown (Simple / My Types)
   it('switches to a free-text "Custom…" input for a value not present in either group', async () => {
     let latestSchema = buildSchema();
     render(<StatefulXmlEditor initialSchema={latestSchema} onLatest={(s) => { latestSchema = s; }} />);
+    await expandAllGraphNodes();
 
     const typeAttributeNodes = await screen.findAllByText('type');
     fireEvent.click(typeAttributeNodes[typeAttributeNodes.length - 1]);
@@ -98,6 +102,7 @@ describe('GraphicalSchemaEditor - XML Type selector dropdown (Simple / My Types)
 
   it('renders the Element Type select including complexType names under My Types', async () => {
     render(<GraphicalSchemaEditor schema={buildSchema()} schemaLanguage="xml" onChange={() => {}} />);
+    await expandAllGraphNodes();
 
     fireEvent.click(await screen.findByText('Field'));
     const select = await screen.findByLabelText('Element Type') as HTMLSelectElement;
