@@ -1,8 +1,8 @@
 import React from 'react';
 import type { Node as FlowNode } from 'reactflow';
-import type { NodeData, InlineSimpleTypeData } from './types';
+import type { NodeData, InlineSimpleTypeData, SimpleTypeFacets } from './types';
 
-type XmlNodeKind = 'schema' | 'simpleType' | 'complexType' | 'attributeGroup' | 'attribute' | 'element' | 'sequence' | 'choice' | 'all';
+type XmlNodeKind = 'schema' | 'simpleType' | 'complexType' | 'attributeGroup' | 'attribute' | 'element' | 'sequence' | 'choice' | 'all' | 'any';
 
 /**
  * Props for XML node RHS editors and attribute manager.
@@ -212,6 +212,7 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   const [memberTypes, setMemberTypes] = React.useState<string>(String(data.xmlMemberTypes || ''));
   const [itemType, setItemType] = React.useState<string>(String(data.xmlItemType || ''));
   const [enumerations, setEnumerations] = React.useState<string[]>(Array.isArray(data.xmlEnumerations) ? data.xmlEnumerations : []);
+  const [facets, setFacets] = React.useState<SimpleTypeFacets>(data.xmlFacets && typeof data.xmlFacets === 'object' ? data.xmlFacets : {});
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
 
   React.useEffect(() => {
@@ -221,12 +222,18 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
     setMemberTypes(String(data.xmlMemberTypes || ''));
     setItemType(String(data.xmlItemType || ''));
     setEnumerations(Array.isArray(data.xmlEnumerations) ? data.xmlEnumerations : []);
+    setFacets(data.xmlFacets && typeof data.xmlFacets === 'object' ? data.xmlFacets : {});
     setIsRef(Boolean(data.xmlIsRef));
-  }, [node?.id, data.xmlName, data.xmlSimpleTypeMode, data.xmlBase, data.xmlMemberTypes, data.xmlItemType, data.xmlEnumerations, data.xmlIsRef]);
+  }, [node?.id, data.xmlName, data.xmlSimpleTypeMode, data.xmlBase, data.xmlMemberTypes, data.xmlItemType, data.xmlEnumerations, data.xmlFacets, data.xmlIsRef]);
 
   const handleEnumerationsChange = (next: string[]) => {
     setEnumerations(next);
     onChange({ id: node.id, xmlEnumerations: next });
+  };
+
+  const handleFacetsChange = (next: SimpleTypeFacets) => {
+    setFacets(next);
+    onChange({ id: node.id, xmlFacets: next });
   };
 
   return (
@@ -274,19 +281,25 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
             />
           </label>
           <EnumerationListEditor values={enumerations} onChange={handleEnumerationsChange} ariaPrefix="SimpleType enumeration" />
+          <FacetsEditor facets={facets} onChange={handleFacetsChange} ariaPrefix="SimpleType facet" />
         </>
       )}
 
       {mode === 'union' && (
-        <MemberTypesListEditor
-          value={memberTypes}
-          onChange={(next) => {
-            setMemberTypes(next);
-            onChange({ id: node.id, xmlMemberTypes: next });
-          }}
-          myTypeNames={Array.isArray(data.xmlMyTypeNames) ? data.xmlMyTypeNames : []}
-          ariaPrefix="Union Member Types"
-        />
+        <>
+          <MemberTypesListEditor
+            value={memberTypes}
+            onChange={(next) => {
+              setMemberTypes(next);
+              onChange({ id: node.id, xmlMemberTypes: next });
+            }}
+            myTypeNames={Array.isArray(data.xmlMyTypeNames) ? data.xmlMyTypeNames : []}
+            ariaPrefix="Union Member Types"
+          />
+          {Array.isArray(data.xmlUnionReferencedEnumerations) && data.xmlUnionReferencedEnumerations.length > 0 && (
+            <ReferencedEnumerationList values={data.xmlUnionReferencedEnumerations} />
+          )}
+        </>
       )}
 
       {mode === 'list' && (
@@ -624,6 +637,58 @@ function ReferencedEnumerationList({ values, typeName }: { values: string[]; typ
 }
 
 /**
+ * Add/edit control for a restriction's single-value facets (`xs:pattern`,
+ * `xs:minInclusive`/`xs:maxInclusive`, `xs:minLength`/`xs:maxLength`,
+ * `xs:totalDigits`/`xs:fractionDigits`, `xs:whiteSpace`) — unlike `xs:enumeration` these
+ * are each at most one occurrence, so a plain labeled text input per facet suffices.
+ */
+const SIMPLE_TYPE_FACET_FIELDS: Array<[keyof SimpleTypeFacets, string]> = [
+  ['pattern', 'Pattern'],
+  ['minInclusive', 'Min Inclusive'],
+  ['maxInclusive', 'Max Inclusive'],
+  ['minLength', 'Min Length'],
+  ['maxLength', 'Max Length'],
+  ['totalDigits', 'Total Digits'],
+  ['fractionDigits', 'Fraction Digits'],
+  ['whiteSpace', 'White Space'],
+];
+
+function FacetsEditor({
+  facets,
+  onChange,
+  ariaPrefix,
+}: {
+  facets: SimpleTypeFacets | undefined;
+  onChange: (next: SimpleTypeFacets) => void;
+  ariaPrefix: string;
+}) {
+  const handleFieldChange = (key: keyof SimpleTypeFacets, value: string) => {
+    const next = { ...(facets || {}) };
+    if (value) next[key] = value;
+    else delete next[key];
+    onChange(next);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{ fontSize: 12, fontWeight: 500 }}>Facets</span>
+      {SIMPLE_TYPE_FACET_FIELDS.map(([key, label]) => (
+        <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontSize: 11 }}>{label}</span>
+          <input
+            type="text"
+            aria-label={`${ariaPrefix} ${label}`}
+            value={facets?.[key] ?? ''}
+            onChange={(e) => handleFieldChange(key, e.target.value)}
+            style={{ padding: 4, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
+          />
+        </label>
+      ))}
+    </div>
+  );
+}
+
+/**
  * Add/edit/remove/reorder control for a flat list of `xs:enumeration` values
  * (used by restriction-mode simpleTypes, inline or top-level).
  */
@@ -809,6 +874,11 @@ function InlineSimpleTypeEditor({
             onChange={(next) => onChange({ ...value, enumerations: next })}
             ariaPrefix={`${pathLabel} enumeration`}
           />
+          <FacetsEditor
+            facets={value.facets}
+            onChange={(next) => onChange({ ...value, facets: next })}
+            ariaPrefix={`${pathLabel} facet`}
+          />
         </>
       )}
 
@@ -824,6 +894,9 @@ function InlineSimpleTypeEditor({
               placeholder="xs:string tns:OtherType"
             />
           </label>
+          {Array.isArray(value.unionReferencedEnumerations) && value.unionReferencedEnumerations.length > 0 && (
+            <ReferencedEnumerationList values={value.unionReferencedEnumerations} />
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span style={{ fontSize: 12, fontWeight: 500 }}>Anonymous member simpleTypes</span>
             {(value.memberSimpleTypes || []).map((member, index) => (
@@ -1322,6 +1395,35 @@ function XmlCompositorEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   );
 }
 
+/**
+ * Read-only display for an `xs:any` wildcard content particle (e.g. embedded (X)HTML
+ * markup) — there's no name/type to edit, just the wildcard's own declared attributes.
+ */
+function XmlAnyEditor({ node }: { node: XmlNodeRhsEditorProps['node'] }) {
+  if (!node) return null;
+  const data = (node.data || {}) as any;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ fontWeight: 700, fontSize: 13 }}>xs:any (wildcard content)</div>
+      <div style={{ fontSize: 12, color: '#888', fontStyle: 'italic' }}>
+        Matches any element from the given namespace; not individually editable.
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 12 }}>namespace</span>
+        <span style={{ fontSize: 12, fontFamily: 'monospace' }}>{String(data.xmlAnyNamespace ?? '##any')}</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 12 }}>processContents</span>
+        <span style={{ fontSize: 12, fontFamily: 'monospace' }}>{String(data.xmlAnyProcessContents ?? 'strict')}</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 12 }}>minOccurs / maxOccurs</span>
+        <span style={{ fontSize: 12, fontFamily: 'monospace' }}>{String(data.xmlMinOccurs ?? '1')} / {String(data.xmlMaxOccurs ?? '1')}</span>
+      </div>
+    </div>
+  );
+}
+
 function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   if (!node) return null;
   const data = (node.data || {}) as any;
@@ -1543,6 +1645,7 @@ export function XmlNodeRhsEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   if (kind === 'attribute') return <XmlAttributeEditor node={node} onChange={onChange} />;
   if (kind === 'element') return <XmlElementEditor node={node} onChange={onChange} />;
   if (kind === 'sequence' || kind === 'choice' || kind === 'all') return <XmlCompositorEditor node={node} onChange={onChange} />;
+  if (kind === 'any') return <XmlAnyEditor node={node} />;
 
   return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a schema, SimpleType, ComplexType, attribute, element, or compositor node to edit.</div>;
 }

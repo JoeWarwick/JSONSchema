@@ -22,7 +22,7 @@ import { applySnappedDagreLayout } from './graphical-schema-layout-snapped';
 import { GraphicalSchemaRhsControl } from './graphical-schema-rhs-control';
 import type { Connection, Edge, Node, OnConnect } from "reactflow"
 import type { SchemaNodeData } from "./schema-behaviors";
-import type { NodeData, GraphicalSchemaEditorProps, InlineSimpleTypeData } from './types';
+import type { NodeData, GraphicalSchemaEditorProps, InlineSimpleTypeData, SimpleTypeFacets } from './types';
 import { nodeTypes, edgeTypes, initialNodes, initialEdges } from './schema-node-types';
 import { printGraphSection } from '../utils/print-graph';
 import "reactflow/dist/style.css";
@@ -146,6 +146,42 @@ function rawAsArray(value: unknown): any[] {
   return [value];
 }
 
+// Single-value XSD restriction facets (as opposed to the repeatable `xs:enumeration`), each
+// shaped `<xs:pattern value="..."/>` etc — read/written as plain scalar strings.
+const SIMPLE_TYPE_FACET_TAGS: Array<[keyof SimpleTypeFacets, string]> = [
+  ['pattern', 'xs:pattern'],
+  ['minInclusive', 'xs:minInclusive'],
+  ['maxInclusive', 'xs:maxInclusive'],
+  ['minLength', 'xs:minLength'],
+  ['maxLength', 'xs:maxLength'],
+  ['totalDigits', 'xs:totalDigits'],
+  ['fractionDigits', 'xs:fractionDigits'],
+  ['whiteSpace', 'xs:whiteSpace'],
+];
+
+function parseSimpleTypeFacets(restriction: any): SimpleTypeFacets | undefined {
+  const facets: SimpleTypeFacets = {};
+  let found = false;
+  for (const [facetKey, tag] of SIMPLE_TYPE_FACET_TAGS) {
+    const raw = restriction[tag];
+    if (raw === undefined || raw === null) continue;
+    const value = rawXmlAttrs(Array.isArray(raw) ? raw[0] : raw).value;
+    if (typeof value === 'string') {
+      facets[facetKey] = value;
+      found = true;
+    }
+  }
+  return found ? facets : undefined;
+}
+
+function serializeSimpleTypeFacets(result: any, facets: SimpleTypeFacets | undefined): void {
+  if (!facets) return;
+  for (const [facetKey, tag] of SIMPLE_TYPE_FACET_TAGS) {
+    const value = facets[facetKey];
+    if (value !== undefined && value !== null && value !== '') result[tag] = { '@attributes': { value } };
+  }
+}
+
 // Parses an `xs:attribute`'s inline (anonymous) `xs:simpleType` — including arbitrarily
 // nested `xs:union`/`xs:list` member simpleTypes — into a plain serializable tree so it can
 // be edited in the RHS and written back via `serializeInlineSimpleType`.
@@ -160,7 +196,8 @@ function parseInlineSimpleType(simpleTypeValue: any): InlineSimpleTypeData | und
     const enumerations = rawAsArray(restriction['xs:enumeration'])
       .map((entry: any) => rawXmlAttrs(entry).value)
       .filter((value: unknown): value is string => typeof value === 'string');
-    return { mode: 'restriction', base: typeof attrs.base === 'string' ? attrs.base : undefined, enumerations };
+    const facets = parseSimpleTypeFacets(restriction);
+    return { mode: 'restriction', base: typeof attrs.base === 'string' ? attrs.base : undefined, enumerations, ...(facets ? { facets } : {}) };
   }
   if (union && typeof union === 'object') {
     const attrs = rawXmlAttrs(union);
@@ -206,6 +243,7 @@ function serializeInlineSimpleType(data: InlineSimpleTypeData): any {
   const result: any = { '@attributes': attrs };
   const enumerations = (data.enumerations || []).filter((value) => value !== undefined && value !== null);
   if (enumerations.length > 0) result['xs:enumeration'] = enumerations.map((value) => ({ '@attributes': { value } }));
+  serializeSimpleTypeFacets(result, data.facets);
   return { 'xs:restriction': result };
 }
 
@@ -220,6 +258,7 @@ const XML_KIND_LABELS: Record<string, string> = {
   sequence: 'Sequence',
   choice: 'Choice',
   all: 'All',
+  any: 'Any',
 };
 function xmlKindLabel(kind: string): string {
   return XML_KIND_LABELS[kind] || (kind ? kind.charAt(0).toUpperCase() + kind.slice(1) : 'Node');
@@ -527,9 +566,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     return undefined;
   }, []);
 
-  const xmlSchemaToGraph = React.useCallback((xmlDoc: Record<string, unknown>): { nodes: Node<SchemaNodeData>[]; edges: Edge[] } => {
-    const nodes: Node<SchemaNodeData>[] = [];
-    const edges: Edge[] = [];
+  const xmlSchemaToGraph = React.useCallback(
+    (xmlDoc: Record<string, unknown>, options?: { visibleOnly?: boolean }): { nodes: Node<SchemaNodeData>[]; edges: Edge[] } => {
+      const buildVisibleOnly = options?.visibleOnly === true;
+      const nodes: Node<SchemaNodeData>[] = [];
+      const edges: Edge[] = [];
 
     const schemaRoot = ((xmlDoc as any)?.['xs:schema'] && typeof (xmlDoc as any)['xs:schema'] === 'object')
       ? (xmlDoc as any)['xs:schema']
@@ -537,8 +578,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
     const schemaAttrs = getXmlAttrs(schemaRoot);
 
-    const addNode = (data: any, parentId?: string) => {
+    const addNode = (data: any, parentId?: string, hasHiddenChildren = false) => {
       const id = data.id as string;
+      if (buildVisibleOnly && hasHiddenChildren) {
+        data = { ...data, hasHiddenChildren: true, childrenCollapsed: true };
+      }
       nodes.push({
         id,
         type: data.type || 'property',
@@ -576,13 +620,24 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlNodeKind: 'simpleType',
         xmlIsAnonymous: true,
         xmlPath: [...attrPath, 'xs:simpleType'],
-        xmlAttributeInlineSimpleType: inlineSimpleType,
+        xmlAttributeInlineSimpleType: attachUnionReferencedEnumerations(inlineSimpleType),
         ...(getXmlAnnotationDoc(simpleTypeValue) ? { xmlAnnotation: getXmlAnnotationDoc(simpleTypeValue) } : {}),
       }, attributeId);
     };
 
     const XML_COMPOSITOR_TAG_KEYS = ['xs:sequence', 'xs:choice', 'xs:all'] as const;
     type XmlCompositorTagKey = typeof XML_COMPOSITOR_TAG_KEYS[number];
+
+    const xmlEntryMayHaveChildren = (entry: any): boolean => {
+      if (!entry || typeof entry !== 'object') return false;
+      const attrs = getXmlAttrs(entry);
+      if (attrs.type || attrs.ref) return true;
+      if (entry['xs:simpleType'] || entry['xs:complexType'] || entry['xs:any']) return true;
+      if (entry['xs:attribute'] || entry['xs:attributeGroup']) return true;
+      if (XML_COMPOSITOR_TAG_KEYS.some((key) => entry[key] !== undefined)) return true;
+      if (entry['xs:complexContent'] || entry['xs:simpleContent']) return true;
+      return false;
+    };
 
     // Strips a namespace prefix (e.g. "tns:TreeNode" -> "TreeNode") so element `type`
     // attributes can be matched against locally-declared complexType names.
@@ -595,6 +650,27 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const typeName = rawType ? localTypeName(rawType) : undefined;
       const referenced = typeName ? complexTypesByName.get(typeName) : undefined;
       return { referenced, typeName, circular: Boolean(referenced && typeName && ancestors.has(typeName)) };
+    };
+
+    // Looks up whether an element's `ref` attribute references a top-level global element
+    // (`<xs:element ref="AUTOFORM"/>`), so its own content (inline complexType, or `type=`
+    // complexType) can be expanded inline right under the referencing element node — real XSD
+    // tools resolve `ref=` to the target element's full declaration. Uses an `element:`-prefixed
+    // ancestor key (distinct from the plain complexType-name keys `resolveElementTypeExpansion`
+    // uses) in the same shared `ancestors` set, so mutually-referencing elements (e.g. two
+    // elements that `ref` each other) are expanded once each, then stopped/flagged instead of
+    // recursing forever.
+    const resolveElementRefExpansion = (elemAttrs: Record<string, unknown>, ancestors: Set<string>) => {
+      const rawRef = typeof elemAttrs.ref === 'string' ? elemAttrs.ref : undefined;
+      const refName = rawRef ? localTypeName(rawRef) : undefined;
+      const referencedElement = refName ? elementsByName.get(refName) : undefined;
+      const ancestorKey = refName ? `element:${refName}` : undefined;
+      return {
+        referencedElement,
+        refName,
+        ancestorKey,
+        circular: Boolean(referencedElement && ancestorKey && ancestors.has(ancestorKey)),
+      };
     };
 
     // Reads `xs:complexContent`/`xs:extension` (or `xs:restriction`) off a complexType value and
@@ -641,13 +717,29 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const elemAttrs = getXmlAttrs(elemEntry);
       const elementId = `${parentId}.element_${index}`;
       const { referenced, typeName, circular } = resolveElementTypeExpansion(elemAttrs, ancestors);
+      // `ref=`-only elements (no own `type`/inline complexType) resolve against the referenced
+      // global element's own declaration instead — only attempted when this element doesn't
+      // already have its own type/inline complexType to expand (real XSD disallows both anyway).
       const inlineComplexType = (elemEntry as any)['xs:complexType'];
+      const refExpansion = (!inlineComplexType && !referenced)
+        ? resolveElementRefExpansion(elemAttrs, ancestors)
+        : { referencedElement: undefined, refName: undefined, ancestorKey: undefined, circular: false };
+      const effectiveCircular = circular || refExpansion.circular;
       const inlineComplexTypeAttrs = inlineComplexType && typeof inlineComplexType === 'object' ? getXmlAttrs(inlineComplexType) : {};
       const inlineComplexAnyAttribute = inlineComplexType && typeof inlineComplexType === 'object'
         ? getXmlAttrs((inlineComplexType as any)['xs:anyAttribute'])
         : undefined;
       const ownBaseInfo = inlineComplexType && typeof inlineComplexType === 'object' ? getComplexContentBaseInfo(inlineComplexType) : undefined;
       const ownSimpleContentInfo = inlineComplexType && typeof inlineComplexType === 'object' ? getSimpleContentBaseInfo(inlineComplexType) : undefined;
+      const elementHasChildren = buildVisibleOnly && parentId === '1' && (
+        inlineComplexType ||
+        referenced ||
+        refExpansion.referencedElement ||
+        Boolean((elemEntry as any)['xs:simpleType']) ||
+        Boolean((elemEntry as any)['xs:any']) ||
+        XML_COMPOSITOR_TAG_KEYS.some((key) => (elemEntry as any)[key] !== undefined)
+      );
+
       addNode({
         id: elementId,
         label: toNodeLabel('element', elemAttrs, (elemAttrs.name as string) || (elemAttrs.ref as string) || `${index + 1}`),
@@ -674,18 +766,37 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           ...(inlineComplexAnyAttribute ? { xmlAnyAttribute: inlineComplexAnyAttribute } : {}),
         } : {}),
         ...(getXmlAnnotationDoc(elemEntry) ? { xmlAnnotation: getXmlAnnotationDoc(elemEntry) } : {}),
-        ...(circular ? { isRef: true } : {}),
+        ...(effectiveCircular ? { isRef: true } : {}),
         ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
         ...(ownBaseInfo ? { xmlExtendsType: ownBaseInfo.baseTypeName } : {}),
         // A `simpleContent` complexType is a simple type (text + attributes) under the hood, so
         // tag it with the same `xmlSimpleTypeMode`/`xmlBase` fields a real `xs:simpleType` uses.
         ...(ownSimpleContentInfo ? { xmlSimpleTypeMode: ownSimpleContentInfo.derivationKey === 'xs:extension' ? 'extension' : 'restriction', xmlBase: ownSimpleContentInfo.base } : {}),
-      }, parentId);
+      }, parentId, elementHasChildren);
+
+      if (buildVisibleOnly && parentId === '1') {
+        return;
+      }
 
       if (inlineComplexType && typeof inlineComplexType === 'object') {
         addInlineComplexTypeChildren(inlineComplexType, elementId, [...elementPath, 'xs:complexType'], ancestors, '', inheritedFrom);
       } else if (referenced && typeName && !circular) {
         addInlineComplexTypeChildren(referenced.entry, elementId, ['xs:schema', 'xs:complexType', referenced.index], new Set(ancestors).add(typeName), '', inheritedFrom);
+      } else if (refExpansion.referencedElement && refExpansion.ancestorKey && !refExpansion.circular) {
+        // Expand the referenced top-level global element's own content (inline complexType, or
+        // its own `type=` complexType) inline right under this referencing element's node.
+        const targetEntry = refExpansion.referencedElement.entry;
+        const targetAttrs = getXmlAttrs(targetEntry);
+        const targetInlineComplexType = (targetEntry as any)['xs:complexType'];
+        const nextAncestors = new Set(ancestors).add(refExpansion.ancestorKey);
+        if (targetInlineComplexType && typeof targetInlineComplexType === 'object') {
+          addInlineComplexTypeChildren(targetInlineComplexType, elementId, ['xs:schema', 'xs:element', refExpansion.referencedElement.index, 'xs:complexType'], nextAncestors, '', inheritedFrom);
+        } else {
+          const targetTypeExpansion = resolveElementTypeExpansion(targetAttrs, nextAncestors);
+          if (targetTypeExpansion.referenced && targetTypeExpansion.typeName && !targetTypeExpansion.circular) {
+            addInlineComplexTypeChildren(targetTypeExpansion.referenced.entry, elementId, ['xs:schema', 'xs:complexType', targetTypeExpansion.referenced.index], new Set(nextAncestors).add(targetTypeExpansion.typeName), '', inheritedFrom);
+          }
+        }
       }
     };
 
@@ -698,6 +809,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     // `attributeGroup:`-prefixed key so it can't collide with a complexType/element name) guards
     // against a group that (directly or transitively) references itself.
     const addAttributeGroupAttributes = (groupName: string, parentId: string, ancestors: Set<string> = new Set(), idSuffix: string = '', inheritedFrom?: string) => {
+      if (buildVisibleOnly && parentId !== '1') return;
       const group = attributeGroupsByName.get(groupName);
       const ancestorKey = `attributeGroup:${groupName}`;
       if (!group || ancestors.has(ancestorKey)) return;
@@ -757,6 +869,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     // recursive call additionally sets/overrides it to that base type's name.
     const addInlineComplexTypeChildren = (complexTypeValue: any, parentId: string, basePath: Array<string | number>, ancestors: Set<string> = new Set(), idSuffix: string = '', inheritedFrom?: string) => {
       if (!complexTypeValue || typeof complexTypeValue !== 'object') return;
+      if (buildVisibleOnly && parentId !== '1') return;
 
       // `xs:complexContent` replaces the direct content model with `xs:extension`/`xs:restriction`
       // of a `base` type: expand the base type's own children first (inherited), then merge in
@@ -876,6 +989,29 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       });
     };
 
+    // Adds a read-only `xs:any` wildcard-content node under `parentId` — this represents
+    // "any element from this namespace is allowed here" (e.g. embedded (X)HTML markup), so
+    // unlike `xs:element` there's no name/type to resolve, just the wildcard's own attributes.
+    const addAnyNode = (anyEntry: any, parentId: string, anyPath: Array<string | number>, index: number, inheritedFrom?: string) => {
+      if (!anyEntry || typeof anyEntry !== 'object') return;
+      const anyAttrs = getXmlAttrs(anyEntry);
+      const anyId = `${parentId}.any_${index}`;
+      addNode({
+        id: anyId,
+        label: 'xs:any',
+        type: 'property',
+        parent: parentId,
+        xmlNodeKind: 'any',
+        xmlPath: anyPath,
+        xmlAnyNamespace: anyAttrs.namespace,
+        xmlAnyProcessContents: anyAttrs.processContents,
+        xmlMinOccurs: anyAttrs.minOccurs ?? '1',
+        xmlMaxOccurs: anyAttrs.maxOccurs ?? '1',
+        ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
+        ...(getXmlAnnotationDoc(anyEntry) ? { xmlAnnotation: getXmlAnnotationDoc(anyEntry) } : {}),
+      }, parentId);
+    };
+
     // Adds a compositor node (sequence/choice/all) under `parentId` and recurses
     // into its own element / nested-compositor children so deeply-nested
     // content (e.g. a sequence nested inside a choice) renders correctly.
@@ -889,6 +1025,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       idSuffix: string = '',
       inheritedFrom?: string,
     ) => {
+      if (buildVisibleOnly && parentId !== '1') return;
       if (compositorValue === undefined || compositorValue === null) return;
       const first = Array.isArray(compositorValue) ? compositorValue[0] : compositorValue;
       if (!first || typeof first !== 'object') return;
@@ -944,6 +1081,18 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
             ? [...basePath, 'xs:element', elemIndex]
             : [...basePath, 'xs:element'];
           addXmlElementNode(elemEntry, parentId, elementPath, elemIndex, ancestors, inheritedFrom);
+        });
+      }
+
+      // `xs:any` wildcard content particle (e.g. embedded (X)HTML markup) — read-only, no
+      // name/type to resolve, just its own namespace/processContents/occurs attributes.
+      const anyValue = (containerValue as any)['xs:any'];
+      if (anyValue !== undefined && anyValue !== null) {
+        asArray(anyValue).forEach((anyEntry, anyIndex) => {
+          const anyPath = Array.isArray(anyValue)
+            ? [...basePath, 'xs:any', anyIndex]
+            : [...basePath, 'xs:any'];
+          addAnyNode(anyEntry, parentId, anyPath, anyIndex, inheritedFrom);
         });
       }
 
@@ -1010,6 +1159,18 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       if (typeof agAttrs.name === 'string' && agAttrs.name) attributeGroupsByName.set(agAttrs.name, { entry: ag, index: idx });
     });
 
+    // Name -> definition/index lookup so `xs:element ref="..."` can be resolved and that
+    // top-level global element's own content (inline complexType, or `type=` complexType)
+    // expanded inline right under the referencing element node — see `addXmlElementNode`'s
+    // ref-expansion branch below. Guarded against cycles via an `element:`-prefixed key in
+    // the same shared `ancestors` set used for `type=` complexType expansion.
+    const elementsByName = new Map<string, { entry: any; index: number }>();
+    elements.forEach((el: any, idx: number) => {
+      if (!el || typeof el !== 'object') return;
+      const elAttrs = getXmlAttrs(el);
+      if (typeof elAttrs.name === 'string' && elAttrs.name) elementsByName.set(elAttrs.name, { entry: el, index: idx });
+    });
+
     // Name -> enumeration values, so an `xs:attribute type="X"` referencing a named simpleType
     // by name (rather than declaring its own inline simpleType) can show that type's enumeration
     // values read-only in the RHS attribute editor (see `xmlAttributeReferencedEnumerations` below).
@@ -1033,6 +1194,37 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const referenced = simpleTypesByName.get(localTypeName(type));
       if (!referenced) return {};
       return { xmlAttributeReferencedEnumerations: referenced.enumerations, xmlAttributeReferencedTypeName: localTypeName(type) };
+    };
+
+    // Splits an `xs:union`'s `memberTypes` attribute (space-separated QNames, e.g.
+    // "xs:string frame-target") and resolves each token against `simpleTypesByName`,
+    // merging any matches' enumeration values into one flat read-only list for display.
+    const resolveUnionReferencedEnumerations = (memberTypes: unknown): string[] => {
+      if (typeof memberTypes !== 'string' || !memberTypes.trim()) return [];
+      const values: string[] = [];
+      memberTypes.trim().split(/\s+/).forEach((token) => {
+        const referenced = simpleTypesByName.get(localTypeName(token));
+        if (referenced) values.push(...referenced.enumerations);
+      });
+      return values;
+    };
+
+    // Recursively attaches `unionReferencedEnumerations` onto every `union`-mode node in an
+    // (already-parsed) `InlineSimpleTypeData` tree, so nested anonymous union members (which
+    // can themselves reference named enum simpleTypes via their own `memberTypes`) show their
+    // resolved enums too, not just the outermost union.
+    const attachUnionReferencedEnumerations = (data: InlineSimpleTypeData): InlineSimpleTypeData => {
+      if (data.mode === 'union') {
+        return {
+          ...data,
+          unionReferencedEnumerations: resolveUnionReferencedEnumerations(data.memberTypes),
+          memberSimpleTypes: (data.memberSimpleTypes || []).map(attachUnionReferencedEnumerations),
+        };
+      }
+      if (data.mode === 'list' && data.itemSimpleType) {
+        return { ...data, itemSimpleType: attachUnionReferencedEnumerations(data.itemSimpleType) };
+      }
+      return data;
     };
 
     // Names of every top-level named `xs:simpleType`/`xs:complexType`, so the RHS "Type" dropdown
@@ -1075,6 +1267,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
             .map((enumEntry: any) => getXmlAttrs(enumEntry).value)
             .filter((value): value is string => typeof value === 'string')
         : [];
+      const facets = restriction && typeof restriction === 'object' ? parseSimpleTypeFacets(restriction) : undefined;
       const simpleTypeAttributes = asArray((entry as any)?.['xs:attribute']).map((attrEntry: any) => {
         const attrAttrs = getXmlAttrs(attrEntry);
         return { name: attrAttrs.name, type: attrAttrs.type, use: attrAttrs.use || 'optional' };
@@ -1097,6 +1290,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlMemberTypes: unionAttrs.memberTypes,
         xmlItemType: listAttrs.itemType,
         xmlEnumerations: enumerations,
+        ...(facets ? { xmlFacets: facets } : {}),
+        ...(mode === 'union' ? { xmlUnionReferencedEnumerations: resolveUnionReferencedEnumerations(unionAttrs.memberTypes) } : {}),
         xmlAttributes: simpleTypeAttributes,
         xmlIsRef: isGlobalRef,
         xmlMyTypeNames: namedSimpleTypeNames,
@@ -1125,6 +1320,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
       const anyAttributeValue = (entry as any)['xs:anyAttribute'];
       const anyAttributeAttrs = anyAttributeValue && typeof anyAttributeValue === 'object' ? getXmlAttrs(anyAttributeValue) : undefined;
+      const complexTypeHasChildren = buildVisibleOnly && xmlEntryMayHaveChildren(entry);
       addNode({
         id: complexId,
         label: toNodeLabel('complexType', attrs, `${index + 1}`),
@@ -1142,7 +1338,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         // tag it with the same `xmlSimpleTypeMode`/`xmlBase` fields a real `xs:simpleType` uses.
         ...(simpleContentInfo ? { xmlSimpleTypeMode: simpleContentInfo.derivationKey === 'xs:extension' ? 'extension' : 'restriction', xmlBase: simpleContentInfo.base } : {}),
         ...(getXmlAnnotationDoc(entry) ? { xmlAnnotation: getXmlAnnotationDoc(entry) } : {}),
-      }, '1');
+      }, '1', complexTypeHasChildren);
 
       // Seed the ancestor set with this type's own name so a child element that
       // references the SAME complexType (a self-reference) is immediately flagged
@@ -1150,7 +1346,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       // covers `xs:complexContent`/`xs:extension` (e.g. `arrayOfType extends modelType`),
       // routed through the shared helper so base-type attributes/compositors merge in too.
       const ownTypeAncestors = typeof attrs.name === 'string' && attrs.name ? new Set([attrs.name]) : new Set<string>();
-      addInlineComplexTypeChildren(entry, complexId, ['xs:schema', 'xs:complexType', index], ownTypeAncestors);
+      if (!buildVisibleOnly) {
+        addInlineComplexTypeChildren(entry, complexId, ['xs:schema', 'xs:complexType', index], ownTypeAncestors);
+      }
     });
 
     // attributeGroups already extracted above; rendered as a top-level node showing its own
@@ -1168,6 +1366,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
       const isGlobalRef = Boolean(attrs.ref);
       const nodeType = isGlobalRef ? 'globalType' : 'property';
+      const groupHasChildren = buildVisibleOnly && xmlEntryMayHaveChildren(entry);
 
       addNode({
         id: groupId,
@@ -1180,12 +1379,14 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlAttributes: attributeGroupAttributes,
         xmlIsRef: isGlobalRef,
         ...(getXmlAnnotationDoc(entry) ? { xmlAnnotation: getXmlAnnotationDoc(entry) } : {}),
-      }, '1');
+      }, '1', groupHasChildren);
 
       // Seed with this group's own name so a self-referencing group (or one reached again via
       // a nested ref chain) is stopped rather than expanding forever.
       const ownGroupAncestors = typeof attrs.name === 'string' && attrs.name ? new Set([`attributeGroup:${attrs.name}`]) : new Set<string>();
-      addInlineComplexTypeChildren(entry, groupId, ['xs:schema', 'xs:attributeGroup', index], ownGroupAncestors);
+      if (!buildVisibleOnly) {
+        addInlineComplexTypeChildren(entry, groupId, ['xs:schema', 'xs:attributeGroup', index], ownGroupAncestors);
+      }
     });
 
     // elements already extracted above; routed through addXmlElementNode so a global
@@ -1219,8 +1420,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         ...referencedEnumFields(attrs.type),
         xmlMyTypeNames: namedSimpleTypeNames,
         ...(getXmlAnnotationDoc(entry) ? { xmlAnnotation: getXmlAnnotationDoc(entry) } : {}),
-      }, '1');
-      addAttributeInlineSimpleTypeChild(entry, attributeId, attrPath);
+      }, '1', buildVisibleOnly && hasInlineSimpleType);
+      if (!buildVisibleOnly) {
+        addAttributeInlineSimpleTypeChild(entry, attributeId, attrPath);
+      }
     });
 
     return { nodes, edges };
@@ -1358,6 +1561,17 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         const values = (((patch as any).xmlEnumerations as string[] | undefined) || []).filter((value) => value !== undefined && value !== null);
         if (values.length > 0) (target as any)['xs:restriction']['xs:enumeration'] = values.map((value) => ({ '@attributes': { value } }));
         else delete (target as any)['xs:restriction']['xs:enumeration'];
+      }
+
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlFacets')) {
+        if (!(target as any)['xs:restriction']) (target as any)['xs:restriction'] = { '@attributes': {} };
+        const restrictionTarget = (target as any)['xs:restriction'];
+        const facets = ((patch as any).xmlFacets as SimpleTypeFacets | undefined) || {};
+        for (const [facetKey, tag] of SIMPLE_TYPE_FACET_TAGS) {
+          const value = facets[facetKey];
+          if (value !== undefined && value !== null && value !== '') restrictionTarget[tag] = { '@attributes': { value } };
+          else delete restrictionTarget[tag];
+        }
       }
 
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlMemberTypes')) {
@@ -2613,14 +2827,44 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const targetNode = prev.find(n => n.id === nodeId);
       if (!targetNode) return prev;
       const willCollapse = !(targetNode.data as any)?.childrenCollapsed;
+      let nodesToUse = prev;
+      let edgesToUse = edgesRef.current;
+      if (isXmlGraphMode && !willCollapse && (targetNode.data as any).hasHiddenChildren) {
+        const hasVisibleChildren = prev.some((n) => (n.data as any)?.parent === nodeId);
+        if (!hasVisibleChildren) {
+          const fullGraph = schemaToGraph(schema as Record<string, unknown>);
+          const existingIds = new Set(prev.map((n) => n.id));
+          const additionalNodes = fullGraph.nodes.filter((n) => !existingIds.has(n.id));
+          const additionalEdges = fullGraph.edges.filter((e) => !existingIds.has(e.source) || !existingIds.has(e.target));
+          if (additionalNodes.length > 0) {
+            const childParentIds = new Set(additionalNodes.map((n) => (n.data as any)?.parent).filter(Boolean));
+            const directChildIds = new Set(additionalNodes.filter((n) => (n.data as any)?.parent === nodeId).map((n) => n.id));
+            const collapsedAdditionalNodes = additionalNodes.map((n) => {
+              const nodeData = n.data as any;
+              const hasChildren = childParentIds.has(n.id);
+              const shouldCollapse = n.id !== nodeId && hasChildren && n.type !== 'combiner' && n.type !== 'variant';
+              return {
+                ...n,
+                hidden: n.id !== nodeId && !directChildIds.has(n.id),
+                data: hasChildren ? { ...nodeData, hasHiddenChildren: true, childrenCollapsed: shouldCollapse || Boolean(nodeData.childrenCollapsed) } : nodeData,
+              } as Node<SchemaNodeData>;
+            });
+            nodesToUse = [...prev, ...collapsedAdditionalNodes];
+          }
+          if (additionalEdges.length > 0) {
+            edgesToUse = [...edgesRef.current, ...additionalEdges];
+            setEdges(() => edgesToUse);
+          }
+        }
+      }
 
       if (willCollapse) {
-        const toHide = new Set(collectDescendantIds(nodeId, prev));
+        const toHide = new Set(collectDescendantIds(nodeId, nodesToUse));
         const nextEdges = edgesRef.current.map((e: Edge) =>
           (toHide.has(e.source) || toHide.has(e.target)) ? { ...e, hidden: true } : e
         );
         setEdges(() => nextEdges);
-        const updated = prev.map((n: Node<SchemaNodeData>) => {
+        const updated = nodesToUse.map((n: Node<SchemaNodeData>) => {
           if (n.id === nodeId) return { ...n, data: { ...n.data, childrenCollapsed: true } };
           if (toHide.has(n.id)) return { ...n, hidden: true };
           return n;
@@ -2628,14 +2872,14 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         pendingCenterRef.current = true;
         pendingCenterNodeIdRef.current = nodeId;
         const laidCollapsed = relayoutNodes(updated, nextEdges);
-        return preserveAnchorY(laidCollapsed, prev, nodeId);
+        return preserveAnchorY(laidCollapsed, nodesToUse, nodeId);
       }
 
       // Expanding: reveal descendants, but stop descending past any node that is itself
       // still collapsed (nested combiner/variant/childrenCollapsed state is preserved).
       const toShow = new Set<string>();
       const walk = (parentId: string) => {
-        prev.forEach((n: Node<SchemaNodeData>) => {
+        nodesToUse.forEach((n: Node<SchemaNodeData>) => {
           if ((n.data as any)?.parent === parentId) {
             toShow.add(n.id);
             if (!isNodeDisplayCollapsed(n)) walk(n.id);
@@ -2643,16 +2887,16 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         });
       };
       walk(nodeId);
-      const nextEdges = edgesRef.current.map((e: Edge) =>
+      const nextEdges = edgesToUse.map((e: Edge) =>
         (toShow.has(e.source) || toShow.has(e.target)) ? { ...e, hidden: false } : e
       );
-      const updated = prev.map((n: Node<SchemaNodeData>) => {
+      const updated = nodesToUse.map((n: Node<SchemaNodeData>) => {
         if (n.id === nodeId) return { ...n, data: { ...n.data, childrenCollapsed: false } };
         if (toShow.has(n.id)) return { ...n, hidden: false };
         return n;
       });
       const laid = relayoutNodes(updated, nextEdges);
-      const anchored = preserveAnchorY(laid, prev, nodeId);
+      const anchored = preserveAnchorY(laid, nodesToUse, nodeId);
       // Newly revealed nodes never had real dagre coordinates while hidden (they sat at their
       // stale/default position), so the earlier-computed sourceHandle/targetHandle on these
       // edges can point at the wrong (rear) side of the parent — recompute from the now-laid-out
@@ -3297,7 +3541,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       return root;
     };
     const schemaForGraph = normalizeForGraph(activeSchema);
-    const rawGraph = schemaToGraph(schemaForGraph);
+    const isInitialLoad = !userToggledChildrenRef.current;
+    const rawGraph = isXmlGraphMode
+      ? xmlSchemaToGraph(schemaForGraph, { visibleOnly: isInitialLoad })
+      : schemaToGraph(schemaForGraph);
     const restoredExpansionState = expansionStateRef.current;
     const nodesWithRestoredExpansion = rawGraph.nodes.map((n) => {
       if (n.type === 'combiner') {
@@ -3327,46 +3574,59 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       return e;
     });
 
-    // On the very first successful graph build (prevNodeCount still at its initial 0), collapse
-    // everything except the root so only top-level items are visible — mirrors the collapse
-    // semantics of `handleToggleNodeChildren` but applied up front instead of via user clicks.
-    // Keep re-applying this on every schema-prop-driven rebuild (not just the literal first one)
-    // until the user manually toggles a node's children — real loads can rebuild the graph more
-    // than once while resolving (e.g. remote $refs finishing after an initial local-only pass).
-    const isInitialLoad = !userToggledChildrenRef.current;
     const rootNodeForCollapse = nodesWithRestoredExpansion.find((n) => n.type === 'root');
-    let initialNodesForLayout = nodesWithRestoredExpansion;
-    let initialEdgesForLayout = edgesWithRestoredExpansion;
+    let visibleNodesForLayout = nodesWithRestoredExpansion;
+    let visibleEdgesForLayout = edgesWithRestoredExpansion;
+    const hiddenNodes: Node<SchemaNodeData>[] = [];
+    const hiddenEdges: Edge[] = [];
+
     if (isInitialLoad && rootNodeForCollapse) {
       const parentIds = new Set<string>();
       nodesWithRestoredExpansion.forEach((n) => {
         const parent = (n.data as any)?.parent;
         if (parent) parentIds.add(parent);
       });
-      const topLevelIds = new Set(
-        nodesWithRestoredExpansion
-          .filter((n) => (n.data as any)?.parent === rootNodeForCollapse.id)
-          .map((n) => n.id)
-      );
-      const keepVisible = new Set<string>([rootNodeForCollapse.id, ...topLevelIds]);
-      initialNodesForLayout = nodesWithRestoredExpansion.map((n) => {
+      const primedNodes = nodesWithRestoredExpansion.map((n) => {
         if (n.id === rootNodeForCollapse.id) return n;
         const isXmlCompositor = isXmlCompositorNode(n);
         const needsCollapseFlag = !isXmlCompositor && (n.type === 'property' || n.type === 'globalType' || n.type === 'enum') && parentIds.has(n.id);
-        const data = needsCollapseFlag ? { ...n.data, childrenCollapsed: true } : n.data;
-        return keepVisible.has(n.id) ? { ...n, data } : { ...n, data, hidden: true };
+        return needsCollapseFlag ? { ...n, data: { ...n.data, childrenCollapsed: true } } : n;
       });
-      initialEdgesForLayout = edgesWithRestoredExpansion.map((e) =>
-        (keepVisible.has(e.source) && keepVisible.has(e.target)) ? e : { ...e, hidden: true }
-      );
+
+      const nodeById = new Map(primedNodes.map((n) => [n.id, n]));
+      const visibleIds = new Set<string>();
+      visibleIds.add(rootNodeForCollapse.id);
+      primedNodes.forEach((n) => {
+        if ((n.data as any)?.parent === rootNodeForCollapse.id) {
+          visibleIds.add(n.id);
+        }
+      });
+      const queue = [...visibleIds];
+      while (queue.length > 0) {
+        const parentId = queue.shift()!;
+        primedNodes.forEach((n) => {
+          if ((n.data as any)?.parent === parentId && !visibleIds.has(n.id)) {
+            const parent = nodeById.get(parentId);
+            if (parentId === rootNodeForCollapse.id || (parent && !isNodeDisplayCollapsed(parent))) {
+              visibleIds.add(n.id);
+              queue.push(n.id);
+            }
+          }
+        });
+      }
+
+      visibleNodesForLayout = primedNodes.filter((n) => visibleIds.has(n.id));
+      hiddenNodes.push(...primedNodes.filter((n) => !visibleIds.has(n.id)).map((n) => ({ ...n, hidden: true })));
+      visibleEdgesForLayout = edgesWithRestoredExpansion.filter((e) => e.source && e.target && visibleIds.has(e.source) && visibleIds.has(e.target));
+      hiddenEdges.push(...edgesWithRestoredExpansion.filter((e) => !visibleIds.has(e.source) || !visibleIds.has(e.target)).map((e) => ({ ...e, hidden: true })));
     }
 
-    const nodes = relayoutNodes(initialNodesForLayout, initialEdgesForLayout).map(n =>
+    const nodes = relayoutNodes(visibleNodesForLayout, visibleEdgesForLayout).map(n =>
       (n.type === 'combiner' || n.type === 'variant')
         ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } }
         : n
     );
-    const edges = applyEdgePositioning(initialEdgesForLayout, nodes);
+    const edges = applyEdgePositioning(visibleEdgesForLayout, nodes);
     // Only rebuild nodes/edges if the count changes (structural change)
     // Store label of selected node before graph rebuild
     setNodes(prevNodes => {
@@ -3432,7 +3692,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       setEdges(edges);
     }
     // Otherwise, do not reset selection (preserve selection and form)
-  }, [schema, setNodes, setEdges, useTestData, schemaToGraph, fingerprintSchema, relayoutNodes, restoreExpandedStateRecursively, scheduleTask]);
+  }, [schema, setNodes, setEdges, useTestData, schemaToGraph, fingerprintSchema, relayoutNodes, restoreExpandedStateRecursively, scheduleTask, isXmlGraphMode]);
 
   // Note: dereferencing is handled by the top-level reducer/workbench.
 
@@ -4953,17 +5213,31 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
   // Adds `hasChildren`/`onToggleChildren` to every node without touching the many mutation
   // call sites that build `nodes` state — computed fresh from the current parent/child graph.
+  const visibleNodesMemo = React.useMemo(() => nodes.filter((n) => !n.hidden), [nodes]);
   const renderNodes = React.useMemo(() => {
     const parentIds = new Set<string>();
-    nodes.forEach(n => {
+    nodes.forEach((n) => {
       const parent = (n.data as any)?.parent;
       if (parent) parentIds.add(parent);
     });
-    return nodes.map(n => ({
+    return visibleNodesMemo.map((n) => ({
       ...n,
-      data: { ...n.data, hasChildren: parentIds.has(n.id), onToggleChildren: handleToggleNodeChildren },
+      data: {
+        ...n.data,
+        hasChildren: parentIds.has(n.id) || Boolean((n.data as any).hasHiddenChildren),
+        onToggleChildren: handleToggleNodeChildren,
+      },
     }));
-  }, [nodes, handleToggleNodeChildren]);
+  }, [nodes, visibleNodesMemo, handleToggleNodeChildren]);
+
+  const nodeTypesMemo = React.useMemo(() => nodeTypes, []);
+  const edgeTypesMemo = React.useMemo(() => edgeTypes, []);
+  const visibleNodes = React.useMemo(() => renderNodes.filter((n) => !n.hidden), [renderNodes]);
+  const visibleEdges = React.useMemo(() => edges.filter((e) => !e.hidden), [edges]);
+  const styledEdges = React.useMemo(
+    () => visibleEdges.map((e) => ({ ...e, style: { stroke: '#00e676', strokeWidth: 3 } })),
+    [visibleEdges],
+  );
 
   return (
     <>
@@ -4975,14 +5249,14 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
               {canRenderFlow ? (
                 <ReactFlow
                   style={{ width: '100%', height: explicitHeight ? `${explicitHeight}px` : '100%' }}
-                  nodes={renderNodes}
-                  edges={edges.map(e => ({ ...e, style: { stroke: '#00e676', strokeWidth: 3 } }))}
+                  nodes={visibleNodes}
+                  edges={styledEdges}
                   minZoom={0.16}
                   onNodesChange={handleNodesChange}
                   onEdgesChange={handleEdgesChange}
                   onConnect={onConnect}
-                  nodeTypes={nodeTypes}
-                  edgeTypes={edgeTypes}
+                  nodeTypes={nodeTypesMemo}
+                  edgeTypes={edgeTypesMemo}
                   onInit={(instance) => {
                     reactFlowInstanceRef.current = instance;
                   }}

@@ -6,12 +6,28 @@ export type NodeData = Record<string, any>;
 // Recursive shape for an XSD attribute's inline (anonymous) `xs:simpleType`, e.g.
 // `<xs:attribute><xs:simpleType><xs:union>...</xs:union></xs:simpleType></xs:attribute>`.
 // `union`/`list` can each nest further anonymous `xs:simpleType` members, mirroring real XSD.
+export interface SimpleTypeFacets {
+  pattern?: string;
+  minInclusive?: string;
+  maxInclusive?: string;
+  minLength?: string;
+  maxLength?: string;
+  totalDigits?: string;
+  fractionDigits?: string;
+  whiteSpace?: string;
+}
+
 export interface InlineSimpleTypeData {
   mode: 'restriction' | 'union' | 'list';
   base?: string;
   enumerations?: string[];
+  facets?: SimpleTypeFacets;
   memberTypes?: string;
   memberSimpleTypes?: InlineSimpleTypeData[];
+  // Enumeration values pulled from named simpleTypes listed in `memberTypes` (space-separated),
+  // resolved read-only for display alongside this union's own anonymous members — see
+  // `resolveUnionReferencedEnumerations` in graphical-schema-editor.tsx.
+  unionReferencedEnumerations?: string[];
   itemType?: string;
   itemSimpleType?: InlineSimpleTypeData;
 }
