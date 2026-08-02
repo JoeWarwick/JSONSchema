@@ -1,0 +1,611 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- edited with XMLSpy v2007 sp2 (http://www.altova.com) by Joe (Home) -->
+<!-- edited with XMLSPY v2004 rel. 4 (http://www.xmlspy.com) by Joe (Student) -->
+<xs:schema xmlns="http://www.gonk.com.au/xsd" xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="http://www.gonk.com.au/xsd" elementFormDefault="qualified" attributeFormDefault="unqualified">
+	<xs:element name="AUTOLIST">
+		<xs:annotation>
+			<xs:documentation>A Recordset Listing object</xs:documentation>
+		</xs:annotation>
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="title" type="unnamed-variable" minOccurs="0"/>
+				<xs:element name="description" type="xs:string" minOccurs="0"/>
+				<xs:choice>
+					<xs:element name="recordset" type="recordsetType"/>
+				</xs:choice>
+				<xs:element name="field" maxOccurs="unbounded">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="fieldlabel" type="xs:string" minOccurs="0"/>
+							<xs:element name="fieldname" type="xs:string" minOccurs="0"/>
+							<xs:choice minOccurs="0">
+								<xs:element name="recurse-recordset" type="xs:string"/>
+								<xs:element name="image" type="imageType"/>
+								<xs:element name="label" type="unnamed-variable"/>
+								<xs:element name="link" type="linkType"/>
+								<xs:element name="price" type="xs:boolean"/>
+								<xs:element name="true-false" type="true-falseType"/>
+								<xs:element ref="AUTOLIST"/>
+								<xs:element ref="AUTOFORM"/>
+								<xs:element name="format-date">
+									<xs:simpleType>
+										<xs:restriction base="xs:string">
+											<xs:enumeration value="long-form"/>
+											<xs:enumeration value="long-form + time"/>
+											<xs:enumeration value="time only"/>
+											<xs:enumeration value="english-short"/>
+											<xs:enumeration value="english-short + time"/>
+											<xs:enumeration value="american-short"/>
+											<xs:enumeration value="american-short + time"/>
+										</xs:restriction>
+									</xs:simpleType>
+								</xs:element>
+							</xs:choice>
+							<xs:element name="filter" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:enumeration value="free textual"/>
+										<xs:enumeration value="fixed choice"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:sequence>
+						<xs:attribute name="allow-sortby" type="xs:boolean" default="true"/>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="actions" type="actionsType"/>
+				<xs:element name="row-variable" minOccurs="0" maxOccurs="unbounded">
+					<xs:complexType>
+						<xs:attribute name="querykey" type="xs:string" use="required"/>
+						<xs:attribute name="fieldname" type="xs:string" use="required"/>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="empty-list-msg" type="xs:anyType" minOccurs="0"/>
+			</xs:sequence>
+			<xs:attribute name="id" type="xs:int" use="required"/>
+			<xs:attribute name="title" type="xs:string" use="optional"/>
+			<xs:attribute name="item-name" type="xs:string" use="required"/>
+			<xs:attribute name="show-title" type="xs:boolean" use="optional" default="0"/>
+			<xs:attribute name="allow-filtering" type="xs:boolean" use="optional" default="0"/>
+			<xs:attribute name="allow-sorting" type="xs:boolean" use="optional" default="0"/>
+			<xs:attribute name="id-field-number" type="xs:int" use="optional" default="0"/>
+			<xs:attribute name="per-page" type="xs:int" use="optional" default="15"/>
+			<xs:attribute name="show-header" type="xs:boolean" use="optional" default="true"/>
+			<xs:attribute name="show-cursorlocation" type="xs:boolean" use="optional" default="0"/>
+			<xs:attribute name="show-pagelist" type="xs:boolean" use="optional" default="0"/>
+			<xs:attribute name="show-columnnames" type="xs:boolean" use="optional" default="0"/>
+			<xs:attribute name="show-header-actions" type="xs:boolean" use="optional" default="0"/>
+			<xs:attribute name="show-footer-actions" type="xs:boolean" use="optional" default="0"/>
+			<xs:attribute name="max-nest" use="optional" default="1">
+				<xs:simpleType>
+					<xs:restriction base="xs:int">
+						<xs:minInclusive value="-1"/>
+					</xs:restriction>
+				</xs:simpleType>
+			</xs:attribute>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="AUTOFORM">
+		<xs:annotation>
+			<xs:documentation>A Recordset Form object for recordset row add,edit,view and delete functions.</xs:documentation>
+		</xs:annotation>
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="title" type="unnamed-variable" minOccurs="0"/>
+				<xs:element name="opentable" maxOccurs="unbounded">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="recordset" type="recordsetType"/>
+							<xs:element ref="datafield" minOccurs="0" maxOccurs="unbounded"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="htmltemplates" minOccurs="0">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="add" type="templateType" minOccurs="0"/>
+							<xs:element name="edit" type="templateType" minOccurs="0"/>
+							<xs:element name="delete" type="templateType" minOccurs="0"/>
+							<xs:element name="view" type="templateType" minOccurs="0"/>
+							<xs:element name="success" type="templateType" minOccurs="0"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="name-field" default="0.1">
+					<xs:annotation>
+						<xs:documentation>recordsetid.fieldname</xs:documentation>
+					</xs:annotation>
+					<xs:simpleType>
+						<xs:restriction base="xs:string">
+							<xs:pattern value="\d+\.\w*"/>
+						</xs:restriction>
+					</xs:simpleType>
+				</xs:element>
+				<xs:element name="on-success" minOccurs="0" maxOccurs="unbounded">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="url-query" type="named-variable" minOccurs="0" maxOccurs="unbounded"/>
+						</xs:sequence>
+						<xs:attribute name="runscript" type="xs:anyURI" use="required"/>
+					</xs:complexType>
+				</xs:element>
+			</xs:sequence>
+			<xs:attribute name="id" type="xs:int" use="required"/>
+			<xs:attribute name="title" type="xs:string" use="optional"/>
+			<xs:attribute name="final-status-timeout" type="xs:int" use="optional" default="-1"/>
+		</xs:complexType>
+	</xs:element>
+	<xs:complexType name="recordsetType">
+		<xs:sequence>
+			<xs:element name="connection" type="unnamed-variable" minOccurs="0"/>
+			<xs:choice>
+				<xs:element name="query" type="xs:string"/>
+				<xs:element name="selectprocedure" type="xs:string" minOccurs="0"/>
+			</xs:choice>
+			<xs:element name="addprocedure" type="stored-procedureType" minOccurs="0"/>
+			<xs:element name="updateprocedure" type="stored-procedureType" minOccurs="0"/>
+			<xs:element name="deleteprocedure" type="stored-procedureType" minOccurs="0"/>
+			<xs:element name="sql-variable" type="sql-variable" minOccurs="0" maxOccurs="unbounded"/>
+		</xs:sequence>
+		<xs:attribute name="recordsetid" type="xs:int" default="0"/>
+		<xs:attribute name="toclient" type="xs:boolean" use="optional" default="false"/>
+	</xs:complexType>
+	<xs:complexType name="htmlattributeType">
+		<xs:attribute name="name" type="xs:string" use="required"/>
+		<xs:attribute name="content" use="required">
+			<xs:simpleType>
+				<xs:restriction base="xs:string">
+					<xs:enumeration value="value"/>
+					<xs:enumeration value="querystring"/>
+					<xs:enumeration value="form"/>
+					<xs:enumeration value="session"/>
+					<xs:enumeration value="application"/>
+					<xs:enumeration value="recordsetid.fieldname"/>
+					<xs:enumeration value="execute"/>
+					<xs:enumeration value="eval"/>
+					<xs:enumeration value="htmldom"/>
+				</xs:restriction>
+			</xs:simpleType>
+		</xs:attribute>
+		<xs:attribute name="required" type="xs:boolean" use="optional" default="false"/>
+		<xs:attribute name="default" type="xs:string" use="optional"/>
+		<xs:attribute name="description" type="xs:string" use="optional"/>
+		<xs:attribute name="quote" type="xs:boolean" use="optional"/>
+		<xs:attribute name="text" type="xs:string" use="required"/>
+	</xs:complexType>
+	<xs:complexType name="datafieldType">
+		<xs:sequence>
+			<xs:element name="fieldname" type="xs:string" minOccurs="0"/>
+			<xs:element name="fieldlabel" type="xs:string" minOccurs="0"/>
+			<xs:element name="help-note" type="htmlType" minOccurs="0"/>
+			<xs:element ref="htmlinput" minOccurs="0"/>
+			<xs:element name="htmloutput" minOccurs="0">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:choice>
+							<xs:element name="tagblock" type="xs:string" default="span"/>
+							<xs:element name="datetime" type="xs:boolean"/>
+							<xs:element name="true-false" type="true-falseType"/>
+							<xs:element name="hidden" type="xs:boolean" default="true"/>
+							<xs:element name="image" type="imageType"/>
+							<xs:element name="link" type="linkType"/>
+							<xs:element name="list" type="xs:string"/>
+							<xs:element name="delimit" type="xs:string"/>
+							<xs:element name="money" type="xs:string" default="$"/>
+							<xs:element name="table" type="xs:string"/>
+							<xs:element ref="AUTOLIST"/>
+						</xs:choice>
+						<xs:element name="recordset" type="recordsetType" minOccurs="0" maxOccurs="2"/>
+						<xs:element name="value" type="unnamed-variable" minOccurs="0" maxOccurs="unbounded"/>
+						<xs:element name="style" type="xs:string" minOccurs="0"/>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="validation" minOccurs="0" maxOccurs="unbounded">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="evaluate" type="xs:string"/>
+						<xs:element name="invalid-message" type="xs:string"/>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="templateType">
+		<xs:choice maxOccurs="unbounded">
+			<xs:element name="filepath" type="xs:anyURI"/>
+			<xs:element name="html" type="htmlType"/>
+		</xs:choice>
+	</xs:complexType>
+	<xs:complexType name="htmlcomponentType">
+		<xs:sequence>
+			<xs:element name="src" type="xs:string"/>
+			<xs:element name="openswitch" minOccurs="0">
+				<xs:complexType>
+					<xs:attribute name="openlabel" type="xs:string" default="[--v--]"/>
+					<xs:attribute name="closelabel" type="xs:string" default="[--^--]"/>
+					<xs:attribute name="state" default="closed">
+						<xs:simpleType>
+							<xs:restriction base="xs:string">
+								<xs:enumeration value="open"/>
+								<xs:enumeration value="closed"/>
+							</xs:restriction>
+						</xs:simpleType>
+					</xs:attribute>
+				</xs:complexType>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="stored-procedureType">
+		<xs:simpleContent>
+			<xs:extension base="xs:string"/>
+		</xs:simpleContent>
+	</xs:complexType>
+	<xs:complexType name="data-actionType">
+		<xs:sequence>
+			<xs:element name="label" type="unnamed-variable"/>
+			<xs:element name="action-name" type="form-action"/>
+			<xs:element name="data-table-name" type="xs:string"/>
+			<xs:element name="id1" type="unnamed-variable"/>
+			<xs:element name="id2" type="unnamed-variable" minOccurs="0"/>
+			<xs:element name="target" type="targetType"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="unnamed-variable">
+		<xs:attribute name="content" type="variable-container" use="required"/>
+		<xs:attribute name="default" type="xs:string" use="optional"/>
+		<xs:attribute name="text" type="xs:string" use="required"/>
+	</xs:complexType>
+	<xs:complexType name="named-variable">
+		<xs:attribute name="name" type="xs:string" use="required"/>
+		<xs:attribute name="content" type="variable-container" use="required"/>
+		<xs:attribute name="default" type="xs:string" use="optional"/>
+		<xs:attribute name="text" type="xs:string" use="required"/>
+	</xs:complexType>
+	<xs:complexType name="sql-variable">
+		<xs:attribute name="name" type="xs:string" use="required"/>
+		<xs:attribute name="comparator" type="variable-comparator" use="optional"/>
+		<xs:attribute name="content" type="variable-container" use="required"/>
+		<xs:attribute name="text" type="xs:string" use="required"/>
+		<xs:attribute name="default" type="xs:string" use="optional"/>
+		<xs:attribute name="quote" type="xs:boolean" use="optional"/>
+		<xs:attribute name="read" type="xs:boolean" use="optional"/>
+		<xs:attribute name="write" type="xs:boolean" use="optional"/>
+	</xs:complexType>
+	<xs:simpleType name="variable-comparator">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="EQUALS"/>
+			<xs:enumeration value="NOT EQUAL TO"/>
+			<xs:enumeration value="LESS THAN"/>
+			<xs:enumeration value="GREATER THAN"/>
+			<xs:enumeration value="LESS THAN OR EQUAL TO"/>
+			<xs:enumeration value="GREATER THAN OR EQUAL TO"/>
+			<xs:enumeration value="LIKE"/>
+			<xs:enumeration value="IN"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="variable-container">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="value"/>
+			<xs:enumeration value="querystring"/>
+			<xs:enumeration value="form"/>
+			<xs:enumeration value="session"/>
+			<xs:enumeration value="application"/>
+			<xs:enumeration value="recordsetid.fieldname"/>
+			<xs:enumeration value="execute"/>
+			<xs:enumeration value="eval"/>
+			<xs:enumeration value="htmldom"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="form-action">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="add"/>
+			<xs:enumeration value="edit"/>
+			<xs:enumeration value="delete"/>
+			<xs:enumeration value="view"/>
+			<xs:enumeration value="all"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="frame-target">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="self"/>
+			<xs:enumeration value="top"/>
+			<xs:enumeration value="blank"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:complexType name="targetType">
+		<xs:choice>
+			<xs:element name="frame-name" default="self">
+				<xs:simpleType>
+					<xs:union memberTypes="xs:string frame-target"/>
+				</xs:simpleType>
+			</xs:element>
+			<xs:element name="new-window">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:choice>
+							<xs:element name="standard">
+								<xs:complexType>
+									<xs:attribute name="windowname" type="xs:string" use="optional"/>
+									<xs:attribute name="toolbar" type="xs:boolean" use="optional"/>
+									<xs:attribute name="menubar" type="xs:boolean" use="optional"/>
+									<xs:attribute name="statusbar" type="xs:boolean" use="optional"/>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="modal">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="pass-attribute" type="named-variable" minOccurs="0" maxOccurs="unbounded"/>
+										<xs:element name="on-return" type="xs:string" default="alert(obj)" minOccurs="0"/>
+									</xs:sequence>
+									<xs:attribute name="measurement">
+										<xs:simpleType>
+											<xs:restriction base="xs:string">
+												<xs:enumeration value="em"/>
+												<xs:enumeration value="px"/>
+												<xs:enumeration value="cm"/>
+												<xs:enumeration value="mm"/>
+												<xs:enumeration value="in"/>
+												<xs:enumeration value="pt"/>
+												<xs:enumeration value="pc"/>
+												<xs:enumeration value="ex"/>
+											</xs:restriction>
+										</xs:simpleType>
+									</xs:attribute>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="iframe">
+								<xs:complexType/>
+							</xs:element>
+						</xs:choice>
+						<xs:sequence>
+							<xs:choice>
+								<xs:element name="centered"/>
+								<xs:element name="fullscreen"/>
+								<xs:sequence>
+									<xs:element name="top" type="xs:int" default="1"/>
+									<xs:element name="left" type="xs:int" default="1"/>
+								</xs:sequence>
+							</xs:choice>
+							<xs:element name="width" type="xs:string" default="500"/>
+							<xs:element name="height" type="xs:string" default="500"/>
+						</xs:sequence>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+		</xs:choice>
+	</xs:complexType>
+	<xs:complexType name="imageType">
+		<xs:sequence>
+			<xs:element name="image-source" type="unnamed-variable" minOccurs="0"/>
+			<xs:element name="image-title" type="unnamed-variable" minOccurs="0"/>
+			<xs:element name="image-caption" type="unnamed-variable" minOccurs="0"/>
+			<xs:element name="htmlattribute" type="named-variable" minOccurs="0" maxOccurs="unbounded"/>
+		</xs:sequence>
+		<xs:attribute name="maxheight" type="xs:int" use="optional"/>
+		<xs:attribute name="maxwidth" type="xs:int" use="optional"/>
+	</xs:complexType>
+	<xs:complexType name="linkType">
+		<xs:sequence>
+			<xs:element name="target" type="targetType"/>
+			<xs:element name="label" type="unnamed-variable" minOccurs="0"/>
+			<xs:choice minOccurs="0">
+				<xs:element name="href" type="unnamed-variable"/>
+				<xs:element ref="AUTOLIST"/>
+				<xs:element ref="AUTOFORM"/>
+			</xs:choice>
+			<xs:element name="url-query" type="named-variable" minOccurs="0" maxOccurs="unbounded"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="toggleType">
+		<xs:sequence>
+			<xs:element name="position">
+				<xs:simpleType>
+					<xs:restriction base="xs:string">
+						<xs:enumeration value="above"/>
+						<xs:enumeration value="below"/>
+						<xs:enumeration value="ontop"/>
+					</xs:restriction>
+				</xs:simpleType>
+			</xs:element>
+			<xs:element name="tagblock" type="xs:string" default="iframe"/>
+			<xs:element name="width" type="xs:int"/>
+			<xs:element name="height" type="xs:int"/>
+			<xs:element name="open-label" type="htmlType"/>
+			<xs:element name="close-label" type="htmlType"/>
+			<xs:element name="open-direction">
+				<xs:simpleType>
+					<xs:restriction base="xs:string">
+						<xs:enumeration value="horizontal"/>
+						<xs:enumeration value="vertical"/>
+						<xs:enumeration value="both"/>
+					</xs:restriction>
+				</xs:simpleType>
+			</xs:element>
+			<xs:element name="initial-state">
+				<xs:simpleType>
+					<xs:restriction base="xs:string">
+						<xs:enumeration value="open"/>
+						<xs:enumeration value="closed"/>
+					</xs:restriction>
+				</xs:simpleType>
+			</xs:element>
+			<xs:choice>
+				<xs:element name="href" type="xs:anyURI"/>
+				<xs:element ref="AUTOFORM"/>
+				<xs:element ref="AUTOLIST"/>
+			</xs:choice>
+			<xs:element name="url-query" type="named-variable" minOccurs="0" maxOccurs="unbounded"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="htmlType" mixed="true">
+		<xs:sequence>
+			<xs:any namespace="http://www.w3.org/TR/1999/xhtml" processContents="lax" minOccurs="0" maxOccurs="unbounded"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="true-falseType">
+		<xs:sequence>
+			<xs:element name="true-label" type="htmlType" form="qualified"/>
+			<xs:element name="false-label" type="htmlType"/>
+			<xs:element name="value" type="unnamed-variable" minOccurs="0"/>
+		</xs:sequence>
+		<xs:attribute name="true-values" use="optional" default="1 True true">
+			<xs:simpleType>
+				<xs:list itemType="xs:string"/>
+			</xs:simpleType>
+		</xs:attribute>
+	</xs:complexType>
+	<xs:complexType name="actionsType">
+		<xs:sequence>
+			<xs:element name="add" minOccurs="0">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="target" type="targetType"/>
+						<xs:element name="url-query" type="named-variable" minOccurs="0" maxOccurs="unbounded"/>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="view" minOccurs="0">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="target" type="targetType"/>
+						<xs:element name="url-query" type="named-variable" minOccurs="0" maxOccurs="unbounded"/>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="edit" minOccurs="0">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="target" type="targetType"/>
+						<xs:element name="url-query" type="named-variable" minOccurs="0" maxOccurs="unbounded"/>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="delete" minOccurs="0">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="target" type="targetType"/>
+						<xs:element name="url-query" type="named-variable" minOccurs="0" maxOccurs="unbounded"/>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="download-csv" minOccurs="0">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="recordset" type="recordsetType"/>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="row-action" type="linkType" minOccurs="0" maxOccurs="unbounded"/>
+			<xs:element name="action" type="linkType" minOccurs="0" maxOccurs="unbounded"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:element name="htmlinput">
+		<xs:complexType>
+			<xs:choice>
+				<xs:element name="use-ref" type="xs:anyURI"/>
+				<xs:sequence>
+					<xs:choice>
+						<xs:element name="textfield" type="xs:boolean"/>
+						<xs:element name="checkbox" type="xs:string" default="true:false"/>
+						<xs:element name="date" type="xs:boolean"/>
+						<xs:element name="datetime" type="xs:boolean"/>
+						<xs:element name="fileup" type="xs:string"/>
+						<xs:element name="hidden" type="xs:boolean"/>
+						<xs:element name="imageup" type="xs:string"/>
+						<xs:element name="list" type="xs:string"/>
+						<xs:element name="price" type="xs:boolean" default="true"/>
+						<xs:element name="textarea" type="xs:boolean"/>
+						<xs:element name="textlabel" type="xs:boolean"/>
+						<xs:element name="time" type="xs:boolean"/>
+						<xs:element name="singleselect" type="xs:string"/>
+						<xs:element name="freeselect"/>
+						<xs:element name="radiobutton" type="xs:string"/>
+						<xs:element name="multiselect" type="xs:string"/>
+						<xs:element name="multicheckbox" type="xs:string"/>
+						<xs:element name="addremovesort">
+							<xs:complexType>
+								<xs:sequence>
+									<xs:element name="possible-data">
+										<xs:complexType>
+											<xs:complexContent>
+												<xs:extension base="recordsetType"/>
+											</xs:complexContent>
+										</xs:complexType>
+									</xs:element>
+									<xs:element name="selected-data" type="recordsetType"/>
+								</xs:sequence>
+								<xs:attribute name="p-value-field" type="xs:string" use="required"/>
+								<xs:attribute name="p-name-field" type="xs:string" use="required"/>
+								<xs:attribute name="p-group-field" type="xs:string" default="3"/>
+								<xs:attribute name="s-value-field" type="xs:string" use="required"/>
+								<xs:attribute name="s-sort-field" type="xs:string" default="2"/>
+							</xs:complexType>
+						</xs:element>
+						<xs:element name="addremovesort1">
+							<xs:complexType>
+								<xs:sequence>
+									<xs:element name="possible-data">
+										<xs:complexType>
+											<xs:complexContent>
+												<xs:extension base="recordsetType"/>
+											</xs:complexContent>
+										</xs:complexType>
+									</xs:element>
+									<xs:element name="selected-data" type="recordsetType"/>
+								</xs:sequence>
+								<xs:attribute name="p-value-field" type="xs:string" use="required"/>
+								<xs:attribute name="p-name-field" type="xs:string" use="required"/>
+								<xs:attribute name="p-group-field" type="xs:string" default="3"/>
+								<xs:attribute name="s-value-field" type="xs:string" use="required"/>
+								<xs:attribute name="s-sort-field" type="xs:string" default="2"/>
+							</xs:complexType>
+						</xs:element>
+						<xs:element name="requested-type" type="unnamed-variable"/>
+						<xs:element name="file-library">
+							<xs:complexType>
+								<xs:sequence>
+									<xs:element name="root-path" type="unnamed-variable" minOccurs="0"/>
+									<xs:element name="url-query" type="named-variable" minOccurs="0" maxOccurs="unbounded"/>
+								</xs:sequence>
+								<xs:attribute name="file-mask" type="xs:string" use="optional" default="*"/>
+								<xs:attribute name="preview-image" type="xs:boolean" use="optional" default="true"/>
+							</xs:complexType>
+						</xs:element>
+						<xs:element name="link" type="linkType"/>
+						<xs:element name="toggle" type="toggleType"/>
+						<xs:element name="generated-set">
+							<xs:complexType>
+								<xs:sequence>
+									<xs:element name="fields-set" type="recordsetType"/>
+									<xs:element name="data-set" type="recordsetType"/>
+									<xs:element name="current-set" type="recordsetType"/>
+								</xs:sequence>
+								<xs:attribute name="f-name-field" type="xs:string" use="optional"/>
+								<xs:attribute name="f-value-field" type="xs:string" use="optional"/>
+								<xs:attribute name="d-name-field" type="xs:string" use="optional"/>
+								<xs:attribute name="d-value-field" type="xs:string" use="optional"/>
+								<xs:attribute name="c-value-field" type="xs:string" use="optional"/>
+							</xs:complexType>
+						</xs:element>
+						<xs:element name="type-options">
+							<xs:complexType>
+								<xs:attribute name="entitytype-table" type="xs:string" use="required"/>
+								<xs:attribute name="optiontype-table" type="xs:string" use="required"/>
+								<xs:attribute name="optiontype-lookup-table" type="xs:string" use="required"/>
+								<xs:attribute name="option-lookup-table" type="xs:string" use="required"/>
+								<xs:attribute name="option-table" type="xs:string" use="required"/>
+							</xs:complexType>
+						</xs:element>
+						<xs:element ref="AUTOLIST"/>
+					</xs:choice>
+					<xs:element name="value" type="unnamed-variable" minOccurs="0" maxOccurs="unbounded"/>
+					<xs:element name="selection-option" type="named-variable" minOccurs="0" maxOccurs="unbounded"/>
+					<xs:element name="recordset" type="recordsetType" minOccurs="0" maxOccurs="2"/>
+					<xs:element name="style" type="xs:string" minOccurs="0"/>
+				</xs:sequence>
+			</xs:choice>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="datafield" type="datafieldType"/>
+</xs:schema>

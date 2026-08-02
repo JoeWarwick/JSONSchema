@@ -180,7 +180,7 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
   };
 
   return (
-    <HorizontalSplitPane className={styles.erdEditor} defaultRightWidth={320} minRightWidth={280} minLeftWidth={360}>
+    <HorizontalSplitPane className={styles.erdEditor} defaultRightWidth={385} minRightWidth={280} minLeftWidth={360}>
       <div className={styles.flowPanel}>
         <div className={styles.flow}>
           <ReactFlowProvider>

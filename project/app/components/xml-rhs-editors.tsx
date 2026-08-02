@@ -489,11 +489,15 @@ function XmlComplexTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   const data = (node.data || {}) as any;
   const [name, setName] = React.useState<string>(String(data.xmlName || ''));
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
+  const [mixed, setMixed] = React.useState<boolean>(Boolean(data.xmlMixed));
+  const [anyAttributeNamespace, setAnyAttributeNamespace] = React.useState<string>(String(data.xmlAnyAttribute?.namespace || ''));
 
   React.useEffect(() => {
     setName(String(data.xmlName || ''));
     setIsRef(Boolean(data.xmlIsRef));
-  }, [node?.id, data.xmlName, data.xmlIsRef]);
+    setMixed(Boolean(data.xmlMixed));
+    setAnyAttributeNamespace(String(data.xmlAnyAttribute?.namespace || ''));
+  }, [node?.id, data.xmlName, data.xmlIsRef, data.xmlMixed, data.xmlAnyAttribute]);
 
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
@@ -520,6 +524,30 @@ function XmlComplexTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
           style={{ cursor: 'pointer' }}
         />
         <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
+      </label>
+      <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+        <input
+          type="checkbox"
+          checked={mixed}
+          onChange={(e) => {
+            setMixed(e.target.checked);
+            onChange({ id: node.id, xmlMixed: e.target.checked });
+          }}
+          aria-label="Mixed Content"
+          style={{ cursor: 'pointer' }}
+        />
+        <span style={{ fontSize: 12 }}>Mixed Content</span>
+      </label>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 12 }}>AnyAttribute namespace</span>
+        <input
+          aria-label="AnyAttribute Namespace"
+          value={anyAttributeNamespace}
+          onChange={(e) => setAnyAttributeNamespace(e.target.value)}
+          onBlur={() => onChange({ id: node.id, xmlAnyAttributeNamespace: anyAttributeNamespace })}
+          placeholder="##other"
+          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+        />
       </label>
       <div style={{ fontSize: 12, color: '#666' }}>
         Author sequence/choice/all via graph right-click. Edit min/max on the selected compositor node in RHS.
@@ -1302,6 +1330,8 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   const [minOccurs, setMinOccurs] = React.useState<string>(String(data.xmlMinOccurs ?? '1'));
   const [maxOccurs, setMaxOccurs] = React.useState<string>(String(data.xmlMaxOccurs ?? '1'));
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
+  const [mixed, setMixed] = React.useState<boolean>(Boolean(data.xmlMixed));
+  const [anyAttributeNamespace, setAnyAttributeNamespace] = React.useState<string>(String(data.xmlAnyAttribute?.namespace || ''));
 
   React.useEffect(() => {
     setName(String(data.xmlName || ''));
@@ -1309,7 +1339,9 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
     setMinOccurs(String(data.xmlMinOccurs ?? '1'));
     setMaxOccurs(String(data.xmlMaxOccurs ?? '1'));
     setIsRef(Boolean(data.xmlIsRef));
-  }, [node?.id, data.xmlName, data.xmlElementType, data.xmlMinOccurs, data.xmlMaxOccurs, data.xmlIsRef]);
+    setMixed(Boolean(data.xmlMixed));
+    setAnyAttributeNamespace(String(data.xmlAnyAttribute?.namespace || ''));
+  }, [node?.id, data.xmlName, data.xmlElementType, data.xmlMinOccurs, data.xmlMaxOccurs, data.xmlIsRef, data.xmlMixed, data.xmlAnyAttribute]);
 
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
@@ -1393,6 +1425,30 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
           style={{ cursor: 'pointer' }}
         />
         <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
+      </label>
+      <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+        <input
+          type="checkbox"
+          checked={mixed}
+          onChange={(e) => {
+            setMixed(e.target.checked);
+            onChange({ id: node.id, xmlMixed: e.target.checked });
+          }}
+          aria-label="Mixed Content"
+          style={{ cursor: 'pointer' }}
+        />
+        <span style={{ fontSize: 12 }}>Mixed Content</span>
+      </label>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 12 }}>AnyAttribute namespace</span>
+        <input
+          aria-label="AnyAttribute Namespace"
+          value={anyAttributeNamespace}
+          onChange={(e) => setAnyAttributeNamespace(e.target.value)}
+          onBlur={() => onChange({ id: node.id, xmlAnyAttributeNamespace: anyAttributeNamespace })}
+          placeholder="##other"
+          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+        />
       </label>
       <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
     </form>

@@ -6,6 +6,8 @@ export interface ContextMenuItem {
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  /** Renders the item's label in red to signal a destructive action (e.g. delete). */
+  danger?: boolean;
 }
 
 export interface ContextMenuProps {
@@ -56,7 +58,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ items, position, onClo
             padding: "8px 18px",
             textAlign: "left",
             fontSize: 15,
-            color: item.disabled ? "#aaa" : "#333",
+            color: item.disabled ? "#aaa" : item.danger ? "#d32f2f" : "#333",
             cursor: item.disabled ? "not-allowed" : "pointer",
             outline: "none",
             transition: "background-color 0.15s ease",

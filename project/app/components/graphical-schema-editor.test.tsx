@@ -132,7 +132,7 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     });
   });
 
-  it('lays out root children in alphabetical top-to-bottom order', async () => {
+  it('lays out root children top-to-bottom in schema declaration order', async () => {
     const testSchema = {
       type: 'object',
       properties: {
@@ -164,9 +164,13 @@ describe('GraphicalSchemaEditor - Enum Editing', () => {
     const muY = parseY(muNode.style.transform || null);
     const zetaY = parseY(zetaNode.style.transform || null);
 
+    // Layout order now follows declaration order (zeta, alpha, mu) rather than alphabetical —
+    // this is what makes drag-to-reorder "stick" instead of the layout re-alphabetizing siblings
+    // on every relayout.
+    expect(zetaY).toBeLessThan(alphaY);
     expect(alphaY).toBeLessThan(muY);
-    expect(muY).toBeLessThan(zetaY);
   });
+
 
   it('does not show expand toggle for array variants with primitive items', async () => {
     const testSchema = {

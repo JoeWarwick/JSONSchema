@@ -345,12 +345,12 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
         {renderBadges(filteredBadges)}
         {Object.entries(data).map(([key, value]) => {
-          if (value === undefined || value === null || value === '') return null;
+          if (value === undefined || value === null || value === '' || typeof value === 'boolean') return null;
           const hidden = [
             // JSON Schema properties
             'label', 'id', 'parent', 'type', 'ofType', 'required', 'enum', 'items', 'default', 'title', 'description', '$comment', 'patternKey', 'typeUnion', 'isAdditionalProperties', 'additionalProperties', 'minProperties', 'maxProperties', '$ref',
             // XML Schema metadata (path, kind, etc.)
-            'xmlPath', 'xmlNodeKind', 'xmlName', 'xmlElementType', 'xmlHasInlineComplexType', 'xmlInlineComplexTypeName', 'xmlSimpleTypeMode', 'xmlBase', 'xmlMemberTypes', 'xmlItemType', 'xmlEnumerations', 'xmlAttributes', 'xmlIsRef', 'xmlIsAnonymous', 'xmlAttributeInlineSimpleType', 'xmlHasInlineSimpleType', 'xmlAttributeReferencedEnumerations', 'xmlAttributeReferencedTypeName', 'xmlMyTypeNames', 'xmlMyElementNames', 'xmlAnnotation',
+            'xmlPath', 'xmlNodeKind', 'xmlName', 'xmlElementType', 'xmlHasInlineComplexType', 'xmlInlineComplexTypeName', 'xmlSimpleTypeMode', 'xmlBase', 'xmlMemberTypes', 'xmlItemType', 'xmlEnumerations', 'xmlAttributes', 'xmlAnyAttribute', 'xmlAnyAttributeNamespace', 'xmlIsRef', 'xmlIsAnonymous', 'xmlAttributeInlineSimpleType', 'xmlHasInlineSimpleType', 'xmlAttributeReferencedEnumerations', 'xmlAttributeReferencedTypeName', 'xmlMyTypeNames', 'xmlMyElementNames', 'xmlAnnotation', 'xmlMixed', 'xmlDoc', 'xmlPropertyMap', 'xmlSchemaNodeData', 'xmlns',
             // xs:complexContent inheritance metadata (used only to compute the inheritance-group bounding box, never shown as a badge)
             'xmlExtendsType', 'xmlInheritedFrom',
             // xs:attributeGroup ref metadata (drives the isRef badge tooltip, not a separate badge)

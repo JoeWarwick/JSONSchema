@@ -4,7 +4,6 @@ import { ContextMenu } from "./ContextMenu";
 import {
   addPropertyToSchema,
   addPatternPropertyToSchema,
-  removePropertyFromSchema,
   schemaNodeDataToSchema
 } from "./schema-behaviors";
 import ReactFlow, {
@@ -210,6 +209,144 @@ function serializeInlineSimpleType(data: InlineSimpleTypeData): any {
   return { 'xs:restriction': result };
 }
 
+// Human-readable label for an `xmlNodeKind` value, used to build "Delete <Kind>" context-menu text.
+const XML_KIND_LABELS: Record<string, string> = {
+  schema: 'Schema',
+  complexType: 'ComplexType',
+  simpleType: 'SimpleType',
+  attributeGroup: 'AttributeGroup',
+  element: 'Element',
+  attribute: 'Attribute',
+  sequence: 'Sequence',
+  choice: 'Choice',
+  all: 'All',
+};
+function xmlKindLabel(kind: string): string {
+  return XML_KIND_LABELS[kind] || (kind ? kind.charAt(0).toUpperCase() + kind.slice(1) : 'Node');
+}
+
+// Deletes the value at `path` (a node's own `xmlPath`, pointing at itself) from a cloned
+// raw XML-schema JSON tree — splices an array index or deletes an object key.
+function deleteAtXmlPath(root: any, path: Array<string | number>): boolean {
+  if (!Array.isArray(path) || path.length === 0) return false;
+  let parent: any = root;
+  for (let i = 0; i < path.length - 1; i++) {
+    parent = parent?.[path[i] as any];
+    if (parent == null) return false;
+  }
+  const last = path[path.length - 1];
+  if (Array.isArray(parent) && typeof last === 'number') {
+    if (last < 0 || last >= parent.length) return false;
+    parent.splice(last, 1);
+    return true;
+  }
+  if (parent && typeof parent === 'object' && !Array.isArray(parent) && last in parent) {
+    delete parent[last as any];
+    return true;
+  }
+  return false;
+}
+
+// Reads the value at `path` from a raw XML-schema JSON tree (array index or object key).
+function getAtXmlPath(root: any, path: Array<string | number>): any {
+  let current = root;
+  for (const segment of path) {
+    if (current == null) return undefined;
+    current = typeof segment === 'number' ? (Array.isArray(current) ? current[segment] : undefined) : current[segment as string];
+  }
+  return current;
+}
+
+// Writes `value` at `path` (the parent container must already exist) in a raw XML-schema JSON tree.
+function setAtXmlPath(root: any, path: Array<string | number>, value: any): boolean {
+  if (!Array.isArray(path) || path.length === 0) return false;
+  let parent: any = root;
+  for (let i = 0; i < path.length - 1; i++) {
+    parent = parent?.[path[i] as any];
+    if (parent == null) return false;
+  }
+  parent[path[path.length - 1] as any] = value;
+  return true;
+}
+
+// Collects the ids of every node transitively parented (via `data.parent`) under `rootId`, so a
+// dragged node's whole subtree can be moved along with it. (Distinct from the in-component
+// `collectDescendantIds` used for collapse/hide, which only walks visible collapse targets.)
+function collectDragSubtreeIds(rootId: string, allNodes: Array<Node<any>>): Set<string> {
+  const childrenByParent = new Map<string, string[]>();
+  for (const n of allNodes) {
+    const parentId = (n.data as any)?.parent as string | undefined;
+    if (!parentId) continue;
+    const siblings = childrenByParent.get(parentId);
+    if (siblings) siblings.push(n.id);
+    else childrenByParent.set(parentId, [n.id]);
+  }
+  const result = new Set<string>();
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const id = stack.pop() as string;
+    for (const childId of childrenByParent.get(id) ?? []) {
+      if (!result.has(childId)) {
+        result.add(childId);
+        stack.push(childId);
+      }
+    }
+  }
+  return result;
+}
+
+// Recursively removes every `xs:element`/`xs:attribute`/`xs:attributeGroup` (etc, per `tagKeys`)
+// entry anywhere in the tree whose `@attributes[attrKey]` (namespace-stripped) equals `name` —
+// used to cascade-delete all usages of a global type/element/attribute/group that was just deleted.
+function pruneXmlRefEntries(root: any, tagKeys: string[], attrKey: 'type' | 'ref', name: string): void {
+  if (!root || typeof root !== 'object') return;
+  const localName = (value: unknown): string | undefined => {
+    if (typeof value !== 'string') return undefined;
+    return value.includes(':') ? value.split(':').pop() : value;
+  };
+  for (const key of Object.keys(root)) {
+    const value = (root as any)[key];
+    if (tagKeys.includes(key)) {
+      if (Array.isArray(value)) {
+        const kept: any[] = [];
+        for (const entry of value) {
+          const attrs = entry && typeof entry === 'object' ? (entry['@attributes'] || {}) : {};
+          if (localName(attrs[attrKey]) === name) continue;
+          pruneXmlRefEntries(entry, tagKeys, attrKey, name);
+          kept.push(entry);
+        }
+        if (kept.length === 0) delete (root as any)[key];
+        else (root as any)[key] = kept;
+        continue;
+      }
+      if (value && typeof value === 'object') {
+        const attrs = value['@attributes'] || {};
+        if (localName(attrs[attrKey]) === name) {
+          delete (root as any)[key];
+          continue;
+        }
+        pruneXmlRefEntries(value, tagKeys, attrKey, name);
+        continue;
+      }
+    }
+    if (Array.isArray(value)) {
+      value.forEach((entry) => pruneXmlRefEntries(entry, tagKeys, attrKey, name));
+    } else if (value && typeof value === 'object') {
+      pruneXmlRefEntries(value, tagKeys, attrKey, name);
+    }
+  }
+}
+
+// Which tags/attribute reference a top-level global definition of each `xmlNodeKind`, used to
+// cascade-delete usages when the global definition itself is deleted.
+const XML_GLOBAL_REF_TARGETS: Record<string, { tagKeys: string[]; attrKey: 'type' | 'ref' }> = {
+  complexType: { tagKeys: ['xs:element', 'xs:attribute'], attrKey: 'type' },
+  simpleType: { tagKeys: ['xs:element', 'xs:attribute'], attrKey: 'type' },
+  attributeGroup: { tagKeys: ['xs:attributeGroup'], attrKey: 'ref' },
+  element: { tagKeys: ['xs:element'], attrKey: 'ref' },
+  attribute: { tagKeys: ['xs:attribute'], attrKey: 'ref' },
+};
+
 export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLanguage }: GraphicalSchemaEditorProps) {
   type ExpansionState = {
     combiners: Record<string, boolean>;
@@ -221,6 +358,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
   const initialLoadRef = React.useRef(true);
   const flowWrapperRef = React.useRef<HTMLDivElement | null>(null);
   const pendingCenterRef = React.useRef(false);
+  // Id of the node whose collapse/expand toggle triggered `pendingCenterRef` — the re-centre
+  // effect uses this to keep that specific node in view instead of refitting the whole graph.
+  const pendingCenterNodeIdRef = React.useRef<string | null>(null);
   const pendingTimeoutsRef = React.useRef<number[]>([]);
   const isMountedRef = React.useRef(true);
   // Only render ReactFlow when the wrapper has a measured non-zero height.
@@ -360,7 +500,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     // Also check for direct properties (normalized form, e.g., MS SchemaObject)
     // These would be things like targetNamespace, elementFormDefault, etc. at the root
     const directProps: Record<string, unknown> = {};
-    const xmlSchemaProps = ['targetNamespace', 'elementFormDefault', 'attributeFormDefault', 'blockDefault', 'finalDefault', 'version', 'id', 'xmlns', 'xmlns:xs'];
+    const xmlSchemaProps = ['targetNamespace', 'elementFormDefault', 'attributeFormDefault', 'blockDefault', 'finalDefault', 'version', 'id', 'xmlns', 'xmlns:xs', 'mixed'];
     xmlSchemaProps.forEach(prop => {
       if (Object.prototype.hasOwnProperty.call(node, prop)) {
         directProps[prop] = (node as any)[prop];
@@ -502,6 +642,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const elementId = `${parentId}.element_${index}`;
       const { referenced, typeName, circular } = resolveElementTypeExpansion(elemAttrs, ancestors);
       const inlineComplexType = (elemEntry as any)['xs:complexType'];
+      const inlineComplexTypeAttrs = inlineComplexType && typeof inlineComplexType === 'object' ? getXmlAttrs(inlineComplexType) : {};
+      const inlineComplexAnyAttribute = inlineComplexType && typeof inlineComplexType === 'object'
+        ? getXmlAttrs((inlineComplexType as any)['xs:anyAttribute'])
+        : undefined;
       const ownBaseInfo = inlineComplexType && typeof inlineComplexType === 'object' ? getComplexContentBaseInfo(inlineComplexType) : undefined;
       const ownSimpleContentInfo = inlineComplexType && typeof inlineComplexType === 'object' ? getSimpleContentBaseInfo(inlineComplexType) : undefined;
       addNode({
@@ -523,7 +667,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         // Inline `xs:complexType` (no `type` attribute) — the RHS Type field has nothing to show
         // via `xmlElementType`, so flag it to display "complexType - <name>" (or "- Anon" when the
         // inline complexType itself has no `name`) instead of blank/(none).
-        ...(inlineComplexType && typeof inlineComplexType === 'object' ? { xmlHasInlineComplexType: true, xmlInlineComplexTypeName: getXmlAttrs(inlineComplexType).name } : {}),
+        ...(inlineComplexType && typeof inlineComplexType === 'object' ? {
+          xmlHasInlineComplexType: true,
+          xmlInlineComplexTypeName: getXmlAttrs(inlineComplexType).name,
+          xmlMixed: inlineComplexTypeAttrs.mixed === 'true',
+          ...(inlineComplexAnyAttribute ? { xmlAnyAttribute: inlineComplexAnyAttribute } : {}),
+        } : {}),
         ...(getXmlAnnotationDoc(elemEntry) ? { xmlAnnotation: getXmlAnnotationDoc(elemEntry) } : {}),
         ...(circular ? { isRef: true } : {}),
         ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
@@ -974,6 +1123,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const nodeType = isGlobalRef ? 'globalType' : 'property';
       const baseInfo = getComplexContentBaseInfo(entry);
 
+      const anyAttributeValue = (entry as any)['xs:anyAttribute'];
+      const anyAttributeAttrs = anyAttributeValue && typeof anyAttributeValue === 'object' ? getXmlAttrs(anyAttributeValue) : undefined;
       addNode({
         id: complexId,
         label: toNodeLabel('complexType', attrs, `${index + 1}`),
@@ -984,6 +1135,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlName: attrs.name,
         xmlAttributes: complexTypeAttributes,
         xmlIsRef: isGlobalRef,
+        xmlMixed: attrs.mixed === 'true',
+        ...(anyAttributeAttrs ? { xmlAnyAttribute: anyAttributeAttrs } : {}),
         ...(baseInfo ? { xmlExtendsType: baseInfo.baseTypeName } : {}),
         // A `simpleContent` complexType is a simple type (text + attributes) under the hood, so
         // tag it with the same `xmlSimpleTypeMode`/`xmlBase` fields a real `xs:simpleType` uses.
@@ -1092,8 +1245,16 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       for (const segment of path) {
         if (current == null) return null;
         if (typeof segment === 'number') {
-          if (!Array.isArray(current)) return null;
-          current = current[segment];
+          if (Array.isArray(current)) {
+            current = current[segment];
+          } else if (segment === 0 && typeof current === 'object') {
+            // XML parser may represent a single repeated node as an object rather than
+            // an array, so index 0 should still resolve to the object when only one
+            // occurrence exists.
+            // No reassignment needed; keep current as-is.
+          } else {
+            return null;
+          }
         } else {
           current = current[segment as string];
         }
@@ -1247,6 +1408,19 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         if (value) attrs.ref = 'true';
         else delete attrs.ref;
       }
+      if (attrs && Object.prototype.hasOwnProperty.call(patch, 'xmlMixed')) {
+        const value = Boolean((patch as any).xmlMixed);
+        if (value) attrs.mixed = 'true';
+        else delete attrs.mixed;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlAnyAttributeNamespace')) {
+        const value = (patch as any).xmlAnyAttributeNamespace;
+        if (typeof value === 'string' && value.trim().length > 0) {
+          (target as any)['xs:anyAttribute'] = { '@attributes': { namespace: value } };
+        } else {
+          delete (target as any)['xs:anyAttribute'];
+        }
+      }
     }
 
     if (kind === 'attributeGroup') {
@@ -1323,6 +1497,24 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         const value = (patch as any).xmlMaxOccurs;
         if (value !== undefined && value !== null && String(value).length > 0) attrs.maxOccurs = String(value);
         else delete attrs.maxOccurs;
+      }
+      const complexTypeTarget = (target as any)['xs:complexType'];
+      const anyAttributeTarget = complexTypeTarget && typeof complexTypeTarget === 'object' ? complexTypeTarget : target;
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlMixed')) {
+        const value = Boolean((patch as any).xmlMixed);
+        const anyAttrs = getOrCreateAttrs(anyAttributeTarget);
+        if (anyAttrs) {
+          if (value) anyAttrs.mixed = 'true';
+          else delete anyAttrs.mixed;
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlAnyAttributeNamespace')) {
+        const value = (patch as any).xmlAnyAttributeNamespace;
+        if (typeof value === 'string' && value.trim().length > 0) {
+          (anyAttributeTarget as any)['xs:anyAttribute'] = { '@attributes': { namespace: value } };
+        } else {
+          delete (anyAttributeTarget as any)['xs:anyAttribute'];
+        }
       }
     }
 
@@ -1883,7 +2075,13 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     const withInheritanceGroups = (laidOutNodes: Node<SchemaNodeData>[]): Node<SchemaNodeData>[] =>
       [...laidOutNodes, ...buildInheritanceGroupNodes(laidOutNodes)];
 
-    const getSortLabel = (n: Node<SchemaNodeData>) => (((n.data as any)?.label as string) || '').toString();
+    // Preserves document/schema order (the order nodes were pushed while building the graph —
+    // property insertion order for JSON, array order for XML) as the tiebreaker instead of
+    // alphabetical label order, so dagre lays out siblings top-to-bottom in schema order. This
+    // is what makes drag-to-reorder (`handleNodeDragStop`) visually "stick": after a reorder
+    // mutation the schema/array order changes, the graph gets rebuilt from it, and this order
+    // is what dagre uses to position the reordered siblings.
+    const originalIndexById = new Map(inputNodes.map((n, i) => [n.id, i]));
     const compareLayoutSiblings = (a: Node<SchemaNodeData>, b: Node<SchemaNodeData>) => {
       const aParent = (((a.data as any)?.parent as string) || '');
       const bParent = (((b.data as any)?.parent as string) || '');
@@ -1896,8 +2094,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         if (aIndex !== bIndex) return aIndex - bIndex;
       }
 
-      const byLabel = getSortLabel(a).localeCompare(getSortLabel(b), undefined, { numeric: true, sensitivity: 'base' });
-      if (byLabel !== 0) return byLabel;
+      const aOrder = originalIndexById.get(a.id) ?? 0;
+      const bOrder = originalIndexById.get(b.id) ?? 0;
+      if (aOrder !== bOrder) return aOrder - bOrder;
       return a.id.localeCompare(b.id, undefined, { numeric: true, sensitivity: 'base' });
     };
 
@@ -2330,9 +2529,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           ...edgesRef.current.map((e: Edge) => e.target === variantId ? { ...e, hidden: false } : e),
           ...subEdges,
         ];
-        setEdges(() => newEdges);
 
-        return applyRelayout([
+        const finalNodes = applyRelayout([
           ...prev.map((n: Node<SchemaNodeData>) =>
             n.id === variantId
               ? { ...variantNode, data: { ...vData, variantExpanded: true, variantResolved: true, isResolving: false } as any }
@@ -2340,18 +2538,24 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           ),
           ...injectHandlers(repairedSubNodes),
         ], newEdges);
+        // Newly revealed nodes had no real dagre position while hidden, so handles computed
+        // against their old placeholder position can point at the parent's wrong (rear) side —
+        // recompute now that finalNodes holds real laid-out positions.
+        setEdges(() => applyEdgePositioning(newEdges, finalNodes) as Edge[]);
+        return finalNodes;
       }
 
       if (willExpand) {
         const willExpand_edges = edgesRef.current.map((e: Edge) =>
           e.source === variantId || e.target === variantId ? { ...e, hidden: false } : e
         );
-        setEdges(() => willExpand_edges);
-        return applyRelayout(prev.map((n: Node<SchemaNodeData>) => {
+        const finalNodes = applyRelayout(prev.map((n: Node<SchemaNodeData>) => {
           if (n.id === variantId) return { ...n, data: { ...n.data, variantExpanded: true } as any };
           if ((n.data as any)?.parent === variantId) return { ...n, hidden: false };
           return n;
         }), willExpand_edges);
+        setEdges(() => applyEdgePositioning(willExpand_edges, finalNodes) as Edge[]);
+        return finalNodes;
       }
 
       // Collapse — hide all descendants recursively
@@ -2367,11 +2571,13 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       );
       setEdges(() => collapseEdges);
       pendingCenterRef.current = true;
-      return applyRelayout(prev.map((n: Node<SchemaNodeData>) => {
+      pendingCenterNodeIdRef.current = variantId;
+      const collapsed = applyRelayout(prev.map((n: Node<SchemaNodeData>) => {
         if (n.id === variantId) return { ...n, data: { ...n.data, variantExpanded: false } as any };
         if (toHide.has(n.id)) return { ...n, hidden: true };
         return n;
       }), collapseEdges);
+      return preserveAnchorY(collapsed, prev, variantId);
     });
   }, [edgesRef, injectHandlers, nodeHandlersRef, resolveRefInSchema, schemaToGraph, relayoutNodes, preserveAnchorY, setEdges, setNodes, setVariantExpandedPersisted, setCombinerExpandedPersisted]);
 
@@ -2402,6 +2608,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
   // collapse pattern above, but works for plain property/globalType/enum/root nodes whose
   // children already exist in the graph (no lazy $ref resolution needed).
   const handleToggleNodeChildren = React.useCallback((nodeId: string) => {
+    userToggledChildrenRef.current = true;
     setNodes((prev: Node<SchemaNodeData>[]) => {
       const targetNode = prev.find(n => n.id === nodeId);
       if (!targetNode) return prev;
@@ -2419,7 +2626,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           return n;
         });
         pendingCenterRef.current = true;
-        return relayoutNodes(updated, nextEdges);
+        pendingCenterNodeIdRef.current = nodeId;
+        const laidCollapsed = relayoutNodes(updated, nextEdges);
+        return preserveAnchorY(laidCollapsed, prev, nodeId);
       }
 
       // Expanding: reveal descendants, but stop descending past any node that is itself
@@ -2437,16 +2646,68 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const nextEdges = edgesRef.current.map((e: Edge) =>
         (toShow.has(e.source) || toShow.has(e.target)) ? { ...e, hidden: false } : e
       );
-      setEdges(() => nextEdges);
       const updated = prev.map((n: Node<SchemaNodeData>) => {
         if (n.id === nodeId) return { ...n, data: { ...n.data, childrenCollapsed: false } };
         if (toShow.has(n.id)) return { ...n, hidden: false };
         return n;
       });
       const laid = relayoutNodes(updated, nextEdges);
-      return preserveAnchorY(laid, prev, nodeId);
+      const anchored = preserveAnchorY(laid, prev, nodeId);
+      // Newly revealed nodes never had real dagre coordinates while hidden (they sat at their
+      // stale/default position), so the earlier-computed sourceHandle/targetHandle on these
+      // edges can point at the wrong (rear) side of the parent — recompute from the now-laid-out
+      // positions instead of reusing nextEdges' stale handles.
+      setEdges(() => applyEdgePositioning(nextEdges, anchored) as Edge[]);
+      return anchored;
     });
   }, [collectDescendantIds, edgesRef, relayoutNodes, preserveAnchorY, setEdges, setNodes]);
+
+  const handleExpandAllChildren = React.useCallback((nodeId: string) => {
+    userToggledChildrenRef.current = true;
+    const currentNodes = nodesRef.current;
+    const descendantIdsArray = collectDescendantIds(nodeId, currentNodes);
+    const descendantIds = new Set<string>(descendantIdsArray);
+    const combinerIds: string[] = [];
+    const variantIds: string[] = [];
+    currentNodes.forEach((n) => {
+      if (descendantIds.has(n.id)) {
+        if (n.type === 'combiner') combinerIds.push(n.id);
+        if (n.type === 'variant') variantIds.push(n.id);
+      }
+    });
+
+    setNodes((prev: Node<SchemaNodeData>[]) => {
+      const updated = prev.map((n: Node<SchemaNodeData>) => {
+        if (n.id === nodeId) {
+          return { ...n, data: { ...n.data, childrenCollapsed: false } };
+        }
+        if (!descendantIds.has(n.id)) return n;
+
+        const baseData: any = { ...n.data };
+        if (n.type === 'combiner') {
+          baseData.variantsExpanded = true;
+        }
+        if (n.type === 'variant') {
+          baseData.variantExpanded = true;
+        }
+        if (n.type !== 'combiner' && n.type !== 'variant') {
+          baseData.childrenCollapsed = false;
+        }
+        return { ...n, hidden: false, data: baseData };
+      });
+      const visibleIds = new Set<string>([nodeId, ...descendantIds]);
+      const nextEdges = edgesRef.current.map((e: Edge) =>
+        visibleIds.has(e.source) && visibleIds.has(e.target) ? { ...e, hidden: false } : e
+      );
+      const laid = relayoutNodes(updated, nextEdges);
+      const anchored = preserveAnchorY(laid, prev, nodeId);
+      setEdges(() => applyEdgePositioning(nextEdges, anchored) as Edge[]);
+      return anchored;
+    });
+
+    combinerIds.forEach((id) => setCombinerExpandedPersisted(id, true));
+    variantIds.forEach((id) => setVariantExpandedPersisted(id, true));
+  }, [collectDescendantIds, edgesRef, preserveAnchorY, relayoutNodes, setCombinerExpandedPersisted, setVariantExpandedPersisted, setEdges, setNodes]);
 
   // Add a new blank variant to a combiner node
   const handleAddVariant = React.useCallback((combinerId: string) => {
@@ -2575,6 +2836,40 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     });
   }, [emitLocalSchemaUpdate]);
 
+  // Delete an entire combiner (and all its variants), restoring the parent's schema to the
+  // first variant's schema (or a plain string as a last resort) — used when the user targets
+  // the combiner node itself, rather than one of its individual variants.
+  const handleDeleteCombiner = React.useCallback((combinerId: string) => {
+    setNodes((prev: Node<SchemaNodeData>[]) => {
+      const combiner = prev.find(n => n.id === combinerId);
+      if (!combiner) return prev;
+      const parentId = (combiner.data as any).parent as string | undefined;
+      const toRemove = new Set<string>([combinerId]);
+      const collectDesc = (pid: string) => {
+        prev.forEach((n: Node<SchemaNodeData>) => {
+          if ((n.data as any)?.parent === pid) { toRemove.add(n.id); collectDesc(n.id); }
+        });
+      };
+      collectDesc(combinerId);
+      const variants = prev
+        .filter(n => n.type === 'variant' && (n.data as any)?.parent === combinerId)
+        .sort((a, b) => (((a.data as any).variantIndex) || 0) - (((b.data as any).variantIndex) || 0));
+      const fallbackSchema = variants.length > 0 ? ((variants[0].data as any).variantSchema || { type: 'string' }) : { type: 'string' };
+      let updated = prev.filter((n: Node<SchemaNodeData>) => !toRemove.has(n.id));
+      if (parentId) {
+        updated = updated.map((n: Node<SchemaNodeData>) =>
+          n.id === parentId ? { ...n, data: { ...n.data, ...fallbackSchema } as any } : n
+        );
+      }
+      setEdges((prevEdges: Edge[]) =>
+        prevEdges.filter((e: Edge) => !toRemove.has(e.source) && !toRemove.has(e.target))
+      );
+      const newSchema = buildSchemaFromNodes(updated);
+      emitLocalSchemaUpdate(newSchema);
+      return updated;
+    });
+  }, [emitLocalSchemaUpdate]);
+
   // Expand/collapse all variants of a combiner node at once
   const handleToggleCombinerVariants = React.useCallback((combinerId: string) => {
     setNodes((prev: Node<SchemaNodeData>[]) => {
@@ -2590,7 +2885,6 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           ? { ...e, hidden: !willExpand }
           : e
       );
-      setEdges(() => toggledEdges);
       const next = prev.map((n: Node<SchemaNodeData>) => {
         if (n.id === combinerId)
           return { ...n, data: { ...n.data, variantsExpanded: willExpand } as any };
@@ -2600,11 +2894,15 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       });
       const laid = relayoutNodes(next, toggledEdges);
       const anchored = preserveAnchorY(laid, prev, combinerId);
-      return anchored.map(n =>
+      const finalNodes = anchored.map(n =>
         (n.type === 'combiner' || n.type === 'variant')
           ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } }
           : n
       );
+      // Revealed variants had no real dagre position while hidden, so recompute handles from
+      // the now-laid-out positions instead of reusing toggledEdges' stale (rear-side) handles.
+      setEdges(() => applyEdgePositioning(toggledEdges, finalNodes) as Edge[]);
+      return finalNodes;
     });
   }, [relayoutNodes, preserveAnchorY, setCombinerExpandedPersisted]);
 
@@ -2741,12 +3039,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       // Rebuild the graph data from the updated schema so all changes are reflected.
       const rawRebuilt = schemaToGraph(updated as Record<string, unknown>);
       const currentNodesById = new Map(nodesRef.current.map((n) => [n.id, n]));
-      const currentEdgeIds = new Set(edgesRef.current.map((e) => e.id));
+      const currentEdgesById = new Map(edgesRef.current.map((e) => [e.id, e]));
       const sameStructure =
         rawRebuilt.nodes.length === nodesRef.current.length &&
         rawRebuilt.edges.length === edgesRef.current.length &&
         rawRebuilt.nodes.every((n) => currentNodesById.has(n.id)) &&
-        rawRebuilt.edges.every((e) => currentEdgeIds.has(e.id));
+        rawRebuilt.edges.every((e) => currentEdgesById.has(e.id));
 
       if (sameStructure) {
         // A simple field edit (name/type/use/default/annotation/...) doesn't add or remove any
@@ -2754,13 +3052,26 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         // layout, which otherwise re-lays-out the whole graph on every keystroke commit.
         const positionedNodes = rawRebuilt.nodes.map((n) => {
           const existing = currentNodesById.get(n.id);
-          const merged = existing ? { ...n, position: existing.position } : n;
+          // Preserve `hidden` along with `position` — rawRebuilt nodes are freshly built by
+          // schemaToGraph/xmlSchemaToGraph and never carry a `hidden` flag, so without this
+          // every previously-collapsed (hidden) node in the whole graph would silently become
+          // visible again on every field edit, rendered at its stale never-laid-out position.
+          const merged = existing ? { ...n, position: existing.position, hidden: existing.hidden } : n;
           return (merged.type === 'combiner' || merged.type === 'variant')
             ? { ...merged, data: { ...merged.data, id: merged.id, ...nodeHandlersRef.current } }
             : merged;
         });
         setNodes(positionedNodes);
-        setEdges(rawRebuilt.edges as Edge[]);
+        // Recompute sourceHandle/targetHandle from the (reused) positions — rawRebuilt.edges
+        // are freshly built with no handle ids, so without this they fall back to whichever
+        // handle React Flow picks by default (the first-declared "Left"/rear handle) instead
+        // of the correct front/rear side for each node's actual position. Also preserve `hidden`
+        // for the same reason as nodes above — a freshly built edge is never hidden by default.
+        const positionedEdges = rawRebuilt.edges.map((e) => {
+          const existing = currentEdgesById.get(e.id);
+          return existing ? { ...e, hidden: existing.hidden } : e;
+        });
+        setEdges(applyEdgePositioning(positionedEdges, positionedNodes) as Edge[]);
         return;
       }
 
@@ -2933,6 +3244,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
   // Only reset selected node if the graph structure changes (add/remove), not for every property edit
   const prevNodeCount = React.useRef(0);
   const prevEdgeCount = React.useRef(0);
+  // Tracks whether the user has manually toggled any node's children collapse state. Real
+  // schema loads can rebuild nodes/edges from the `schema` prop multiple times before settling
+  // (e.g. remote $ref resolution completing after an initial local-refs-only pass) — each such
+  // rebuild should keep collapsing everything below the root's direct children until the user
+  // starts managing expansion themselves, not just on the very first ever build.
+  const userToggledChildrenRef = React.useRef(false);
   const reactFlowInstanceRef = React.useRef<any>(null);
   React.useEffect(() => {
     // If we recently emitted a schema update from inside this component,
@@ -3013,7 +3330,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     // On the very first successful graph build (prevNodeCount still at its initial 0), collapse
     // everything except the root so only top-level items are visible — mirrors the collapse
     // semantics of `handleToggleNodeChildren` but applied up front instead of via user clicks.
-    const isInitialLoad = prevNodeCount.current === 0 && prevEdgeCount.current === 0;
+    // Keep re-applying this on every schema-prop-driven rebuild (not just the literal first one)
+    // until the user manually toggles a node's children — real loads can rebuild the graph more
+    // than once while resolving (e.g. remote $refs finishing after an initial local-only pass).
+    const isInitialLoad = !userToggledChildrenRef.current;
     const rootNodeForCollapse = nodesWithRestoredExpansion.find((n) => n.type === 'root');
     let initialNodesForLayout = nodesWithRestoredExpansion;
     let initialEdgesForLayout = edgesWithRestoredExpansion;
@@ -3031,7 +3351,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const keepVisible = new Set<string>([rootNodeForCollapse.id, ...topLevelIds]);
       initialNodesForLayout = nodesWithRestoredExpansion.map((n) => {
         if (n.id === rootNodeForCollapse.id) return n;
-        const needsCollapseFlag = (n.type === 'property' || n.type === 'globalType' || n.type === 'enum') && parentIds.has(n.id);
+        const isXmlCompositor = isXmlCompositorNode(n);
+        const needsCollapseFlag = !isXmlCompositor && (n.type === 'property' || n.type === 'globalType' || n.type === 'enum') && parentIds.has(n.id);
         const data = needsCollapseFlag ? { ...n.data, childrenCollapsed: true } : n.data;
         return keepVisible.has(n.id) ? { ...n, data } : { ...n, data, hidden: true };
       });
@@ -3137,23 +3458,30 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     setIsUserEdit(false);
   }, [nodes, edges, schema, onChange, isUserEdit]);
 
-  // Re-centre the graph after a variant collapse — but only when the remaining
-  // visible graph has drifted outside the current viewport (user is "lost in space").
+  // Re-centre the graph after a collapse — but only when the toggled node itself has drifted
+  // outside the current viewport (user is "lost in space"). Anchors on the specific node that
+  // was collapsed rather than the bounding box of everything still visible, so collapsing a
+  // node elsewhere in a large graph doesn't yank the view away from what the user was looking at.
   React.useEffect(() => {
     if (!pendingCenterRef.current) return;
     pendingCenterRef.current = false;
+    const anchorNodeId = pendingCenterNodeIdRef.current;
+    pendingCenterNodeIdRef.current = null;
     const rf = reactFlowInstanceRef.current;
     if (!rf) return;
     const allNodes = (rf.getNodes() as any[]).filter((n: any) => !n.hidden);
     if (allNodes.length === 0) return;
 
+    const anchorNode = anchorNodeId ? allNodes.find((n: any) => n.id === anchorNodeId) : null;
+
     const wrapper = flowWrapperRef.current;
     const containerW = wrapper?.offsetWidth ?? 800;
     const containerH = wrapper?.offsetHeight ?? 600;
 
-    // Bounding box of remaining visible nodes (add rough node size)
-    const xs = allNodes.map((n: any) => n.position.x);
-    const ys = allNodes.map((n: any) => n.position.y);
+    // Bounding box: just the toggled node (with rough node size) if we found it, otherwise
+    // fall back to the whole remaining graph.
+    const xs = anchorNode ? [anchorNode.position.x] : allNodes.map((n: any) => n.position.x);
+    const ys = anchorNode ? [anchorNode.position.y] : allNodes.map((n: any) => n.position.y);
     const minX = Math.min(...xs);
     const maxX = Math.max(...xs) + 200;
     const minY = Math.min(...ys);
@@ -3166,7 +3494,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     const vpRight  = vpLeft + containerW / vp.zoom;
     const vpBottom = vpTop  + containerH / vp.zoom;
 
-    // If the graph bbox still overlaps the viewport, the user can see it — no need to move
+    // If the bbox still overlaps the viewport, the user can see it — no need to move
     const inView = minX < vpRight && maxX > vpLeft && minY < vpBottom && maxY > vpTop;
     if (inView) return;
 
@@ -3198,6 +3526,161 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       position: { x: event.clientX, y: event.clientY },
       nodeId: node.id,
     });
+  };
+
+  // Reorder a same-parent sibling group (in JSON mode: a plain property group; in XML mode: the
+  // array backing a node's `xmlPath`) so their order matches `newOrderIds`, then re-emit the
+  // schema and rebuild the graph from it. Only called once a real order change was detected;
+  // if the mutation can't actually be applied (path/data mismatch) it relays out to recover a
+  // consistent graph, since the schema was never touched in that case.
+  const applySiblingReorder = (
+    draggedNodeId: string,
+    siblingGroup: Node<SchemaNodeData>[],
+    newOrderIds: string[],
+  ) => {
+    const snapBack = () => setNodes((prev) => relayoutNodes(prev, edgesRef.current));
+
+    if (isXmlGraphMode) {
+      const draggedPath = (siblingGroup.find((n) => n.id === draggedNodeId)?.data as any)?.xmlPath as Array<string | number> | undefined;
+      if (!Array.isArray(draggedPath) || draggedPath.length === 0 || typeof draggedPath[draggedPath.length - 1] !== 'number') {
+        snapBack();
+        return;
+      }
+      const basePath = draggedPath.slice(0, -1);
+      const cloned = JSON.parse(JSON.stringify(schema || {})) as any;
+      const container = getAtXmlPath(cloned, basePath);
+      if (!Array.isArray(container)) {
+        snapBack();
+        return;
+      }
+      const idToIndex = new Map(
+        siblingGroup.map((n) => [n.id, ((n.data as any).xmlPath as Array<string | number>)[((n.data as any).xmlPath as Array<string | number>).length - 1] as number])
+      );
+      const reordered = newOrderIds.map((id) => container[idToIndex.get(id) as number]);
+      if (reordered.some((entry) => entry === undefined)) {
+        snapBack();
+        return;
+      }
+      setAtXmlPath(cloned, basePath, reordered);
+      emitLocalSchemaUpdate(cloned as Record<string, unknown>);
+
+      const rawRebuilt = schemaToGraph(cloned as Record<string, unknown>);
+      const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+        (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
+      );
+      const rebuiltNodes = preserveAnchorY(laidOutNodes, nodesRef.current, draggedNodeId);
+      setNodes(rebuiltNodes);
+      setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+      return;
+    }
+
+    // JSON mode: reorder the same-parent group within the full `nodes` array in place, then
+    // derive the schema from it — `buildSchemaFromNodes` assigns `properties` keys in the same
+    // order its `allNodes.forEach` visits same-parent children, so this reorders the emitted
+    // schema's property order too.
+    const currentNodes = nodesRef.current;
+    const groupIds = new Set(siblingGroup.map((n) => n.id));
+    const orderedGroupNodes = newOrderIds.map((id) => currentNodes.find((n) => n.id === id)).filter((n): n is Node<SchemaNodeData> => Boolean(n));
+    if (orderedGroupNodes.length !== siblingGroup.length) {
+      snapBack();
+      return;
+    }
+    let cursor = 0;
+    const reorderedNodes = currentNodes.map((n) => (groupIds.has(n.id) ? orderedGroupNodes[cursor++] : n));
+    const newSchema = buildSchemaFromNodes(reorderedNodes);
+    emitLocalSchemaUpdate(newSchema);
+
+    const rawRebuilt = schemaToGraph(newSchema as Record<string, unknown>);
+    const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
+    );
+    const rebuiltNodes = preserveAnchorY(laidOutNodes, currentNodes, draggedNodeId);
+    setNodes(rebuiltNodes);
+    setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+  };
+
+  // Snapshot of the dragged node's start position + its descendants' start positions, captured
+  // in `handleNodeDragStart` and consumed by `handleNodeDrag` on each drag tick.
+  const dragOriginRef = React.useRef<{
+    nodeId: string;
+    start: { x: number; y: number };
+    descendantStarts: Map<string, { x: number; y: number }>;
+  } | null>(null);
+
+  const handleNodeDragStart = (_event: React.MouseEvent, draggedNode: Node<SchemaNodeData>) => {
+    const currentNodes = nodesRef.current;
+    const descendantIds = collectDragSubtreeIds(draggedNode.id, currentNodes);
+    const descendantStarts = new Map<string, { x: number; y: number }>();
+    for (const n of currentNodes) {
+      if (descendantIds.has(n.id)) descendantStarts.set(n.id, { ...n.position });
+    }
+    dragOriginRef.current = { nodeId: draggedNode.id, start: { ...draggedNode.position }, descendantStarts };
+  };
+
+  // Moves the whole dragged subtree together by re-applying the parent's live drag delta to
+  // each descendant's start position (not compounding deltas across ticks).
+  const handleNodeDrag = (_event: React.MouseEvent, draggedNode: Node<SchemaNodeData>) => {
+    const origin = dragOriginRef.current;
+    if (!origin || origin.nodeId !== draggedNode.id || origin.descendantStarts.size === 0) return;
+    const deltaX = draggedNode.position.x - origin.start.x;
+    const deltaY = draggedNode.position.y - origin.start.y;
+    setNodes((prev) => prev.map((n) => {
+      const startPos = origin.descendantStarts.get(n.id);
+      if (!startPos) return n;
+      return { ...n, position: { x: startPos.x + deltaX, y: startPos.y + deltaY } };
+    }));
+  };
+
+  // Fires when the user drops a dragged node — if it ended up above/below a sibling (same
+  // parent, and in XML mode the same underlying array), reorders the siblings to match the
+  // dropped node's new vertical position; otherwise leaves the node exactly where it was
+  // dropped (no relayout/snap-back), since the user may just be repositioning it to look at
+  // the graph rather than intending to reorder anything.
+  const handleNodeDragStop = (_event: React.MouseEvent, draggedNode: Node<SchemaNodeData>) => {
+    dragOriginRef.current = null;
+    const currentNodes = nodesRef.current;
+    const live = currentNodes.find((n) => n.id === draggedNode.id);
+    const parentId = (live?.data as any)?.parent as string | undefined;
+    if (!live || !parentId) {
+      return;
+    }
+
+    const isReorderableSibling = (n: Node<SchemaNodeData>) =>
+      !n.hidden &&
+      n.type !== 'combiner' && n.type !== 'variant' && n.type !== 'root' && n.type !== 'inheritanceGroup' &&
+      (n.data as any)?.parent === parentId;
+
+    let siblingGroup: Node<SchemaNodeData>[];
+    if (isXmlGraphMode) {
+      const draggedPath = (live.data as any)?.xmlPath as Array<string | number> | undefined;
+      if (!Array.isArray(draggedPath) || draggedPath.length === 0 || typeof draggedPath[draggedPath.length - 1] !== 'number') {
+        return;
+      }
+      const basePathKey = JSON.stringify(draggedPath.slice(0, -1));
+      siblingGroup = currentNodes.filter((n) => {
+        if (!isReorderableSibling(n)) return false;
+        const p = (n.data as any)?.xmlPath as Array<string | number> | undefined;
+        if (!Array.isArray(p) || p.length === 0 || typeof p[p.length - 1] !== 'number') return false;
+        return JSON.stringify(p.slice(0, -1)) === basePathKey;
+      });
+    } else {
+      siblingGroup = currentNodes.filter((n) =>
+        isReorderableSibling(n) && !(n.data as any)?.patternKey && !(n.data as any)?.isAdditionalProperties
+      );
+    }
+
+    if (siblingGroup.length < 2) {
+      return;
+    }
+
+    const previousOrder = siblingGroup.map((n) => n.id);
+    const newOrder = [...siblingGroup].sort((a, b) => (a.position?.y ?? 0) - (b.position?.y ?? 0)).map((n) => n.id);
+    const orderChanged = newOrder.some((id, i) => id !== previousOrder[i]);
+    if (!orderChanged) {
+      return;
+    }
+
+    applySiblingReorder(draggedNode.id, siblingGroup, newOrder);
   };
 
   // Add Property action
@@ -3532,66 +4015,192 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     setContextMenu(null);
   };
 
-  // Delete Property action (with confirmation)
-  const handleDeleteProperty = () => {
-    if (isXmlGraphMode) {
+  // Collect the chain of labels from root -> `n`, used to look up `n`'s raw location in `schema`.
+  const collectNodePathLabels = React.useCallback((n: Node<SchemaNodeData> | undefined): string[] => {
+    const labels: string[] = [];
+    let cur = n;
+    while (cur && cur.id !== '1') {
+      if (cur.data && cur.data.label) labels.unshift(cur.data.label);
+      cur = nodes.find(x => x.id === cur?.data?.parent);
+    }
+    return labels;
+  }, [nodes]);
+
+  // Resolves a label path against the raw `schema` prop and returns the `$ref` found there
+  // (either a direct `$ref` or the first `$ref` inside an `allOf`), or null if none.
+  const getRefAtPathInSchema = React.useCallback((root: any, pathArr: string[]): string | null => {
+    let cur: any = root;
+    for (const lbl of pathArr) {
+      if (!cur) return null;
+      if (cur.type === 'object') {
+        cur = (cur.properties || {})[lbl];
+      } else if (cur.type === 'array') {
+        cur = (cur.items && cur.items.type === 'object') ? ((cur.items.properties || {})[lbl]) : undefined;
+      } else {
+        cur = undefined;
+      }
+    }
+    if (!cur || typeof cur !== 'object') return null;
+    if (typeof cur.$ref === 'string') return cur.$ref;
+    if (Array.isArray(cur.allOf)) {
+      const refEntry = cur.allOf.find((e: any) => e && typeof e.$ref === 'string');
+      if (refEntry) return refEntry.$ref;
+    }
+    return null;
+  }, []);
+
+  // Delete Property/Enum/Combiner/Variant action (with confirmation). If the targeted node
+  // originated from a `$ref` to a global `$defs`/`definitions` entry, every other node in the
+  // graph referencing that same global definition is deleted too.
+  const handleDeleteNode = React.useCallback(() => {
+    const ctxNodeId = contextMenu?.nodeId;
+    if (!ctxNodeId) { setContextMenu(null); return; }
+    const node = nodes.find(n => n.id === ctxNodeId);
+    if (!node) { setContextMenu(null); return; }
+
+    if (node.type === 'variant') {
+      if (!window.confirm('Are you sure you want to delete this variant?')) { setContextMenu(null); return; }
+      handleDeleteVariant(node.id);
       setContextMenu(null);
       return;
     }
-    if (!contextMenu?.nodeId) return;
-    const node = nodes.find(n => n.id === contextMenu.nodeId);
-    if (!node) return;
-    if (window.confirm('Are you sure you want to delete this property?')) {
-      // Remove node from graph and update parent if needed
-      setNodes((nds: Node<SchemaNodeData>[]) =>
-        nds
-          .filter((n: Node<SchemaNodeData>) => n.id !== contextMenu.nodeId)
-          .map((n: Node<SchemaNodeData>) => {
-            // If this node is a parent, remove property from its properties
-            interface NodeWithProperties extends Node<SchemaNodeData> {
-              data: SchemaNodeData & { properties?: Record<string, unknown> };
-            }
-            if (
-              n.data.type === 'object' &&
-              (n as NodeWithProperties).data.properties &&
-              contextMenu.nodeId !== null &&
-              (n as NodeWithProperties).data.properties?.[contextMenu.nodeId]
-            ) {
-              const updatedData: Record<string, unknown> = removePropertyFromSchema(
-                n.data as unknown as Record<string, unknown>,
-                contextMenu.nodeId
-              );
-              // Merge updatedData into n.data, preserving SchemaNodeData shape
-              return {
-                ...n,
-                data: {
-                  ...n.data,
-                  ...updatedData,
-                  id: n.data.id,
-                  label: n.data.label,
-                  type: n.data.type,
-                } as SchemaNodeData,
-              };
-            }
-            return n;
-          })
-      );
-      setEdges((eds: Edge[]) => eds.filter((e: Edge) => e.target !== contextMenu.nodeId && e.source !== contextMenu.nodeId));
+    if (node.type === 'combiner') {
+      if (!window.confirm('Are you sure you want to delete this combiner?')) { setContextMenu(null); return; }
+      handleDeleteCombiner(node.id);
+      setContextMenu(null);
+      return;
     }
+    if (node.type === 'root') { setContextMenu(null); return; }
+
+    const kindLabel = node.type === 'enum' ? 'enum' : 'property';
+    if (!window.confirm(`Are you sure you want to delete this ${kindLabel}?`)) { setContextMenu(null); return; }
+
+    const idsToRemove = new Set<string>();
+    const collectDesc = (pid: string) => {
+      idsToRemove.add(pid);
+      nodes.forEach(n => { if ((n.data as any)?.parent === pid) collectDesc(n.id); });
+    };
+    collectDesc(node.id);
+
+    // Cascade: this node came from a global `$ref` — remove every other node referencing it too.
+    if ((node.data as any)?.imported && schema) {
+      const originalRef = getRefAtPathInSchema(schema, collectNodePathLabels(node));
+      if (originalRef && (originalRef.startsWith('#/$defs/') || originalRef.startsWith('#/definitions/'))) {
+        nodes.forEach(n => {
+          if (idsToRemove.has(n.id) || n.type === 'variant' || n.type === 'combiner' || n.type === 'root') return;
+          const otherRef = getRefAtPathInSchema(schema, collectNodePathLabels(n));
+          if (otherRef === originalRef) collectDesc(n.id);
+        });
+      }
+    }
+
+    const updatedNodes = nodes.filter(n => !idsToRemove.has(n.id));
+    setNodes(updatedNodes);
+    setEdges((eds: Edge[]) => eds.filter((e: Edge) => !idsToRemove.has(e.source) && !idsToRemove.has(e.target)));
+    emitLocalSchemaUpdate(buildSchemaFromNodes(updatedNodes));
     setContextMenu(null);
+  }, [contextMenu, nodes, schema, collectNodePathLabels, getRefAtPathInSchema, handleDeleteVariant, handleDeleteCombiner, emitLocalSchemaUpdate]);
+
+  // Delete action for XML-mode nodes (element/attribute/complexType/simpleType/attributeGroup/
+  // sequence/choice/all), with confirmation. Deleting a top-level global definition also removes
+  // every other element/attribute in the schema that references it via `type=`/`ref=`.
+  const handleDeleteXmlNode = React.useCallback(() => {
+    const ctxNode = nodes.find((n) => n.id === contextMenu?.nodeId);
+    if (!ctxNode) { setContextMenu(null); return; }
+    const kind = String((ctxNode.data as any)?.xmlNodeKind || '');
+    if (!kind || kind === 'schema') { setContextMenu(null); return; }
+    const path = ((ctxNode.data as any)?.xmlPath || []) as Array<string | number>;
+    if (!Array.isArray(path) || path.length === 0) { setContextMenu(null); return; }
+
+    if (!window.confirm(`Are you sure you want to delete this ${xmlKindLabel(kind).toLowerCase()}?`)) {
+      setContextMenu(null);
+      return;
+    }
+
+    const cloned = JSON.parse(JSON.stringify(schema || {})) as any;
+
+    // Read the definition's own name (needed for the ref-cascade below) before removing it.
+    let target: any = cloned;
+    for (const segment of path) {
+      target = target?.[segment as any];
+      if (target == null) break;
+    }
+    const definitionName = target && typeof target === 'object' ? (target['@attributes']?.name as string | undefined) : undefined;
+
+    if (!deleteAtXmlPath(cloned, path)) {
+      setContextMenu(null);
+      return;
+    }
+
+    const isTopLevelGlobalDefinition =
+      path.length === 3 &&
+      path[0] === 'xs:schema' &&
+      ['xs:complexType', 'xs:simpleType', 'xs:attributeGroup', 'xs:element', 'xs:attribute'].includes(String(path[1]));
+
+    if (isTopLevelGlobalDefinition && definitionName) {
+      const refTarget = XML_GLOBAL_REF_TARGETS[kind];
+      if (refTarget) {
+        refTarget.tagKeys.forEach((tagKey) => pruneXmlRefEntries(cloned, [tagKey], refTarget.attrKey, definitionName));
+      }
+    }
+
+    emitLocalSchemaUpdate(cloned as Record<string, unknown>);
+
+    const rawRebuilt = schemaToGraph(cloned as Record<string, unknown>);
+    const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
+    );
+    setNodes(laidOutNodes);
+    setEdges(applyEdgePositioning(rawRebuilt.edges, laidOutNodes) as Edge[]);
+    setSelectedNodeId(null);
+    setContextMenu(null);
+  }, [nodes, contextMenu, schema, emitLocalSchemaUpdate, schemaToGraph, relayoutNodes]);
+
+  // Content (attributes/compositor) for an `xs:element` node lives under its inline
+  // `xs:complexType`, not the element itself — create one if missing (dropping any `type=`
+  // reference, since an element can't have both). No-op (returns `target` unchanged) for
+  // any other node kind (e.g. `complexType`, which already IS its own content container).
+  const resolveComplexTypeLikeTarget = (target: any, ctxKind: string): any => {
+    if (ctxKind !== 'element') return target;
+    if (!target['xs:complexType'] || typeof target['xs:complexType'] !== 'object') {
+      target['xs:complexType'] = {};
+      if (target['@attributes']) delete target['@attributes'].type;
+    }
+    return target['xs:complexType'];
   };
 
-  // Context menu items; only include override when node is imported
-  const addXmlCompositorToComplexType = (compositorKind: 'sequence' | 'choice' | 'all') => {
+  // Appends a default `xs:element` particle to a compositor's raw value at `container[key]`,
+  // creating the compositor itself if missing. Supports both the flat-array convention (used
+  // when this editor authors compositors itself) and the tag-keyed convention produced by
+  // parsing real XSD (`{ 'xs:element': [...], ... }`).
+  const appendXmlElementToCompositorRawValue = (container: any, key: string) => {
+    const compositorValue = container[key];
+    if (Array.isArray(compositorValue)) {
+      const elementIndex = compositorValue.length;
+      compositorValue.push({ '@attributes': { name: `element${elementIndex + 1}`, type: 'xs:string', minOccurs: '1', maxOccurs: '1' } });
+      return;
+    }
+    const holder = (compositorValue && typeof compositorValue === 'object') ? compositorValue : (container[key] = { '@attributes': { minOccurs: '1', maxOccurs: '1' } });
+    const existingElementValue = holder['xs:element'];
+    const elementIndex = asArray(existingElementValue).length;
+    const newElement = { '@attributes': { name: `element${elementIndex + 1}`, type: 'xs:string', minOccurs: '1', maxOccurs: '1' } };
+    if (existingElementValue === undefined) holder['xs:element'] = newElement;
+    else if (Array.isArray(existingElementValue)) existingElementValue.push(newElement);
+    else holder['xs:element'] = [existingElementValue, newElement];
+  };
+
+  // Resolves the ctx-menu node's `xmlPath` to its raw schema target, cloning `schema` first.
+  // Returns `null` (and closes the menu) if the node/path/target can't be resolved.
+  const resolveCtxNodeCloneTarget = (): { ctxNode: Node<SchemaNodeData>; cloned: any; target: any } | null => {
     const ctxNode = nodes.find((n) => n.id === contextMenu?.nodeId);
     if (!ctxNode) {
       setContextMenu(null);
-      return;
+      return null;
     }
     const path = ((ctxNode.data as any)?.xmlPath || []) as Array<string | number>;
     if (!Array.isArray(path) || path.length === 0) {
       setContextMenu(null);
-      return;
+      return null;
     }
 
     const cloned = JSON.parse(JSON.stringify(schema || {})) as any;
@@ -3611,8 +4220,20 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
     if (!target || typeof target !== 'object') {
       setContextMenu(null);
-      return;
+      return null;
     }
+    return { ctxNode, cloned, target };
+  };
+
+  // Add a compositor (sequence/choice/all) directly to a `complexType` node, or to an
+  // `element` node's inline `xs:complexType` (created on demand).
+  const addXmlCompositorToComplexType = (compositorKind: 'sequence' | 'choice' | 'all') => {
+    const resolved = resolveCtxNodeCloneTarget();
+    if (!resolved) return;
+    const { ctxNode, cloned, target: rawTarget } = resolved;
+
+    const ctxKind = String((ctxNode.data as any)?.xmlNodeKind || '');
+    const target = resolveComplexTypeLikeTarget(rawTarget, ctxKind);
 
     const key = `xs:${compositorKind}`;
     if (!target[key] || typeof target[key] !== 'object') {
@@ -3691,47 +4312,87 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
   // Add an element inside a compositor
   const addXmlElementToCompositor = () => {
-    const ctxNode = nodes.find((n) => n.id === contextMenu?.nodeId);
-    if (!ctxNode) {
-      setContextMenu(null);
-      return;
-    }
-    const path = ((ctxNode.data as any)?.xmlPath || []) as Array<string | number>;
-    if (!Array.isArray(path) || path.length === 0) {
-      setContextMenu(null);
-      return;
+    const resolved = resolveCtxNodeCloneTarget();
+    if (!resolved) return;
+    const { ctxNode, cloned, target } = resolved;
+
+    if (Array.isArray(target)) {
+      // Flat-array convention: children are pushed directly onto the compositor's own array.
+      const elementIndex = target.length;
+      target.push({
+        '@attributes': {
+          name: `element${elementIndex + 1}`,
+          type: 'xs:string',
+          minOccurs: '1',
+          maxOccurs: '1',
+        },
+      });
+    } else {
+      // Tag-keyed convention (real parsed XSD, or a compositor created via "Add sequence/choice/all"
+      // on a complexType/element node): children live under the compositor's own `xs:element` key.
+      const existingElementValue = target['xs:element'];
+      const elementIndex = asArray(existingElementValue).length;
+      const newElement = { '@attributes': { name: `element${elementIndex + 1}`, type: 'xs:string', minOccurs: '1', maxOccurs: '1' } };
+      if (existingElementValue === undefined) target['xs:element'] = newElement;
+      else if (Array.isArray(existingElementValue)) existingElementValue.push(newElement);
+      else target['xs:element'] = [existingElementValue, newElement];
     }
 
-    const cloned = JSON.parse(JSON.stringify(schema || {})) as any;
-    let target: any = cloned;
-    for (const segment of path) {
-      if (typeof segment === 'number') {
-        if (!Array.isArray(target)) {
-          target = null;
-          break;
-        }
-        target = target[segment];
-      } else {
-        target = target?.[segment];
-      }
-      if (target == null) break;
-    }
+    emitLocalSchemaUpdate(cloned as Record<string, unknown>);
 
-    if (!Array.isArray(target)) {
-      setContextMenu(null);
-      return;
-    }
+    const rawRebuilt = schemaToGraph(cloned as Record<string, unknown>);
+    const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
+    );
+    const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, ctxNode.id);
+    setNodes(rebuiltNodes);
+    setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
 
-    // Add an element to the compositor array
-    const elementIndex = target.length;
-    target.push({
-      '@attributes': {
-        name: `element${elementIndex + 1}`,
-        type: 'xs:string',
-        minOccurs: '1',
-        maxOccurs: '1',
-      },
-    });
+    setContextMenu(null);
+  };
+
+  // Add an element to a `complexType` node (or an `element` node's inline `xs:complexType`,
+  // created on demand), inside its first existing compositor or a newly-created `xs:sequence`.
+  const addXmlElementToComplexTypeOrElement = () => {
+    const resolved = resolveCtxNodeCloneTarget();
+    if (!resolved) return;
+    const { ctxNode, cloned, target: rawTarget } = resolved;
+
+    const ctxKind = String((ctxNode.data as any)?.xmlNodeKind || '');
+    const complexTypeLike = resolveComplexTypeLikeTarget(rawTarget, ctxKind);
+
+    const compositorKey = (['xs:sequence', 'xs:choice', 'xs:all'] as const).find((key) => complexTypeLike[key] !== undefined) || 'xs:sequence';
+    appendXmlElementToCompositorRawValue(complexTypeLike, compositorKey);
+
+    emitLocalSchemaUpdate(cloned as Record<string, unknown>);
+
+    const rawRebuilt = schemaToGraph(cloned as Record<string, unknown>);
+    const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
+    );
+    const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, ctxNode.id);
+    setNodes(rebuiltNodes);
+    setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+
+    setContextMenu(null);
+  };
+
+  // Add an attribute to a `complexType` node (or an `element` node's inline `xs:complexType`,
+  // created on demand).
+  const addXmlAttributeToComplexTypeOrElement = () => {
+    const resolved = resolveCtxNodeCloneTarget();
+    if (!resolved) return;
+    const { ctxNode, cloned, target: rawTarget } = resolved;
+
+    const ctxKind = String((ctxNode.data as any)?.xmlNodeKind || '');
+    const complexTypeLike = resolveComplexTypeLikeTarget(rawTarget, ctxKind);
+
+    const existingAttributeValue = complexTypeLike['xs:attribute'];
+    const attributeIndex = asArray(existingAttributeValue).length;
+    const newAttribute = { '@attributes': { name: `attribute${attributeIndex + 1}`, type: 'xs:string' } };
+    if (existingAttributeValue === undefined) complexTypeLike['xs:attribute'] = newAttribute;
+    else if (Array.isArray(existingAttributeValue)) existingAttributeValue.push(newAttribute);
+    else complexTypeLike['xs:attribute'] = [existingAttributeValue, newAttribute];
 
     emitLocalSchemaUpdate(cloned as Record<string, unknown>);
 
@@ -4128,10 +4789,13 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const items: any[] = [];
       const ctxNode = nodes.find((n) => n.id === contextMenu?.nodeId);
       const kind = String((ctxNode?.data as any)?.xmlNodeKind || '');
-      if (kind === 'complexType') {
+      if (kind === 'complexType' || kind === 'element') {
         items.push({ label: 'Add sequence', onClick: () => addXmlCompositorToComplexType('sequence'), disabled: false });
         items.push({ label: 'Add choice', onClick: () => addXmlCompositorToComplexType('choice'), disabled: false });
         items.push({ label: 'Add all', onClick: () => addXmlCompositorToComplexType('all'), disabled: false });
+        items.push({ label: 'Add element', onClick: () => addXmlElementToComplexTypeOrElement(), disabled: false });
+        items.push({ label: 'Add Attribute', onClick: () => addXmlAttributeToComplexTypeOrElement(), disabled: false });
+        items.push({ label: 'Add AttributeGroup', onClick: () => addXmlAttributeGroupToSchema(), disabled: false });
       } else if (kind === 'sequence' || kind === 'choice' || kind === 'all') {
         // Compositor node context menu
         items.push({ label: 'Add sequence', onClick: () => addXmlCompositorToCompositor('sequence'), disabled: false });
@@ -4154,6 +4818,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const refTargetId = resolveXmlRefTarget(ctxNode);
       if (refTargetId) {
         items.push({ label: 'Go to type definition', onClick: () => goToXmlRefTarget(refTargetId), disabled: false });
+      }
+      if (ctxNode && collectDescendantIds(ctxNode.id, nodes).length > 0) {
+        items.push({ label: 'Expand all', onClick: () => ctxNode && handleExpandAllChildren(ctxNode.id), disabled: false });
+      }
+      if (kind && kind !== 'schema') {
+        items.push({ label: `Delete ${xmlKindLabel(kind)}`, onClick: () => handleDeleteXmlNode(), disabled: false, danger: true });
       }
       return items;
     }
@@ -4232,18 +4902,23 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
     const ctxNode = nodes.find(n => n.id === contextMenu?.nodeId);
 
-    items.push({
-      label: ctxNode?.type === 'variant' ? 'Delete Variant' : 'Delete Property',
-      onClick: () => {
-        if (ctxNode?.type === 'variant') {
-          handleDeleteVariant(ctxNode.id);
-          setContextMenu(null);
-          return;
-        }
-        handleDeleteProperty();
-      },
-      disabled: false,
-    });
+    if (ctxNode && collectDescendantIds(ctxNode.id, nodes).length > 0) {
+      items.push({ label: 'Expand all', onClick: () => handleExpandAllChildren(ctxNode.id), disabled: false });
+    }
+
+    if (ctxNode && ctxNode.type !== 'root') {
+      const deleteLabel =
+        ctxNode.type === 'variant' ? 'Delete Variant'
+        : ctxNode.type === 'combiner' ? 'Delete Combiner'
+        : ctxNode.type === 'enum' ? 'Delete Enum'
+        : 'Delete Property';
+      items.push({
+        label: deleteLabel,
+        onClick: handleDeleteNode,
+        disabled: false,
+        danger: true,
+      });
+    }
 
     // Combiner-specific items
     if (ctxNode?.type === 'combiner') {
@@ -4292,7 +4967,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
   return (
     <>
-    <HorizontalSplitPane className={styles.graphicalEditorContainer} defaultRightWidth={320} minRightWidth={280} minLeftWidth={360}>
+    <HorizontalSplitPane className={styles.graphicalEditorContainer} defaultRightWidth={385} minRightWidth={280} minLeftWidth={360}>
       <div className={styles.flowPanel}>
         <TooltipProvider>
           <ReactFlowProvider>
@@ -4311,8 +4986,16 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
                   onInit={(instance) => {
                     reactFlowInstanceRef.current = instance;
                   }}
+                  onPaneClick={() => {
+                    if (schemaLanguage !== 'xml') {
+                      setSelectedNodeId(null);
+                    }
+                  }}
                   onNodeClick={handleNodeClick}
                   onNodeContextMenu={handleNodeContextMenu}
+                  onNodeDragStart={handleNodeDragStart}
+                  onNodeDrag={handleNodeDrag}
+                  onNodeDragStop={handleNodeDragStop}
                 >
                   {/* <MiniMap /> */}
                   <Controls />

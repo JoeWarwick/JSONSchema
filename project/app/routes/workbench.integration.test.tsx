@@ -33,6 +33,45 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     localStorage.clear();
   });
 
+  it('clears invalid persisted XML instance content on hydration', async () => {
+    localStorage.setItem('schema-sculptor-markup-language', 'xml');
+    localStorage.setItem('schema-sculptor-instance-xml', 'null');
+
+    render(<Workbench />);
+
+    await waitFor(() => {
+      expect(localStorage.getItem('schema-sculptor-instance-xml')).toBeNull();
+    });
+
+    const xmlInputTab = screen.getByRole('button', { name: /XML Input/i });
+    fireEvent.click(xmlInputTab);
+
+    const xmlTextarea = screen.getByPlaceholderText(/Paste your XML here/i) as HTMLTextAreaElement;
+    expect(xmlTextarea).toBeInTheDocument();
+    expect(xmlTextarea.value).toBe('');
+  });
+
+  it('switching from JSON/YAML into XML clears invalid persisted XML instance content', async () => {
+    localStorage.setItem('schema-sculptor-markup-language', 'json');
+    localStorage.setItem('schema-sculptor-instance-xml', 'null');
+
+    render(<Workbench />);
+
+    const xmlToggle = screen.getByRole('radio', { name: /^XML$/i });
+    fireEvent.click(xmlToggle);
+
+    await waitFor(() => {
+      expect(localStorage.getItem('schema-sculptor-instance-xml')).toBeNull();
+    });
+
+    const xmlInputTab = screen.getByRole('button', { name: /XML Input/i });
+    fireEvent.click(xmlInputTab);
+
+    const xmlTextarea = screen.getByPlaceholderText(/Paste your XML here/i) as HTMLTextAreaElement;
+    expect(xmlTextarea).toBeInTheDocument();
+    expect(xmlTextarea.value).toBe('');
+  });
+
   it('does not read persisted storage during the initial render pass', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(unresolved));
     const getItemSpy = jest.spyOn(Storage.prototype, 'getItem');

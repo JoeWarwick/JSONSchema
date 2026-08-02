@@ -16,7 +16,7 @@ function clamp(value: number, min: number, max: number): number {
 export function HorizontalSplitPane({
   children,
   className,
-  defaultRightWidth = 320,
+  defaultRightWidth = 385,
   minRightWidth = 280,
   minLeftWidth = 360,
   handleWidth = 8,

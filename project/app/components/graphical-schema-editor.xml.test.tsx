@@ -55,6 +55,31 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     expect(screen.getByLabelText('SimpleType Mode')).toHaveValue('restriction');
   });
 
+  it('does not switch to the JSON RHS editor when clicking empty space in XML mode', async () => {
+    const schema = {
+      'xs:schema': {
+        'xs:simpleType': [
+          {
+            '@attributes': { name: 'StatusCode' },
+            'xs:restriction': { '@attributes': { base: 'xs:string' } },
+          },
+        ],
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={schema} schemaLanguage="xml" onChange={() => {}} />);
+
+    fireEvent.click(await screen.findByText('StatusCode'));
+    expect(await screen.findByText('SimpleType Editor')).toBeInTheDocument();
+
+    const pane = document.querySelector('.react-flow__pane, .react-flow__background');
+    expect(pane).toBeTruthy();
+    fireEvent.click(pane!);
+
+    expect(screen.getByText('SimpleType Editor')).toBeInTheDocument();
+    expect(screen.queryByText('Select a node to edit its properties.')).not.toBeInTheDocument();
+  });
+
   it('adds sequence from complexType context menu and edits min/max in XML RHS', async () => {
     const initialSchema = {
       'xs:schema': {

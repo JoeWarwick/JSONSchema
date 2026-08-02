@@ -148,12 +148,17 @@ export default function schemaReducer(state: SchemaState, action: SchemaAction):
       // will use `resolveSchemaSync` internally when necessary, keeping that logic
       // inside the reducer (not the UI) so editors only ever observe an
       // object-rooted schema.
+      // `derefInProgress` stays `false` here: the caller (workbench) sets
+      // `skipEnsureResolvedRef` before dispatching this action, so the async
+      // `ensureResolved` effect — the only other place that clears this flag —
+      // never runs for in-place edits. Leaving it `true` would permanently
+      // block the persistence effect after the very first edit.
       return {
         ...state,
         source: newSource,
         resolvedCache: produceResolvedCache(newSource ?? null, newIsObject, newSource),
         sourceIsObject: newIsObject,
-        derefInProgress: true,
+        derefInProgress: false,
       };
     }
     case SET_DEREF_IN_PROGRESS:

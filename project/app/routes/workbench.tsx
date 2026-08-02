@@ -1,5 +1,4 @@
-import { useState, useRef, useEffect, useReducer } from "react";
-import useAsyncMemo from "~/hooks/useAsyncMemo";
+import { useState, useRef, useEffect, useReducer, useMemo } from "react";
 import { Sparkles, Copy, Check, X, Link as LinkIcon, Download, FileUp, ShieldCheck } from "lucide-react";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { toast } from "sonner";
@@ -55,6 +54,11 @@ const ERD_STORAGE_KEY = 'schema-sculptor-erd';
 // Language-specific storage keys for preserving markup across language switches
 const getLanguageInstanceKey = (lang: MarkupLanguage) => `schema-sculptor-instance-${lang}`;
 const LANGUAGE_PREFERENCE_KEY = 'schema-sculptor-markup-language';
+
+// XML (XSD) schemas are structurally unrelated to JSON schemas, so they get their
+// own storage key. YAML reuses the JSON schema (see handleCreateNewSchema), so it
+// shares the legacy `STORAGE_KEY` rather than getting its own key.
+const getLanguageSchemaKey = (lang: MarkupLanguage) => (lang === 'xml' ? 'schema-sculptor-schema-xml' : STORAGE_KEY);
 
 // Helper function to generate default instance data
 const generateDefaultInstance = (schema: Record<string, unknown>): unknown => {
@@ -145,7 +149,7 @@ export default function Workbench() {
         const savedLanguage = window.localStorage.getItem(LANGUAGE_PREFERENCE_KEY) as MarkupLanguage | null;
         const initialLanguage = (savedLanguage && ['json', 'yaml', 'xml'].includes(savedLanguage)) ? savedLanguage : 'json';
         
-        const rawSchema = window.localStorage.getItem(STORAGE_KEY);
+        const rawSchema = window.localStorage.getItem(getLanguageSchemaKey(initialLanguage));
         let persistedSchema: Record<string, unknown> | null = null;
         if (rawSchema) {
           try {
@@ -172,11 +176,16 @@ export default function Workbench() {
             jsonInputToLoad = languageSpecificContent;
           } catch (err) {
             console.error(`Failed to parse language-specific ${initialLanguage} content:`, err);
+            try {
+              window.localStorage.removeItem(getLanguageInstanceKey(initialLanguage));
+            } catch (_) {
+              // ignore
+            }
           }
         }
 
-        // 3. Fall back to legacy INSTANCE_STORAGE_KEY if no language-specific data
-        if (!jsonInputToLoad) {
+        // 3. Fall back to legacy INSTANCE_STORAGE_KEY for JSON/YAML only.
+        if (!jsonInputToLoad && initialLanguage !== 'xml') {
           const savedInstance = window.localStorage.getItem(INSTANCE_STORAGE_KEY);
           if (savedInstance) {
             try {
@@ -193,14 +202,23 @@ export default function Workbench() {
         if (jsonInputToLoad) {
           setInstanceData(instanceDataToLoad);
           setJsonInput(jsonInputToLoad);
-        } else if (persistedSchema) {
+        } else if (persistedSchema && initialLanguage !== 'xml') {
           try {
             const defaultInstance = generateDefaultInstance(persistedSchema);
-            setInstanceData(defaultInstance);
-            setJsonInput(JSON.stringify(defaultInstance, null, 2));
+            if (defaultInstance !== null && defaultInstance !== undefined) {
+              setInstanceData(defaultInstance);
+              setJsonInput(JSON.stringify(defaultInstance, null, 2));
+            } else {
+              setInstanceData(null);
+              setJsonInput('');
+            }
           } catch (_) {
-            // ignore
+            setInstanceData(null);
+            setJsonInput('');
           }
+        } else {
+          setInstanceData(null);
+          setJsonInput('');
         }
 
         // 5. Load ERD model from localStorage
@@ -247,6 +265,8 @@ export default function Workbench() {
   const [showSchemaUrlDialog, setShowSchemaUrlDialog] = useState(false);
   const resolutionCache = useRef<Map<string, any>>(new Map());
   const previousLanguageRef = useRef<MarkupLanguage>('json');
+  const lastPersistedSourceJsonRef = useRef<string | null>(null);
+  const lastPersistedSchemaKeyRef = useRef<string | null>(null);
 
   // Clear cache if source changes
   useEffect(() => {
@@ -286,6 +306,21 @@ export default function Workbench() {
         localStorage.setItem(getLanguageInstanceKey(prevLang), jsonInput);
       } else {
         localStorage.removeItem(getLanguageInstanceKey(prevLang));
+      }
+
+      // 1b. JSON and YAML share the same underlying schema, so only reload when
+      // switching to/from XML — otherwise leave the current schema untouched.
+      if (getLanguageSchemaKey(newLang) !== getLanguageSchemaKey(prevLang)) {
+        const storedSchema = localStorage.getItem(getLanguageSchemaKey(newLang));
+        if (storedSchema) {
+          try {
+            applySourceUpdate(JSON.parse(storedSchema));
+          } catch (err) {
+            console.warn(`Failed to parse stored schema for ${newLang}:`, err);
+          }
+        } else {
+          applySourceUpdate({ type: 'object', additionalProperties: true });
+        }
       }
 
       // 2. Load stored content for new language (or empty string)
@@ -385,14 +420,27 @@ export default function Workbench() {
       // Only persist when no deref is in progress; this ensures any async
       // fetches have finished and `resolvedCache` is authoritative.
       if (state.derefInProgress) return;
+      const schemaKey = getLanguageSchemaKey(markupLanguage);
       const toSave = getPersistableSource(state);
-      if (toSave) localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave)); else localStorage.removeItem(STORAGE_KEY);
+      const nextJson = toSave ? JSON.stringify(toSave) : '';
+      const lastJson = lastPersistedSourceJsonRef.current;
+      const lastKey = lastPersistedSchemaKeyRef.current;
+
+      if (lastJson === nextJson && lastKey === schemaKey) {
+        return;
+      }
+
+      if (toSave) {
+        localStorage.setItem(schemaKey, nextJson);
+      } else {
+        localStorage.removeItem(schemaKey);
+      }
+      lastPersistedSourceJsonRef.current = nextJson;
+      lastPersistedSchemaKeyRef.current = schemaKey;
     } catch (err) {
       // ignore
     }
-  }, [state.resolvedCache, state.derefInProgress, hasHydratedPersistedState]);
-
-  // (debug hooks removed)
+  }, [state.resolvedCache, state.derefInProgress, hasHydratedPersistedState, markupLanguage]);
 
   // Auto-save instance/markup data to localStorage whenever it changes
   // Saves to language-specific key for current language, and legacy key for backward compatibility
@@ -460,6 +508,7 @@ export default function Workbench() {
     if (typeof localStorage === 'undefined') return;
     try {
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(getLanguageSchemaKey('xml'));
       localStorage.removeItem(INSTANCE_STORAGE_KEY);
       localStorage.removeItem(DEREF_COMPLETE_STORAGE_KEY);
       localStorage.removeItem(DEREF_ERROR_STORAGE_KEY);
@@ -685,7 +734,17 @@ export default function Workbench() {
 
   const handleCreateNewSchema = () => {
     let newSchema: any;
-    
+
+    // Clear the persisted schema for this language first so the old schema can't
+    // reappear (e.g. from a stale persist-effect write racing the new source update).
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(getLanguageSchemaKey(markupLanguage));
+      }
+    } catch (_) {
+      /* ignore */
+    }
+
     if (markupLanguage === 'json') {
       // JSON Schema template
       newSchema = {
@@ -910,14 +969,12 @@ export default function Workbench() {
     }
   }, [state.resolvedCache, state.source]);
 
-  // Compute editor schema asynchronously and memoize it so expensive
-  // normalization does not block UI interactions (e.g. tab clicks).
-  const editorSchema = useAsyncMemo(async () => {
+  // Compute editor schema synchronously and memoize it so expensive
+  // normalization does not block UI interactions on repeated renders.
+  const editorSchema = useMemo(() => {
     if (!state.resolvedCache) return null;
-    // Yield once to ensure this runs after paint
-    await Promise.resolve();
     return getEditorSchema(state) as Record<string, unknown> | null;
-  }, [state.resolvedCache, state.sourceIsObject, state.source], null);
+  }, [state.resolvedCache]);
 
   // Helper: determine whether a schema node should be treated as imported.
   // Rely on the reducer-attached `__from` provenance marker or inspection of the rehydrated source.

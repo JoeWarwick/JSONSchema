@@ -37,7 +37,7 @@ export function GraphicalSchemaRhsControl({
   onPrintGraph,
 }: GraphicalSchemaRhsControlProps) {
   const xmlNodeKind = ((selectedNode?.data as any)?.xmlNodeKind as string | undefined) || '';
-  const useXmlEditor = schemaLanguage === 'xml' && Boolean(xmlNodeKind);
+  const useXmlEditor = schemaLanguage === 'xml';
 
   return (
     <div className={styles.editorSidebar} aria-label="Graphical schema RHS control">
