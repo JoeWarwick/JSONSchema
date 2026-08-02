@@ -1,6 +1,6 @@
 import React from 'react';
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip/tooltip";
-import { AlertCircle, FileText, GitFork, Link2, ListOrdered, Loader2, Regex, Shuffle, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowUpLeft, FileText, GitFork, Link2, ListOrdered, Loader2, Regex, Shuffle, Trash2 } from "lucide-react";
 
 // Inline fork SVGs — stem left, branches right
 const ForkIconOneOf = () => (
@@ -152,6 +152,11 @@ export const GlobalTypeNode = ({ data }: { data: SchemaNodeData }) => {
       <Handle id="target-Left" type="target" position={Position.Left} style={handleStyle} />
       <Handle id="target-Right" type="target" position={Position.Right} style={handleStyle} />
       <div className={styles.nodeHeader}>
+        {(data as any).isRef && (
+          <div style={{ position: 'absolute', top: 6, left: 6, width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 4, background: 'rgba(30, 64, 175, 0.12)', color: '#1d4ed8', zIndex: 1 }}>
+            <ArrowUpLeft size={14} />
+          </div>
+        )}
         <div className={styles.nodeHeaderLeft}>
           <div className={styles.nodeLabel} style={{ color: '#2e7d32', fontWeight: 600 }}>{label}</div>
         </div>
@@ -275,7 +280,12 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
     }}>
       <Handle id="target-Left" type="target" position={Position.Left} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
       <Handle id="target-Right" type="target" position={Position.Right} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
-      <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4, color: 'var(--graph-node-text)' }}>
+      <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4, color: 'var(--graph-node-text)', position: 'relative' }}>
+        {(data as any).isRef && (
+          <div style={{ position: 'absolute', top: -6, left: -6, width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'rgba(30, 64, 175, 0.12)', color: '#1d4ed8', zIndex: 1 }}>
+            <ArrowUpLeft size={14} />
+          </div>
+        )}
         { (data as any).patternKey ? <span className={styles.patternBadge}>pattern</span> : null }
         {required && (
           <Tooltip>
@@ -430,7 +440,7 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
       </div>
       <Handle id="source-Left" type="source" position={Position.Left} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
       <Handle id="source-Right" type="source" position={Position.Right} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
-      {(data as any).hasChildren && (
+      {(data as any).hasChildren && !(data as any).isRef && (
         <button
           className={styles.variantEdgeToggle}
           onClick={(e: React.MouseEvent) => { e.stopPropagation(); (data as any).onToggleChildren?.((data as any).id); }}

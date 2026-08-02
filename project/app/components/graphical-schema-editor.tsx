@@ -721,8 +721,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       // global element's own declaration instead — only attempted when this element doesn't
       // already have its own type/inline complexType to expand (real XSD disallows both anyway).
       const inlineComplexType = (elemEntry as any)['xs:complexType'];
+      const ownElementAncestorKey = typeof elemAttrs.name === 'string' && elemAttrs.name
+        ? `element:${elemAttrs.name}`
+        : (typeof elemAttrs.ref === 'string' && elemAttrs.ref ? `element:${localTypeName(elemAttrs.ref)}` : undefined);
+      const elementAncestors = ownElementAncestorKey ? new Set(ancestors).add(ownElementAncestorKey) : ancestors;
       const refExpansion = (!inlineComplexType && !referenced)
-        ? resolveElementRefExpansion(elemAttrs, ancestors)
+        ? resolveElementRefExpansion(elemAttrs, elementAncestors)
         : { referencedElement: undefined, refName: undefined, ancestorKey: undefined, circular: false };
       const effectiveCircular = circular || refExpansion.circular;
       const inlineComplexTypeAttrs = inlineComplexType && typeof inlineComplexType === 'object' ? getXmlAttrs(inlineComplexType) : {};
@@ -779,16 +783,16 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       }
 
       if (inlineComplexType && typeof inlineComplexType === 'object') {
-        addInlineComplexTypeChildren(inlineComplexType, elementId, [...elementPath, 'xs:complexType'], ancestors, '', inheritedFrom);
+        addInlineComplexTypeChildren(inlineComplexType, elementId, [...elementPath, 'xs:complexType'], elementAncestors, '', inheritedFrom);
       } else if (referenced && typeName && !circular) {
-        addInlineComplexTypeChildren(referenced.entry, elementId, ['xs:schema', 'xs:complexType', referenced.index], new Set(ancestors).add(typeName), '', inheritedFrom);
+        addInlineComplexTypeChildren(referenced.entry, elementId, ['xs:schema', 'xs:complexType', referenced.index], new Set(elementAncestors).add(typeName), '', inheritedFrom);
       } else if (refExpansion.referencedElement && refExpansion.ancestorKey && !refExpansion.circular) {
         // Expand the referenced top-level global element's own content (inline complexType, or
         // its own `type=` complexType) inline right under this referencing element's node.
         const targetEntry = refExpansion.referencedElement.entry;
         const targetAttrs = getXmlAttrs(targetEntry);
         const targetInlineComplexType = (targetEntry as any)['xs:complexType'];
-        const nextAncestors = new Set(ancestors).add(refExpansion.ancestorKey);
+        const nextAncestors = new Set(elementAncestors).add(refExpansion.ancestorKey);
         if (targetInlineComplexType && typeof targetInlineComplexType === 'object') {
           addInlineComplexTypeChildren(targetInlineComplexType, elementId, ['xs:schema', 'xs:element', refExpansion.referencedElement.index, 'xs:complexType'], nextAncestors, '', inheritedFrom);
         } else {
@@ -2842,7 +2846,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
             const collapsedAdditionalNodes = additionalNodes.map((n) => {
               const nodeData = n.data as any;
               const hasChildren = childParentIds.has(n.id);
-              const shouldCollapse = n.id !== nodeId && hasChildren && n.type !== 'combiner' && n.type !== 'variant';
+              const shouldCollapse = n.id !== nodeId && hasChildren && n.type !== 'combiner' && n.type !== 'variant' && !isXmlCompositorNode(n);
               return {
                 ...n,
                 hidden: n.id !== nodeId && !directChildIds.has(n.id),
@@ -5224,7 +5228,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       ...n,
       data: {
         ...n.data,
-        hasChildren: parentIds.has(n.id) || Boolean((n.data as any).hasHiddenChildren),
+        hasChildren: ((n.data as any).isRef) ? false : parentIds.has(n.id) || Boolean((n.data as any).hasHiddenChildren),
         onToggleChildren: handleToggleNodeChildren,
       },
     }));

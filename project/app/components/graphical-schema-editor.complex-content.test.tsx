@@ -18,11 +18,9 @@ describe('GraphicalSchemaEditor - xs:complexContent/xs:extension', () => {
     // "UpgradeStep" is the root's direct child; "Models" and "Model" are nested progressively
     // deeper inside it.
     await expandNodeByDataId('1.element_0'); // UpgradeStep
-    await expandNodeByDataId('1.element_0.sequence');
+    // Compositor nodes automatically reveal their children when their parent expands.
     await expandNodeByDataId('1.element_0.sequence.element_0'); // Models
-    await expandNodeByDataId('1.element_0.sequence.element_0.sequence');
     await expandNodeByDataId('1.element_0.sequence.element_0.sequence.element_0'); // Model
-    await expandNodeByDataId('1.element_0.sequence.element_0.sequence.element_0.sequence'); // Model's own sequence (PostScript)
     // arrayOfType is itself a root-level global complexType; expand it to reveal its
     // inherited-from-modelType members for the inheritance group box assertion below.
     await expandNodeByLabel('arrayOfType');

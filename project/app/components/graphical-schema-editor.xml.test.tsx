@@ -864,6 +864,29 @@ describe('GraphicalSchemaEditor - XML circular type-reference handling', () => {
     expect((await screen.findAllByText('Ref')).length).toBeGreaterThan(0);
   });
 
+  it('stops expanding a self-referential element ref and flags it as a ref', async () => {
+    const schema = {
+      'xs:schema': {
+        'xs:element': [
+          {
+            '@attributes': { name: 'A' },
+            'xs:complexType': {
+              'xs:sequence': {
+                'xs:element': { '@attributes': { ref: 'A', minOccurs: '0' } },
+              },
+            },
+          },
+        ],
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={schema} schemaLanguage="xml" onChange={() => {}} />);
+    await expandAllGraphNodes();
+
+    await screen.findAllByText('A');
+    expect(screen.getAllByText('Ref').length).toBe(1);
+  });
+
   it('loads and round-trips xs:annotation/xs:documentation for a simpleType node', async () => {
     const initialSchema = {
       'xs:schema': {

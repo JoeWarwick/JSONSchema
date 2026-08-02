@@ -83,3 +83,4 @@ obj/
 /test-output/
 project/test-results
 /test-results
+project/..*.txt
