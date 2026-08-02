@@ -1,7 +1,10 @@
 import React from 'react';
+import fs from 'fs';
+import path from 'path';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { waitFor } from '@testing-library/react';
+import { parseMarkup } from '../utils/markup';
 import { GraphicalSchemaEditor } from './graphical-schema-editor';
 import { expandAllGraphNodes } from './test-fixtures/expand-all-nodes';
 
@@ -511,7 +514,7 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     });
 
     // Modify maxOccurs
-    const maxOccursInput = await screen.findByLabelText('Element maxOccurs');
+    const maxOccursInput = await screen.findByLabelText('maxOccurs');
     fireEvent.change(maxOccursInput, { target: { value: 'unbounded' } });
     fireEvent.blur(maxOccursInput);
 
@@ -885,6 +888,78 @@ describe('GraphicalSchemaEditor - XML circular type-reference handling', () => {
 
     await screen.findAllByText('A');
     expect(screen.getAllByText('Ref').length).toBe(1);
+  });
+
+  it('expands a nested element ref and shows its referenced children', async () => {
+    const schema = {
+      'xs:schema': {
+        'xs:element': [
+          {
+            '@attributes': { name: 'root' },
+            'xs:complexType': {
+              'xs:sequence': {
+                'xs:element': {
+                  '@attributes': { ref: 'htmlinput' },
+                },
+              },
+            },
+          },
+          {
+            '@attributes': { name: 'htmlinput' },
+            'xs:complexType': {
+              'xs:sequence': {
+                'xs:element': [
+                  { '@attributes': { name: 'fieldname', type: 'xs:string' } },
+                  { '@attributes': { name: 'fieldlabel', type: 'xs:string' } },
+                ],
+              },
+            },
+          },
+        ],
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={schema} schemaLanguage="xml" onChange={() => {}} />);
+    await expandAllGraphNodes();
+
+    const fieldnames = await screen.findAllByText('fieldname');
+    const fieldlabels = await screen.findAllByText('fieldlabel');
+    expect(fieldnames.length).toBeGreaterThan(0);
+    expect(fieldlabels.length).toBeGreaterThan(0);
+  });
+
+  it('expands real nested datafield refs and shows htmlinput children', async () => {
+    const xsdPath = path.join(__dirname, '..', '..', 'public', 'schemas', 'autodb-v2.xsd');
+    const xsd = fs.readFileSync(xsdPath, 'utf-8');
+    const parsed = parseMarkup(xsd, 'xml') as any;
+
+    render(<GraphicalSchemaEditor schema={parsed} schemaLanguage="xml" onChange={() => {}} />);
+
+    const datafieldLabel = await screen.findByText('datafield');
+    expect(datafieldLabel).toBeInTheDocument();
+    const datafieldNode = datafieldLabel.closest('.react-flow__node');
+    expect(datafieldNode).toBeTruthy();
+
+    const expandButton = within(datafieldNode as HTMLElement).getByTitle('Expand children');
+    expect(expandButton).toBeInTheDocument();
+
+    const beforeHtmlinputCount = screen.queryAllByText('htmlinput').length;
+    const beforeFieldnameCount = screen.queryAllByText('fieldname').length;
+
+    fireEvent.click(expandButton);
+
+    await waitFor(() => expect(screen.queryAllByText('htmlinput').length).toBeGreaterThan(beforeHtmlinputCount));
+
+    const htmlinputLabels = screen.queryAllByText('htmlinput');
+    const newHtmlinputLabel = htmlinputLabels[htmlinputLabels.length - 1];
+    const htmlinputNode = newHtmlinputLabel.closest('.react-flow__node');
+    expect(htmlinputNode).toBeTruthy();
+
+    const htmlinputExpandButton = within(htmlinputNode as HTMLElement).getByTitle('Expand children');
+    expect(htmlinputExpandButton).toBeInTheDocument();
+
+    await waitFor(() => expect(screen.queryAllByText('fieldname').length).toBeGreaterThan(beforeFieldnameCount));
+    expect(screen.queryAllByText('fieldlabel').length).toBeGreaterThan(beforeFieldnameCount);
   });
 
   it('loads and round-trips xs:annotation/xs:documentation for a simpleType node', async () => {

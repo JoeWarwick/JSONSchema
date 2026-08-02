@@ -712,7 +712,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     // `inheritedFrom`, when set, means this whole element was reached while expanding a
     // `complexContent`/`extension` base type — it's tagged onto the node so the graph can
     // later draw a background box grouping the owning node with its inherited descendants.
-    const addXmlElementNode = (elemEntry: any, parentId: string, elementPath: Array<string | number>, index: number, ancestors: Set<string> = new Set(), inheritedFrom?: string) => {
+    const addXmlElementNode = (elemEntry: any, parentId: string, elementPath: Array<string | number>, index: number, ancestors: Set<string> = new Set(), inheritedFrom?: string, readOnlySource?: string) => {
       if (!elemEntry || typeof elemEntry !== 'object') return;
       const elemAttrs = getXmlAttrs(elemEntry);
       const elementId = `${parentId}.element_${index}`;
@@ -725,8 +725,13 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         ? `element:${elemAttrs.name}`
         : (typeof elemAttrs.ref === 'string' && elemAttrs.ref ? `element:${localTypeName(elemAttrs.ref)}` : undefined);
       const elementAncestors = ownElementAncestorKey ? new Set(ancestors).add(ownElementAncestorKey) : ancestors;
+      // Checked against the plain `ancestors` (NOT `elementAncestors`) — `elementAncestors`
+      // already contains this element's OWN key (added just above), so checking against it
+      // would make every `ref=`-only element immediately flag itself as circular on its very
+      // first resolution. `ancestors` only contains keys from actual ANCESTOR elements/types,
+      // which is what a true cycle (this ref eventually referencing itself again) requires.
       const refExpansion = (!inlineComplexType && !referenced)
-        ? resolveElementRefExpansion(elemAttrs, elementAncestors)
+        ? resolveElementRefExpansion(elemAttrs, ancestors)
         : { referencedElement: undefined, refName: undefined, ancestorKey: undefined, circular: false };
       const effectiveCircular = circular || refExpansion.circular;
       const inlineComplexTypeAttrs = inlineComplexType && typeof inlineComplexType === 'object' ? getXmlAttrs(inlineComplexType) : {};
@@ -771,6 +776,13 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         } : {}),
         ...(getXmlAnnotationDoc(elemEntry) ? { xmlAnnotation: getXmlAnnotationDoc(elemEntry) } : {}),
         ...(effectiveCircular ? { isRef: true } : {}),
+        // A `ref=` element whose target resolves to a real (non-circular) global element can
+        // have its content expanded inline (see the `refExpansion.referencedElement` branch
+        // below) — flag it so the graph shows an expand/collapse toggle for it, at any nesting
+        // depth (unlike normal elements, a ref's own fields stay read-only; only its expanded
+        // children do too, via `xmlReadOnlySource` threaded through that branch).
+        ...(refExpansion.referencedElement && !refExpansion.circular ? { xmlHasRefExpansion: true } : {}),
+        ...(readOnlySource ? { xmlReadOnlySource: readOnlySource } : {}),
         ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
         ...(ownBaseInfo ? { xmlExtendsType: ownBaseInfo.baseTypeName } : {}),
         // A `simpleContent` complexType is a simple type (text + attributes) under the hood, so
@@ -789,16 +801,18 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       } else if (refExpansion.referencedElement && refExpansion.ancestorKey && !refExpansion.circular) {
         // Expand the referenced top-level global element's own content (inline complexType, or
         // its own `type=` complexType) inline right under this referencing element's node.
+        // Its content belongs to the shared global element definition, not this ref instance,
+        // so it's always tagged read-only (`elementId` doubles as the `xmlReadOnlySource` value).
         const targetEntry = refExpansion.referencedElement.entry;
         const targetAttrs = getXmlAttrs(targetEntry);
         const targetInlineComplexType = (targetEntry as any)['xs:complexType'];
         const nextAncestors = new Set(elementAncestors).add(refExpansion.ancestorKey);
         if (targetInlineComplexType && typeof targetInlineComplexType === 'object') {
-          addInlineComplexTypeChildren(targetInlineComplexType, elementId, ['xs:schema', 'xs:element', refExpansion.referencedElement.index, 'xs:complexType'], nextAncestors, '', inheritedFrom);
+          addInlineComplexTypeChildren(targetInlineComplexType, elementId, ['xs:schema', 'xs:element', refExpansion.referencedElement.index, 'xs:complexType'], nextAncestors, '', inheritedFrom, elementId);
         } else {
           const targetTypeExpansion = resolveElementTypeExpansion(targetAttrs, nextAncestors);
           if (targetTypeExpansion.referenced && targetTypeExpansion.typeName && !targetTypeExpansion.circular) {
-            addInlineComplexTypeChildren(targetTypeExpansion.referenced.entry, elementId, ['xs:schema', 'xs:complexType', targetTypeExpansion.referenced.index], new Set(nextAncestors).add(targetTypeExpansion.typeName), '', inheritedFrom);
+            addInlineComplexTypeChildren(targetTypeExpansion.referenced.entry, elementId, ['xs:schema', 'xs:complexType', targetTypeExpansion.referenced.index], new Set(nextAncestors).add(targetTypeExpansion.typeName), '', inheritedFrom, elementId);
           }
         }
       }
@@ -871,7 +885,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     // `inheritedFrom`, when set, tags every node created here as having come from an ancestor
     // base type (propagated down from an enclosing complexContent expansion); the base type's own
     // recursive call additionally sets/overrides it to that base type's name.
-    const addInlineComplexTypeChildren = (complexTypeValue: any, parentId: string, basePath: Array<string | number>, ancestors: Set<string> = new Set(), idSuffix: string = '', inheritedFrom?: string) => {
+    const addInlineComplexTypeChildren = (complexTypeValue: any, parentId: string, basePath: Array<string | number>, ancestors: Set<string> = new Set(), idSuffix: string = '', inheritedFrom?: string, readOnlySource?: string) => {
       if (!complexTypeValue || typeof complexTypeValue !== 'object') return;
       if (buildVisibleOnly && parentId !== '1') return;
 
@@ -884,9 +898,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         const derivation = (complexTypeValue as any)['xs:complexContent'][derivationKey];
         const baseType = complexTypesByName.get(baseTypeName);
         if (baseType && !ancestors.has(baseTypeName)) {
-          addInlineComplexTypeChildren(baseType.entry, parentId, ['xs:schema', 'xs:complexType', baseType.index], new Set(ancestors).add(baseTypeName), `${idSuffix}.base`, baseTypeName);
+          addInlineComplexTypeChildren(baseType.entry, parentId, ['xs:schema', 'xs:complexType', baseType.index], new Set(ancestors).add(baseTypeName), `${idSuffix}.base`, baseTypeName, readOnlySource);
         }
-        addInlineComplexTypeChildren(derivation, parentId, [...basePath, 'xs:complexContent', derivationKey], ancestors, idSuffix, inheritedFrom);
+        addInlineComplexTypeChildren(derivation, parentId, [...basePath, 'xs:complexContent', derivationKey], ancestors, idSuffix, inheritedFrom, readOnlySource);
         return;
       }
 
@@ -904,7 +918,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         const baseLocalName = localTypeName(base);
         const baseType = complexTypesByName.get(baseLocalName);
         if (baseType && !ancestors.has(baseLocalName) && getSimpleContentBaseInfo(baseType.entry)) {
-          addInlineComplexTypeChildren(baseType.entry, parentId, ['xs:schema', 'xs:complexType', baseType.index], new Set(ancestors).add(baseLocalName), `${idSuffix}.base`, baseLocalName);
+          addInlineComplexTypeChildren(baseType.entry, parentId, ['xs:schema', 'xs:complexType', baseType.index], new Set(ancestors).add(baseLocalName), `${idSuffix}.base`, baseLocalName, readOnlySource);
         }
         const derivationAttrValue = (simpleDerivation as any)['xs:attribute'];
         asArray(derivationAttrValue).forEach((attributeEntry: any, attributeIndex: number) => {
@@ -929,6 +943,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
             ...(attributeAttrs.default !== undefined ? { xmlAttributeDefault: attributeAttrs.default } : {}),
             ...(hasInlineSimpleType ? { xmlHasInlineSimpleType: true } : {}),
             ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
+            ...(readOnlySource ? { xmlReadOnlySource: readOnlySource } : {}),
             ...referencedEnumFields(attributeAttrs.type),
             ...(getXmlAnnotationDoc(attributeEntry) ? { xmlAnnotation: getXmlAnnotationDoc(attributeEntry) } : {}),
             xmlMyTypeNames: namedSimpleTypeNames,
@@ -968,6 +983,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           ...(attributeAttrs.default !== undefined ? { xmlAttributeDefault: attributeAttrs.default } : {}),
           ...(hasInlineSimpleType ? { xmlHasInlineSimpleType: true } : {}),
           ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
+          ...(readOnlySource ? { xmlReadOnlySource: readOnlySource } : {}),
           ...referencedEnumFields(attributeAttrs.type),
           ...(getXmlAnnotationDoc(attributeEntry) ? { xmlAnnotation: getXmlAnnotationDoc(attributeEntry) } : {}),
           xmlMyTypeNames: namedSimpleTypeNames,
@@ -988,7 +1004,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       XML_COMPOSITOR_TAG_KEYS.forEach((compositorKey) => {
         const compositorValue = (complexTypeValue as any)[compositorKey];
         if (compositorValue !== undefined && compositorValue !== null) {
-          addCompositorNode(compositorValue, parentId, [...basePath, compositorKey], compositorKey, undefined, ancestors, idSuffix, inheritedFrom);
+          addCompositorNode(compositorValue, parentId, [...basePath, compositorKey], compositorKey, undefined, ancestors, idSuffix, inheritedFrom, readOnlySource);
         }
       });
     };
@@ -996,7 +1012,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     // Adds a read-only `xs:any` wildcard-content node under `parentId` — this represents
     // "any element from this namespace is allowed here" (e.g. embedded (X)HTML markup), so
     // unlike `xs:element` there's no name/type to resolve, just the wildcard's own attributes.
-    const addAnyNode = (anyEntry: any, parentId: string, anyPath: Array<string | number>, index: number, inheritedFrom?: string) => {
+    const addAnyNode = (anyEntry: any, parentId: string, anyPath: Array<string | number>, index: number, inheritedFrom?: string, readOnlySource?: string) => {
       if (!anyEntry || typeof anyEntry !== 'object') return;
       const anyAttrs = getXmlAttrs(anyEntry);
       const anyId = `${parentId}.any_${index}`;
@@ -1012,6 +1028,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlMinOccurs: anyAttrs.minOccurs ?? '1',
         xmlMaxOccurs: anyAttrs.maxOccurs ?? '1',
         ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
+        ...(readOnlySource ? { xmlReadOnlySource: readOnlySource } : {}),
         ...(getXmlAnnotationDoc(anyEntry) ? { xmlAnnotation: getXmlAnnotationDoc(anyEntry) } : {}),
       }, parentId);
     };
@@ -1028,6 +1045,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       ancestors: Set<string> = new Set(),
       idSuffix: string = '',
       inheritedFrom?: string,
+      readOnlySource?: string,
     ) => {
       if (buildVisibleOnly && parentId !== '1') return;
       if (compositorValue === undefined || compositorValue === null) return;
@@ -1046,10 +1064,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlMinOccurs: compositorAttrs.minOccurs ?? '1',
         xmlMaxOccurs: compositorAttrs.maxOccurs ?? '1',
         ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
+        ...(readOnlySource ? { xmlReadOnlySource: readOnlySource } : {}),
         ...(getXmlAnnotationDoc(first) ? { xmlAnnotation: getXmlAnnotationDoc(first) } : {}),
       }, parentId);
 
-      addCompositorChildren(compositorValue, compositorId, path, ancestors, inheritedFrom);
+      addCompositorChildren(compositorValue, compositorId, path, ancestors, inheritedFrom, readOnlySource);
     };
 
     // Processes the children living under a compositor's raw value (or a
@@ -1057,7 +1076,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     // convention used by this editor's own context-menu "Add element"/"Add
     // sequence|choice|all" actions, and the tag-keyed shape produced by
     // parsing real XSD documents (e.g. `{ 'xs:sequence': {...}, 'xs:element': {...} }`).
-    const addCompositorChildren = (containerValue: any, parentId: string, basePath: Array<string | number>, ancestors: Set<string> = new Set(), inheritedFrom?: string) => {
+    const addCompositorChildren = (containerValue: any, parentId: string, basePath: Array<string | number>, ancestors: Set<string> = new Set(), inheritedFrom?: string, readOnlySource?: string) => {
       if (!containerValue || typeof containerValue !== 'object') return;
 
       if (Array.isArray(containerValue)) {
@@ -1066,12 +1085,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           const itemPath = [...basePath, itemIndex];
           const nestedCompositorKey = XML_COMPOSITOR_TAG_KEYS.find((key) => (item as any)[key] !== undefined);
           if (nestedCompositorKey) {
-            addCompositorNode((item as any)[nestedCompositorKey], parentId, [...itemPath, nestedCompositorKey], nestedCompositorKey, undefined, ancestors, '', inheritedFrom);
+            addCompositorNode((item as any)[nestedCompositorKey], parentId, [...itemPath, nestedCompositorKey], nestedCompositorKey, undefined, ancestors, '', inheritedFrom, readOnlySource);
             return;
           }
           const itemAttrs = getXmlAttrs(item);
           if (itemAttrs.name || itemAttrs.ref) {
-            addXmlElementNode(item, parentId, itemPath, itemIndex, ancestors, inheritedFrom);
+            addXmlElementNode(item, parentId, itemPath, itemIndex, ancestors, inheritedFrom, readOnlySource);
           }
         });
         return;
@@ -1084,7 +1103,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           const elementPath = Array.isArray(elementValue)
             ? [...basePath, 'xs:element', elemIndex]
             : [...basePath, 'xs:element'];
-          addXmlElementNode(elemEntry, parentId, elementPath, elemIndex, ancestors, inheritedFrom);
+          addXmlElementNode(elemEntry, parentId, elementPath, elemIndex, ancestors, inheritedFrom, readOnlySource);
         });
       }
 
@@ -1096,14 +1115,14 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           const anyPath = Array.isArray(anyValue)
             ? [...basePath, 'xs:any', anyIndex]
             : [...basePath, 'xs:any'];
-          addAnyNode(anyEntry, parentId, anyPath, anyIndex, inheritedFrom);
+          addAnyNode(anyEntry, parentId, anyPath, anyIndex, inheritedFrom, readOnlySource);
         });
       }
 
       XML_COMPOSITOR_TAG_KEYS.forEach((nestedKey) => {
         const nestedValue = (containerValue as any)[nestedKey];
         if (nestedValue !== undefined && nestedValue !== null) {
-          addCompositorNode(nestedValue, parentId, [...basePath, nestedKey], nestedKey, undefined, ancestors, '', inheritedFrom);
+          addCompositorNode(nestedValue, parentId, [...basePath, nestedKey], nestedKey, undefined, ancestors, '', inheritedFrom, readOnlySource);
         }
       });
     };

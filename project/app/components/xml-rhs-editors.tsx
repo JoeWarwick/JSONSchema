@@ -12,6 +12,7 @@ type XmlNodeKind = 'schema' | 'simpleType' | 'complexType' | 'attributeGroup' | 
 export interface XmlNodeRhsEditorProps {
   node: FlowNode<NodeData> | null;
   onChange: (patch: Partial<NodeData>) => void;
+  readOnlySource?: string;
 }
 
 /**
@@ -172,14 +173,24 @@ function PropertyForm({
  * `xmlAnnotation` on the node's data — offered by every XML node editor kind (schema,
  * simpleType, complexType, attributeGroup, attribute, element, compositor).
  */
+function XmlReadOnlyHint({ source }: { source: string }) {
+  return (
+    <div style={{ background: '#fff7ed', border: '1px solid #f5c2b7', borderRadius: 6, padding: 10, color: '#92400e' }}>
+      This node is a read-only expansion from <code>{source}</code>. Edit the original referenced definition instead, or use the graph context menu to go to the type definition.
+    </div>
+  );
+}
+
 function XmlAnnotationField({
   nodeId,
   value,
   onChange,
+  disabled = false,
 }: {
   nodeId: string;
   value: string;
   onChange: (patch: Partial<NodeData>) => void;
+  disabled?: boolean;
 }) {
   const [text, setText] = React.useState<string>(value);
 
@@ -193,17 +204,18 @@ function XmlAnnotationField({
       <textarea
         aria-label="Annotation"
         value={text}
+        disabled={disabled}
         onChange={(e) => setText(e.target.value)}
         onBlur={() => onChange({ id: nodeId, xmlAnnotation: text } as Partial<NodeData>)}
         rows={3}
-        style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', fontFamily: 'inherit', resize: 'vertical' }}
+        style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', fontFamily: 'inherit', resize: 'vertical', background: disabled ? '#f5f5f5' : undefined }}
         placeholder="Documentation for this schema item"
       />
     </label>
   );
 }
 
-function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
+function XmlSimpleTypeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorProps & { readOnlySource?: string }) {
   if (!node) return null;
   const data = (node.data || {}) as any;
   const [name, setName] = React.useState<string>(String(data.xmlName || ''));
@@ -212,6 +224,7 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   const [memberTypes, setMemberTypes] = React.useState<string>(String(data.xmlMemberTypes || ''));
   const [itemType, setItemType] = React.useState<string>(String(data.xmlItemType || ''));
   const [enumerations, setEnumerations] = React.useState<string[]>(Array.isArray(data.xmlEnumerations) ? data.xmlEnumerations : []);
+  const readOnly = Boolean(readOnlySource);
   const [facets, setFacets] = React.useState<SimpleTypeFacets>(data.xmlFacets && typeof data.xmlFacets === 'object' ? data.xmlFacets : {});
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
 
@@ -239,11 +252,13 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>SimpleType Editor</div>
+      {readOnly && <XmlReadOnlyHint source={readOnlySource!} />}
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ fontSize: 12 }}>Name</span>
         <input
           aria-label="SimpleType Name"
           value={name}
+          disabled={readOnly}
           onChange={(e) => setName(e.target.value)}
           onBlur={() => onChange({ id: node.id, xmlName: name })}
           style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
@@ -254,6 +269,7 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
         <select
           aria-label="SimpleType Mode"
           value={mode}
+          disabled={readOnly}
           onChange={(e) => {
             const nextMode = e.target.value;
             setMode(nextMode);
@@ -274,28 +290,37 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
             <input
               aria-label="Restriction Base"
               value={base}
+              disabled={readOnly}
               onChange={(e) => setBase(e.target.value)}
               onBlur={() => onChange({ id: node.id, xmlBase: base })}
               style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
               placeholder="xs:string"
             />
           </label>
-          <EnumerationListEditor values={enumerations} onChange={handleEnumerationsChange} ariaPrefix="SimpleType enumeration" />
-          <FacetsEditor facets={facets} onChange={handleFacetsChange} ariaPrefix="SimpleType facet" />
+          {!readOnly ? (
+            <>
+              <EnumerationListEditor values={enumerations} onChange={handleEnumerationsChange} ariaPrefix="SimpleType enumeration" />
+              <FacetsEditor facets={facets} onChange={handleFacetsChange} ariaPrefix="SimpleType facet" />
+            </>
+          ) : null}
         </>
       )}
 
       {mode === 'union' && (
         <>
-          <MemberTypesListEditor
-            value={memberTypes}
-            onChange={(next) => {
-              setMemberTypes(next);
-              onChange({ id: node.id, xmlMemberTypes: next });
-            }}
-            myTypeNames={Array.isArray(data.xmlMyTypeNames) ? data.xmlMyTypeNames : []}
-            ariaPrefix="Union Member Types"
-          />
+          {!readOnly ? (
+            <MemberTypesListEditor
+              value={memberTypes}
+              onChange={(next) => {
+                setMemberTypes(next);
+                onChange({ id: node.id, xmlMemberTypes: next });
+              }}
+              myTypeNames={Array.isArray(data.xmlMyTypeNames) ? data.xmlMyTypeNames : []}
+              ariaPrefix="Union Member Types"
+            />
+          ) : (
+            <div style={{ fontSize: 11, color: '#666' }}>Union member types are read-only in this ref expansion.</div>
+          )}
           {Array.isArray(data.xmlUnionReferencedEnumerations) && data.xmlUnionReferencedEnumerations.length > 0 && (
             <ReferencedEnumerationList values={data.xmlUnionReferencedEnumerations} />
           )}
@@ -308,6 +333,7 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
           <input
             aria-label="List Item Type"
             value={itemType}
+            disabled={readOnly}
             onChange={(e) => setItemType(e.target.value)}
             onBlur={() => onChange({ id: node.id, xmlItemType: itemType })}
             style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
@@ -319,16 +345,16 @@ function XmlSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
         <input
           type="checkbox"
           checked={isRef}
+          disabled={readOnly}
           onChange={(e) => {
             setIsRef(e.target.checked);
             onChange({ id: node.id, xmlIsRef: e.target.checked });
           }}
           aria-label="Global Reference"
-          style={{ cursor: 'pointer' }}
+          style={{ cursor: readOnly ? 'not-allowed' : 'pointer' }}
         />
         <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
       </label>
-      <XmlAttributesManager node={node} onChange={onChange} />
       <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
     </form>
   );
@@ -497,13 +523,14 @@ export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) 
   );
 }
 
-function XmlComplexTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
+function XmlComplexTypeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorProps & { readOnlySource?: string }) {
   if (!node) return null;
   const data = (node.data || {}) as any;
   const [name, setName] = React.useState<string>(String(data.xmlName || ''));
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
   const [mixed, setMixed] = React.useState<boolean>(Boolean(data.xmlMixed));
   const [anyAttributeNamespace, setAnyAttributeNamespace] = React.useState<string>(String(data.xmlAnyAttribute?.namespace || ''));
+  const readOnly = Boolean(readOnlySource);
 
   React.useEffect(() => {
     setName(String(data.xmlName || ''));
@@ -515,11 +542,13 @@ function XmlComplexTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>ComplexType Editor</div>
+      {readOnly && <XmlReadOnlyHint source={readOnlySource!} />}
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ fontSize: 12 }}>Name</span>
         <input
           aria-label="ComplexType Name"
           value={name}
+          disabled={readOnly}
           onChange={(e) => setName(e.target.value)}
           onBlur={() => onChange({ id: node.id, xmlName: name })}
           style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
@@ -529,12 +558,13 @@ function XmlComplexTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
         <input
           type="checkbox"
           checked={isRef}
+          disabled={readOnly}
           onChange={(e) => {
             setIsRef(e.target.checked);
             onChange({ id: node.id, xmlIsRef: e.target.checked });
           }}
           aria-label="Global Reference"
-          style={{ cursor: 'pointer' }}
+          style={{ cursor: readOnly ? 'not-allowed' : 'pointer' }}
         />
         <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
       </label>
@@ -542,12 +572,13 @@ function XmlComplexTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
         <input
           type="checkbox"
           checked={mixed}
+          disabled={readOnly}
           onChange={(e) => {
             setMixed(e.target.checked);
             onChange({ id: node.id, xmlMixed: e.target.checked });
           }}
           aria-label="Mixed Content"
-          style={{ cursor: 'pointer' }}
+          style={{ cursor: readOnly ? 'not-allowed' : 'pointer' }}
         />
         <span style={{ fontSize: 12 }}>Mixed Content</span>
       </label>
@@ -556,6 +587,7 @@ function XmlComplexTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
         <input
           aria-label="AnyAttribute Namespace"
           value={anyAttributeNamespace}
+          disabled={readOnly}
           onChange={(e) => setAnyAttributeNamespace(e.target.value)}
           onBlur={() => onChange({ id: node.id, xmlAnyAttributeNamespace: anyAttributeNamespace })}
           placeholder="##other"
@@ -565,16 +597,17 @@ function XmlComplexTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
       <div style={{ fontSize: 12, color: '#666' }}>
         Author sequence/choice/all via graph right-click. Edit min/max on the selected compositor node in RHS.
       </div>
-      <XmlAttributesManager node={node} onChange={onChange} />
+      {!readOnly ? <XmlAttributesManager node={node} onChange={onChange} /> : null}
       <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
     </form>
   );
 }
 
-function XmlAttributeGroupEditor({ node, onChange }: XmlNodeRhsEditorProps) {
+function XmlAttributeGroupEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorProps & { readOnlySource?: string }) {
   if (!node) return null;
   const data = (node.data || {}) as any;
   const [name, setName] = React.useState<string>(String(data.xmlName || ''));
+  const readOnly = Boolean(readOnlySource);
 
   React.useEffect(() => {
     setName(String(data.xmlName || ''));
@@ -583,11 +616,13 @@ function XmlAttributeGroupEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>AttributeGroup Editor</div>
+      {readOnly && <XmlReadOnlyHint source={readOnlySource!} />}
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ fontSize: 12 }}>Name</span>
         <input
           aria-label="AttributeGroup Name"
           value={name}
+          disabled={readOnly}
           onChange={(e) => setName(e.target.value)}
           onBlur={() => onChange({ id: node.id, xmlName: name })}
           style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
@@ -596,7 +631,7 @@ function XmlAttributeGroupEditor({ node, onChange }: XmlNodeRhsEditorProps) {
       <div style={{ fontSize: 12, color: '#666' }}>
         Attributes added here are shared by every <code>xs:attributeGroup ref="{name || '...'}"</code> that references this group.
       </div>
-      <XmlAttributesManager node={node} onChange={onChange} />
+      {!readOnly ? <XmlAttributesManager node={node} onChange={onChange} /> : null}
       <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
     </form>
   );
@@ -1165,7 +1200,7 @@ function XmlAttributeSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps)
   );
 }
 
-function XmlAttributeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
+function XmlAttributeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorProps) {
   if (!node) return null;
   const data = (node.data || {}) as any;
   const [name, setName] = React.useState<string>(String(data.xmlName || ''));
@@ -1173,16 +1208,16 @@ function XmlAttributeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   const [useValue, setUseValue] = React.useState<string>(String(data.xmlAttributeUse || 'optional'));
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
   const [defaultValue, setDefaultValue] = React.useState<string>(String(data.xmlAttributeDefault ?? ''));
+  // Attributes pulled in via `xs:attributeGroup ref="..."` belong to the shared group
+  // definition, not this local type — edit them at the group's own node instead.
+  const attributeGroupRef = data.xmlAttributeGroupRef as string | undefined;
+  const readOnly = Boolean(attributeGroupRef || readOnlySource);
   // The default-value input is only shown once toggled on via the "+ default" badge (or if a
   // default already exists on load), keeping the common case (no default) visually compact.
   const [showDefault, setShowDefault] = React.useState<boolean>(data.xmlAttributeDefault !== undefined && data.xmlAttributeDefault !== '');
   // An inline (anonymous) `xs:simpleType` on this attribute is now its own child graph node —
   // select it there to edit; this flag just disables the Type field and shows a pointer to it.
   const hasInlineSimpleType = Boolean(data.xmlHasInlineSimpleType);
-  // Attributes pulled in via `xs:attributeGroup ref="..."` belong to the shared group
-  // definition, not this local type — edit them at the group's own node instead.
-  const attributeGroupRef = data.xmlAttributeGroupRef as string | undefined;
-  const readOnly = Boolean(attributeGroupRef);
   // When `type=` references a named simpleType that itself declares enumerations (e.g.
   // `type="typesType"`), show those values read-only here — they belong to the shared type
   // definition, not this attribute; edit them on the `typesType` simpleType node instead.
@@ -1354,11 +1389,12 @@ function XmlAttributeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   );
 }
 
-function XmlCompositorEditor({ node, onChange }: XmlNodeRhsEditorProps) {
+function XmlCompositorEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorProps) {
   if (!node) return null;
   const data = (node.data || {}) as any;
   const [minOccurs, setMinOccurs] = React.useState<string>(String(data.xmlMinOccurs ?? '1'));
   const [maxOccurs, setMaxOccurs] = React.useState<string>(String(data.xmlMaxOccurs ?? '1'));
+  const readOnly = Boolean(readOnlySource);
 
   React.useEffect(() => {
     setMinOccurs(String(data.xmlMinOccurs ?? '1'));
@@ -1368,11 +1404,13 @@ function XmlCompositorEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>{String(data.xmlNodeKind || 'Compositor')} Editor</div>
+      {readOnly && <XmlReadOnlyHint source={readOnlySource!} />}
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ fontSize: 12 }}>minOccurs</span>
         <input
           aria-label="minOccurs"
           value={minOccurs}
+          disabled={readOnly}
           onChange={(e) => setMinOccurs(e.target.value)}
           onBlur={() => onChange({ id: node.id, xmlMinOccurs: minOccurs })}
           style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
@@ -1384,13 +1422,14 @@ function XmlCompositorEditor({ node, onChange }: XmlNodeRhsEditorProps) {
         <input
           aria-label="maxOccurs"
           value={maxOccurs}
+          disabled={readOnly}
           onChange={(e) => setMaxOccurs(e.target.value)}
           onBlur={() => onChange({ id: node.id, xmlMaxOccurs: maxOccurs })}
           style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
           placeholder="1 or unbounded"
         />
       </label>
-      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
+      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} disabled={readOnly} />
     </form>
   );
 }
@@ -1399,7 +1438,7 @@ function XmlCompositorEditor({ node, onChange }: XmlNodeRhsEditorProps) {
  * Read-only display for an `xs:any` wildcard content particle (e.g. embedded (X)HTML
  * markup) — there's no name/type to edit, just the wildcard's own declared attributes.
  */
-function XmlAnyEditor({ node }: { node: XmlNodeRhsEditorProps['node'] }) {
+function XmlAnyEditor({ node }: XmlNodeRhsEditorProps) {
   if (!node) return null;
   const data = (node.data || {}) as any;
   return (
@@ -1424,7 +1463,7 @@ function XmlAnyEditor({ node }: { node: XmlNodeRhsEditorProps['node'] }) {
   );
 }
 
-function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
+function XmlElementEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorProps & { readOnlySource?: string }) {
   if (!node) return null;
   const data = (node.data || {}) as any;
   const [name, setName] = React.useState<string>(String(data.xmlName || ''));
@@ -1434,6 +1473,9 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
   const [mixed, setMixed] = React.useState<boolean>(Boolean(data.xmlMixed));
   const [anyAttributeNamespace, setAnyAttributeNamespace] = React.useState<string>(String(data.xmlAnyAttribute?.namespace || ''));
+  const [defaultValue, setDefaultValue] = React.useState<string>(String(data.xmlDefault || ''));
+  const [fixedValue, setFixedValue] = React.useState<string>(String(data.xmlFixed || ''));
+  const readOnly = Boolean(readOnlySource);
 
   React.useEffect(() => {
     setName(String(data.xmlName || ''));
@@ -1443,17 +1485,21 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
     setIsRef(Boolean(data.xmlIsRef));
     setMixed(Boolean(data.xmlMixed));
     setAnyAttributeNamespace(String(data.xmlAnyAttribute?.namespace || ''));
-  }, [node?.id, data.xmlName, data.xmlElementType, data.xmlMinOccurs, data.xmlMaxOccurs, data.xmlIsRef, data.xmlMixed, data.xmlAnyAttribute]);
+    setDefaultValue(String(data.xmlDefault || ''));
+    setFixedValue(String(data.xmlFixed || ''));
+  }, [node?.id, data.xmlName, data.xmlElementType, data.xmlMinOccurs, data.xmlMaxOccurs, data.xmlIsRef, data.xmlMixed, data.xmlAnyAttribute, data.xmlDefault, data.xmlFixed]);
 
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>Element Editor</div>
+      {readOnly && <XmlReadOnlyHint source={readOnlySource!} />}
       {!isRef && (
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span style={{ fontSize: 12 }}>Name</span>
           <input
             aria-label="Element Name"
             value={name}
+            disabled={readOnly}
             onChange={(e) => setName(e.target.value)}
             onBlur={() => {
               onChange({ id: node.id, xmlName: name });
@@ -1465,8 +1511,10 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ fontSize: 12 }}>{isRef ? 'ref' : 'Type'}</span>
         {isRef ? (
+          // A ref's target is fixed once set — editable only via the "Global Reference" toggle flow, not here.
           <XmlTypeSelector
             value={name}
+            disabled
             onChange={(next) => {
               setName(next);
               // A `ref`-only element's display name lives on `@ref`, not `@type` — writing
@@ -1484,6 +1532,7 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
         ) : (
           <XmlTypeSelector
             value={type}
+            disabled={readOnly}
             onChange={(next) => {
               setType(next);
               onChange({ id: node.id, xmlElementType: next });
@@ -1493,38 +1542,69 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
           />
         )}
       </label>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ fontSize: 12 }}>minOccurs</span>
-        <input
-          aria-label="Element minOccurs"
-          value={minOccurs}
-          onChange={(e) => setMinOccurs(e.target.value)}
-          onBlur={() => onChange({ id: node.id, xmlMinOccurs: minOccurs })}
-          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
-          placeholder="1"
-        />
+      <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+          <span style={{ fontSize: 12 }}>minOccurs</span>
+          <input
+            aria-label="minOccurs"
+            value={minOccurs}
+            disabled={readOnly && !isRef}
+            onChange={(e) => setMinOccurs(e.target.value)}
+            onBlur={() => onChange({ id: node.id, xmlMinOccurs: minOccurs })}
+            placeholder="1"
+            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+          />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+          <span style={{ fontSize: 12 }}>maxOccurs</span>
+          <input
+            aria-label="maxOccurs"
+            value={maxOccurs}
+            disabled={readOnly && !isRef}
+            onChange={(e) => setMaxOccurs(e.target.value)}
+            onBlur={() => onChange({ id: node.id, xmlMaxOccurs: maxOccurs })}
+            placeholder="1 or unbounded"
+            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+          />
+        </label>
       </label>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ fontSize: 12 }}>maxOccurs</span>
-        <input
-          aria-label="Element maxOccurs"
-          value={maxOccurs}
-          onChange={(e) => setMaxOccurs(e.target.value)}
-          onBlur={() => onChange({ id: node.id, xmlMaxOccurs: maxOccurs })}
-          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
-          placeholder="1 or unbounded"
-        />
+      <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+          <span style={{ fontSize: 12 }}>default</span>
+          <input
+            aria-label="default value"
+            value={defaultValue}
+            disabled={readOnly && !isRef}
+            onChange={(e) => setDefaultValue(e.target.value)}
+            onBlur={() => onChange({ id: node.id, xmlDefault: defaultValue })}
+            placeholder="(none)"
+            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+          />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+          <span style={{ fontSize: 12 }}>fixed</span>
+          <input
+            aria-label="fixed value"
+            value={fixedValue}
+            disabled={readOnly && !isRef}
+            onChange={(e) => setFixedValue(e.target.value)}
+            onBlur={() => onChange({ id: node.id, xmlFixed: fixedValue })}
+            placeholder="(none)"
+            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+          />
+        </label>
       </label>
       <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
         <input
           type="checkbox"
           checked={isRef}
+          disabled={readOnly || isRef}
           onChange={(e) => {
             setIsRef(e.target.checked);
             onChange({ id: node.id, xmlIsRef: e.target.checked });
           }}
           aria-label="Global Reference"
-          style={{ cursor: 'pointer' }}
+          style={{ cursor: (readOnly || isRef) ? 'not-allowed' : 'pointer' }}
         />
         <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
       </label>
@@ -1532,12 +1612,13 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
         <input
           type="checkbox"
           checked={mixed}
+          disabled={readOnly || isRef}
           onChange={(e) => {
             setMixed(e.target.checked);
             onChange({ id: node.id, xmlMixed: e.target.checked });
           }}
           aria-label="Mixed Content"
-          style={{ cursor: 'pointer' }}
+          style={{ cursor: (readOnly || isRef) ? 'not-allowed' : 'pointer' }}
         />
         <span style={{ fontSize: 12 }}>Mixed Content</span>
       </label>
@@ -1546,6 +1627,7 @@ function XmlElementEditor({ node, onChange }: XmlNodeRhsEditorProps) {
         <input
           aria-label="AnyAttribute Namespace"
           value={anyAttributeNamespace}
+          disabled={readOnly || isRef}
           onChange={(e) => setAnyAttributeNamespace(e.target.value)}
           onBlur={() => onChange({ id: node.id, xmlAnyAttributeNamespace: anyAttributeNamespace })}
           placeholder="##other"
@@ -1636,16 +1718,17 @@ export function XmlNodeRhsEditor({ node, onChange }: XmlNodeRhsEditorProps) {
   if (!node) return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a node to edit XML properties.</div>;
   const data = (node.data || {}) as any;
   const kind = (data.xmlNodeKind || '') as XmlNodeKind;
+  const readOnlySource = typeof data.xmlReadOnlySource === 'string' && data.xmlReadOnlySource ? data.xmlReadOnlySource : undefined;
 
-  if (kind === 'schema') return <XmlSchemaEditor node={node} onChange={onChange} />;
-  if (kind === 'simpleType' && data.xmlIsAnonymous) return <XmlAttributeSimpleTypeEditor node={node} onChange={onChange} />;
-  if (kind === 'simpleType') return <XmlSimpleTypeEditor node={node} onChange={onChange} />;
-  if (kind === 'complexType') return <XmlComplexTypeEditor node={node} onChange={onChange} />;
-  if (kind === 'attributeGroup') return <XmlAttributeGroupEditor node={node} onChange={onChange} />;
-  if (kind === 'attribute') return <XmlAttributeEditor node={node} onChange={onChange} />;
-  if (kind === 'element') return <XmlElementEditor node={node} onChange={onChange} />;
-  if (kind === 'sequence' || kind === 'choice' || kind === 'all') return <XmlCompositorEditor node={node} onChange={onChange} />;
-  if (kind === 'any') return <XmlAnyEditor node={node} />;
+  if (kind === 'schema') return <XmlSchemaEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
+  if (kind === 'simpleType' && data.xmlIsAnonymous) return <XmlAttributeSimpleTypeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
+  if (kind === 'simpleType') return <XmlSimpleTypeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
+  if (kind === 'complexType') return <XmlComplexTypeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
+  if (kind === 'attributeGroup') return <XmlAttributeGroupEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
+  if (kind === 'attribute') return <XmlAttributeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
+  if (kind === 'element') return <XmlElementEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
+  if (kind === 'sequence' || kind === 'choice' || kind === 'all') return <XmlCompositorEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
+  if (kind === 'any') return <XmlAnyEditor node={node} onChange={onChange} />;
 
   return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a schema, SimpleType, ComplexType, attribute, element, or compositor node to edit.</div>;
 }

@@ -104,6 +104,12 @@ import type { SchemaNodeType } from './types';
 
 import { renderBadges } from './graphical-schema-badges';
 
+const canToggleXmlNodeChildren = (data: any) =>
+  Boolean(data.hasChildren) && (
+    ((!data.xmlIsRef) && !data.xmlReadOnlySource && !data.isRef) ||
+    (Boolean(data.xmlIsRef) && Boolean(data.xmlHasRefExpansion))
+  );
+
 // Group box for Properties/Items
 export const GroupBox = ({ children }: { title: string; children: React.ReactNode }) => (
   <div style={{
@@ -360,7 +366,7 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
             // JSON Schema properties
             'label', 'id', 'parent', 'type', 'ofType', 'required', 'enum', 'items', 'default', 'title', 'description', '$comment', 'patternKey', 'typeUnion', 'isAdditionalProperties', 'additionalProperties', 'minProperties', 'maxProperties', '$ref',
             // XML Schema metadata (path, kind, etc.)
-            'xmlPath', 'xmlNodeKind', 'xmlName', 'xmlElementType', 'xmlHasInlineComplexType', 'xmlInlineComplexTypeName', 'xmlSimpleTypeMode', 'xmlBase', 'xmlMemberTypes', 'xmlItemType', 'xmlEnumerations', 'xmlFacets', 'xmlUnionReferencedEnumerations', 'xmlAttributes', 'xmlAnyAttribute', 'xmlAnyAttributeNamespace', 'xmlIsRef', 'xmlIsAnonymous', 'xmlAttributeInlineSimpleType', 'xmlHasInlineSimpleType', 'xmlAttributeReferencedEnumerations', 'xmlAttributeReferencedTypeName', 'xmlMyTypeNames', 'xmlMyElementNames', 'xmlAnnotation', 'xmlMixed', 'xmlDoc', 'xmlPropertyMap', 'xmlSchemaNodeData', 'xmlns',
+            'xmlPath', 'xmlNodeKind', 'xmlName', 'xmlElementType', 'xmlHasInlineComplexType', 'xmlInlineComplexTypeName', 'xmlSimpleTypeMode', 'xmlBase', 'xmlMemberTypes', 'xmlItemType', 'xmlEnumerations', 'xmlFacets', 'xmlUnionReferencedEnumerations', 'xmlAttributes', 'xmlAnyAttribute', 'xmlAnyAttributeNamespace', 'xmlIsRef', 'xmlHasRefExpansion', 'xmlReadOnlySource', 'xmlIsAnonymous', 'xmlAttributeInlineSimpleType', 'xmlHasInlineSimpleType', 'xmlAttributeReferencedEnumerations', 'xmlAttributeReferencedTypeName', 'xmlMyTypeNames', 'xmlMyElementNames', 'xmlAnnotation', 'xmlMixed', 'xmlDoc', 'xmlPropertyMap', 'xmlSchemaNodeData', 'xmlns',
             // xs:complexContent inheritance metadata (used only to compute the inheritance-group bounding box, never shown as a badge)
             'xmlExtendsType', 'xmlInheritedFrom',
             // xs:attributeGroup ref metadata (drives the isRef badge tooltip, not a separate badge)
@@ -440,7 +446,7 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
       </div>
       <Handle id="source-Left" type="source" position={Position.Left} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
       <Handle id="source-Right" type="source" position={Position.Right} style={{ background: 'var(--color-accent-7)', width: 10, height: 10, borderRadius: 5 }} />
-      {(data as any).hasChildren && !(data as any).isRef && (
+      {canToggleXmlNodeChildren(data) && (
         <button
           className={styles.variantEdgeToggle}
           onClick={(e: React.MouseEvent) => { e.stopPropagation(); (data as any).onToggleChildren?.((data as any).id); }}
@@ -481,7 +487,7 @@ export const RootNode: React.FC<{ data: SchemaNodeData }> = ({ data }) => (
     <div className="root-node" style={{ pointerEvents: 'none', cursor: 'default' }}>
       <SchemaCard label={data.label} type={data.type} imported={data.imported} />
     </div>
-    {(data as any).hasChildren && (
+    {canToggleXmlNodeChildren(data) && (
       <button
         className={styles.variantEdgeToggle}
         style={{ pointerEvents: 'auto' }}

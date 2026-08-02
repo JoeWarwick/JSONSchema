@@ -66,14 +66,14 @@ export const BADGE_DEFS: Record<string, BadgeDef> = {
   },
   isRef: {
     key: 'isRef',
-    condition: (d: any) => !!d.isRef,
+    condition: (d: any) => !!d.isRef || !!d.xmlIsRef,
     label: () => 'Ref',
     tooltip: (d: any) => {
       if (d.xmlAttributeGroupRef) {
         return `From attributeGroup "${d.xmlAttributeGroupRef}" \u2014 reference, read-only here`;
       }
-      const ref = d.$ref || d.xmlElementType;
-      return ref ? `Circular reference to ${ref} \u2014 not expanded further` : 'Circular reference \u2014 not expanded further';
+      const ref = d.$ref || d.xmlElementType || d.xmlName;
+      return ref ? `Reference to ${ref}` : 'Reference';
     },
     variant: 'isRef',
     bg: '#fdecea',
