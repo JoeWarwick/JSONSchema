@@ -252,6 +252,7 @@ export default function Workbench() {
   }, []);
 
   const [error, setError] = useState<string | null>(null);
+  const [schemaDetectionWarning, setSchemaDetectionWarning] = useState<boolean>(false);
   const [copied, setCopied] = useState(false);
   const [showSchemaSource, setShowSchemaSource] = useState(false);
   const [jsonUrl, setJsonUrl] = useState("");
@@ -358,6 +359,7 @@ export default function Workbench() {
 
       // 4. Clear validation errors
       setError(null);
+      setSchemaDetectionWarning(false);
 
       // 5. Update all state together (order matters - do content before language)
       setJsonInput(newJsonInput);
@@ -822,6 +824,23 @@ export default function Workbench() {
     applySourceUpdate(newSchema);
     setInstanceData(null);
     setError(null);
+  };
+
+  // Detect if content looks like an XSD schema (xml mode only)
+  const detectXsdSchema = (content: string): boolean => {
+    if (!content || markupLanguage !== 'xml') return false;
+    try {
+      const trimmed = content.trim();
+      // Check for XSD indicators
+      return (
+        trimmed.includes('xs:schema') ||
+        trimmed.includes('xsd:schema') ||
+        trimmed.includes('schema xmlns') ||
+        (trimmed.startsWith('<') && trimmed.includes('xmlns') && trimmed.includes('XMLSchema'))
+      );
+    } catch {
+      return false;
+    }
   };
 
   const handleSaveResolvedSchema = () => {
@@ -1503,6 +1522,12 @@ export default function Workbench() {
                     onChange={(e) => {
                       setJsonInput(e.target.value);
                       setError(null);
+                      // Check if user is pasting an XSD schema into the instance input
+                      if (detectXsdSchema(e.target.value)) {
+                        setSchemaDetectionWarning(true);
+                      } else {
+                        setSchemaDetectionWarning(false);
+                      }
                       // Try to parse and update instance form if valid
                       try {
                         const parsed = JSON.parse(e.target.value);
@@ -1518,6 +1543,20 @@ export default function Workbench() {
                 )}
               </div>
               {error && <div className={styles.errorMessage}>{error}</div>}
+              {schemaDetectionWarning && !error && (
+                <div style={{
+                  marginTop: 12,
+                  padding: '12px',
+                  backgroundColor: '#fff3cd',
+                  border: '1px solid #ffc107',
+                  borderRadius: 6,
+                  color: '#856404',
+                  fontSize: 13,
+                  lineHeight: 1.5
+                }}>
+                  <strong>⚠️ Schema Detected:</strong> This field is for XML instance data only. To load a schema, use the <strong>Schema</strong> menu at the top and select <strong>"Load from URL..."</strong> or <strong>"Open Schema File..."</strong>.
+                </div>
+              )}
             </div>
           </>
         )}

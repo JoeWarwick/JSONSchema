@@ -628,8 +628,12 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     const attrNameInput = await screen.findByPlaceholderText('Attribute name');
     fireEvent.change(attrNameInput, { target: { value: 'id' } });
     
-    const attrTypeInputs = await screen.findAllByPlaceholderText('Type (e.g., xs:string)');
-    fireEvent.change(attrTypeInputs[0], { target: { value: 'xs:string' } });
+    // Find the type dropdown and select xs:string
+    const typeSelects = screen.queryAllByDisplayValue('');
+    const typeSelect = typeSelects.find((sel) => sel.tagName === 'SELECT');
+    if (typeSelect) {
+      fireEvent.change(typeSelect, { target: { value: 'xs:string' } });
+    }
     
     const addButton = await screen.findByRole('button', { name: 'Add' });
     fireEvent.click(addButton);

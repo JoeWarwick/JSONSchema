@@ -22,6 +22,8 @@ interface GraphicalSchemaRhsControlProps {
   showSchemaDetails: boolean;
   xmlSchemaDetails: XmlSchemaDetails;
   onToggleSchemaDetails: () => void;
+  onToggleShowAnnotations?: (show: boolean) => void;
+  xmlShowAnnotations?: boolean;
   onPrintGraph: () => void;
 }
 
@@ -34,6 +36,8 @@ export function GraphicalSchemaRhsControl({
   showSchemaDetails,
   xmlSchemaDetails,
   onToggleSchemaDetails,
+  onToggleShowAnnotations,
+  xmlShowAnnotations,
   onPrintGraph,
 }: GraphicalSchemaRhsControlProps) {
   const xmlNodeKind = ((selectedNode?.data as any)?.xmlNodeKind as string | undefined) || '';
@@ -95,7 +99,7 @@ export function GraphicalSchemaRhsControl({
         </div>
       )}
       {useXmlEditor ? (
-        <XmlNodeRhsEditor node={selectedNode} onChange={onChange} />
+        <XmlNodeRhsEditor node={selectedNode} onChange={onChange} onToggleShowAnnotations={onToggleShowAnnotations} xmlShowAnnotations={xmlShowAnnotations} />
       ) : (
         <MemoizedNodePropertyEditor node={selectedNode} onChange={onChange} />
       )}

@@ -149,6 +149,7 @@ function getXmlParser(): DOMParser | null {
 
 function parseXmlElement(element: Element): XmlElementValue {
   const out: XmlElementValue = {};
+  const childrenInOrder: Array<{ tagName: string; value: XmlElementValue }> = [];
 
   if (element.attributes.length > 0) {
     const attributes: Record<string, string> = {};
@@ -172,24 +173,36 @@ function parseXmlElement(element: Element): XmlElementValue {
     if (!isElementNode(child)) continue;
 
     const childValue = parseXmlElement(child);
-    const existing = out[child.tagName];
-    if (typeof existing === 'undefined') {
-      out[child.tagName] = childValue;
-    } else if (Array.isArray(existing)) {
-      existing.push(childValue);
-    } else {
-      out[child.tagName] = [existing, childValue];
-    }
+    
+    // Store in order, preserving document sequence
+    childrenInOrder.push({ tagName: child.tagName, value: childValue });
   }
 
   if (textParts.length > 0) {
     const text = textParts.join('').trim();
     if (text.length > 0) {
-      if (Object.keys(out).length === 0) {
+      if (childrenInOrder.length === 0) {
         return { [XML_TEXT_KEY]: text };
       }
       out[XML_TEXT_KEY] = text;
     }
+  }
+
+  // Build final structure: group by tag name for compatibility, but also store ordered list
+  for (const { tagName, value } of childrenInOrder) {
+    const existing = out[tagName];
+    if (typeof existing === 'undefined') {
+      out[tagName] = value;
+    } else if (Array.isArray(existing)) {
+      existing.push(value);
+    } else {
+      out[tagName] = [existing, value];
+    }
+  }
+
+  // Store the document-order list for graph building to use
+  if (childrenInOrder.length > 0) {
+    out['__childrenInOrder'] = childrenInOrder as any;
   }
 
   return out;

@@ -362,11 +362,13 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
         {renderBadges(filteredBadges)}
         {Object.entries(data).map(([key, value]) => {
           if (value === undefined || value === null || value === '' || typeof value === 'boolean') return null;
+          // Hide objects and arrays from being displayed as badges (would show as [object Object])
+          if (typeof value === 'object') return null;
           const hidden = [
             // JSON Schema properties
             'label', 'id', 'parent', 'type', 'ofType', 'required', 'enum', 'items', 'default', 'title', 'description', '$comment', 'patternKey', 'typeUnion', 'isAdditionalProperties', 'additionalProperties', 'minProperties', 'maxProperties', '$ref',
             // XML Schema metadata (path, kind, etc.)
-            'xmlPath', 'xmlNodeKind', 'xmlName', 'xmlElementType', 'xmlHasInlineComplexType', 'xmlInlineComplexTypeName', 'xmlSimpleTypeMode', 'xmlBase', 'xmlMemberTypes', 'xmlItemType', 'xmlEnumerations', 'xmlFacets', 'xmlUnionReferencedEnumerations', 'xmlAttributes', 'xmlAnyAttribute', 'xmlAnyAttributeNamespace', 'xmlIsRef', 'xmlHasRefExpansion', 'xmlReadOnlySource', 'xmlIsAnonymous', 'xmlAttributeInlineSimpleType', 'xmlHasInlineSimpleType', 'xmlAttributeReferencedEnumerations', 'xmlAttributeReferencedTypeName', 'xmlMyTypeNames', 'xmlMyElementNames', 'xmlAnnotation', 'xmlMixed', 'xmlDoc', 'xmlPropertyMap', 'xmlSchemaNodeData', 'xmlns',
+            'xmlPath', 'xmlNodeKind', 'xmlName', 'xmlElementType', 'xmlHasInlineComplexType', 'xmlInlineComplexTypeName', 'xmlSimpleTypeMode', 'xmlBase', 'xmlMemberTypes', 'xmlItemType', 'xmlEnumerations', 'xmlFacets', 'xmlUnionReferencedEnumerations', 'xmlAttributes', 'xmlAvailableTypes', 'xmlAnyAttribute', 'xmlAnyAttributeNamespace', 'xmlIsRef', 'xmlHasRefExpansion', 'xmlReadOnlySource', 'xmlIsAnonymous', 'xmlAttributeInlineSimpleType', 'xmlHasInlineSimpleType', 'xmlAttributeReferencedEnumerations', 'xmlAttributeReferencedTypeName', 'xmlMyTypeNames', 'xmlMyElementNames', 'xmlAnnotation', 'xmlMixed', 'xmlDoc', 'xmlPropertyMap', 'xmlSchemaNodeData', 'xmlns',
             // xs:complexContent inheritance metadata (used only to compute the inheritance-group bounding box, never shown as a badge)
             'xmlExtendsType', 'xmlInheritedFrom',
             // xs:attributeGroup ref metadata (drives the isRef badge tooltip, not a separate badge)
@@ -375,8 +377,10 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
             'xmlAttributeType', 'xmlAttributeUse', 'xmlMinOccurs', 'xmlMaxOccurs',
             // xs:any wildcard content particle properties
             'xmlAnyNamespace', 'xmlAnyProcessContents',
-            // XML Schema root attributes
-            'xmlTargetNamespace', 'xmlElementFormDefault', 'xmlAttributeFormDefault', 'xmlBlockDefault', 'xmlFinalDefault', 'xmlVersion', 'xmlId',
+            // XML annotation/documentation (edited in RHS, not shown as badges)
+            'xmlAnnotation', 'xmlAnnotations',
+            // XML Schema root special attributes (edited in RHS, not shown as badges)
+            'xmlTargetNamespace', 'xmlElementFormDefault', 'xmlAttributeFormDefault', 'xmlBlockDefault', 'xmlFinalDefault', 'xmlVersion', 'xmlId', 'xmlLang', 'xmlnsXsi', 'xsiSchemaLocation', 'xmlnsNamespaces',
             // XML mutation operations
             'xmlAddAttribute', 'xmlRemoveAttributeIndex', 'xmlUpdateAttributeIndex',
             // Generic per-node collapse/expand-children toggle metadata (rendered as a button, not a badge)
@@ -533,6 +537,38 @@ export const InheritanceGroupNode = ({ data }: { data: any }) => (
     )}
   </div>
 );
+
+// Annotation node - displays schema annotations with their documentation text
+export const AnnotationNode = ({ data }: { data: any }) => {
+  const text = data?.xmlAnnotationText || '';
+  const truncatedText = text.length > 100 ? text.substring(0, 100) + '...' : text;
+  const handleStyle = { background: '#daa520', width: 8, height: 8, borderRadius: 4 };
+  
+  return (
+    <div
+      style={{
+        padding: '10px 12px',
+        background: 'var(--color-error-3)',
+        border: '1.5px solid var(--color-error-7)',
+        borderRadius: 8,
+        fontSize: 12,
+        color: 'var(--color-error-11)',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        lineHeight: 1.4,
+        maxWidth: 280,
+        wordWrap: 'break-word',
+        whiteSpace: 'pre-wrap',
+        cursor: 'grab',
+      }}
+    >
+      <Handle id="target-Left" type="target" position={Position.Left} style={handleStyle} />
+      <div style={{ fontWeight: 600, fontSize: 11, color: 'var(--color-error-11)', marginBottom: 6 }}>
+        Annotation
+      </div>
+      <div style={{ whiteSpace: 'normal' }}>{truncatedText}</div>
+    </div>
+  );
+};
 
 // Combiner node — compact visual node: fork icon dropdown + count badge
 export const CombinerNode = ({ data }: { data: any }) => {
@@ -744,6 +780,7 @@ export const nodeTypes: { [key: string]: React.FC<any> } = {
   propertiesGroup: PropertiesGroupNode,
   itemsGroup: ItemsGroupNode,
   inheritanceGroup: InheritanceGroupNode,
+  annotation: AnnotationNode,
 };
 
 // Define edgeTypes

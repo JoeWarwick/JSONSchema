@@ -12,6 +12,8 @@ type XmlNodeKind = 'schema' | 'simpleType' | 'complexType' | 'attributeGroup' | 
 export interface XmlNodeRhsEditorProps {
   node: FlowNode<NodeData> | null;
   onChange: (patch: Partial<NodeData>) => void;
+  onToggleShowAnnotations?: (show: boolean) => void;
+  xmlShowAnnotations?: boolean;
   readOnlySource?: string;
 }
 
@@ -215,6 +217,145 @@ function XmlAnnotationField({
   );
 }
 
+/**
+ * Multiple annotations field with non-invasive paging arrows.
+ * Supports multiple xs:documentation elements within xs:annotation.
+ */
+function XmlAnnotationFieldWithPaging({
+  nodeId,
+  values,
+  onChange,
+  disabled = false,
+}: {
+  nodeId: string;
+  values: string[];
+  onChange: (patch: Partial<NodeData>) => void;
+  disabled?: boolean;
+}) {
+  const [currentIndex, setCurrentIndex] = React.useState<number>(0);
+  const [texts, setTexts] = React.useState<string[]>(values);
+
+  React.useEffect(() => {
+    setTexts(values);
+    // Reset to first annotation if current index is out of bounds
+    if (currentIndex >= values.length && values.length > 0) {
+      setCurrentIndex(0);
+    }
+  }, [nodeId, values]);
+
+  const currentText = texts[currentIndex] || '';
+  const hasMultiple = texts.length > 1;
+
+  const handleChange = (text: string) => {
+    const newTexts = [...texts];
+    newTexts[currentIndex] = text;
+    setTexts(newTexts);
+  };
+
+  const handleBlur = () => {
+    if (JSON.stringify(texts) !== JSON.stringify(values)) {
+      onChange({ id: nodeId, xmlAnnotations: texts } as Partial<NodeData>);
+    }
+  };
+
+  const goToPrevious = () => {
+    if (currentIndex > 0) {
+      setCurrentIndex(currentIndex - 1);
+    }
+  };
+
+  const goToNext = () => {
+    if (currentIndex < texts.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+    }
+  };
+
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{ fontSize: 12 }}>Annotation</span>
+        {hasMultiple && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#666' }}>
+            <button
+              type="button"
+              onClick={goToPrevious}
+              disabled={currentIndex === 0 || disabled}
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: '2px 4px',
+                cursor: currentIndex === 0 || disabled ? 'default' : 'pointer',
+                color: currentIndex === 0 || disabled ? '#ccc' : '#666',
+                fontSize: 16,
+                lineHeight: 1,
+              }}
+              aria-label="Previous annotation"
+              title="Previous annotation"
+            >
+              ←
+            </button>
+            <span style={{ minWidth: '24px', textAlign: 'center' }}>
+              {currentIndex + 1}/{texts.length}
+            </span>
+            <button
+              type="button"
+              onClick={goToNext}
+              disabled={currentIndex === texts.length - 1 || disabled}
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: '2px 4px',
+                cursor: currentIndex === texts.length - 1 || disabled ? 'default' : 'pointer',
+                color: currentIndex === texts.length - 1 || disabled ? '#ccc' : '#666',
+                fontSize: 16,
+                lineHeight: 1,
+              }}
+              aria-label="Next annotation"
+              title="Next annotation"
+            >
+              →
+            </button>
+          </div>
+        )}
+      </div>
+      <textarea
+        aria-label="Annotation"
+        value={currentText}
+        disabled={disabled}
+        onChange={(e) => handleChange(e.target.value)}
+        onBlur={handleBlur}
+        rows={3}
+        style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', fontFamily: 'inherit', resize: 'vertical', background: disabled ? '#f5f5f5' : undefined }}
+        placeholder="Documentation for this schema item"
+      />
+    </label>
+  );
+}
+
+/**
+ * Helper to render the appropriate annotation field - paging if multiple, single if one or none.
+ */
+function XmlAnnotationFieldAuto({
+  nodeId,
+  data,
+  onChange,
+  disabled = false,
+}: {
+  nodeId: string;
+  data: Record<string, any>;
+  onChange: (patch: Partial<NodeData>) => void;
+  disabled?: boolean;
+}) {
+  const annotations = Array.isArray(data.xmlAnnotations) ? data.xmlAnnotations : 
+    (data.xmlAnnotation ? [data.xmlAnnotation] : []);
+  
+  if (annotations.length > 1) {
+    return <XmlAnnotationFieldWithPaging nodeId={nodeId} values={annotations} onChange={onChange} disabled={disabled} />;
+  } else {
+    return <XmlAnnotationField nodeId={nodeId} value={String(annotations[0] || '')} onChange={onChange} disabled={disabled} />;
+  }
+}
+
 function XmlSimpleTypeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorProps & { readOnlySource?: string }) {
   if (!node) return null;
   const data = (node.data || {}) as any;
@@ -247,6 +388,16 @@ function XmlSimpleTypeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEdito
   const handleFacetsChange = (next: SimpleTypeFacets) => {
     setFacets(next);
     onChange({ id: node.id, xmlFacets: next });
+  };
+
+  // Handle nested simpleTypes in union mode
+  const handleUpdateMemberSimpleTypes = (next: InlineSimpleTypeData[]) => {
+    onChange({ id: node.id, xmlMemberSimpleTypes: next });
+  };
+
+  // Handle nested simpleType in list mode
+  const handleUpdateItemSimpleType = (next: InlineSimpleTypeData | undefined) => {
+    onChange({ id: node.id, xmlItemSimpleType: next });
   };
 
   return (
@@ -324,22 +475,54 @@ function XmlSimpleTypeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEdito
           {Array.isArray(data.xmlUnionReferencedEnumerations) && data.xmlUnionReferencedEnumerations.length > 0 && (
             <ReferencedEnumerationList values={data.xmlUnionReferencedEnumerations} />
           )}
+          {/* Nested anonymous member simpleTypes */}
+          {Array.isArray(data.xmlMemberSimpleTypes) && data.xmlMemberSimpleTypes.length > 0 && !readOnly && (
+            <NamedSimpleTypeNestedMembersEditor
+              memberSimpleTypes={data.xmlMemberSimpleTypes}
+              onChange={handleUpdateMemberSimpleTypes}
+            />
+          )}
         </>
       )}
 
       {mode === 'list' && (
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={{ fontSize: 12 }}>itemType</span>
-          <input
-            aria-label="List Item Type"
-            value={itemType}
-            disabled={readOnly}
-            onChange={(e) => setItemType(e.target.value)}
-            onBlur={() => onChange({ id: node.id, xmlItemType: itemType })}
-            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
-            placeholder="xs:string"
-          />
-        </label>
+        <>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 12 }}>itemType</span>
+            <input
+              aria-label="List Item Type"
+              value={itemType}
+              disabled={readOnly}
+              onChange={(e) => setItemType(e.target.value)}
+              onBlur={() => onChange({ id: node.id, xmlItemType: itemType })}
+              style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+              placeholder="xs:string"
+            />
+          </label>
+          {/* Nested anonymous item simpleType */}
+          {!readOnly && (
+            <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+              <input
+                type="checkbox"
+                aria-label="SimpleType has nested itemType"
+                checked={Boolean(data.xmlItemSimpleType)}
+                onChange={(e) => {
+                  if (e.target.checked) handleUpdateItemSimpleType({ mode: 'restriction', base: 'xs:string', enumerations: [] });
+                  else handleUpdateItemSimpleType(undefined);
+                }}
+              />
+              <span style={{ fontSize: 12 }}>Anonymous item simpleType (instead of itemType)</span>
+            </label>
+          )}
+          {data.xmlItemSimpleType && !readOnly && (
+            <InlineSimpleTypeEditor
+              value={data.xmlItemSimpleType}
+              onChange={handleUpdateItemSimpleType}
+              depth={0}
+              pathLabel="SimpleType item"
+            />
+          )}
+        </>
       )}
       <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
         <input
@@ -355,14 +538,74 @@ function XmlSimpleTypeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEdito
         />
         <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
       </label>
-      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
+      <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
     </form>
+  );
+}
+
+/**
+ * Editor for nested anonymous member simpleTypes in a named union simpleType.
+ * Allows adding, removing, and editing multiple nested simpleType members.
+ */
+function NamedSimpleTypeNestedMembersEditor({
+  memberSimpleTypes,
+  onChange,
+}: {
+  memberSimpleTypes: InlineSimpleTypeData[];
+  onChange: (next: InlineSimpleTypeData[]) => void;
+}) {
+  const handleAddMember = () => {
+    onChange([...memberSimpleTypes, { mode: 'restriction', base: 'xs:string', enumerations: [] }]);
+  };
+
+  const handleRemoveMember = (index: number) => {
+    onChange(memberSimpleTypes.filter((_, i) => i !== index));
+  };
+
+  const handleUpdateMember = (index: number, next: InlineSimpleTypeData) => {
+    const updated = [...memberSimpleTypes];
+    updated[index] = next;
+    onChange(updated);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{ fontSize: 12, fontWeight: 500 }}>Anonymous member simpleTypes</span>
+      {memberSimpleTypes.map((member, index) => (
+        <div key={index} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              aria-label={`SimpleType remove member ${index + 1}`}
+              onClick={() => handleRemoveMember(index)}
+              style={{ padding: '2px 8px', fontSize: 11, backgroundColor: '#fee', color: '#c33', border: '1px solid #fcc', borderRadius: 3, cursor: 'pointer' }}
+            >
+              Remove member
+            </button>
+          </div>
+          <InlineSimpleTypeEditor
+            value={member}
+            onChange={(next) => handleUpdateMember(index, next)}
+            depth={0}
+            pathLabel={`SimpleType member ${index + 1}`}
+          />
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={handleAddMember}
+        style={{ padding: '4px 8px', fontSize: 11, backgroundColor: '#e8f5e9', color: '#2e7d32', border: '1px solid #c8e6c9', borderRadius: 3, cursor: 'pointer', alignSelf: 'flex-start' }}
+      >
+        Add member simpleType
+      </button>
+    </div>
   );
 }
 
 /**
  * XmlAttributesManager - A reusable control for managing attributes on XML schema elements.
  * Supports add, edit, and remove operations on attributes for simpleType, complexType, or any schema node.
+ * Inherited attributes (from base types) are shown as read-only.
  * 
  * Usage:
  *   <XmlAttributesManager node={selectedNode} onChange={handleChange} />
@@ -377,6 +620,7 @@ export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) 
 
   // Get attributes from node data (passed from graphical-schema-editor)
   const attributes = data.xmlAttributes || [];
+  const availableTypes = (data.xmlAvailableTypes || []) as string[];
   const [showAddForm, setShowAddForm] = React.useState(false);
   const [newAttrName, setNewAttrName] = React.useState('');
   const [newAttrType, setNewAttrType] = React.useState('xs:string');
@@ -405,16 +649,21 @@ export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) 
 
   const handleRemoveAttribute = (index: number) => {
     if (!node) return;
-    onChange({ id: node.id, xmlRemoveAttributeIndex: index });
+    // Calculate the actual index in the non-inherited array (for XML operations)
+    const nonInheritedIndex = attributes.slice(0, index).filter((a: any) => !a.inherited).length;
+    onChange({ id: node.id, xmlRemoveAttributeIndex: nonInheritedIndex });
   };
 
   const handleUpdateAttribute = (index: number, field: string, value: string) => {
     if (!node) return;
+    // Calculate the actual index in the non-inherited array (for XML operations)
+    const nonInheritedIndex = attributes.slice(0, index).filter((a: any) => !a.inherited).length;
     const updated = { ...attributes[index], [field]: value };
-    onChange({ id: node.id, xmlUpdateAttributeIndex: { index, ...updated } });
+    onChange({ id: node.id, xmlUpdateAttributeIndex: { index: nonInheritedIndex, ...updated } });
   };
 
   const fieldStyle = { padding: 3, borderRadius: 3, border: '1px solid var(--graph-node-border)', background: 'var(--graph-node-bg)', color: 'var(--graph-node-text)', fontSize: 11 };
+  const inheritedFieldStyle = { ...fieldStyle, background: 'var(--graph-node-bg-subtle)', opacity: 0.7, cursor: 'not-allowed' };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0', borderTop: '1px solid var(--graph-sidebar-border)', marginTop: 8 }}>
@@ -423,42 +672,58 @@ export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) 
       {/* List existing attributes */}
       {attributes.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {attributes.map((attr: any, index: number) => (
-            <div key={index} style={{ display: 'flex', gap: 4, fontSize: 11, padding: 4, backgroundColor: 'var(--graph-node-bg-subtle)', borderRadius: 4 }}>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <input
-                  type="text"
-                  value={attr.name || ''}
-                  onChange={(e) => handleUpdateAttribute(index, 'name', e.target.value)}
-                  placeholder="name"
-                  style={fieldStyle}
-                />
-                <input
-                  type="text"
-                  value={attr.type || ''}
-                  onChange={(e) => handleUpdateAttribute(index, 'type', e.target.value)}
-                  placeholder="type"
-                  style={fieldStyle}
-                />
-                <select
-                  value={attr.use || 'optional'}
-                  onChange={(e) => handleUpdateAttribute(index, 'use', e.target.value)}
-                  style={fieldStyle}
-                >
-                  <option value="optional">optional</option>
-                  <option value="required">required</option>
-                  <option value="prohibited">prohibited</option>
-                </select>
+          {attributes.map((attr: any, index: number) => {
+            const isInherited = attr.inherited === true;
+            return (
+              <div key={index} style={{ display: 'flex', gap: 4, fontSize: 11, padding: 4, backgroundColor: isInherited ? 'var(--graph-node-bg-subtle)' : 'var(--graph-node-bg-subtle)', borderRadius: 4, opacity: isInherited ? 0.75 : 1, position: 'relative' }}>
+                {isInherited && (
+                  <div style={{ position: 'absolute', top: 2, right: 2, fontSize: 9, color: 'var(--graph-muted)', fontWeight: 500, padding: '2px 4px', backgroundColor: 'var(--graph-node-border)', borderRadius: 2 }}>
+                    inherited
+                  </div>
+                )}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, paddingRight: isInherited ? 50 : 0 }}>
+                  <input
+                    type="text"
+                    value={attr.name || ''}
+                    onChange={(e) => !isInherited && handleUpdateAttribute(index, 'name', e.target.value)}
+                    placeholder="name"
+                    disabled={isInherited}
+                    style={isInherited ? inheritedFieldStyle : fieldStyle}
+                  />
+                  <select
+                    value={attr.type || ''}
+                    onChange={(e) => !isInherited && handleUpdateAttribute(index, 'type', e.target.value)}
+                    disabled={isInherited}
+                    style={isInherited ? inheritedFieldStyle : fieldStyle}
+                  >
+                    <option value="">{isInherited ? attr.type || 'type' : 'Select type...'}</option>
+                    {availableTypes.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={attr.use || 'optional'}
+                    onChange={(e) => !isInherited && handleUpdateAttribute(index, 'use', e.target.value)}
+                    disabled={isInherited}
+                    style={isInherited ? inheritedFieldStyle : fieldStyle}
+                  >
+                    <option value="optional">optional</option>
+                    <option value="required">required</option>
+                    <option value="prohibited">prohibited</option>
+                  </select>
+                </div>
+                {!isInherited && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveAttribute(index)}
+                    style={{ padding: '4px 8px', fontSize: 11, backgroundColor: 'var(--color-error-4)', color: 'var(--color-error-11)', border: '1px solid var(--color-error-7)', borderRadius: 3, cursor: 'pointer' }}
+                  >
+                    Remove
+                  </button>
+                )}
               </div>
-              <button
-                type="button"
-                onClick={() => handleRemoveAttribute(index)}
-                style={{ padding: '4px 8px', fontSize: 11, backgroundColor: 'var(--color-error-4)', color: 'var(--color-error-11)', border: '1px solid var(--color-error-7)', borderRadius: 3, cursor: 'pointer' }}
-              >
-                Remove
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -484,13 +749,16 @@ export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) 
             onKeyDown={(e) => e.key === 'Enter' && handleAddAttribute()}
             style={fieldStyle}
           />
-          <input
-            type="text"
+          <select
             value={newAttrType}
             onChange={(e) => setNewAttrType(e.target.value)}
-            placeholder="Type (e.g., xs:string)"
             style={fieldStyle}
-          />
+          >
+            <option value="">Select type...</option>
+            {availableTypes.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
           <select
             value={newAttrUse}
             onChange={(e) => setNewAttrUse(e.target.value)}
@@ -598,7 +866,7 @@ function XmlComplexTypeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEdit
         Author sequence/choice/all via graph right-click. Edit min/max on the selected compositor node in RHS.
       </div>
       {!readOnly ? <XmlAttributesManager node={node} onChange={onChange} /> : null}
-      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
+      <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
     </form>
   );
 }
@@ -632,7 +900,7 @@ function XmlAttributeGroupEditor({ node, onChange, readOnlySource }: XmlNodeRhsE
         Attributes added here are shared by every <code>xs:attributeGroup ref="{name || '...'}"</code> that references this group.
       </div>
       {!readOnly ? <XmlAttributesManager node={node} onChange={onChange} /> : null}
-      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
+      <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
     </form>
   );
 }
@@ -697,6 +965,15 @@ function FacetsEditor({
   onChange: (next: SimpleTypeFacets) => void;
   ariaPrefix: string;
 }) {
+  const [expandedFacets, setExpandedFacets] = React.useState<Set<keyof SimpleTypeFacets>>(
+    new Set(Object.keys(facets || {}) as Array<keyof SimpleTypeFacets>)
+  );
+
+  React.useEffect(() => {
+    // Update expanded facets when facets prop changes
+    setExpandedFacets(new Set(Object.keys(facets || {}) as Array<keyof SimpleTypeFacets>));
+  }, [facets]);
+
   const handleFieldChange = (key: keyof SimpleTypeFacets, value: string) => {
     const next = { ...(facets || {}) };
     if (value) next[key] = value;
@@ -704,21 +981,116 @@ function FacetsEditor({
     onChange(next);
   };
 
+  const toggleFacet = (key: keyof SimpleTypeFacets) => {
+    const newExpanded = new Set(expandedFacets);
+    if (newExpanded.has(key)) {
+      newExpanded.delete(key);
+    } else {
+      newExpanded.add(key);
+    }
+    setExpandedFacets(newExpanded);
+  };
+
+  const deleteFacet = (key: keyof SimpleTypeFacets) => {
+    handleFieldChange(key, '');
+    const newExpanded = new Set(expandedFacets);
+    newExpanded.delete(key);
+    setExpandedFacets(newExpanded);
+  };
+
+  const definedFacets = Object.keys(facets || {}) as Array<keyof SimpleTypeFacets>;
+  const undefinedFacets = SIMPLE_TYPE_FACET_FIELDS.filter(([key]) => !definedFacets.includes(key) && !expandedFacets.has(key)).map(([key]) => key);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <span style={{ fontSize: 12, fontWeight: 500 }}>Facets</span>
-      {SIMPLE_TYPE_FACET_FIELDS.map(([key, label]) => (
-        <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ fontSize: 11 }}>{label}</span>
-          <input
-            type="text"
-            aria-label={`${ariaPrefix} ${label}`}
-            value={facets?.[key] ?? ''}
-            onChange={(e) => handleFieldChange(key, e.target.value)}
-            style={{ padding: 4, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
-          />
-        </label>
-      ))}
+
+      {/* Expanded/Defined Facets */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {SIMPLE_TYPE_FACET_FIELDS.map(([key, label]) => {
+          const isDefined = key in (facets || {});
+          const isExpanded = expandedFacets.has(key);
+
+          if (!isDefined && !isExpanded) return null;
+
+          return (
+            <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                <span style={{ fontSize: 11, minWidth: 80 }}>{label}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                <input
+                  type="text"
+                  aria-label={`${ariaPrefix} ${label}`}
+                  value={facets?.[key] ?? ''}
+                  onChange={(e) => handleFieldChange(key, e.target.value)}
+                  placeholder={isDefined ? undefined : 'Enter value...'}
+                  style={{ 
+                    padding: 4, 
+                    borderRadius: 3, 
+                    border: '1px solid #ddd', 
+                    fontSize: 11,
+                    flex: 1,
+                  }}
+                />
+                {isDefined && (
+                  <button
+                    type="button"
+                    onClick={() => deleteFacet(key)}
+                    title="Delete facet"
+                    style={{
+                      padding: '2px 6px',
+                      borderRadius: 3,
+                      border: '1px solid #ccc',
+                      backgroundColor: '#f5f5f5',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: '#666',
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Undefined Facets as Badges */}
+      {undefinedFacets.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {undefinedFacets.map((key) => {
+            const label = SIMPLE_TYPE_FACET_FIELDS.find(([k]) => k === key)?.[1] || '';
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggleFacet(key)}
+                title={`Add ${label} facet`}
+                style={{
+                  padding: '3px 8px',
+                  borderRadius: 12,
+                  border: '1px solid #ddd',
+                  backgroundColor: '#f9f9f9',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  fontWeight: 500,
+                  color: '#666',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <span>+</span>
+                <span>{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -1195,7 +1567,7 @@ function XmlAttributeSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps)
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>SimpleType Editor</div>
       <InlineSimpleTypeEditor value={value} onChange={handleChange} pathLabel="SimpleType" />
-      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
+      <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
     </form>
   );
 }
@@ -1272,7 +1644,7 @@ function XmlAttributeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditor
             <input aria-label="Attribute Default Value" value={defaultValue} readOnly disabled style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5' }} />
           </label>
         )}
-        <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
+        <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
       </form>
     );
   }
@@ -1384,7 +1756,7 @@ function XmlAttributeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditor
         />
         <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
       </label>
-      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
+      <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
     </form>
   );
 }
@@ -1429,7 +1801,7 @@ function XmlCompositorEditor({ node, onChange, readOnlySource }: XmlNodeRhsEdito
           placeholder="1 or unbounded"
         />
       </label>
-      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} disabled={readOnly} />
+      <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} disabled={readOnly} />
     </form>
   );
 }
@@ -1634,7 +2006,8 @@ function XmlElementEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorPr
           style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
         />
       </label>
-      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
+      {!readOnly ? <XmlAttributesManager node={node} onChange={onChange} /> : null}
+      <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
     </form>
   );
 }
@@ -1643,62 +2016,373 @@ function XmlElementEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorPr
  * Configuration for editable xs:schema properties.
  * Easily extensible to add more properties like blockDefault, finalDefault, version, id, etc.
  */
-const XML_SCHEMA_PROPERTY_CONFIGS: PropertyFieldConfig[] = [
-  {
-    label: 'targetNamespace',
-    dataKey: 'xmlTargetNamespace',
-    type: 'text',
-    placeholder: 'http://example.com/schema',
-    ariaLabel: 'Target Namespace',
-  },
-  {
-    label: 'elementFormDefault',
-    dataKey: 'xmlElementFormDefault',
-    type: 'select',
-    defaultValue: 'qualified',
-    options: [
-      { value: 'qualified', label: 'qualified' },
-      { value: 'unqualified', label: 'unqualified' },
-    ],
-    ariaLabel: 'Element Form Default',
-  },
-  {
-    label: 'attributeFormDefault',
-    dataKey: 'xmlAttributeFormDefault',
-    type: 'select',
-    defaultValue: 'unqualified',
-    options: [
-      { value: 'qualified', label: 'qualified' },
-      { value: 'unqualified', label: 'unqualified' },
-    ],
-    ariaLabel: 'Attribute Form Default',
-  },
-  {
-    label: 'blockDefault',
-    dataKey: 'xmlBlockDefault',
-    type: 'text',
-    placeholder: 'extension restriction substitution',
-    ariaLabel: 'Block Default',
-  },
-  {
-    label: 'finalDefault',
-    dataKey: 'xmlFinalDefault',
-    type: 'text',
-    placeholder: 'extension restriction',
-    ariaLabel: 'Final Default',
-  },
-  {
-    label: 'version',
-    dataKey: 'xmlVersion',
-    type: 'text',
-    placeholder: '1.0',
-    ariaLabel: 'Schema Version',
-  },
-];
+const XML_SCHEMA_PROPERTY_CONFIGS: PropertyFieldConfig[] = [];
 
-function XmlSchemaEditor({ node, onChange }: XmlNodeRhsEditorProps) {
+
+/**
+ * Editor for all schema root node attributes:
+ * - regular fields: targetNamespace, elementFormDefault, attributeFormDefault
+ * - toggle badges: blockDefault, finalDefault, version, xml:lang, xmlns:xsi, xsi:schemaLocation
+ * - list editor: custom xmlns:* namespace declarations
+ */
+function SpecialAttributesEditor({
+  node,
+  onChange,
+}: {
+  node: FlowNode<NodeData>;
+  onChange: (patch: Partial<NodeData>) => void;
+}) {
+  const data = (node.data || {}) as any;
+  const [expandedAttrs, setExpandedAttrs] = React.useState<Set<string>>(
+    new Set(
+      [
+        ...(data.xmlBlockDefault ? ['blockDefault'] : []),
+        ...(data.xmlFinalDefault ? ['finalDefault'] : []),
+        ...(data.xmlVersion ? ['version'] : []),
+        ...(data.xmlLang ? ['xml:lang'] : []),
+        ...(data.xmlnsXsi ? ['xmlns:xsi'] : []),
+        ...(data.xsiSchemaLocation ? ['xsi:schemaLocation'] : []),
+      ]
+    )
+  );
+
+  // Toggle badge attributes (optional, shown as badges when undefined)
+  const toggleAttrs: Array<[string, string, string]> = [
+    ['xmlBlockDefault', 'blockDefault', 'extension restriction substitution'],
+    ['xmlFinalDefault', 'finalDefault', 'extension restriction'],
+    ['xmlVersion', 'version', '1.0'],
+    ['xmlLang', 'xml:lang', 'en'],
+    ['xmlnsXsi', 'xmlns:xsi', 'http://www.w3.org/2001/XMLSchema-instance'],
+    ['xsiSchemaLocation', 'xsi:schemaLocation', 'http://example.com/schema schema.xsd'],
+  ];
+
+  const handleAttrChange = (key: string, value: string) => {
+    const patch: Record<string, any> = {};
+    patch[key] = value || undefined;
+    onChange({ id: node.id, ...patch });
+  };
+
+  const toggleAttr = (key: string) => {
+    const newExpanded = new Set(expandedAttrs);
+    if (newExpanded.has(key)) {
+      newExpanded.delete(key);
+    } else {
+      newExpanded.add(key);
+    }
+    setExpandedAttrs(newExpanded);
+  };
+
+  const deleteAttr = (displayName: string) => {
+    const dataKey = toggleAttrs.find(([, display]) => display === displayName)?.[0];
+    if (dataKey) {
+      handleAttrChange(dataKey, '');
+      const newExpanded = new Set(expandedAttrs);
+      newExpanded.delete(displayName);
+      setExpandedAttrs(newExpanded);
+    }
+  };
+
+  const undefinedAttrs = toggleAttrs.filter(
+    ([key, display]) => !data[key] && !expandedAttrs.has(display)
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <span style={{ fontSize: 12, fontWeight: 500 }}>Schema Attributes</span>
+
+      {/* Regular Form Fields */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {/* Target Namespace */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <label style={{ fontSize: 11, fontWeight: 500 }}>targetNamespace</label>
+          <input
+            type="text"
+            aria-label="Target Namespace"
+            value={data.xmlTargetNamespace ?? ''}
+            onChange={(e) => handleAttrChange('xmlTargetNamespace', e.target.value)}
+            placeholder="http://example.com/schema"
+            style={{
+              padding: 4,
+              borderRadius: 3,
+              border: '1px solid #ddd',
+              fontSize: 11,
+            }}
+          />
+        </div>
+
+        {/* Element Form Default */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <label style={{ fontSize: 11, fontWeight: 500 }}>elementFormDefault</label>
+          <select
+            aria-label="Element Form Default"
+            value={data.xmlElementFormDefault ?? 'qualified'}
+            onChange={(e) => handleAttrChange('xmlElementFormDefault', e.target.value)}
+            style={{
+              padding: 4,
+              borderRadius: 3,
+              border: '1px solid #ddd',
+              fontSize: 11,
+            }}
+          >
+            <option value="qualified">qualified</option>
+            <option value="unqualified">unqualified</option>
+          </select>
+        </div>
+
+        {/* Attribute Form Default */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <label style={{ fontSize: 11, fontWeight: 500 }}>attributeFormDefault</label>
+          <select
+            aria-label="Attribute Form Default"
+            value={data.xmlAttributeFormDefault ?? 'unqualified'}
+            onChange={(e) => handleAttrChange('xmlAttributeFormDefault', e.target.value)}
+            style={{
+              padding: 4,
+              borderRadius: 3,
+              border: '1px solid #ddd',
+              fontSize: 11,
+            }}
+          >
+            <option value="qualified">qualified</option>
+            <option value="unqualified">unqualified</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Toggle Badge Attributes */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {toggleAttrs.map(([key, display, placeholder]) => {
+          const isDefined = !!data[key];
+          const isExpanded = expandedAttrs.has(display);
+
+          if (!isDefined && !isExpanded) return null;
+
+          return (
+            <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                <span style={{ fontSize: 11, minWidth: 120 }}>{display}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                <input
+                  type="text"
+                  aria-label={`Schema attribute ${display}`}
+                  value={data[key] ?? ''}
+                  onChange={(e) => handleAttrChange(key, e.target.value)}
+                  placeholder={placeholder}
+                  style={{
+                    padding: 4,
+                    borderRadius: 3,
+                    border: '1px solid #ddd',
+                    fontSize: 11,
+                    flex: 1,
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => deleteAttr(display)}
+                  title="Delete attribute"
+                  style={{
+                    padding: '2px 6px',
+                    borderRadius: 3,
+                    border: '1px solid #ccc',
+                    backgroundColor: '#f5f5f5',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color: '#666',
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Undefined Toggle Attributes as Badges */}
+      {undefinedAttrs.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {undefinedAttrs.map(([, display]) => (
+            <button
+              key={display}
+              type="button"
+              onClick={() => toggleAttr(display)}
+              title={`Add ${display} attribute`}
+              style={{
+                padding: '3px 8px',
+                borderRadius: 12,
+                border: '1px solid #ddd',
+                backgroundColor: '#f9f9f9',
+                cursor: 'pointer',
+                fontSize: 11,
+                fontWeight: 500,
+                color: '#666',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <span>+</span>
+              <span>{display}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Custom Namespaces List Editor */}
+      <NamespacesListEditor node={node} onChange={onChange} />
+    </div>
+  );
+}
+
+/**
+ * Editor for custom xmlns:* namespace declarations.
+ */
+function NamespacesListEditor({
+  node,
+  onChange,
+}: {
+  node: FlowNode<NodeData>;
+  onChange: (patch: Partial<NodeData>) => void;
+}) {
+  const data = (node.data || {}) as any;
+  const namespaces = (data.xmlnsNamespaces as Array<{ prefix: string; uri: string }>) || [];
+  const [newPrefix, setNewPrefix] = React.useState('');
+  const [newUri, setNewUri] = React.useState('');
+
+  const handleAdd = () => {
+    if (!newPrefix.trim() || !newUri.trim()) return;
+    const updated = [...namespaces, { prefix: newPrefix, uri: newUri }];
+    onChange({ id: node.id, xmlnsNamespaces: updated });
+    setNewPrefix('');
+    setNewUri('');
+  };
+
+  const handleUpdate = (index: number, field: 'prefix' | 'uri', value: string) => {
+    const updated = namespaces.map((ns, i) =>
+      i === index ? { ...ns, [field]: value } : ns
+    );
+    onChange({ id: node.id, xmlnsNamespaces: updated });
+  };
+
+  const handleRemove = (index: number) => {
+    onChange({ id: node.id, xmlnsNamespaces: namespaces.filter((_, i) => i !== index) });
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span style={{ fontSize: 12, fontWeight: 500 }}>Custom Namespaces (xmlns:*)</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {namespaces.map((ns, index) => (
+          <div key={index} style={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+            <input
+              type="text"
+              placeholder="prefix"
+              value={ns.prefix}
+              onChange={(e) => handleUpdate(index, 'prefix', e.target.value)}
+              style={{
+                padding: 4,
+                borderRadius: 3,
+                border: '1px solid #ddd',
+                fontSize: 11,
+                minWidth: 80,
+              }}
+            />
+            <input
+              type="text"
+              placeholder="URI"
+              value={ns.uri}
+              onChange={(e) => handleUpdate(index, 'uri', e.target.value)}
+              style={{
+                padding: 4,
+                borderRadius: 3,
+                border: '1px solid #ddd',
+                fontSize: 11,
+                flex: 1,
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => handleRemove(index)}
+              title="Remove namespace"
+              style={{
+                padding: '2px 6px',
+                borderRadius: 3,
+                border: '1px solid #ccc',
+                backgroundColor: '#f5f5f5',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 500,
+                color: '#666',
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+      {/* Add New Namespace */}
+      <div style={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+        <input
+          type="text"
+          placeholder="prefix"
+          value={newPrefix}
+          onChange={(e) => setNewPrefix(e.target.value)}
+          style={{
+            padding: 4,
+            borderRadius: 3,
+            border: '1px solid #ddd',
+            fontSize: 11,
+            minWidth: 80,
+          }}
+        />
+        <input
+          type="text"
+          placeholder="URI"
+          value={newUri}
+          onChange={(e) => setNewUri(e.target.value)}
+          style={{
+            padding: 4,
+            borderRadius: 3,
+            border: '1px solid #ddd',
+            fontSize: 11,
+            flex: 1,
+          }}
+        />
+        <button
+          type="button"
+          onClick={handleAdd}
+          disabled={!newPrefix.trim() || !newUri.trim()}
+          title="Add namespace"
+          style={{
+            padding: '2px 6px',
+            borderRadius: 3,
+            border: '1px solid #ccc',
+            backgroundColor: !newPrefix.trim() || !newUri.trim() ? '#f0f0f0' : '#f9f9f9',
+            cursor: !newPrefix.trim() || !newUri.trim() ? 'not-allowed' : 'pointer',
+            fontSize: 12,
+            fontWeight: 500,
+            color: !newPrefix.trim() || !newUri.trim() ? '#aaa' : '#666',
+          }}
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function XmlSchemaEditor({ node, onChange, onToggleShowAnnotations, xmlShowAnnotations }: XmlNodeRhsEditorProps) {
   if (!node) return null;
   const data = (node.data || {}) as any;
+
+  const handleToggleShowAnnotations = (show: boolean) => {
+    if (onToggleShowAnnotations) {
+      onToggleShowAnnotations(show);
+    }
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1709,18 +2393,38 @@ function XmlSchemaEditor({ node, onChange }: XmlNodeRhsEditorProps) {
         nodeId={node.id}
         onChange={onChange}
       />
-      <XmlAnnotationField nodeId={node.id} value={String(data.xmlAnnotation || '')} onChange={onChange} />
+      <SpecialAttributesEditor node={node} onChange={onChange} />
+      
+      {/* Checkbox to show/hide annotation nodes in the graph */}
+      <div style={{ padding: '8px 12px', border: '1px solid var(--graph-node-border)', borderRadius: 4, backgroundColor: 'var(--graph-node-bg-subtle)' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--graph-node-text)' }}>
+          <input
+            type="checkbox"
+            checked={xmlShowAnnotations === true}
+            onChange={(e) => handleToggleShowAnnotations(e.target.checked)}
+            style={{ cursor: 'pointer' }}
+          />
+          <span>Show Annotations in Graph</span>
+        </label>
+        {xmlShowAnnotations === true && (
+          <div style={{ fontSize: 11, color: 'var(--graph-muted)', marginTop: 6 }}>
+            Annotation nodes appear in document order.
+          </div>
+        )}
+      </div>
+
+      <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
     </div>
   );
 }
 
-export function XmlNodeRhsEditor({ node, onChange }: XmlNodeRhsEditorProps) {
+export function XmlNodeRhsEditor({ node, onChange, onToggleShowAnnotations, xmlShowAnnotations }: XmlNodeRhsEditorProps) {
   if (!node) return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a node to edit XML properties.</div>;
   const data = (node.data || {}) as any;
   const kind = (data.xmlNodeKind || '') as XmlNodeKind;
   const readOnlySource = typeof data.xmlReadOnlySource === 'string' && data.xmlReadOnlySource ? data.xmlReadOnlySource : undefined;
 
-  if (kind === 'schema') return <XmlSchemaEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
+  if (kind === 'schema') return <XmlSchemaEditor node={node} onChange={onChange} onToggleShowAnnotations={onToggleShowAnnotations} xmlShowAnnotations={xmlShowAnnotations} readOnlySource={readOnlySource} />;
   if (kind === 'simpleType' && data.xmlIsAnonymous) return <XmlAttributeSimpleTypeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
   if (kind === 'simpleType') return <XmlSimpleTypeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
   if (kind === 'complexType') return <XmlComplexTypeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
