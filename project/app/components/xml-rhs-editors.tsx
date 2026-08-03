@@ -206,7 +206,7 @@ function XmlAnnotationField({
         value={text}
         disabled={disabled}
         onChange={(e) => setText(e.target.value)}
-        onBlur={() => onChange({ id: nodeId, xmlAnnotation: text } as Partial<NodeData>)}
+        onBlur={() => { if (text !== value) onChange({ id: nodeId, xmlAnnotation: text } as Partial<NodeData>); }}
         rows={3}
         style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', fontFamily: 'inherit', resize: 'vertical', background: disabled ? '#f5f5f5' : undefined }}
         placeholder="Documentation for this schema item"

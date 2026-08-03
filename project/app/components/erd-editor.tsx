@@ -78,7 +78,7 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
     return () => window.clearTimeout(timer);
   }, [focusedNavigation]);
 
-  const handleNavigationClick = (sourceTableId: string, navigation: ErdNavigation) => {
+  const handleNavigationClick = React.useCallback((sourceTableId: string, navigation: ErdNavigation) => {
     const target = resolveNavigationFocusTarget(normalizedModel, sourceTableId, navigation);
     setSelectedTableId(target.targetTableId);
     setFocusedNavigation(
@@ -88,38 +88,56 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
     );
     focusTokenRef.current += 1;
     setFocusRequest({ tableId: target.targetTableId, token: focusTokenRef.current });
-  };
+  }, [normalizedModel]);
+
+  const displayNodesRef = React.useRef<Map<string, any>>(new Map());
 
   // Inject the per-node click handler and highlight state without recomputing the layout.
-  const displayNodes = React.useMemo(() => nodes.map((node) => ({
-    ...node,
-    data: {
-      ...node.data,
-      onNavigationClick: (navigation: ErdNavigation) => handleNavigationClick(node.id, navigation),
-      highlightedNavigationName: focusedNavigation?.tableId === node.id ? focusedNavigation.navigationName : undefined,
-    },
-  })), [nodes, focusedNavigation, normalizedModel]);
+  // Only update nodes whose highlight state changed; skip nodes that haven't changed.
+  const displayNodes = React.useMemo(() => {
+    const cache = displayNodesRef.current;
+    return nodes.map((node) => {
+      const highlightedNavName = focusedNavigation?.tableId === node.id ? focusedNavigation.navigationName : undefined;
+      const cachedNode = cache.get(node.id);
+      
+      // Reuse cached node if both data identity and highlight are unchanged
+      if (cachedNode && cachedNode.node.data === node.data && cachedNode.highlight === highlightedNavName) {
+        return cachedNode.node;
+      }
+      
+      const updatedNode = {
+        ...node,
+        data: {
+          ...node.data,
+          onNavigationClick: handleNavigationClick,
+          highlightedNavigationName: highlightedNavName,
+        },
+      } as any;
+      
+      cache.set(node.id, { node: updatedNode, highlight: highlightedNavName });
+      return updatedNode;
+    });
+  }, [nodes, focusedNavigation, handleNavigationClick]);
 
-  const commitModel = (nextModel: ErdModel) => {
+  const commitModel = React.useCallback((nextModel: ErdModel) => {
     onChange?.(nextModel);
-  };
+  }, [onChange]);
 
-  const addSelectedTable = () => {
-
+  const addSelectedTable = React.useCallback(() => {
     const { model: nextModel, tableId } = addErdTable(normalizedModel);
     setSelectedTableId(tableId);
     commitModel(nextModel);
-  };
+  }, [normalizedModel, commitModel]);
 
-  const renameSelectedTable = (name: string) => {
+  const renameSelectedTable = React.useCallback((name: string) => {
     if (!selectedTable || !name.trim() || name === selectedTable.name) return;
     const nextName = name.trim();
     const nextModel = renameErdTable(normalizedModel, selectedTable.id, nextName);
     setSelectedTableId(nextName);
     commitModel(nextModel);
-  };
+  }, [normalizedModel, selectedTable, commitModel]);
 
-  const updateSelectedColumn = (columnName: string, nextColumn: Record<string, unknown>) => {
+  const updateSelectedColumn = React.useCallback((columnName: string, nextColumn: Record<string, unknown>) => {
     if (!selectedTable) return;
     const currentColumn = selectedTable.columns.find((column) => column.name === columnName);
     if (!currentColumn) return;
@@ -127,57 +145,121 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
       ...currentColumn,
       ...nextColumn,
     } as typeof currentColumn));
-  };
+  }, [normalizedModel, selectedTable, commitModel]);
 
-  const setColumnCurrentTimestamp = (columnName: string, enabled: boolean) => {
+  const setColumnCurrentTimestamp = React.useCallback((columnName: string, enabled: boolean) => {
     if (!selectedTable) return;
     updateSelectedColumn(columnName, {
       defaultGeneration: enabled ? 'current-timestamp' : undefined,
     });
-  };
+  }, [selectedTable, updateSelectedColumn]);
 
-  const updateSelectedRelationship = (relationshipId: string, nextRelationship: Partial<ErdModel['relationships'][number]>) => {
+  const updateSelectedRelationship = React.useCallback((relationshipId: string, nextRelationship: Partial<ErdModel['relationships'][number]>) => {
     commitModel(updateErdRelationship(normalizedModel, relationshipId, (relationship) => ({
       ...relationship,
       ...nextRelationship,
       foreignKeyColumns: nextRelationship.foreignKeyColumns ?? relationship.foreignKeyColumns,
     })));
-  };
+  }, [normalizedModel, commitModel]);
 
-  const addSelectedColumn = () => {
+  const addSelectedColumn = React.useCallback(() => {
     if (!selectedTable) return;
     commitModel(addErdTableColumn(normalizedModel, selectedTable.id));
-  };
+  }, [normalizedModel, selectedTable, commitModel]);
 
-  const removeSelectedColumn = (columnName: string) => {
+  const removeSelectedColumn = React.useCallback((columnName: string) => {
     if (!selectedTable) return;
     commitModel(deleteErdTableColumn(normalizedModel, selectedTable.id, columnName));
-  };
+  }, [normalizedModel, selectedTable, commitModel]);
 
-  const reorderSelectedColumn = (columnName: string, targetColumnName: string) => {
+  const reorderSelectedColumn = React.useCallback((columnName: string, targetColumnName: string) => {
     if (!selectedTable) return;
     commitModel(reorderErdTableColumns(normalizedModel, selectedTable.id, columnName, targetColumnName));
-  };
+  }, [normalizedModel, selectedTable, commitModel]);
 
-  const addSelectedRelationship = () => {
+  const addSelectedRelationship = React.useCallback(() => {
     if (!selectedTable) return;
     commitModel(addErdRelationship(normalizedModel, selectedTable.id));
-  };
+  }, [normalizedModel, selectedTable, commitModel]);
 
-  const removeSelectedRelationship = (relationshipId: string) => {
+  const removeSelectedRelationship = React.useCallback((relationshipId: string) => {
     commitModel(deleteErdRelationship(normalizedModel, relationshipId));
-  };
+  }, [normalizedModel, commitModel]);
 
-  const removeSelectedTable = () => {
+  const removeSelectedTable = React.useCallback(() => {
     if (!selectedTable) return;
     if (!window.confirm('are you sure you wish to delete this entity?')) return;
     setSelectedTableId(null);
     commitModel(deleteErdTable(normalizedModel, selectedTable.id));
-  };
+  }, [normalizedModel, selectedTable, commitModel]);
 
-  const handlePrintGraph = () => {
+  const handlePrintGraph = React.useCallback(() => {
     printErdModel(normalizedModel);
-  };
+  }, [normalizedModel]);
+
+  const handlePaneClick = React.useCallback(() => {
+    setSelectedTableId(null);
+  }, []);
+
+  const handleNodeDragStop = React.useCallback((event: any, node: Node<ErdTableNodeData>) => {
+    if (!onChange) return;
+    commitModel({
+      ...normalizedModel,
+      nodePositions: {
+        ...normalizedModel.nodePositions,
+        [node.id]: node.position,
+      },
+    });
+  }, [normalizedModel, onChange, commitModel]);
+
+  const handleNodeClick = React.useCallback((event: any, node: Node<ErdTableNodeData>) => {
+    setSelectedTableId(node.id);
+  }, []);
+
+  const handleColumnNameChange = React.useCallback((columnName: string, value: string) => {
+    updateSelectedColumn(columnName, { name: value });
+  }, [updateSelectedColumn]);
+
+  const handleColumnTypeChange = React.useCallback((columnName: string, value: string) => {
+    updateSelectedColumn(columnName, {
+      type: value,
+      defaultGeneration: isTimestampColumnType(value) ? selectedTable?.columns.find(c => c.name === columnName)?.defaultGeneration : undefined,
+    });
+  }, [updateSelectedColumn, selectedTable]);
+
+  const handleColumnNullableChange = React.useCallback((columnName: string, value: boolean) => {
+    updateSelectedColumn(columnName, { isNullable: value });
+  }, [updateSelectedColumn]);
+
+  const handleColumnPrimaryKeyChange = React.useCallback((columnName: string, value: boolean) => {
+    updateSelectedColumn(columnName, { isPrimaryKey: value });
+  }, [updateSelectedColumn]);
+
+  const handleCLRNameChange = React.useCallback((value: string) => {
+    commitModel(normalizeErdModel({
+      ...normalizedModel,
+      tables: normalizedModel.tables.map((table) => table.id === selectedTable?.id ? { ...table, clrName: value } : table),
+    }));
+  }, [normalizedModel, selectedTable?.id, commitModel]);
+
+  const handleDragStart = React.useCallback((columnName: string) => {
+    setDraggedColumnName(columnName);
+  }, []);
+
+  const handleDragEnd = React.useCallback(() => {
+    setDraggedColumnName(null);
+  }, []);
+
+  const handleDragOver = React.useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+  }, []);
+
+  const handleDrop = React.useCallback((draggedName: string, targetName: string) => {
+    if (draggedName && draggedName !== targetName) {
+      reorderSelectedColumn(draggedName, targetName);
+    }
+    setDraggedColumnName(null);
+  }, [reorderSelectedColumn]);
 
   return (
     <HorizontalSplitPane className={styles.erdEditor} defaultRightWidth={385} minRightWidth={280} minLeftWidth={360}>
@@ -190,19 +272,10 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
               nodeTypes={erdNodeTypes}
               fitView
               onNodesChange={onNodesChange}
-              onPaneClick={() => setSelectedTableId(null)}
-              onNodeDragStop={(_, node) => {
-                if (!onChange) return;
-                commitModel({
-                  ...normalizedModel,
-                  nodePositions: {
-                    ...normalizedModel.nodePositions,
-                    [node.id]: node.position,
-                  },
-                });
-              }}
+              onPaneClick={handlePaneClick}
+              onNodeDragStop={handleNodeDragStop}
               onEdgesChange={onEdgesChange}
-              onNodeClick={(_, node: Node<ErdTableNodeData>) => setSelectedTableId(node.id)}
+              onNodeClick={handleNodeClick}
             >
               <Controls />
               <Background />
@@ -241,10 +314,7 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
             </label>
             <label className={styles.field}>
               <span className={styles.fieldLabel}>CLR name</span>
-              <input aria-label="CLR name" className={styles.fieldInput} value={selectedTable.clrName} onChange={(event) => commitModel(normalizeErdModel({
-                ...normalizedModel,
-                tables: normalizedModel.tables.map((table) => table.id === selectedTable.id ? { ...table, clrName: event.target.value } : table),
-              }))} />
+              <input aria-label="CLR name" className={styles.fieldInput} value={selectedTable.clrName} onChange={(event) => handleCLRNameChange(event.target.value)} />
             </label>
 
             <div className={styles.sidebarSection}>
@@ -254,19 +324,14 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
               </div>
               {selectedTable.columns.length === 0 ? <p className={styles.muted}>No properties available for this table.</p> : selectedTable.columns.map((column) => (
                 <div
-                  key={column.name}
+                  key={`${selectedTable.id}-${column.name}`}
                   className={styles.propertyCard}
                   data-testid={`property-card-${column.name}`}
                   draggable
-                  onDragStart={() => setDraggedColumnName(column.name)}
-                  onDragEnd={() => setDraggedColumnName(null)}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={() => {
-                    if (draggedColumnName && draggedColumnName !== column.name) {
-                      reorderSelectedColumn(draggedColumnName, column.name);
-                    }
-                    setDraggedColumnName(null);
-                  }}
+                  onDragStart={() => handleDragStart(column.name)}
+                  onDragEnd={handleDragEnd}
+                  onDragOver={handleDragOver}
+                  onDrop={() => handleDrop(draggedColumnName ?? '', column.name)}
                 >
                   <div className={styles.cardHeader}>
                     <span className={styles.dragHandle} aria-hidden="true">⋮⋮</span>
@@ -279,7 +344,7 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
                       <input
                         className={styles.fieldInput}
                         defaultValue={column.name}
-                        onBlur={(event) => updateSelectedColumn(column.name, { name: event.target.value })}
+                        onBlur={(event) => handleColumnNameChange(column.name, event.target.value)}
                       />
                     </label>
                     <label className={styles.field}>
@@ -287,13 +352,7 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
                       <select
                         className={styles.fieldInput}
                         value={column.type}
-                        onChange={(event) => {
-                          const nextType = event.target.value;
-                          updateSelectedColumn(column.name, {
-                            type: nextType,
-                            defaultGeneration: isTimestampColumnType(nextType) ? column.defaultGeneration : undefined,
-                          });
-                        }}
+                        onChange={(event) => handleColumnTypeChange(column.name, event.target.value)}
                       >
                         {column.type && !commonPropertyTypes.includes(column.type) && <option value={column.type}>{column.type}</option>}
                         {commonPropertyTypes.map((type) => <option key={type} value={type}>{type}</option>)}
@@ -301,8 +360,8 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
                     </label>
                   </div>
                   <div className={styles.checkboxRow}>
-                    <label className={styles.checkboxLabel}><input type="checkbox" checked={column.isNullable} onChange={(event) => updateSelectedColumn(column.name, { isNullable: event.target.checked })} /> Nullable</label>
-                    <label className={styles.checkboxLabel}><input type="checkbox" checked={column.isPrimaryKey} onChange={(event) => updateSelectedColumn(column.name, { isPrimaryKey: event.target.checked })} /> Primary key</label>
+                    <label className={styles.checkboxLabel}><input type="checkbox" checked={column.isNullable} onChange={(event) => handleColumnNullableChange(column.name, event.target.checked)} /> Nullable</label>
+                    <label className={styles.checkboxLabel}><input type="checkbox" checked={column.isPrimaryKey} onChange={(event) => handleColumnPrimaryKeyChange(column.name, event.target.checked)} /> Primary key</label>
                     <span className={styles.columnBadge}>{column.isForeignKey ? `FK${column.foreignKeyTarget ? ` → ${column.foreignKeyTarget}` : ''}` : 'Regular'}</span>
                     {column.isPrimaryKey && isIdentityEligibleColumnType(column.type) && (
                       <span className={styles.columnBadge} title="Numeric primary keys are exported as IDENTITY columns">Auto</span>

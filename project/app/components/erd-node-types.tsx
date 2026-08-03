@@ -1,6 +1,6 @@
 import React from 'react';
 import { Handle, Position } from 'reactflow';
-import type { ErdColumn } from '../types/erd';
+import type { ErdColumn, ErdNavigation } from '../types/erd';
 import type { ErdTableNodeData } from '../utils/erd-graph';
 import styles from './erd-editor.module.css';
 
@@ -12,6 +12,20 @@ function columnIcon(column: ErdColumn): string {
 
 export function ErdTableNode({ data }: { data: ErdTableNodeData }) {
   const { table } = data;
+  
+  const handleNavigationClick = React.useCallback((event: React.MouseEvent, navigation: ErdNavigation) => {
+    event.stopPropagation();
+    data.onNavigationClick?.(table.id, navigation);
+  }, [data, table.id]);
+  
+  const handleNavigationKeyDown = React.useCallback((event: React.KeyboardEvent, navigation: ErdNavigation) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      event.stopPropagation();
+      data.onNavigationClick?.(table.id, navigation);
+    }
+  }, [data, table.id]);
+  
   return (
     <section className={styles.tableNode} aria-label={`Table ${table.name}`}>
       <Handle id="target-top" type="target" position={Position.Top} className={styles.handle} />
@@ -21,8 +35,8 @@ export function ErdTableNode({ data }: { data: ErdTableNodeData }) {
       <header className={styles.tableHeader}>{table.name}</header>
       <div className={styles.sectionLabel}>Properties</div>
       <div className={styles.columnList}>
-        {table.columns.map((column) => (
-          <div className={styles.columnRow} key={column.name}>
+        {table.columns.map((column, idx) => (
+          <div className={styles.columnRow} key={`${table.id}-col-${idx}`}>
             <span className={`${styles.columnMarker} ${styles[`marker${columnIcon(column)}`] || ''}`} aria-label={columnIcon(column) || undefined}>
               {columnIcon(column) === 'key' ? '◆' : columnIcon(column) === 'fk' ? '↳' : ''}
             </span>
@@ -35,23 +49,14 @@ export function ErdTableNode({ data }: { data: ErdTableNodeData }) {
         <>
           <div className={styles.sectionLabel}>Navigation Properties</div>
           <div className={styles.navigationList}>
-            {table.navigations.map((navigation) => (
+            {table.navigations.map((navigation, navIdx) => (
               <div
-                key={navigation.name}
+                key={`${table.id}-nav-${navIdx}`}
                 role="button"
                 tabIndex={0}
                 className={`${styles.navigationItem} ${data.highlightedNavigationName === navigation.name ? styles.navigationItemHighlighted : ''}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  data.onNavigationClick?.(navigation);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    data.onNavigationClick?.(navigation);
-                  }
-                }}
+                onClick={(event) => handleNavigationClick(event, navigation)}
+                onKeyDown={(event) => handleNavigationKeyDown(event, navigation)}
               >
                 {navigation.name}
               </div>

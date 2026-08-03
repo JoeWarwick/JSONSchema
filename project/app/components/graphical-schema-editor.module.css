@@ -46,21 +46,42 @@
 
 /* Node hover/selected states — overrides React Flow's stock (unstyled-for-custom-nodes)
    defaults. Scoped to this editor's wrapper so it doesn't leak into the ERD editor's
-   own React Flow instance. */
+   own React Flow instance.
+   React Flow's own stylesheet sets cursor on .react-flow__pane (grab) and swaps to
+   .react-flow__node.dragging (not :active) while dragging, and each custom node
+   component sets its own inline `background`/`color`, so those need !important here
+   to actually take effect. */
+.flowWrapper :global(.react-flow__pane) {
+  cursor: pointer !important;
+}
+
+.flowWrapper :global(.react-flow__pane.dragging) {
+  cursor: grabbing !important;
+}
+
 .flowWrapper :global(.react-flow__node) {
-  transition: box-shadow 120ms ease, outline-color 120ms ease;
+  transition: box-shadow 120ms ease, outline-color 120ms ease, background-color 120ms ease, color 120ms ease;
+  cursor: grab;
 }
 
-.flowWrapper :global(.react-flow__node:hover) {
-  z-index: 10;
-  box-shadow: var(--graph-node-shadow-strong);
+.flowWrapper :global(.react-flow__node.dragging) {
+  cursor: grabbing !important;
 }
 
-.flowWrapper :global(.react-flow__node.selected) {
+.flowWrapper :global(.react-flow__node:hover),
+.flowWrapper :global(.react-flow__node:hover > *) {
   z-index: 10;
-  outline: 2px solid var(--graph-node-border-selected, var(--color-accent-9));
-  outline-offset: 2px;
   box-shadow: var(--graph-node-shadow-strong);
+  background: color-mix(in srgb, var(--color-accent-7) 12%, var(--graph-node-bg)) !important;
+  color: var(--color-accent-11) !important;
+}
+
+.flowWrapper :global(.react-flow__node.selected),
+.flowWrapper :global(.react-flow__node.selected > *) {
+  z-index: 10;
+  box-shadow: var(--graph-node-shadow-strong);
+  background: color-mix(in srgb, var(--color-accent-7) 18%, var(--graph-node-bg)) !important;
+  color: var(--color-accent-11) !important;
 }
 
 .patternNode {

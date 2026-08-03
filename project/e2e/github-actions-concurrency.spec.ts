@@ -181,7 +181,7 @@ test.describe('GitHub Actions Concurrency Variant Switching (Nested)', () => {
     
     // The variant should have switched - verify by checking that the Concurrency form is now visible
     // rather than checking if the old value is gone (as the old input might still exist in DOM but be hidden)
-    let foundOldValue = false;
+    const foundOldValue = false;
     let foundConcurrencyFieldsVisible = false;
     const groupLabelsBefore = page.locator('text=Group');
     const groupCountBefore = await groupLabelsBefore.count();

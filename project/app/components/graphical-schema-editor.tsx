@@ -402,12 +402,35 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
   const pendingCenterNodeIdRef = React.useRef<string | null>(null);
   const pendingTimeoutsRef = React.useRef<number[]>([]);
   const isMountedRef = React.useRef(true);
+  const edgePositioningCacheRef = React.useRef<Map<string, Edge[]>>(new Map());
   // Only render ReactFlow when the wrapper has a measured non-zero height.
   // This avoids React Flow error #004 when the parent container has no height
   // at initial render (e.g. due to CSS/layout timing).
   const [canRenderFlow, setCanRenderFlow] = React.useState<boolean>(() => false);
   const [explicitHeight, setExplicitHeight] = React.useState<number | undefined>(undefined);
   const failedChecksRef = React.useRef<number>(0);
+
+  // Memoized edge positioning with caching to avoid recalculating positions
+  const applyEdgePositioningCached = React.useCallback((edges: Edge[], nodes: Node<SchemaNodeData>[]): Edge[] => {
+    const cache = edgePositioningCacheRef.current;
+    const cacheKey = nodes.map(n => `${n.id}:${Math.round(n.position.x)}:${Math.round(n.position.y)}`).join('|');
+    
+    // Always recompute when node positions have changed; if all edges are cached from a previous
+    // run with these same positions, we can reuse them. But if new edges were added (lazy-loaded),
+    // they won't be in the cache and need positioning from scratch.
+    const result = applyEdgePositioning(edges, nodes);
+    
+    // Cache the result for this node position set to avoid recomputation if called again
+    // with the same node positions. Clear old entries if cache gets too large.
+    cache.set(cacheKey, result);
+    if (cache.size > 50) {
+      const firstKey = cache.keys().next().value;
+      if (firstKey !== undefined) {
+        cache.delete(firstKey);
+      }
+    }
+    return result;
+  }, []);
 
   const scheduleTask = React.useCallback((task: () => void, delay = 0) => {
     const timeoutId = window.setTimeout(() => {
@@ -2599,6 +2622,61 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     const runtime = globalThis as typeof globalThis & { __graphicalSchemaExpansionState?: ExpansionState };
     runtime.__graphicalSchemaExpansionState = nextState;
   }, []);
+  // Persists which plain (property/globalType/enum) nodes the user has manually collapsed,
+  // keyed by globalThis like `__graphicalSchemaExpansionState` above, so that switching tabs
+  // away from and back to the graphical editor (which fully unmounts/remounts it) restores the
+  // user's own collapse state instead of resetting to the default "collapse everything below
+  // root's direct children" heuristic.
+  const collapsedNodeIdsRef = React.useRef<Set<string>>((() => {
+    const runtime = globalThis as typeof globalThis & { __graphicalSchemaCollapsedNodeIds?: Set<string> };
+    if (!runtime.__graphicalSchemaCollapsedNodeIds) {
+      runtime.__graphicalSchemaCollapsedNodeIds = new Set<string>();
+    }
+    return runtime.__graphicalSchemaCollapsedNodeIds;
+  })());
+  // Ids explicitly expanded (by the user, or by lazily fetching an already-visited node's
+  // children) — distinct from "absent from `collapsedNodeIdsRef`", which can also mean
+  // "never decided yet" (e.g. a node whose children weren't fetched during the initial lazy
+  // load). Without this, a rebuild that suddenly sees the node's real children for the first
+  // time (e.g. `visibleOnly: false` after some other node was toggled) would treat it as
+  // "never collapsed" and show it fully expanded instead of applying the collapsed default.
+  const expandedNodeIdsRef = React.useRef<Set<string>>((() => {
+    const runtime = globalThis as typeof globalThis & { __graphicalSchemaExpandedNodeIds?: Set<string> };
+    if (!runtime.__graphicalSchemaExpandedNodeIds) {
+      runtime.__graphicalSchemaExpandedNodeIds = new Set<string>();
+    }
+    return runtime.__graphicalSchemaExpandedNodeIds;
+  })());
+  // Tracks which schema (by fingerprint) `collapsedNodeIdsRef`/`expandedNodeIdsRef`/
+  // `hasUserToggledChildrenRef` currently describe, so that loading a genuinely *different*
+  // schema resets collapse tracking instead of accumulating unrelated node ids (and the
+  // "has ever toggled" flag) forever across every schema ever opened in this tab.
+  const collapsedNodeIdsSchemaKeyRef = React.useRef<string | null>((() => {
+    const runtime = globalThis as typeof globalThis & { __graphicalSchemaCollapsedNodeIdsKey?: string | null };
+    return runtime.__graphicalSchemaCollapsedNodeIdsKey ?? null;
+  })());
+  const resetCollapsedNodeIdsForSchema = React.useCallback((schemaKey: string | null) => {
+    if (collapsedNodeIdsSchemaKeyRef.current === schemaKey) return;
+    collapsedNodeIdsSchemaKeyRef.current = schemaKey;
+    collapsedNodeIdsRef.current.clear();
+    expandedNodeIdsRef.current.clear();
+    hasUserToggledChildrenRef.current = false;
+    const runtime = globalThis as typeof globalThis & {
+      __graphicalSchemaCollapsedNodeIdsKey?: string | null;
+      __graphicalSchemaUserToggledChildren?: boolean;
+    };
+    runtime.__graphicalSchemaCollapsedNodeIdsKey = schemaKey;
+    runtime.__graphicalSchemaUserToggledChildren = false;
+  }, []);
+  const hasUserToggledChildrenRef = React.useRef<boolean>((() => {
+    const runtime = globalThis as typeof globalThis & { __graphicalSchemaUserToggledChildren?: boolean };
+    return Boolean(runtime.__graphicalSchemaUserToggledChildren);
+  })());
+  const markUserToggledChildren = React.useCallback(() => {
+    hasUserToggledChildrenRef.current = true;
+    const runtime = globalThis as typeof globalThis & { __graphicalSchemaUserToggledChildren?: boolean };
+    runtime.__graphicalSchemaUserToggledChildren = true;
+  }, []);
   const setVariantExpandedPersisted = React.useCallback((variantId: string, expanded: boolean) => {
     const current = expansionStateRef.current;
     const nextVariants = { ...current.variants };
@@ -2778,7 +2856,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         // Newly revealed nodes had no real dagre position while hidden, so handles computed
         // against their old placeholder position can point at the parent's wrong (rear) side —
         // recompute now that finalNodes holds real laid-out positions.
-        setEdges(() => applyEdgePositioning(newEdges, finalNodes) as Edge[]);
+        setEdges(() => applyEdgePositioningCached(newEdges, finalNodes) as Edge[]);
         return finalNodes;
       }
 
@@ -2791,7 +2869,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           if ((n.data as any)?.parent === variantId) return { ...n, hidden: false };
           return n;
         }), willExpand_edges);
-        setEdges(() => applyEdgePositioning(willExpand_edges, finalNodes) as Edge[]);
+        setEdges(() => applyEdgePositioningCached(willExpand_edges, finalNodes) as Edge[]);
         return finalNodes;
       }
 
@@ -2846,10 +2924,18 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
   // children already exist in the graph (no lazy $ref resolution needed).
   const handleToggleNodeChildren = React.useCallback((nodeId: string) => {
     userToggledChildrenRef.current = true;
+    markUserToggledChildren();
     setNodes((prev: Node<SchemaNodeData>[]) => {
       const targetNode = prev.find(n => n.id === nodeId);
       if (!targetNode) return prev;
       const willCollapse = !(targetNode.data as any)?.childrenCollapsed;
+      if (willCollapse) {
+        collapsedNodeIdsRef.current.add(nodeId);
+        expandedNodeIdsRef.current.delete(nodeId);
+      } else {
+        collapsedNodeIdsRef.current.delete(nodeId);
+        expandedNodeIdsRef.current.add(nodeId);
+      }
       let nodesToUse = prev;
       let edgesToUse = edgesRef.current;
       if (isXmlGraphMode && !willCollapse && (targetNode.data as any).hasHiddenChildren) {
@@ -2866,6 +2952,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
               const nodeData = n.data as any;
               const hasChildren = childParentIds.has(n.id);
               const shouldCollapse = n.id !== nodeId && hasChildren && n.type !== 'combiner' && n.type !== 'variant' && !isXmlCompositorNode(n);
+              // Lazily-fetched nodes are collapsed by default (mirrors the initial-load
+              // heuristic in the schema-sync effect) — persist that so a later remount
+              // restores this node's collapsed state instead of showing it expanded.
+              if (shouldCollapse) collapsedNodeIdsRef.current.add(n.id);
               return {
                 ...n,
                 hidden: n.id !== nodeId && !directChildIds.has(n.id),
@@ -2924,16 +3014,23 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       // stale/default position), so the earlier-computed sourceHandle/targetHandle on these
       // edges can point at the wrong (rear) side of the parent — recompute from the now-laid-out
       // positions instead of reusing nextEdges' stale handles.
-      setEdges(() => applyEdgePositioning(nextEdges, anchored) as Edge[]);
+      setEdges(() => applyEdgePositioningCached(nextEdges, anchored) as Edge[]);
       return anchored;
     });
-  }, [collectDescendantIds, edgesRef, relayoutNodes, preserveAnchorY, setEdges, setNodes]);
+  }, [collectDescendantIds, edgesRef, relayoutNodes, preserveAnchorY, setEdges, setNodes, markUserToggledChildren]);
 
   const handleExpandAllChildren = React.useCallback((nodeId: string) => {
     userToggledChildrenRef.current = true;
+    markUserToggledChildren();
     const currentNodes = nodesRef.current;
     const descendantIdsArray = collectDescendantIds(nodeId, currentNodes);
     const descendantIds = new Set<string>(descendantIdsArray);
+    collapsedNodeIdsRef.current.delete(nodeId);
+    expandedNodeIdsRef.current.add(nodeId);
+    descendantIdsArray.forEach((id) => {
+      collapsedNodeIdsRef.current.delete(id);
+      expandedNodeIdsRef.current.add(id);
+    });
     const combinerIds: string[] = [];
     const variantIds: string[] = [];
     currentNodes.forEach((n) => {
@@ -2968,13 +3065,13 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       );
       const laid = relayoutNodes(updated, nextEdges);
       const anchored = preserveAnchorY(laid, prev, nodeId);
-      setEdges(() => applyEdgePositioning(nextEdges, anchored) as Edge[]);
+      setEdges(() => applyEdgePositioningCached(nextEdges, anchored) as Edge[]);
       return anchored;
     });
 
     combinerIds.forEach((id) => setCombinerExpandedPersisted(id, true));
     variantIds.forEach((id) => setVariantExpandedPersisted(id, true));
-  }, [collectDescendantIds, edgesRef, preserveAnchorY, relayoutNodes, setCombinerExpandedPersisted, setVariantExpandedPersisted, setEdges, setNodes]);
+  }, [collectDescendantIds, edgesRef, preserveAnchorY, relayoutNodes, setCombinerExpandedPersisted, setVariantExpandedPersisted, setEdges, setNodes, markUserToggledChildren]);
 
   // Add a new blank variant to a combiner node
   const handleAddVariant = React.useCallback((combinerId: string) => {
@@ -3168,7 +3265,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       );
       // Revealed variants had no real dagre position while hidden, so recompute handles from
       // the now-laid-out positions instead of reusing toggledEdges' stale (rear-side) handles.
-      setEdges(() => applyEdgePositioning(toggledEdges, finalNodes) as Edge[]);
+      setEdges(() => applyEdgePositioningCached(toggledEdges, finalNodes) as Edge[]);
       return finalNodes;
     });
   }, [relayoutNodes, preserveAnchorY, setCombinerExpandedPersisted]);
@@ -3302,6 +3399,16 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       }
       
       emitLocalSchemaUpdate(updated);
+
+      // Annotation is stored per graph node's own `data` (even for a read-only ref expansion) and
+      // never changes node/edge shape, so patch it in place instead of rebuilding the whole graph.
+      const patchKeys = Object.keys(patch).filter((key) => key !== 'id');
+      if (patchKeys.length === 1 && patchKeys[0] === 'xmlAnnotation') {
+        setNodes((prevNodes) => prevNodes.map((n) => (
+          n.id === patch.id ? { ...n, data: { ...n.data, xmlAnnotation: patch.xmlAnnotation } } : n
+        )));
+        return;
+      }
       
       // Rebuild the graph data from the updated schema so all changes are reflected.
       const rawRebuilt = schemaToGraph(updated as Record<string, unknown>);
@@ -3338,7 +3445,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           const existing = currentEdgesById.get(e.id);
           return existing ? { ...e, hidden: existing.hidden } : e;
         });
-        setEdges(applyEdgePositioning(positionedEdges, positionedNodes) as Edge[]);
+        setEdges(applyEdgePositioningCached(positionedEdges, positionedNodes) as Edge[]);
         return;
       }
 
@@ -3347,7 +3454,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
       );
       setNodes(laidOutNodes);
-      setEdges(applyEdgePositioning(rawRebuilt.edges, laidOutNodes) as Edge[]);
+      setEdges(applyEdgePositioningCached(rawRebuilt.edges, laidOutNodes) as Edge[]);
       return;
     }
     
@@ -3534,6 +3641,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     if (useTestData) return;
     const activeSchema = schema;
     if (!activeSchema) return;
+    // If this is genuinely a different schema than the one `collapsedNodeIdsRef` was tracking
+    // (not just a reference change to equivalent/related content), drop the persisted collapse
+    // state — otherwise it would keep accumulating node ids for every schema ever opened.
+    resetCollapsedNodeIdsForSchema(fingerprintSchema(activeSchema));
     // Normalize schema for graph: if top-level is a $ref into $defs, hoist that definition
     const normalizeForGraph = (root: any) => {
       if (!root || typeof root !== 'object') return root;
@@ -3565,8 +3676,15 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     };
     const schemaForGraph = normalizeForGraph(activeSchema);
     const isInitialLoad = !userToggledChildrenRef.current;
+    // A genuinely fresh load (nothing collapsed yet, ever — including in prior mounts of this
+    // component, e.g. before the user switched tabs away and back) can use the cheap lazy
+    // `visibleOnly` graph build. Once the user has collapsed/expanded anything (persisted in
+    // `collapsedNodeIdsRef`, which survives remounts), we need the full graph so we can restore
+    // their exact collapse state below instead of falling back to "everything expanded".
+    const hasPersistedCollapse = collapsedNodeIdsRef.current.size > 0;
+    const useDefaultCollapseHeuristic = isInitialLoad && !hasPersistedCollapse && !hasUserToggledChildrenRef.current;
     const rawGraph = isXmlGraphMode
-      ? xmlSchemaToGraph(schemaForGraph, { visibleOnly: isInitialLoad })
+      ? xmlSchemaToGraph(schemaForGraph, { visibleOnly: useDefaultCollapseHeuristic })
       : schemaToGraph(schemaForGraph);
     const restoredExpansionState = expansionStateRef.current;
     const nodesWithRestoredExpansion = rawGraph.nodes.map((n) => {
@@ -3603,7 +3721,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     const hiddenNodes: Node<SchemaNodeData>[] = [];
     const hiddenEdges: Edge[] = [];
 
-    if (isInitialLoad && rootNodeForCollapse) {
+    // Recompute visibility whenever we have a root to anchor the BFS from — not just on the
+    // very first ever load — so that a structural rebuild (e.g. triggered by an unrelated
+    // schema edit, or by this component remounting on a tab switch) restores the user's own
+    // collapse state (from `collapsedNodeIdsRef`) instead of silently showing everything expanded.
+    if (rootNodeForCollapse) {
       const parentIds = new Set<string>();
       nodesWithRestoredExpansion.forEach((n) => {
         const parent = (n.data as any)?.parent;
@@ -3612,8 +3734,22 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const primedNodes = nodesWithRestoredExpansion.map((n) => {
         if (n.id === rootNodeForCollapse.id) return n;
         const isXmlCompositor = isXmlCompositorNode(n);
-        const needsCollapseFlag = !isXmlCompositor && (n.type === 'property' || n.type === 'globalType' || n.type === 'enum') && parentIds.has(n.id);
-        return needsCollapseFlag ? { ...n, data: { ...n.data, childrenCollapsed: true } } : n;
+        const canCollapse = !isXmlCompositor && (n.type === 'property' || n.type === 'globalType' || n.type === 'enum') && parentIds.has(n.id);
+        if (!canCollapse) return n;
+        // Three-state decision per node: explicitly collapsed, explicitly expanded, or
+        // "never decided yet" (e.g. its children weren't visible during an earlier lazy
+        // build) — the last case falls back to the collapsed-by-default heuristic and
+        // records the decision so future rebuilds/remounts stay consistent.
+        let shouldCollapse: boolean;
+        if (collapsedNodeIdsRef.current.has(n.id)) {
+          shouldCollapse = true;
+        } else if (expandedNodeIdsRef.current.has(n.id)) {
+          shouldCollapse = false;
+        } else {
+          shouldCollapse = true;
+          collapsedNodeIdsRef.current.add(n.id);
+        }
+        return { ...n, data: { ...n.data, childrenCollapsed: shouldCollapse } };
       });
 
       const nodeById = new Map(primedNodes.map((n) => [n.id, n]));
@@ -3649,7 +3785,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } }
         : n
     );
-    const edges = applyEdgePositioning(visibleEdgesForLayout, nodes);
+    const edges = applyEdgePositioningCached(visibleEdgesForLayout, nodes);
     // Only rebuild nodes/edges if the count changes (structural change)
     // Store label of selected node before graph rebuild
     setNodes(prevNodes => {
@@ -3715,7 +3851,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       setEdges(edges);
     }
     // Otherwise, do not reset selection (preserve selection and form)
-  }, [schema, setNodes, setEdges, useTestData, schemaToGraph, fingerprintSchema, relayoutNodes, restoreExpandedStateRecursively, scheduleTask, isXmlGraphMode]);
+  }, [schema, setNodes, setEdges, useTestData, schemaToGraph, fingerprintSchema, relayoutNodes, restoreExpandedStateRecursively, scheduleTask, isXmlGraphMode, resetCollapsedNodeIdsForSchema]);
 
   // Note: dereferencing is handled by the top-level reducer/workbench.
 
@@ -3853,7 +3989,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       );
       const rebuiltNodes = preserveAnchorY(laidOutNodes, nodesRef.current, draggedNodeId);
       setNodes(rebuiltNodes);
-      setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+      setEdges(applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[]);
       return;
     }
 
@@ -3879,7 +4015,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     );
     const rebuiltNodes = preserveAnchorY(laidOutNodes, currentNodes, draggedNodeId);
     setNodes(rebuiltNodes);
-    setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+    setEdges(applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[]);
   };
 
   // Snapshot of the dragged node's start position + its descendants' start positions, captured
@@ -4055,7 +4191,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
     );
     const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, parentNode.id);
-    const rebuiltEdges = applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[];
+    const rebuiltEdges = applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[];
     setNodes(rebuiltNodes);
     setEdges(rebuiltEdges);
 
@@ -4155,7 +4291,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
     );
     const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, parentNode.id);
-    const rebuiltEdges = applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[];
+    const rebuiltEdges = applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[];
     setNodes(rebuiltNodes);
     setEdges(rebuiltEdges);
 
@@ -4287,7 +4423,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
     );
     const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, parentNode.id);
-    const rebuiltEdges = applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[];
+    const rebuiltEdges = applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[];
     setNodes(rebuiltNodes);
     setEdges(rebuiltEdges);
 
@@ -4434,7 +4570,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
     );
     setNodes(laidOutNodes);
-    setEdges(applyEdgePositioning(rawRebuilt.edges, laidOutNodes) as Edge[]);
+    setEdges(applyEdgePositioningCached(rawRebuilt.edges, laidOutNodes) as Edge[]);
     setSelectedNodeId(null);
     setContextMenu(null);
   }, [nodes, contextMenu, schema, emitLocalSchemaUpdate, schemaToGraph, relayoutNodes]);
@@ -4531,7 +4667,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     );
     const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, ctxNode.id);
     setNodes(rebuiltNodes);
-    setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+    setEdges(applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[]);
 
     const newNodeId = `${ctxNode.id}.${compositorKind}`;
     if (rebuiltNodes.some((n) => n.id === newNodeId)) {
@@ -4588,7 +4724,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     );
     const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, ctxNode.id);
     setNodes(rebuiltNodes);
-    setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+    setEdges(applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[]);
 
     setContextMenu(null);
   };
@@ -4629,7 +4765,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     );
     const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, ctxNode.id);
     setNodes(rebuiltNodes);
-    setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+    setEdges(applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[]);
 
     setContextMenu(null);
   };
@@ -4655,7 +4791,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     );
     const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, ctxNode.id);
     setNodes(rebuiltNodes);
-    setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+    setEdges(applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[]);
 
     setContextMenu(null);
   };
@@ -4685,7 +4821,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     );
     const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, ctxNode.id);
     setNodes(rebuiltNodes);
-    setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+    setEdges(applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[]);
 
     setContextMenu(null);
   };
@@ -4725,7 +4861,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const schemaNode = nodes.find(n => n.id === '1');
       const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, schemaNode?.id);
       setNodes(rebuiltNodes);
-      setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+      setEdges(applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[]);
     } catch (err) {
       console.error('Failed to add element to schema:', err);
     }
@@ -4766,7 +4902,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const schemaNode = nodes.find(n => n.id === '1');
       const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, schemaNode?.id);
       setNodes(rebuiltNodes);
-      setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+      setEdges(applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[]);
     } catch (err) {
       console.error('Failed to add attribute to schema:', err);
     }
@@ -4806,7 +4942,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const schemaNode = nodes.find(n => n.id === '1');
       const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, schemaNode?.id);
       setNodes(rebuiltNodes);
-      setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+      setEdges(applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[]);
     } catch (err) {
       console.error('Failed to add complexType to schema:', err);
     }
@@ -4846,7 +4982,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const schemaNode = nodes.find(n => n.id === '1');
       const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, schemaNode?.id);
       setNodes(rebuiltNodes);
-      setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+      setEdges(applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[]);
     } catch (err) {
       console.error('Failed to add simpleType to schema:', err);
     }
@@ -4886,7 +5022,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const schemaNode = nodes.find(n => n.id === '1');
       const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, schemaNode?.id);
       setNodes(rebuiltNodes);
-      setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+      setEdges(applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[]);
     } catch (err) {
       console.error('Failed to add attributeGroup to schema:', err);
     }
@@ -5005,7 +5141,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     );
     const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, ctxNode.id);
     setNodes(rebuiltNodes);
-    setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+    setEdges(applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[]);
 
     const newNodeId = `${ctxNode.id}.simpleType`;
     if (rebuiltNodes.some((n) => n.id === newNodeId)) {
@@ -5061,7 +5197,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     );
     const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, ctxNode.id);
     setNodes(rebuiltNodes);
-    setEdges(applyEdgePositioning(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+    setEdges(applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[]);
     setSelectedNodeId(ctxNode.id);
 
     setContextMenu(null);
