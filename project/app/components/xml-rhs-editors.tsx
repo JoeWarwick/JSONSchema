@@ -1542,8 +1542,8 @@ function XmlElementEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorPr
           />
         )}
       </label>
-      <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+      <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
           <span style={{ fontSize: 12 }}>minOccurs</span>
           <input
             aria-label="minOccurs"
@@ -1552,10 +1552,10 @@ function XmlElementEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorPr
             onChange={(e) => setMinOccurs(e.target.value)}
             onBlur={() => onChange({ id: node.id, xmlMinOccurs: minOccurs })}
             placeholder="1"
-            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' }}
           />
         </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
           <span style={{ fontSize: 12 }}>maxOccurs</span>
           <input
             aria-label="maxOccurs"
@@ -1564,12 +1564,12 @@ function XmlElementEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorPr
             onChange={(e) => setMaxOccurs(e.target.value)}
             onBlur={() => onChange({ id: node.id, xmlMaxOccurs: maxOccurs })}
             placeholder="1 or unbounded"
-            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' }}
           />
         </label>
       </label>
-      <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+      <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
           <span style={{ fontSize: 12 }}>default</span>
           <input
             aria-label="default value"
@@ -1578,10 +1578,10 @@ function XmlElementEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorPr
             onChange={(e) => setDefaultValue(e.target.value)}
             onBlur={() => onChange({ id: node.id, xmlDefault: defaultValue })}
             placeholder="(none)"
-            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' }}
           />
         </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
           <span style={{ fontSize: 12 }}>fixed</span>
           <input
             aria-label="fixed value"

@@ -50,6 +50,7 @@ const INSTANCE_STORAGE_KEY = 'schema-sculptor-instance';
 const DEREF_COMPLETE_STORAGE_KEY = 'schema-sculptor-deref-complete';
 const DEREF_ERROR_STORAGE_KEY = 'schema-sculptor-deref-error';
 const ERD_STORAGE_KEY = 'schema-sculptor-erd';
+const ACTIVE_TAB_STORAGE_KEY = 'schema-sculptor-active-tab';
 
 // Language-specific storage keys for preserving markup across language switches
 const getLanguageInstanceKey = (lang: MarkupLanguage) => `schema-sculptor-instance-${lang}`;
@@ -137,6 +138,13 @@ export default function Workbench() {
     skipEnsureResolvedRef.current = true;
     dispatch({ type: APPLY_RESOLVED_EDIT, payload: newSchema });
   };
+
+  // Guards against a race where an in-flight `ensureResolved` call for a stale
+  // `state.source` (e.g. the initial `null` source, before localStorage hydration
+  // has dispatched the real persisted source) resolves *after* a newer call and
+  // overwrites its `resolvedCache` — dispatch happens inside `ensureResolved`
+  // itself, so the effect's own `cancelled` flag can't stop it.
+  const ensureResolvedRequestIdRef = useRef(0);
   
   // Move hydration to useEffect to avoid synchronous storage access during render
   // Use setTimeout to defer until next macrotask so test's render() doesn't detect storage access
@@ -400,16 +408,21 @@ export default function Workbench() {
       skipEnsureResolvedRef.current = false;
       return;
     }
-    let cancelled = false;
+    const requestId = ++ensureResolvedRequestIdRef.current;
+    const guardedDispatch: typeof dispatch = (action) => {
+      // Drop dispatches from a superseded call so a slow resolution of an old
+      // `state.source` can't clobber the resolvedCache of a newer one.
+      if (ensureResolvedRequestIdRef.current === requestId) {
+        dispatch(action);
+      }
+    };
     (async () => {
-      if (cancelled) return;
       try {
-        await ensureResolved(dispatch, state.source);
+        await ensureResolved(guardedDispatch, state.source);
       } catch (_) {
         /* ignore error */
       }
     })();
-    return () => { cancelled = true; };
   }, [state.source]);
 
   // Persist canonical source only after dereferencing completes so saved
@@ -513,6 +526,7 @@ export default function Workbench() {
       localStorage.removeItem(DEREF_COMPLETE_STORAGE_KEY);
       localStorage.removeItem(DEREF_ERROR_STORAGE_KEY);
       localStorage.removeItem(LANGUAGE_PREFERENCE_KEY);
+      localStorage.removeItem(ACTIVE_TAB_STORAGE_KEY);
       // Also clear language-specific instance keys
       localStorage.removeItem(getLanguageInstanceKey('json'));
       localStorage.removeItem(getLanguageInstanceKey('yaml'));
@@ -581,12 +595,15 @@ export default function Workbench() {
         if (fileName.endsWith('.xml') || fileName.endsWith('.xsd')) {
           lang = 'xml';
           setMarkupLanguageState('xml');
+          localStorage.setItem(LANGUAGE_PREFERENCE_KEY, 'xml');
         } else if (fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
           lang = 'yaml';
           setMarkupLanguageState('yaml');
+          localStorage.setItem(LANGUAGE_PREFERENCE_KEY, 'yaml');
         } else if (fileName.endsWith('.json')) {
           lang = 'json';
           setMarkupLanguageState('json');
+          localStorage.setItem(LANGUAGE_PREFERENCE_KEY, 'json');
         }
         
         const parsed = parseMarkup(content, lang);
@@ -657,9 +674,11 @@ export default function Workbench() {
         if (fileName.endsWith('.xml') || fileName.endsWith('.xsd')) {
           lang = 'xml';
           setMarkupLanguageState('xml');
+          localStorage.setItem(LANGUAGE_PREFERENCE_KEY, 'xml');
         } else if (fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
           lang = 'yaml';
           setMarkupLanguageState('yaml');
+          localStorage.setItem(LANGUAGE_PREFERENCE_KEY, 'yaml');
         }
         
         const parsedSchema = parseMarkup(content, lang) as Record<string, unknown>;
@@ -700,9 +719,11 @@ export default function Workbench() {
       if (schemaUrl.endsWith('.xml') || schemaUrl.endsWith('.xsd')) {
         lang = 'xml';
         setMarkupLanguageState('xml');
+        localStorage.setItem(LANGUAGE_PREFERENCE_KEY, 'xml');
       } else if (schemaUrl.endsWith('.yaml') || schemaUrl.endsWith('.yml')) {
         lang = 'yaml';
         setMarkupLanguageState('yaml');
+        localStorage.setItem(LANGUAGE_PREFERENCE_KEY, 'yaml');
       }
       
       const data = parseMarkup(text, lang) as Record<string, unknown>;
@@ -933,6 +954,35 @@ export default function Workbench() {
 
   // Tabbed UI state
   const [activeTab, setActiveTab] = useState<'json' | 'schema' | 'instance' | 'output' | 'graph' | 'erd'>('json');
+  const [hasHydratedActiveTab, setHasHydratedActiveTab] = useState(false);
+
+  // Restore last active tab from localStorage - deferred to avoid sync storage access during render
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const timer = window.setTimeout(() => {
+      try {
+        const savedTab = window.localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+        if (savedTab && ['json', 'schema', 'instance', 'output', 'graph', 'erd'].includes(savedTab)) {
+          setActiveTab(savedTab as typeof activeTab);
+        }
+      } catch (_) {
+        // ignore localStorage errors
+      } finally {
+        setHasHydratedActiveTab(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  // Persist active tab whenever it changes, once the saved tab has been restored
+  useEffect(() => {
+    if (typeof window === 'undefined' || !hasHydratedActiveTab) return;
+    try {
+      window.localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
+    } catch (_) {
+      // ignore localStorage errors
+    }
+  }, [activeTab, hasHydratedActiveTab]);
 
   // Debug: record tab changes and resolved/source swap events for E2E/manual debugging
   useEffect(() => {

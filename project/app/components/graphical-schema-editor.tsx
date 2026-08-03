@@ -28,6 +28,66 @@ import { printGraphSection } from '../utils/print-graph';
 import "reactflow/dist/style.css";
 import styles from "./graphical-schema-editor.module.css";
 
+// Persists node collapse/expand state across a real browser refresh (globalThis alone only
+// survives a tab switch within the same page load, since it's wiped on reload).
+const COLLAPSE_STATE_STORAGE_KEY = 'schema-sculptor-graph-collapse-state';
+
+interface PersistedCollapseState {
+  schemaKey: string | null;
+  collapsed: string[];
+  expanded: string[];
+  userToggled: boolean;
+}
+
+function loadPersistedCollapseState(): PersistedCollapseState | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(COLLAPSE_STATE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return {
+      schemaKey: typeof parsed.schemaKey === 'string' ? parsed.schemaKey : null,
+      collapsed: Array.isArray(parsed.collapsed) ? parsed.collapsed : [],
+      expanded: Array.isArray(parsed.expanded) ? parsed.expanded : [],
+      userToggled: Boolean(parsed.userToggled),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function savePersistedCollapseState(state: PersistedCollapseState) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(COLLAPSE_STATE_STORAGE_KEY, JSON.stringify(state));
+  } catch (_) {
+    // ignore (e.g. storage disabled or quota exceeded)
+  }
+}
+
+// Runs once per JS realm (i.e. once per real page load) to seed the globalThis-backed
+// collapse-state containers from localStorage before any component instance reads them —
+// without this, a fresh page load starts with empty globalThis containers even though the
+// user's collapse shape was saved from the previous page load.
+function hydrateCollapseStateFromStorageIfNeeded() {
+  const runtime = globalThis as typeof globalThis & {
+    __graphicalSchemaCollapseHydratedFromStorage?: boolean;
+    __graphicalSchemaCollapsedNodeIds?: Set<string>;
+    __graphicalSchemaExpandedNodeIds?: Set<string>;
+    __graphicalSchemaCollapsedNodeIdsKey?: string | null;
+    __graphicalSchemaUserToggledChildren?: boolean;
+  };
+  if (runtime.__graphicalSchemaCollapseHydratedFromStorage) return;
+  runtime.__graphicalSchemaCollapseHydratedFromStorage = true;
+  const persisted = loadPersistedCollapseState();
+  if (!persisted) return;
+  runtime.__graphicalSchemaCollapsedNodeIds = new Set(persisted.collapsed);
+  runtime.__graphicalSchemaExpandedNodeIds = new Set(persisted.expanded);
+  runtime.__graphicalSchemaCollapsedNodeIdsKey = persisted.schemaKey;
+  runtime.__graphicalSchemaUserToggledChildren = persisted.userToggled;
+}
+
 // Helper functions for edge positioning — connect to the nearest side of parent nodes
 function positionForDirection(dx: number): Position {
   // Only Left/Right handles are guaranteed to exist on every node type (Top/Bottom
@@ -2627,6 +2687,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
   // away from and back to the graphical editor (which fully unmounts/remounts it) restores the
   // user's own collapse state instead of resetting to the default "collapse everything below
   // root's direct children" heuristic.
+  hydrateCollapseStateFromStorageIfNeeded();
   const collapsedNodeIdsRef = React.useRef<Set<string>>((() => {
     const runtime = globalThis as typeof globalThis & { __graphicalSchemaCollapsedNodeIds?: Set<string> };
     if (!runtime.__graphicalSchemaCollapsedNodeIds) {
@@ -2658,15 +2719,32 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
   const resetCollapsedNodeIdsForSchema = React.useCallback((schemaKey: string | null) => {
     if (collapsedNodeIdsSchemaKeyRef.current === schemaKey) return;
     collapsedNodeIdsSchemaKeyRef.current = schemaKey;
-    collapsedNodeIdsRef.current.clear();
-    expandedNodeIdsRef.current.clear();
-    hasUserToggledChildrenRef.current = false;
+    // Rather than unconditionally clearing, check whether this exact schema already has a
+    // persisted collapse shape from a previous page load — without this, a transient earlier
+    // render with a *different* (e.g. default/placeholder, pre-hydration) schema would clear the
+    // globalThis containers that were just seeded from localStorage for this schema before this
+    // schema's own render ever got a chance to use them, permanently losing the restored shape.
+    const persisted = loadPersistedCollapseState();
+    if (persisted && persisted.schemaKey === schemaKey) {
+      collapsedNodeIdsRef.current = new Set(persisted.collapsed);
+      expandedNodeIdsRef.current = new Set(persisted.expanded);
+      hasUserToggledChildrenRef.current = persisted.userToggled;
+    } else {
+      collapsedNodeIdsRef.current.clear();
+      expandedNodeIdsRef.current.clear();
+      hasUserToggledChildrenRef.current = false;
+    }
     const runtime = globalThis as typeof globalThis & {
+      __graphicalSchemaCollapsedNodeIds?: Set<string>;
+      __graphicalSchemaExpandedNodeIds?: Set<string>;
       __graphicalSchemaCollapsedNodeIdsKey?: string | null;
       __graphicalSchemaUserToggledChildren?: boolean;
     };
+    runtime.__graphicalSchemaCollapsedNodeIds = collapsedNodeIdsRef.current;
+    runtime.__graphicalSchemaExpandedNodeIds = expandedNodeIdsRef.current;
     runtime.__graphicalSchemaCollapsedNodeIdsKey = schemaKey;
-    runtime.__graphicalSchemaUserToggledChildren = false;
+    runtime.__graphicalSchemaUserToggledChildren = hasUserToggledChildrenRef.current;
+    persistCollapseState();
   }, []);
   const hasUserToggledChildrenRef = React.useRef<boolean>((() => {
     const runtime = globalThis as typeof globalThis & { __graphicalSchemaUserToggledChildren?: boolean };
@@ -2676,6 +2754,16 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     hasUserToggledChildrenRef.current = true;
     const runtime = globalThis as typeof globalThis & { __graphicalSchemaUserToggledChildren?: boolean };
     runtime.__graphicalSchemaUserToggledChildren = true;
+  }, []);
+  // Mirrors the current collapse-state refs into localStorage so the graph's expand/collapse
+  // shape survives a real browser refresh, not just a tab switch (globalThis is wiped on reload).
+  const persistCollapseState = React.useCallback(() => {
+    savePersistedCollapseState({
+      schemaKey: collapsedNodeIdsSchemaKeyRef.current,
+      collapsed: Array.from(collapsedNodeIdsRef.current),
+      expanded: Array.from(expandedNodeIdsRef.current),
+      userToggled: hasUserToggledChildrenRef.current,
+    });
   }, []);
   const setVariantExpandedPersisted = React.useCallback((variantId: string, expanded: boolean) => {
     const current = expansionStateRef.current;
@@ -2925,10 +3013,13 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
   const handleToggleNodeChildren = React.useCallback((nodeId: string) => {
     userToggledChildrenRef.current = true;
     markUserToggledChildren();
-    setNodes((prev: Node<SchemaNodeData>[]) => {
-      const targetNode = prev.find(n => n.id === nodeId);
-      if (!targetNode) return prev;
-      const willCollapse = !(targetNode.data as any)?.childrenCollapsed;
+    // Determine willCollapse and mutate the collapse-state refs synchronously (outside the
+    // setNodes updater) so persistCollapseState(), called right after setNodes() below, reads
+    // up-to-date ref values — setNodes' functional updater isn't invoked until the next render,
+    // so mutating these refs inside it would make a same-tick persistCollapseState() call see stale state.
+    const targetNodeForToggle = nodesRef.current.find((n) => n.id === nodeId);
+    const willCollapse = !((targetNodeForToggle?.data as any)?.childrenCollapsed);
+    if (targetNodeForToggle) {
       if (willCollapse) {
         collapsedNodeIdsRef.current.add(nodeId);
         expandedNodeIdsRef.current.delete(nodeId);
@@ -2936,6 +3027,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         collapsedNodeIdsRef.current.delete(nodeId);
         expandedNodeIdsRef.current.add(nodeId);
       }
+    }
+    setNodes((prev: Node<SchemaNodeData>[]) => {
+      const targetNode = prev.find(n => n.id === nodeId);
+      if (!targetNode) return prev;
       let nodesToUse = prev;
       let edgesToUse = edgesRef.current;
       if (isXmlGraphMode && !willCollapse && (targetNode.data as any).hasHiddenChildren) {
@@ -3017,7 +3112,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       setEdges(() => applyEdgePositioningCached(nextEdges, anchored) as Edge[]);
       return anchored;
     });
-  }, [collectDescendantIds, edgesRef, relayoutNodes, preserveAnchorY, setEdges, setNodes, markUserToggledChildren]);
+    persistCollapseState();
+  }, [collectDescendantIds, edgesRef, nodesRef, relayoutNodes, preserveAnchorY, setEdges, setNodes, markUserToggledChildren]);
 
   const handleExpandAllChildren = React.useCallback((nodeId: string) => {
     userToggledChildrenRef.current = true;
@@ -3071,6 +3167,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
     combinerIds.forEach((id) => setCombinerExpandedPersisted(id, true));
     variantIds.forEach((id) => setVariantExpandedPersisted(id, true));
+    persistCollapseState();
   }, [collectDescendantIds, edgesRef, preserveAnchorY, relayoutNodes, setCombinerExpandedPersisted, setVariantExpandedPersisted, setEdges, setNodes, markUserToggledChildren]);
 
   // Add a new blank variant to a combiner node
@@ -3732,18 +3829,22 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         if (parent) parentIds.add(parent);
       });
       const primedNodes = nodesWithRestoredExpansion.map((n) => {
-        if (n.id === rootNodeForCollapse.id) return n;
+        const isRootNode = n.id === rootNodeForCollapse.id;
         const isXmlCompositor = isXmlCompositorNode(n);
-        const canCollapse = !isXmlCompositor && (n.type === 'property' || n.type === 'globalType' || n.type === 'enum') && parentIds.has(n.id);
+        const canCollapse = isRootNode || (!isXmlCompositor && (n.type === 'property' || n.type === 'globalType' || n.type === 'enum') && parentIds.has(n.id));
         if (!canCollapse) return n;
         // Three-state decision per node: explicitly collapsed, explicitly expanded, or
         // "never decided yet" (e.g. its children weren't visible during an earlier lazy
         // build) — the last case falls back to the collapsed-by-default heuristic and
-        // records the decision so future rebuilds/remounts stay consistent.
+        // records the decision so future rebuilds/remounts stay consistent. The root node's
+        // "never decided" default is expanded (not collapsed), matching its pre-existing
+        // default-open behavior, but an explicit persisted collapse/expand still applies.
         let shouldCollapse: boolean;
         if (collapsedNodeIdsRef.current.has(n.id)) {
           shouldCollapse = true;
         } else if (expandedNodeIdsRef.current.has(n.id)) {
+          shouldCollapse = false;
+        } else if (isRootNode) {
           shouldCollapse = false;
         } else {
           shouldCollapse = true;
@@ -3753,20 +3854,23 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       });
 
       const nodeById = new Map(primedNodes.map((n) => [n.id, n]));
+      const primedRootNode = nodeById.get(rootNodeForCollapse.id);
       const visibleIds = new Set<string>();
       visibleIds.add(rootNodeForCollapse.id);
-      primedNodes.forEach((n) => {
-        if ((n.data as any)?.parent === rootNodeForCollapse.id) {
-          visibleIds.add(n.id);
-        }
-      });
+      if (!primedRootNode || !isNodeDisplayCollapsed(primedRootNode)) {
+        primedNodes.forEach((n) => {
+          if ((n.data as any)?.parent === rootNodeForCollapse.id) {
+            visibleIds.add(n.id);
+          }
+        });
+      }
       const queue = [...visibleIds];
       while (queue.length > 0) {
         const parentId = queue.shift()!;
         primedNodes.forEach((n) => {
           if ((n.data as any)?.parent === parentId && !visibleIds.has(n.id)) {
             const parent = nodeById.get(parentId);
-            if (parentId === rootNodeForCollapse.id || (parent && !isNodeDisplayCollapsed(parent))) {
+            if (parent && !isNodeDisplayCollapsed(parent)) {
               visibleIds.add(n.id);
               queue.push(n.id);
             }
@@ -3780,12 +3884,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       hiddenEdges.push(...edgesWithRestoredExpansion.filter((e) => !visibleIds.has(e.source) || !visibleIds.has(e.target)).map((e) => ({ ...e, hidden: true })));
     }
 
-    const nodes = relayoutNodes(visibleNodesForLayout, visibleEdgesForLayout).map(n =>
+    const nodes = relayoutNodes([...visibleNodesForLayout, ...hiddenNodes], [...visibleEdgesForLayout, ...hiddenEdges]).map(n =>
       (n.type === 'combiner' || n.type === 'variant')
         ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } }
         : n
     );
-    const edges = applyEdgePositioningCached(visibleEdgesForLayout, nodes);
+    const edges = applyEdgePositioningCached([...visibleEdgesForLayout, ...hiddenEdges], nodes);
     // Only rebuild nodes/edges if the count changes (structural change)
     // Store label of selected node before graph rebuild
     setNodes(prevNodes => {
@@ -3851,6 +3955,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       setEdges(edges);
     }
     // Otherwise, do not reset selection (preserve selection and form)
+    persistCollapseState();
   }, [schema, setNodes, setEdges, useTestData, schemaToGraph, fingerprintSchema, relayoutNodes, restoreExpandedStateRecursively, scheduleTask, isXmlGraphMode, resetCollapsedNodeIdsForSchema]);
 
   // Note: dereferencing is handled by the top-level reducer/workbench.
