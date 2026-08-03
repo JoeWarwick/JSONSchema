@@ -633,22 +633,6 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     return merged;
   }, []);
 
-  // Reads the text of `xs:annotation/xs:documentation` off a raw XSD node (any kind — schema,
-  // simpleType, complexType, attributeGroup, attribute, element, or a compositor), so the RHS can
-  // show/edit it as a single "Annotation" field two-way bound to that XML structure.
-  const getXmlAnnotationDoc = React.useCallback((node: any): string | undefined => {
-    if (!node || typeof node !== 'object') return undefined;
-    const annotation = Array.isArray(node['xs:annotation']) ? node['xs:annotation'][0] : node['xs:annotation'];
-    if (!annotation || typeof annotation !== 'object') return undefined;
-    const documentation = Array.isArray(annotation['xs:documentation']) ? annotation['xs:documentation'][0] : annotation['xs:documentation'];
-    if (typeof documentation === 'string') return documentation;
-    if (documentation && typeof documentation === 'object') {
-      const text = (documentation as any)['#text'];
-      if (typeof text === 'string') return text;
-    }
-    return undefined;
-  }, []);
-
   // Reads ALL `xs:annotation/xs:documentation` text from a raw XSD node, supporting paging.
   // Returns an array of annotation texts (one per xs:annotation element).
   const getXmlAnnotationDocs = React.useCallback((node: any): string[] => {
