@@ -92,13 +92,13 @@ describe('Workbench integration - load unresolved $defs schema', () => {
       expect(badge).toHaveTextContent(/resolved/i);
     });
 
-    // Open the Schema Input tab
-    const schemaTab = screen.getByRole('button', { name: /Schema Input/i });
+    // Open the Schema Form tab
+    const schemaTab = screen.getByRole('button', { name: /Schema Form/i });
     expect(schemaTab).toBeInTheDocument();
     fireEvent.click(schemaTab);
 
     // The SchemaEditorForm renders Object buttons for the root type
-    // Wait for these to appear after clicking the Schema Input tab
+    // Wait for these to appear after clicking the Schema Form tab
     await waitFor(() => {
       const objectBtns = screen.getAllByRole('button', { name: /^Object$/ });
       expect(objectBtns.length).toBeGreaterThan(0);
@@ -110,8 +110,8 @@ describe('Workbench integration - load unresolved $defs schema', () => {
   it('updates UI when uploading a schema file', async () => {
     render(<Workbench />);
 
-    // Open Schema Input tab first, then upload the file
-    const schemaTab = screen.getByRole('button', { name: /Schema Input/i });
+    // Open Schema Form tab first, then upload the file
+    const schemaTab = screen.getByRole('button', { name: /Schema Form/i });
     fireEvent.click(schemaTab);
 
     // Find the hidden file input and simulate uploading JSON content

@@ -16,17 +16,6 @@ import { generateSchema, isValidJSON } from "~/utils/schema-generator";
 import schemaReducer, { initialSchemaState, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, MERGE_RESOLVED_PATH, MERGE_RESOLVED_ALL_PATHS, ensureResolved, getPersistableSource, getEditorSchema, getResolvedSource } from "~/state/schemaReducer";
 import { resolveSchema } from "~/utils/schema-resolver";
 import { useSchemaValidation } from "~/hooks/use-schema-validation";
-
-// Utility to rename a property in an object (shallow)
-function renamePropertyInObject(obj: any, oldName: string, newName: string) {
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
-  if (!(oldName in obj)) return obj;
-  const newObj = { ...obj };
-  newObj[newName] = newObj[oldName];
-  delete newObj[oldName];
-  return newObj;
-}
-
 import { JsonInstanceForm } from "~/components/json-instance-form";
 import { SchemaEditorForm } from "~/components/schema-editor-form";
 import { GraphicalSchemaEditor } from "~/components/graphical-schema-editor";
@@ -39,10 +28,10 @@ import { generateErdSql } from "~/utils/sql-schema-generator";
 
 export function meta() {
   return [
-    { title: "Schema Sculptor - JSON Schema Workbench" },
+    { title: "Markup Suite - Schema Workbench" },
     {
       name: "description",
-      content: "Generate and modify JSON schemas with an intuitive form-based editor",
+      content: "Generate and modify schemas with intuitive editors and produce any kind of form-based editors with validation.",
     },
   ];
 }
@@ -109,6 +98,16 @@ const generateDefaultInstance = (schema: Record<string, unknown>): unknown => {
   return null;
 };
 
+// Utility to rename a property in an object (shallow)
+function renamePropertyInObject(obj: any, oldName: string, newName: string) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
+  if (!(oldName in obj)) return obj;
+  const newObj = { ...obj };
+  newObj[newName] = newObj[oldName];
+  delete newObj[oldName];
+  return newObj;
+}
+
 export default function Workbench() {
   const showDevStorageTools = typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
   const [state, dispatch] = useReducer(schemaReducer, initialSchemaState(null));
@@ -117,7 +116,31 @@ export default function Workbench() {
   const [hasHydratedPersistedState, setHasHydratedPersistedState] = useState(false);
   const [erdModel, setErdModel] = useState<ErdModel | null>(null);
   const { validate: validateSchema } = useSchemaValidation();
-
+  const [error, setError] = useState<string | null>(null);
+  const [schemaDetectionWarning, setSchemaDetectionWarning] = useState<boolean>(false);
+  const [copied, setCopied] = useState(false);
+  const [showSchemaSource, setShowSchemaSource] = useState(false);
+  const [jsonUrl, setJsonUrl] = useState("");
+  const [isLoadingUrl, setIsLoadingUrl] = useState(false);
+  const [schemaUrl, setSchemaUrl] = useState("");
+  const [isLoadingSchemaUrl, setIsLoadingSchemaUrl] = useState(false);
+  // Bumped on every wholesale schema replacement (new/open/load-from-url/generate) and used as
+  // `<GraphicalSchemaEditor key>` so it fully unmounts/remounts instead of diffing the old
+  // (possibly huge) graph against the new one in place — that in-place diff of stale refs
+  // (nodesRef, expansion state, node counts) against an unrelated document is what hung the
+  // page when switching schemas.
+  const [schemaGeneration, setSchemaGeneration] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const schemaFileInputRef = useRef<HTMLInputElement>(null);
+  const erdFileInputRef = useRef<HTMLInputElement>(null);
+  const [compactJsonView, setCompactJsonView] = useState<boolean>(false);
+  const [markupLanguage, setMarkupLanguageState] = useState<MarkupLanguage>('json');
+  const [showMarkupUrlDialog, setShowMarkupUrlDialog] = useState(false);
+  const [showSchemaUrlDialog, setShowSchemaUrlDialog] = useState(false);
+  const resolutionCache = useRef<Map<string, any>>(new Map());
+  const previousLanguageRef = useRef<MarkupLanguage>('json');
+  const lastPersistedSourceJsonRef = useRef<string | null>(null);
+  const lastPersistedSchemaKeyRef = useRef<string | null>(null);
   // Wholesale schema replacement (new/open/load-from-url/generate) — bumps `schemaGeneration`
   // so `<GraphicalSchemaEditor key>` fully unmounts/remounts instead of diffing the old
   // (possibly huge) graph against an unrelated new one in place.
@@ -253,32 +276,6 @@ export default function Workbench() {
     const timer = window.setTimeout(hydratePersistedState, 0);
     return () => window.clearTimeout(timer);
   }, []);
-
-  const [error, setError] = useState<string | null>(null);
-  const [schemaDetectionWarning, setSchemaDetectionWarning] = useState<boolean>(false);
-  const [copied, setCopied] = useState(false);
-  const [showSchemaSource, setShowSchemaSource] = useState(false);
-  const [jsonUrl, setJsonUrl] = useState("");
-  const [isLoadingUrl, setIsLoadingUrl] = useState(false);
-  const [schemaUrl, setSchemaUrl] = useState("");
-  const [isLoadingSchemaUrl, setIsLoadingSchemaUrl] = useState(false);
-  // Bumped on every wholesale schema replacement (new/open/load-from-url/generate) and used as
-  // `<GraphicalSchemaEditor key>` so it fully unmounts/remounts instead of diffing the old
-  // (possibly huge) graph against the new one in place — that in-place diff of stale refs
-  // (nodesRef, expansion state, node counts) against an unrelated document is what hung the
-  // page when switching schemas.
-  const [schemaGeneration, setSchemaGeneration] = useState(0);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const schemaFileInputRef = useRef<HTMLInputElement>(null);
-  const erdFileInputRef = useRef<HTMLInputElement>(null);
-  const [compactJsonView, setCompactJsonView] = useState<boolean>(false);
-  const [markupLanguage, setMarkupLanguageState] = useState<MarkupLanguage>('json');
-  const [showMarkupUrlDialog, setShowMarkupUrlDialog] = useState(false);
-  const [showSchemaUrlDialog, setShowSchemaUrlDialog] = useState(false);
-  const resolutionCache = useRef<Map<string, any>>(new Map());
-  const previousLanguageRef = useRef<MarkupLanguage>('json');
-  const lastPersistedSourceJsonRef = useRef<string | null>(null);
-  const lastPersistedSchemaKeyRef = useRef<string | null>(null);
 
   // Clear cache if source changes
   useEffect(() => {
