@@ -8,13 +8,17 @@ type XmlNodeKind = 'schema' | 'simpleType' | 'complexType' | 'attributeGroup' | 
  * Props for XML node RHS editors and attribute manager.
  * - node: The selected ReactFlow node, or null if no node is selected
  * - onChange: Callback to emit partial node data updates (patches)
+ * - getNodeByName: Optional function to look up a node by its name property
  */
 export interface XmlNodeRhsEditorProps {
   node: FlowNode<NodeData> | null;
   onChange: (patch: Partial<NodeData>) => void;
   onToggleShowAnnotations?: (show: boolean) => void;
   xmlShowAnnotations?: boolean;
+  onToggleShowImports?: (show: boolean) => void;
+  xmlShowImports?: boolean;
   readOnlySource?: string;
+  getNodeByName?: (name: string) => FlowNode<NodeData> | null;
 }
 
 /**
@@ -356,7 +360,8 @@ function XmlAnnotationFieldAuto({
   }
 }
 
-function XmlSimpleTypeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorProps & { readOnlySource?: string }) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function XmlSimpleTypeEditor({ node, onChange, readOnlySource, getNodeByName }: XmlNodeRhsEditorProps & { readOnlySource?: string }) {
   if (!node) return null;
   const data = (node.data || {}) as any;
   const [name, setName] = React.useState<string>(String(data.xmlName || ''));
@@ -365,9 +370,20 @@ function XmlSimpleTypeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEdito
   const [memberTypes, setMemberTypes] = React.useState<string>(String(data.xmlMemberTypes || ''));
   const [itemType, setItemType] = React.useState<string>(String(data.xmlItemType || ''));
   const [enumerations, setEnumerations] = React.useState<string[]>(Array.isArray(data.xmlEnumerations) ? data.xmlEnumerations : []);
+  const [listValues, setListValues] = React.useState<string[]>(Array.isArray(data.xmlListValues) ? data.xmlListValues : []);
   const readOnly = Boolean(readOnlySource);
   const [facets, setFacets] = React.useState<SimpleTypeFacets>(data.xmlFacets && typeof data.xmlFacets === 'object' ? data.xmlFacets : {});
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
+
+  // Get the resolved node for itemType reference (if it points to a named type)
+  const resolvedItemTypeNode = React.useMemo(() => {
+    if (!itemType || itemType.startsWith('xs:') || !getNodeByName) {
+      return null;
+    }
+    // Strip namespace prefix if present (e.g., "xsl:prefix-or-default" -> "prefix-or-default")
+    const localName = itemType.includes(':') ? itemType.split(':')[1] : itemType;
+    return getNodeByName(localName);
+  }, [itemType, getNodeByName]);
 
   React.useEffect(() => {
     setName(String(data.xmlName || ''));
@@ -376,13 +392,19 @@ function XmlSimpleTypeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEdito
     setMemberTypes(String(data.xmlMemberTypes || ''));
     setItemType(String(data.xmlItemType || ''));
     setEnumerations(Array.isArray(data.xmlEnumerations) ? data.xmlEnumerations : []);
+    setListValues(Array.isArray(data.xmlListValues) ? data.xmlListValues : []);
     setFacets(data.xmlFacets && typeof data.xmlFacets === 'object' ? data.xmlFacets : {});
     setIsRef(Boolean(data.xmlIsRef));
-  }, [node?.id, data.xmlName, data.xmlSimpleTypeMode, data.xmlBase, data.xmlMemberTypes, data.xmlItemType, data.xmlEnumerations, data.xmlFacets, data.xmlIsRef]);
+  }, [node?.id, data.xmlName, data.xmlSimpleTypeMode, data.xmlBase, data.xmlMemberTypes, data.xmlItemType, data.xmlEnumerations, data.xmlListValues, data.xmlFacets, data.xmlIsRef]);
 
   const handleEnumerationsChange = (next: string[]) => {
     setEnumerations(next);
     onChange({ id: node.id, xmlEnumerations: next });
+  };
+
+  const handleListValuesChange = (next: string[]) => {
+    setListValues(next);
+    onChange({ id: node.id, xmlListValues: next });
   };
 
   const handleFacetsChange = (next: SimpleTypeFacets) => {
@@ -492,14 +514,36 @@ function XmlSimpleTypeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEdito
             <input
               aria-label="List Item Type"
               value={itemType}
-              disabled={readOnly}
+              disabled={readOnly || Boolean(data.xmlItemSimpleType)}
               onChange={(e) => setItemType(e.target.value)}
               onBlur={() => onChange({ id: node.id, xmlItemType: itemType })}
               style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
               placeholder="xs:string"
             />
           </label>
-          {/* Nested anonymous item simpleType */}
+          {/* Show list values editor only if no nested simpleType and itemType is xs: built-in or missing */}
+          {!readOnly && !data.xmlItemSimpleType && (!itemType || itemType.startsWith('xs:')) && (
+            <ListValuesEditor values={listValues} onChange={handleListValuesChange} ariaPrefix="SimpleType list" />
+          )}
+          {/* Display resolved nested types from named itemType reference as interactive editor */}
+          {resolvedItemTypeNode && !readOnly && !data.xmlItemSimpleType && resolvedItemTypeNode.data?.xmlSimpleTypeMode && (
+            <div style={{ background: 'var(--form-surface, #f9f5f0)', border: '1px solid var(--form-border, #e5d4c4)', borderRadius: 6, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--form-text, #5d4a3a)' }}>Referenced type: {itemType}</div>
+              <InlineSimpleTypeEditor
+                value={{
+                  mode: resolvedItemTypeNode.data.xmlSimpleTypeMode,
+                  base: resolvedItemTypeNode.data.xmlSimpleTypeBase,
+                  enumerations: resolvedItemTypeNode.data.xmlEnumerationValues,
+                  memberSimpleTypes: resolvedItemTypeNode.data.xmlMemberSimpleTypes,
+                  itemSimpleType: resolvedItemTypeNode.data.xmlItemSimpleType,
+                }}
+                onChange={() => {}} // Read-only: no changes to referenced type
+                depth={0}
+                pathLabel="Referenced type structure"
+              />
+            </div>
+          )}
+          {/* Toggle for nested anonymous item simpleType */}
           {!readOnly && (
             <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
               <input
@@ -514,6 +558,7 @@ function XmlSimpleTypeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEdito
               <span style={{ fontSize: 12 }}>Anonymous item simpleType (instead of itemType)</span>
             </label>
           )}
+          {/* Nested recursive simpleType editor for union/restriction/list */}
           {data.xmlItemSimpleType && !readOnly && (
             <InlineSimpleTypeEditor
               value={data.xmlItemSimpleType}
@@ -696,8 +741,8 @@ export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) 
                     disabled={isInherited}
                     style={isInherited ? inheritedFieldStyle : fieldStyle}
                   >
-                    <option value="">{isInherited ? attr.type || 'type' : 'Select type...'}</option>
-                    {availableTypes.map((t) => (
+                    <option value={attr.type || ''}>{attr.type || 'Select type...'}</option>
+                    {availableTypes.filter((t) => t !== attr.type).map((t) => (
                       <option key={t} value={t}>{t}</option>
                     ))}
                   </select>
@@ -791,7 +836,8 @@ export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) 
   );
 }
 
-function XmlComplexTypeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorProps & { readOnlySource?: string }) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function XmlComplexTypeEditor({ node, onChange, readOnlySource, getNodeByName }: XmlNodeRhsEditorProps & { readOnlySource?: string }) {
   if (!node) return null;
   const data = (node.data || {}) as any;
   const [name, setName] = React.useState<string>(String(data.xmlName || ''));
@@ -871,7 +917,8 @@ function XmlComplexTypeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEdit
   );
 }
 
-function XmlAttributeGroupEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorProps & { readOnlySource?: string }) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function XmlAttributeGroupEditor({ node, onChange, readOnlySource, getNodeByName }: XmlNodeRhsEditorProps & { readOnlySource?: string }) {
   if (!node) return null;
   const data = (node.data || {}) as any;
   const [name, setName] = React.useState<string>(String(data.xmlName || ''));
@@ -1196,6 +1243,106 @@ function EnumerationListEditor({
 }
 
 /**
+ * Add/edit/remove/reorder control for a list of space-separated list item values
+ * (used by list-mode simpleTypes, inline or top-level).
+ */
+function ListValuesEditor({
+  values,
+  onChange,
+  ariaPrefix,
+}: {
+  values: string[];
+  onChange: (next: string[]) => void;
+  ariaPrefix: string;
+}) {
+  const [newValue, setNewValue] = React.useState('');
+
+  const handleAdd = () => {
+    if (!newValue.trim()) return;
+    onChange([...values, newValue]);
+    setNewValue('');
+  };
+  const handleUpdate = (index: number, value: string) => {
+    const next = [...values];
+    next[index] = value;
+    onChange(next);
+  };
+  const handleRemove = (index: number) => {
+    onChange(values.filter((_, i) => i !== index));
+  };
+  const handleMove = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= values.length) return;
+    const next = [...values];
+    [next[index], next[target]] = [next[target], next[index]];
+    onChange(next);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{ fontSize: 12, fontWeight: 500 }}>List values</span>
+      {values.length === 0 && <div style={{ fontSize: 11, color: '#888', fontStyle: 'italic' }}>No values yet.</div>}
+      {values.map((value, index) => (
+        <div key={index} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <input
+            type="text"
+            aria-label={`${ariaPrefix} value ${index + 1}`}
+            value={value}
+            onChange={(e) => handleUpdate(index, e.target.value)}
+            style={{ flex: 1, padding: 4, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
+          />
+          <button
+            type="button"
+            aria-label={`${ariaPrefix} move up ${index + 1}`}
+            disabled={index === 0}
+            onClick={() => handleMove(index, -1)}
+            style={{ padding: '2px 6px', fontSize: 11, cursor: index === 0 ? 'not-allowed' : 'pointer' }}
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            aria-label={`${ariaPrefix} move down ${index + 1}`}
+            disabled={index === values.length - 1}
+            onClick={() => handleMove(index, 1)}
+            style={{ padding: '2px 6px', fontSize: 11, cursor: index === values.length - 1 ? 'not-allowed' : 'pointer' }}
+          >
+            ↓
+          </button>
+          <button
+            type="button"
+            aria-label={`${ariaPrefix} remove ${index + 1}`}
+            onClick={() => handleRemove(index)}
+            style={{ padding: '2px 8px', fontSize: 11, backgroundColor: '#fee', color: '#c33', border: '1px solid #fcc', borderRadius: 3, cursor: 'pointer' }}
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: 4 }}>
+        <input
+          type="text"
+          aria-label={`${ariaPrefix} new value`}
+          value={newValue}
+          onChange={(e) => setNewValue(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+          placeholder="New list value"
+          style={{ flex: 1, padding: 4, borderRadius: 3, border: '1px solid #ddd', fontSize: 11 }}
+        />
+        <button
+          type="button"
+          onClick={handleAdd}
+          disabled={!newValue.trim()}
+          style={{ padding: '2px 8px', fontSize: 11, backgroundColor: newValue.trim() ? '#e8f5e9' : '#f0f0f0', color: newValue.trim() ? '#2e7d32' : '#999', border: '1px solid #c8e6c9', borderRadius: 3, cursor: newValue.trim() ? 'pointer' : 'not-allowed' }}
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Recursive editor for an `xs:attribute`'s inline (anonymous) `xs:simpleType`.
  * Supports restriction (base + enumeration add/edit/remove/reorder), union (memberTypes
  * text plus any number of anonymous nested member simpleTypes), and list (itemType text
@@ -1376,16 +1523,7 @@ function InlineSimpleTypeEditor({
 }
 
 // Built-in XSD simple types, offered under the "Simple" group of `XmlTypeSelector`.
-const XSD_BUILTIN_SIMPLE_TYPES = [
-  'xs:anySimpleType', 'xs:anyType', 'xs:anyURI', 'xs:base64Binary', 'xs:boolean', 'xs:byte',
-  'xs:date', 'xs:dateTime', 'xs:decimal', 'xs:double', 'xs:duration', 'xs:ENTITIES', 'xs:ENTITY',
-  'xs:float', 'xs:gDay', 'xs:gMonth', 'xs:gMonthDay', 'xs:gYear', 'xs:gYearMonth', 'xs:hexBinary',
-  'xs:ID', 'xs:IDREF', 'xs:IDREFS', 'xs:int', 'xs:integer', 'xs:language', 'xs:long', 'xs:Name',
-  'xs:NCName', 'xs:negativeInteger', 'xs:NMTOKEN', 'xs:NMTOKENS', 'xs:nonNegativeInteger',
-  'xs:nonPositiveInteger', 'xs:normalizedString', 'xs:NOTATION', 'xs:positiveInteger', 'xs:QName',
-  'xs:short', 'xs:string', 'xs:time', 'xs:token', 'xs:unsignedByte', 'xs:unsignedInt',
-  'xs:unsignedLong', 'xs:unsignedShort',
-];
+import { XSD_BUILTIN_SIMPLE_TYPES } from '~/utils/xsd-types';
 
 /**
  * "Type" dropdown for `xs:attribute`/`xs:element`, grouped into built-in "Simple" XSD types and
@@ -1547,7 +1685,8 @@ function MemberTypesListEditor({
  * editing), presented with the same "SimpleType Editor" title/framing as a named simpleType.
  * Has no Name/Ref fields since an anonymous simpleType has neither.
  */
-function XmlAttributeSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function XmlAttributeSimpleTypeEditor({ node, onChange, getNodeByName }: XmlNodeRhsEditorProps) {
   if (!node) return null;
   const data = (node.data || {}) as any;
   const [value, setValue] = React.useState<InlineSimpleTypeData>(
@@ -1572,7 +1711,8 @@ function XmlAttributeSimpleTypeEditor({ node, onChange }: XmlNodeRhsEditorProps)
   );
 }
 
-function XmlAttributeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorProps) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function XmlAttributeEditor({ node, onChange, readOnlySource, getNodeByName }: XmlNodeRhsEditorProps) {
   if (!node) return null;
   const data = (node.data || {}) as any;
   const [name, setName] = React.useState<string>(String(data.xmlName || ''));
@@ -1603,7 +1743,17 @@ function XmlAttributeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditor
     setIsRef(Boolean(data.xmlIsRef));
     setDefaultValue(String(data.xmlAttributeDefault ?? ''));
     setShowDefault(data.xmlAttributeDefault !== undefined && data.xmlAttributeDefault !== '');
-  }, [node?.id, data.xmlName, data.xmlAttributeType, data.xmlAttributeUse, data.xmlIsRef, data.xmlAttributeDefault]);
+  }, [
+    node?.id,
+    // Use JSON stringification to detect when node data is recreated/updated
+    JSON.stringify({
+      xmlName: data.xmlName,
+      xmlAttributeType: data.xmlAttributeType,
+      xmlAttributeUse: data.xmlAttributeUse,
+      xmlIsRef: data.xmlIsRef,
+      xmlAttributeDefault: data.xmlAttributeDefault,
+    }),
+  ]);
 
   const badgePillStyle = (active: boolean): React.CSSProperties => ({
     padding: '3px 10px',
@@ -1761,7 +1911,8 @@ function XmlAttributeEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditor
   );
 }
 
-function XmlCompositorEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorProps) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function XmlCompositorEditor({ node, onChange, readOnlySource, getNodeByName }: XmlNodeRhsEditorProps) {
   if (!node) return null;
   const data = (node.data || {}) as any;
   const [minOccurs, setMinOccurs] = React.useState<string>(String(data.xmlMinOccurs ?? '1'));
@@ -1810,7 +1961,8 @@ function XmlCompositorEditor({ node, onChange, readOnlySource }: XmlNodeRhsEdito
  * Read-only display for an `xs:any` wildcard content particle (e.g. embedded (X)HTML
  * markup) — there's no name/type to edit, just the wildcard's own declared attributes.
  */
-function XmlAnyEditor({ node }: XmlNodeRhsEditorProps) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function XmlAnyEditor({ node, getNodeByName }: XmlNodeRhsEditorProps) {
   if (!node) return null;
   const data = (node.data || {}) as any;
   return (
@@ -1835,11 +1987,13 @@ function XmlAnyEditor({ node }: XmlNodeRhsEditorProps) {
   );
 }
 
-function XmlElementEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorProps & { readOnlySource?: string }) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: XmlNodeRhsEditorProps & { readOnlySource?: string }) {
   if (!node) return null;
   const data = (node.data || {}) as any;
   const [name, setName] = React.useState<string>(String(data.xmlName || ''));
   const [type, setType] = React.useState<string>(String(data.xmlElementType || ''));
+  const [substitutionGroupParent, setSubstitutionGroupParent] = React.useState<string>(String(data.xmlSubstitutionGroupParent || ''));
   const [minOccurs, setMinOccurs] = React.useState<string>(String(data.xmlMinOccurs ?? '1'));
   const [maxOccurs, setMaxOccurs] = React.useState<string>(String(data.xmlMaxOccurs ?? '1'));
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
@@ -1852,6 +2006,7 @@ function XmlElementEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorPr
   React.useEffect(() => {
     setName(String(data.xmlName || ''));
     setType(String(data.xmlElementType || ''));
+    setSubstitutionGroupParent(String(data.xmlSubstitutionGroupParent || ''));
     setMinOccurs(String(data.xmlMinOccurs ?? '1'));
     setMaxOccurs(String(data.xmlMaxOccurs ?? '1'));
     setIsRef(Boolean(data.xmlIsRef));
@@ -1859,7 +2014,7 @@ function XmlElementEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorPr
     setAnyAttributeNamespace(String(data.xmlAnyAttribute?.namespace || ''));
     setDefaultValue(String(data.xmlDefault || ''));
     setFixedValue(String(data.xmlFixed || ''));
-  }, [node?.id, data.xmlName, data.xmlElementType, data.xmlMinOccurs, data.xmlMaxOccurs, data.xmlIsRef, data.xmlMixed, data.xmlAnyAttribute, data.xmlDefault, data.xmlFixed]);
+  }, [node?.id, data.xmlName, data.xmlElementType, data.xmlSubstitutionGroupParent, data.xmlMinOccurs, data.xmlMaxOccurs, data.xmlIsRef, data.xmlMixed, data.xmlAnyAttribute, data.xmlDefault, data.xmlFixed]);
 
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
@@ -1914,6 +2069,21 @@ function XmlElementEditor({ node, onChange, readOnlySource }: XmlNodeRhsEditorPr
           />
         )}
       </label>
+      {data.xmlHasSubstitutionExpansion ? (
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 12 }}>Substitution Group Parent</span>
+          <XmlTypeSelector
+            value={substitutionGroupParent}
+            disabled={readOnly}
+            onChange={(next) => {
+              setSubstitutionGroupParent(next);
+              onChange({ id: node.id, xmlSubstitutionGroupParent: next });
+            }}
+            myTypeNames={Array.isArray(data.xmlMyElementNames) ? data.xmlMyElementNames : []}
+            ariaLabel="Substitution Group Parent Element"
+          />
+        </label>
+      ) : null}
       <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
           <span style={{ fontSize: 12 }}>minOccurs</span>
@@ -2374,13 +2544,157 @@ function NamespacesListEditor({
   );
 }
 
-function XmlSchemaEditor({ node, onChange, onToggleShowAnnotations, xmlShowAnnotations }: XmlNodeRhsEditorProps) {
+/**
+ * Editor for xs:import elements (namespace and schemaLocation pairs).
+ */
+function ImportsListEditor({
+  node,
+  onChange,
+}: {
+  node: FlowNode<NodeData>;
+  onChange: (patch: Partial<NodeData>) => void;
+}) {
+  const data = (node.data || {}) as any;
+  const imports = (data.xmlImports as Array<{ namespace: string; schemaLocation: string }>) || [];
+  const [newNamespace, setNewNamespace] = React.useState('');
+  const [newSchemaLocation, setNewSchemaLocation] = React.useState('');
+
+  const handleAdd = () => {
+    if (!newNamespace.trim() || !newSchemaLocation.trim()) return;
+    const updated = [...imports, { namespace: newNamespace, schemaLocation: newSchemaLocation }];
+    onChange({ id: node.id, xmlImports: updated });
+    setNewNamespace('');
+    setNewSchemaLocation('');
+  };
+
+  const handleUpdate = (index: number, field: 'namespace' | 'schemaLocation', value: string) => {
+    const updated = imports.map((imp, i) =>
+      i === index ? { ...imp, [field]: value } : imp
+    );
+    onChange({ id: node.id, xmlImports: updated });
+  };
+
+  const handleRemove = (index: number) => {
+    onChange({ id: node.id, xmlImports: imports.filter((_, i) => i !== index) });
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span style={{ fontSize: 12, fontWeight: 500 }}>xs:import Declarations</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {imports.map((imp, index) => (
+          <div key={index} style={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+            <input
+              type="text"
+              placeholder="namespace"
+              value={imp.namespace}
+              onChange={(e) => handleUpdate(index, 'namespace', e.target.value)}
+              style={{
+                padding: 4,
+                borderRadius: 3,
+                border: '1px solid #ddd',
+                fontSize: 11,
+                minWidth: 100,
+              }}
+            />
+            <input
+              type="text"
+              placeholder="schemaLocation"
+              value={imp.schemaLocation}
+              onChange={(e) => handleUpdate(index, 'schemaLocation', e.target.value)}
+              style={{
+                padding: 4,
+                borderRadius: 3,
+                border: '1px solid #ddd',
+                fontSize: 11,
+                flex: 1,
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => handleRemove(index)}
+              title="Remove import"
+              style={{
+                padding: '2px 6px',
+                borderRadius: 3,
+                border: '1px solid #ccc',
+                backgroundColor: '#f5f5f5',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 500,
+                color: '#666',
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+      {/* Add New Import */}
+      <div style={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+        <input
+          type="text"
+          placeholder="namespace"
+          value={newNamespace}
+          onChange={(e) => setNewNamespace(e.target.value)}
+          style={{
+            padding: 4,
+            borderRadius: 3,
+            border: '1px solid #ddd',
+            fontSize: 11,
+            minWidth: 100,
+          }}
+        />
+        <input
+          type="text"
+          placeholder="schemaLocation"
+          value={newSchemaLocation}
+          onChange={(e) => setNewSchemaLocation(e.target.value)}
+          style={{
+            padding: 4,
+            borderRadius: 3,
+            border: '1px solid #ddd',
+            fontSize: 11,
+            flex: 1,
+          }}
+        />
+        <button
+          type="button"
+          onClick={handleAdd}
+          disabled={!newNamespace.trim() || !newSchemaLocation.trim()}
+          title="Add import"
+          style={{
+            padding: '2px 6px',
+            borderRadius: 3,
+            border: '1px solid #ccc',
+            backgroundColor: !newNamespace.trim() || !newSchemaLocation.trim() ? '#f0f0f0' : '#f9f9f9',
+            cursor: !newNamespace.trim() || !newSchemaLocation.trim() ? 'not-allowed' : 'pointer',
+            fontSize: 12,
+            fontWeight: 500,
+            color: !newNamespace.trim() || !newSchemaLocation.trim() ? '#aaa' : '#666',
+          }}
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function XmlSchemaEditor({ node, onChange, onToggleShowAnnotations, xmlShowAnnotations, onToggleShowImports, xmlShowImports, getNodeByName }: XmlNodeRhsEditorProps) {
   if (!node) return null;
   const data = (node.data || {}) as any;
 
   const handleToggleShowAnnotations = (show: boolean) => {
     if (onToggleShowAnnotations) {
       onToggleShowAnnotations(show);
+    }
+  };
+
+  const handleToggleShowImports = (show: boolean) => {
+    if (onToggleShowImports) {
+      onToggleShowImports(show);
     }
   };
 
@@ -2401,7 +2715,7 @@ function XmlSchemaEditor({ node, onChange, onToggleShowAnnotations, xmlShowAnnot
           <input
             type="checkbox"
             checked={xmlShowAnnotations === true}
-            onChange={(e) => handleToggleShowAnnotations(e.target.checked)}
+            onChange={(e) => handleToggleShowAnnotations(e.currentTarget.checked)}
             style={{ cursor: 'pointer' }}
           />
           <span>Show Annotations in Graph</span>
@@ -2413,26 +2727,47 @@ function XmlSchemaEditor({ node, onChange, onToggleShowAnnotations, xmlShowAnnot
         )}
       </div>
 
+      {/* xs:import Editor */}
+      <ImportsListEditor node={node} onChange={onChange} />
+
+      {/* Checkbox to show/hide import nodes in the graph */}
+      <div style={{ padding: '8px 12px', border: '1px solid var(--graph-node-border)', borderRadius: 4, backgroundColor: 'var(--graph-node-bg-subtle)' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--graph-node-text)' }}>
+          <input
+            type="checkbox"
+            checked={xmlShowImports === true}
+            onChange={(e) => handleToggleShowImports(e.currentTarget.checked)}
+            style={{ cursor: 'pointer' }}
+          />
+          <span>Show Imports in Graph</span>
+        </label>
+        {xmlShowImports === true && (
+          <div style={{ fontSize: 11, color: 'var(--graph-muted)', marginTop: 6 }}>
+            Import nodes appear in document order.
+          </div>
+        )}
+      </div>
+
       <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
     </div>
   );
 }
 
-export function XmlNodeRhsEditor({ node, onChange, onToggleShowAnnotations, xmlShowAnnotations }: XmlNodeRhsEditorProps) {
+export function XmlNodeRhsEditor({ node, onChange, onToggleShowAnnotations, xmlShowAnnotations, onToggleShowImports, xmlShowImports, getNodeByName }: XmlNodeRhsEditorProps) {
   if (!node) return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a node to edit XML properties.</div>;
   const data = (node.data || {}) as any;
   const kind = (data.xmlNodeKind || '') as XmlNodeKind;
   const readOnlySource = typeof data.xmlReadOnlySource === 'string' && data.xmlReadOnlySource ? data.xmlReadOnlySource : undefined;
 
-  if (kind === 'schema') return <XmlSchemaEditor node={node} onChange={onChange} onToggleShowAnnotations={onToggleShowAnnotations} xmlShowAnnotations={xmlShowAnnotations} readOnlySource={readOnlySource} />;
-  if (kind === 'simpleType' && data.xmlIsAnonymous) return <XmlAttributeSimpleTypeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
-  if (kind === 'simpleType') return <XmlSimpleTypeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
-  if (kind === 'complexType') return <XmlComplexTypeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
-  if (kind === 'attributeGroup') return <XmlAttributeGroupEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
-  if (kind === 'attribute') return <XmlAttributeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
-  if (kind === 'element') return <XmlElementEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
-  if (kind === 'sequence' || kind === 'choice' || kind === 'all') return <XmlCompositorEditor node={node} onChange={onChange} readOnlySource={readOnlySource} />;
-  if (kind === 'any') return <XmlAnyEditor node={node} onChange={onChange} />;
+  if (kind === 'schema') return <XmlSchemaEditor node={node} onChange={onChange} onToggleShowAnnotations={onToggleShowAnnotations} xmlShowAnnotations={xmlShowAnnotations} onToggleShowImports={onToggleShowImports} xmlShowImports={xmlShowImports} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
+  if (kind === 'simpleType' && data.xmlIsAnonymous) return <XmlAttributeSimpleTypeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
+  if (kind === 'simpleType') return <XmlSimpleTypeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
+  if (kind === 'complexType') return <XmlComplexTypeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
+  if (kind === 'attributeGroup') return <XmlAttributeGroupEditor node={node} onChange={onChange} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
+  if (kind === 'attribute') return <XmlAttributeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
+  if (kind === 'element') return <XmlElementEditor node={node} onChange={onChange} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
+  if (kind === 'sequence' || kind === 'choice' || kind === 'all') return <XmlCompositorEditor node={node} onChange={onChange} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
+  if (kind === 'any') return <XmlAnyEditor node={node} onChange={onChange} getNodeByName={getNodeByName} />;
 
   return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a schema, SimpleType, ComplexType, attribute, element, or compositor node to edit.</div>;
 }

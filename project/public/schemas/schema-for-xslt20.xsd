@@ -700,7 +700,6 @@ of problems processing the schema using various tools
 <xs:complexType name="transform-element-base-type">
   <xs:complexContent>
     <xs:restriction base="xsl:element-only-versioned-element-type">
-      <xs:attribute name="version" type="xs:decimal" use="required"/>
       <xs:anyAttribute namespace="##other" processContents="lax"/>
     </xs:restriction>
   </xs:complexContent>

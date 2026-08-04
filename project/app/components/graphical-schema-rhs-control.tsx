@@ -24,7 +24,10 @@ interface GraphicalSchemaRhsControlProps {
   onToggleSchemaDetails: () => void;
   onToggleShowAnnotations?: (show: boolean) => void;
   xmlShowAnnotations?: boolean;
+  onToggleShowImports?: (show: boolean) => void;
+  xmlShowImports?: boolean;
   onPrintGraph: () => void;
+  getNodeByName?: (name: string) => FlowNode<NodeData> | null;
 }
 
 export function GraphicalSchemaRhsControl({
@@ -38,7 +41,10 @@ export function GraphicalSchemaRhsControl({
   onToggleSchemaDetails,
   onToggleShowAnnotations,
   xmlShowAnnotations,
+  onToggleShowImports,
+  xmlShowImports,
   onPrintGraph,
+  getNodeByName,
 }: GraphicalSchemaRhsControlProps) {
   const xmlNodeKind = ((selectedNode?.data as any)?.xmlNodeKind as string | undefined) || '';
   const useXmlEditor = schemaLanguage === 'xml';
@@ -99,7 +105,7 @@ export function GraphicalSchemaRhsControl({
         </div>
       )}
       {useXmlEditor ? (
-        <XmlNodeRhsEditor node={selectedNode} onChange={onChange} onToggleShowAnnotations={onToggleShowAnnotations} xmlShowAnnotations={xmlShowAnnotations} />
+        <XmlNodeRhsEditor node={selectedNode} onChange={onChange} onToggleShowAnnotations={onToggleShowAnnotations} xmlShowAnnotations={xmlShowAnnotations} onToggleShowImports={onToggleShowImports} xmlShowImports={xmlShowImports} getNodeByName={getNodeByName} />
       ) : (
         <MemoizedNodePropertyEditor node={selectedNode} onChange={onChange} />
       )}

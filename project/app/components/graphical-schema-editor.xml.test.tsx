@@ -1013,3 +1013,4 @@ describe('GraphicalSchemaEditor - XML circular type-reference handling', () => {
   });
 });
 
+

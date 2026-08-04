@@ -18,6 +18,7 @@ import ReactFlow, {
 import { TooltipProvider } from "./ui/tooltip/tooltip";
 import { HorizontalSplitPane } from "./ui/split-pane";
 import { getVariantLabel } from '../utils/labels';
+import { XSD_BUILTIN_SIMPLE_TYPES } from '../utils/xsd-types';
 import { applySnappedDagreLayout } from './graphical-schema-layout-snapped';
 import { GraphicalSchemaRhsControl } from './graphical-schema-rhs-control';
 import type { Connection, Edge, Node, OnConnect } from "reactflow"
@@ -667,9 +668,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
   }, [getXmlAnnotationDocs]);
 
   const xmlSchemaToGraph = React.useCallback(
-    (xmlDoc: Record<string, unknown>, options?: { visibleOnly?: boolean; xmlShowAnnotations?: boolean }): { nodes: Node<SchemaNodeData>[]; edges: Edge[] } => {
+    (xmlDoc: Record<string, unknown>, options?: { visibleOnly?: boolean; xmlShowAnnotations?: boolean; xmlShowImports?: boolean }): { nodes: Node<SchemaNodeData>[]; edges: Edge[] } => {
       const buildVisibleOnly = options?.visibleOnly === true;
       const showAnnotations = options?.xmlShowAnnotations === true;
+      const showImports = options?.xmlShowImports === true;
       const nodes: Node<SchemaNodeData>[] = [];
       const edges: Edge[] = [];
 
@@ -774,6 +776,23 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       };
     };
 
+    // Looks up whether an element has a `substitutionGroup` attribute that references a parent element,
+    // so the child element can inherit the parent's structure (inline complexType, or `type=` complexType)
+    // inline right under this substituting element's node. Similar to ref expansion but for substitution
+    // groups. Uses an `element:`-prefixed ancestor key to guard against cycles.
+    const resolveSubstitutionGroupExpansion = (elemAttrs: Record<string, unknown>, ancestors: Set<string>) => {
+      const rawSubstitutionGroup = typeof elemAttrs.substitutionGroup === 'string' ? elemAttrs.substitutionGroup : undefined;
+      const parentName = rawSubstitutionGroup ? localTypeName(rawSubstitutionGroup) : undefined;
+      const parentElement = parentName ? elementsByName.get(parentName) : undefined;
+      const ancestorKey = parentName ? `element:${parentName}` : undefined;
+      return {
+        parentElement,
+        parentName,
+        ancestorKey,
+        circular: Boolean(parentElement && ancestorKey && ancestors.has(ancestorKey)),
+      };
+    };
+
     // Reads `xs:complexContent`/`xs:extension` (or `xs:restriction`) off a complexType value and
     // returns the local (namespace-stripped) name of its `base` type, if any.
     const getComplexContentBaseInfo = (complexTypeValue: any): { baseTypeName: string; derivationKey: 'xs:extension' | 'xs:restriction' } | undefined => {
@@ -834,7 +853,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const refExpansion = (!inlineComplexType && !referenced)
         ? resolveElementRefExpansion(elemAttrs, ancestors)
         : { referencedElement: undefined, refName: undefined, ancestorKey: undefined, circular: false };
-      const effectiveCircular = circular || refExpansion.circular;
+      // Check for substitution group parent
+      const substitutionGroupExpansion = (!inlineComplexType && !referenced && !refExpansion.referencedElement)
+        ? resolveSubstitutionGroupExpansion(elemAttrs, ancestors)
+        : { parentElement: undefined, parentName: undefined, ancestorKey: undefined, circular: false };
+      const effectiveCircular = circular || refExpansion.circular || substitutionGroupExpansion.circular;
       const inlineComplexTypeAttrs = inlineComplexType && typeof inlineComplexType === 'object' ? getXmlAttrs(inlineComplexType) : {};
       const inlineComplexAnyAttribute = inlineComplexType && typeof inlineComplexType === 'object'
         ? getXmlAttrs((inlineComplexType as any)['xs:anyAttribute'])
@@ -845,6 +868,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         inlineComplexType ||
         referenced ||
         refExpansion.referencedElement ||
+        substitutionGroupExpansion.parentElement ||
         Boolean((elemEntry as any)['xs:simpleType']) ||
         Boolean((elemEntry as any)['xs:any']) ||
         XML_COMPOSITOR_TAG_KEYS.some((key) => (elemEntry as any)[key] !== undefined)
@@ -883,6 +907,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         // depth (unlike normal elements, a ref's own fields stay read-only; only its expanded
         // children do too, via `xmlReadOnlySource` threaded through that branch).
         ...(refExpansion.referencedElement && !refExpansion.circular ? { xmlHasRefExpansion: true } : {}),
+        // A substitution group element whose parent resolves to a real (non-circular) global element
+        // can have its content expanded inline — tag it so the graph shows an expand/collapse toggle.
+        ...(substitutionGroupExpansion.parentElement && !substitutionGroupExpansion.circular ? { xmlHasSubstitutionExpansion: true, xmlSubstitutionGroupParent: substitutionGroupExpansion.parentName } : {}),
         ...(readOnlySource ? { xmlReadOnlySource: readOnlySource } : {}),
         ...(inheritedFrom ? { xmlInheritedFrom: inheritedFrom } : {}),
         ...(ownBaseInfo ? { xmlExtendsType: ownBaseInfo.baseTypeName } : {}),
@@ -914,6 +941,21 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           const targetTypeExpansion = resolveElementTypeExpansion(targetAttrs, nextAncestors);
           if (targetTypeExpansion.referenced && targetTypeExpansion.typeName && !targetTypeExpansion.circular) {
             addInlineComplexTypeChildren(targetTypeExpansion.referenced.entry, elementId, ['xs:schema', 'xs:complexType', targetTypeExpansion.referenced.index], new Set(nextAncestors).add(targetTypeExpansion.typeName), '', inheritedFrom, elementId);
+          }
+        }
+      } else if (substitutionGroupExpansion.parentElement && substitutionGroupExpansion.ancestorKey && !substitutionGroupExpansion.circular) {
+        // Expand the parent element's structure inline under this substituting element's node.
+        // This is similar to ref expansion: inherit the parent's complexType and mark as read-only.
+        const parentEntry = substitutionGroupExpansion.parentElement.entry;
+        const parentAttrs = getXmlAttrs(parentEntry);
+        const parentInlineComplexType = (parentEntry as any)['xs:complexType'];
+        const nextAncestors = new Set(elementAncestors).add(substitutionGroupExpansion.ancestorKey);
+        if (parentInlineComplexType && typeof parentInlineComplexType === 'object') {
+          addInlineComplexTypeChildren(parentInlineComplexType, elementId, ['xs:schema', 'xs:element', substitutionGroupExpansion.parentElement.index, 'xs:complexType'], nextAncestors, '', substitutionGroupExpansion.parentName, elementId);
+        } else {
+          const parentTypeExpansion = resolveElementTypeExpansion(parentAttrs, nextAncestors);
+          if (parentTypeExpansion.referenced && parentTypeExpansion.typeName && !parentTypeExpansion.circular) {
+            addInlineComplexTypeChildren(parentTypeExpansion.referenced.entry, elementId, ['xs:schema', 'xs:complexType', parentTypeExpansion.referenced.index], new Set(nextAncestors).add(parentTypeExpansion.typeName), '', substitutionGroupExpansion.parentName, elementId);
           }
         }
       }
@@ -999,7 +1041,9 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         const derivation = (complexTypeValue as any)['xs:complexContent'][derivationKey];
         const baseType = complexTypesByName.get(baseTypeName);
         if (baseType && !ancestors.has(baseTypeName)) {
-          addInlineComplexTypeChildren(baseType.entry, parentId, ['xs:schema', 'xs:complexType', baseType.index], new Set(ancestors).add(baseTypeName), `${idSuffix}.base`, baseTypeName, readOnlySource);
+          // Preserve inheritedFrom through base type expansion (e.g. for substitution groups)
+          // so all attributes in the chain get marked with the same inheritance source.
+          addInlineComplexTypeChildren(baseType.entry, parentId, ['xs:schema', 'xs:complexType', baseType.index], new Set(ancestors).add(baseTypeName), `${idSuffix}.base`, inheritedFrom || baseTypeName, readOnlySource);
         }
         addInlineComplexTypeChildren(derivation, parentId, [...basePath, 'xs:complexContent', derivationKey], ancestors, idSuffix, inheritedFrom, readOnlySource);
         return;
@@ -1019,7 +1063,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         const baseLocalName = localTypeName(base);
         const baseType = complexTypesByName.get(baseLocalName);
         if (baseType && !ancestors.has(baseLocalName) && getSimpleContentBaseInfo(baseType.entry)) {
-          addInlineComplexTypeChildren(baseType.entry, parentId, ['xs:schema', 'xs:complexType', baseType.index], new Set(ancestors).add(baseLocalName), `${idSuffix}.base`, baseLocalName, readOnlySource);
+          // Preserve inheritedFrom through base type expansion (e.g. for substitution groups)
+          addInlineComplexTypeChildren(baseType.entry, parentId, ['xs:schema', 'xs:complexType', baseType.index], new Set(ancestors).add(baseLocalName), `${idSuffix}.base`, inheritedFrom || baseLocalName, readOnlySource);
         }
         const derivationAttrValue = (simpleDerivation as any)['xs:attribute'];
         asArray(derivationAttrValue).forEach((attributeEntry: any, attributeIndex: number) => {
@@ -1260,12 +1305,39 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       xmlSchemaNodeData.xmlAnnotations = schemaAnnotations;
     }
 
+    // Extract xs:import declarations (namespace and schemaLocation pairs)
+    const importElements = asArray((schemaRoot as any)?.['xs:import']);
+    if (importElements.length > 0) {
+      xmlSchemaNodeData.xmlImports = importElements
+        .map((importElem: any) => {
+          const importAttrs = getXmlAttrs(importElem);
+          return {
+            namespace: importAttrs.namespace || '',
+            schemaLocation: importAttrs.schemaLocation || '',
+          };
+        })
+        .filter((imp: any) => imp.namespace || imp.schemaLocation);
+    }
+
+    // Extract custom xmlns:* namespace declarations
+    const customNamespaces: Array<{ prefix: string; uri: string }> = [];
+    Object.entries(schemaAttrs).forEach(([key, value]) => {
+      if (typeof key === 'string' && key.startsWith('xmlns:') && typeof value === 'string') {
+        const prefix = key.substring(6); // Remove 'xmlns:' prefix
+        customNamespaces.push({ prefix, uri: value });
+      }
+    });
+    if (customNamespaces.length > 0) {
+      xmlSchemaNodeData.xmlnsNamespaces = customNamespaces;
+    }
+
     addNode(xmlSchemaNodeData);
 
     const simpleTypes = asArray((schemaRoot as any)?.['xs:simpleType']);
     const complexTypes = asArray((schemaRoot as any)?.['xs:complexType']);
     const elements = asArray((schemaRoot as any)?.['xs:element']);
     const attributeGroups = asArray((schemaRoot as any)?.['xs:attributeGroup']);
+    const attributes = asArray((schemaRoot as any)?.['xs:attribute']);
 
     // Name -> definition/index lookup so element `type` attributes can be resolved and
     // expanded inline (with circular-reference protection via resolveElementTypeExpansion).
@@ -1295,6 +1367,27 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       if (!el || typeof el !== 'object') return;
       const elAttrs = getXmlAttrs(el);
       if (typeof elAttrs.name === 'string' && elAttrs.name) elementsByName.set(elAttrs.name, { entry: el, index: idx });
+    });
+
+    // Maps for substitution group support: tracks which elements substitute for which parent elements.
+    // `substitutionGroupsByName` maps parent element name → array of {entry, index, name} for all substitutes.
+    // `elementParentGroupMap` maps substituting element name → parent element name (direct lookup for a single child).
+    const substitutionGroupsByName = new Map<string, Array<{ entry: any; index: number; name: string }>>();
+    const elementParentGroupMap = new Map<string, string>();
+    elements.forEach((el: any, idx: number) => {
+      if (!el || typeof el !== 'object') return;
+      const elAttrs = getXmlAttrs(el);
+      const substitutionGroup = typeof elAttrs.substitutionGroup === 'string' ? elAttrs.substitutionGroup : undefined;
+      if (!substitutionGroup) return;
+      const parentName = localTypeName(substitutionGroup);
+      const childName = elAttrs.name;
+      if (typeof childName !== 'string' || !childName) return;
+      // Track this element as a substitute for the parent
+      if (!substitutionGroupsByName.has(parentName)) {
+        substitutionGroupsByName.set(parentName, []);
+      }
+      substitutionGroupsByName.get(parentName)!.push({ entry: el, index: idx, name: childName });
+      elementParentGroupMap.set(childName, parentName);
     });
 
     // Name -> enumeration values, so an `xs:attribute type="X"` referencing a named simpleType
@@ -1373,14 +1466,18 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       .filter((n): n is string => typeof n === 'string' && n.length > 0)
       .sort((a, b) => a.localeCompare(b));
 
+    // Available types for the attribute type dropdown: built-in XSD types + user-defined named simple types
+    const availableTypes = [...XSD_BUILTIN_SIMPLE_TYPES, ...namedSimpleTypeNames];
+
     // Track indices for each type as we process in document order
     const typeIndices: Record<string, number> = {
+      'xs:annotation': 0,
+      'xs:import': 0,
       'xs:simpleType': 0,
       'xs:complexType': 0,
       'xs:element': 0,
       'xs:attributeGroup': 0,
       'xs:attribute': 0,
-      'xs:annotation': 0,
     };
 
     // Use __childrenInOrder if available (preserves document order from XML parsing),
@@ -1408,6 +1505,23 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           const restrictionAttrs = restriction && typeof restriction === 'object' ? getXmlAttrs(restriction) : {};
           const unionAttrs = union && typeof union === 'object' ? getXmlAttrs(union) : {};
           const listAttrs = list && typeof list === 'object' ? getXmlAttrs(list) : {};
+          // Extract nested member simpleTypes from union
+          const memberSimpleTypes: InlineSimpleTypeData[] = [];
+          if (union && typeof union === 'object') {
+            const nestedSimpleTypes = asArray((union as any)['xs:simpleType']);
+            memberSimpleTypes.push(
+              ...nestedSimpleTypes
+                .map((st: any) => parseInlineSimpleType(st))
+                .filter((st): st is InlineSimpleTypeData => Boolean(st))
+            );
+          }
+          // Extract nested item simpleType from list
+          const itemSimpleType: InlineSimpleTypeData | undefined = list && typeof list === 'object'
+            ? (() => {
+                const nested = (list as any)['xs:simpleType'];
+                return nested ? parseInlineSimpleType(nested) : undefined;
+              })()
+            : undefined;
           const enumerations = restriction && typeof restriction === 'object'
             ? asArray((restriction as any)['xs:enumeration'])
                 .map((enumEntry: any) => getXmlAttrs(enumEntry).value)
@@ -1433,11 +1547,15 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
             xmlSimpleTypeMode: mode,
             xmlBase: restrictionAttrs.base,
             xmlMemberTypes: unionAttrs.memberTypes,
+            ...(memberSimpleTypes.length > 0 ? { xmlMemberSimpleTypes: memberSimpleTypes } : {}),
             xmlItemType: listAttrs.itemType,
+            ...(itemSimpleType ? { xmlItemSimpleType: itemSimpleType } : {}),
             xmlEnumerations: enumerations,
+            ...(mode === 'list' ? { xmlListValues: [] } : {}),
             ...(facets ? { xmlFacets: facets } : {}),
             ...(mode === 'union' ? { xmlUnionReferencedEnumerations: resolveUnionReferencedEnumerations(unionAttrs.memberTypes) } : {}),
             xmlAttributes: simpleTypeAttributes,
+            xmlAvailableTypes: availableTypes,
             xmlIsRef: isGlobalRef,
             xmlMyTypeNames: namedSimpleTypeNames,
             ...getAnnotationField(entry),
@@ -1472,6 +1590,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
             xmlPath: ['xs:schema', 'xs:complexType', index],
             xmlName: attrs.name,
             xmlAttributes: complexTypeAttributes,
+            xmlAvailableTypes: availableTypes,
             xmlIsRef: isGlobalRef,
             xmlMixed: attrs.mixed === 'true',
             ...(anyAttributeAttrs ? { xmlAnyAttribute: anyAttributeAttrs } : {}),
@@ -1515,6 +1634,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
             xmlPath: ['xs:schema', 'xs:attributeGroup', index],
             xmlName: attrs.name,
             xmlAttributes: attributeGroupAttributes,
+            xmlAvailableTypes: availableTypes,
             xmlIsRef: isGlobalRef,
             ...getAnnotationField(entry),
           }, '1', groupHasChildren);
@@ -1578,11 +1698,32 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
             xmlAnnotationIndex: index,
           }, '1');
         });
+      } else if (key === 'xs:import' && showImports) {
+        entries.forEach((entry: any) => {
+          if (!entry || typeof entry !== 'object') return;
+          const index = typeIndices['xs:import']++;
+          const importAttrs = getXmlAttrs(entry);
+          const namespace = importAttrs.namespace || '(no namespace)';
+          const schemaLocation = importAttrs.schemaLocation || '(no location)';
+          
+          const importNodeId = `1.import_${index}`;
+          const importPath = ['xs:schema', 'xs:import', index];
+          
+          addNode({
+            id: importNodeId,
+            label: `Import ${index + 1}`,
+            type: 'import',
+            parent: '1',
+            xmlNodeKind: 'import',
+            xmlPath: importPath,
+            xmlImportNamespace: namespace,
+            xmlImportSchemaLocation: schemaLocation,
+            xmlImportIndex: index,
+          }, '1');
+        });
       }
       });
     } else {
-      // Fallback: process in grouped-by-type order (for pre-parsed or non-XML schemas)
-      const attributes = asArray((schemaRoot as any)?.['xs:attribute']);
       
       simpleTypes.forEach((entry) => {
         if (!entry || typeof entry !== 'object') return;
@@ -1598,6 +1739,23 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         const restrictionAttrs = restriction && typeof restriction === 'object' ? getXmlAttrs(restriction) : {};
         const unionAttrs = union && typeof union === 'object' ? getXmlAttrs(union) : {};
         const listAttrs = list && typeof list === 'object' ? getXmlAttrs(list) : {};
+        // Extract nested member simpleTypes from union
+        const memberSimpleTypes: InlineSimpleTypeData[] = [];
+        if (union && typeof union === 'object') {
+          const nestedSimpleTypes = asArray((union as any)['xs:simpleType']);
+          memberSimpleTypes.push(
+            ...nestedSimpleTypes
+              .map((st: any) => parseInlineSimpleType(st))
+              .filter((st): st is InlineSimpleTypeData => Boolean(st))
+          );
+        }
+        // Extract nested item simpleType from list
+        const itemSimpleType: InlineSimpleTypeData | undefined = list && typeof list === 'object'
+          ? (() => {
+              const nested = (list as any)['xs:simpleType'];
+              return nested ? parseInlineSimpleType(nested) : undefined;
+            })()
+          : undefined;
         const enumerations = restriction && typeof restriction === 'object'
           ? asArray((restriction as any)['xs:enumeration'])
               .map((enumEntry: any) => getXmlAttrs(enumEntry).value)
@@ -1623,11 +1781,15 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           xmlSimpleTypeMode: mode,
           xmlBase: restrictionAttrs.base,
           xmlMemberTypes: unionAttrs.memberTypes,
+          ...(memberSimpleTypes.length > 0 ? { xmlMemberSimpleTypes: memberSimpleTypes } : {}),
           xmlItemType: listAttrs.itemType,
+          ...(itemSimpleType ? { xmlItemSimpleType: itemSimpleType } : {}),
           xmlEnumerations: enumerations,
+          ...(mode === 'list' ? { xmlListValues: [] } : {}),
           ...(facets ? { xmlFacets: facets } : {}),
           ...(mode === 'union' ? { xmlUnionReferencedEnumerations: resolveUnionReferencedEnumerations(unionAttrs.memberTypes) } : {}),
           xmlAttributes: simpleTypeAttributes,
+          xmlAvailableTypes: availableTypes,
           xmlIsRef: isGlobalRef,
           xmlMyTypeNames: namedSimpleTypeNames,
           ...getAnnotationField(entry),
@@ -1662,6 +1824,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           xmlPath: ['xs:schema', 'xs:complexType', idx],
           xmlName: attrs.name,
           xmlAttributes: complexTypeAttributes,
+          xmlAvailableTypes: availableTypes,
           xmlIsRef: isGlobalRef,
           xmlMixed: attrs.mixed === 'true',
           ...(anyAttributeAttrs ? { xmlAnyAttribute: anyAttributeAttrs } : {}),
@@ -1699,6 +1862,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           xmlPath: ['xs:schema', 'xs:attributeGroup', idx],
           xmlName: attrs.name,
           xmlAttributes: attributeGroupAttributes,
+          xmlAvailableTypes: availableTypes,
           xmlIsRef: isGlobalRef,
           ...getAnnotationField(entry),
         }, '1', groupHasChildren);
@@ -2037,6 +2201,11 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         if (value) attrs.type = value;
         else delete attrs.type;
       }
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlSubstitutionGroupParent')) {
+        const value = (patch as any).xmlSubstitutionGroupParent;
+        if (value) attrs.substitutionGroup = value;
+        else delete attrs.substitutionGroup;
+      }
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlMinOccurs')) {
         const value = (patch as any).xmlMinOccurs;
         if (value !== undefined && value !== null && String(value).length > 0) attrs.minOccurs = String(value);
@@ -2123,6 +2292,36 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           }
         }
       });
+
+      // Handle xs:import updates
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlImports')) {
+        const imports = (patch as any).xmlImports as Array<{ namespace: string; schemaLocation: string }>;
+        if (Array.isArray(imports) && imports.length > 0) {
+          // Replace or create xs:import array
+          target['xs:import'] = imports.map((imp) => ({
+            '@attributes': {
+              ...(imp.namespace ? { namespace: imp.namespace } : {}),
+              ...(imp.schemaLocation ? { schemaLocation: imp.schemaLocation } : {}),
+            },
+          }));
+        } else {
+          // Remove xs:import if empty
+          delete target['xs:import'];
+        }
+      }
+
+      // Handle custom xmlns:* namespace declarations
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlnsNamespaces')) {
+        const namespaces = (patch as any).xmlnsNamespaces as Array<{ prefix: string; uri: string }>;
+        if (Array.isArray(namespaces) && namespaces.length > 0) {
+          // Add/update xmlns:* attributes on root
+          namespaces.forEach((ns) => {
+            if (ns.prefix && ns.uri) {
+              attrs[`xmlns:${ns.prefix}`] = ns.uri;
+            }
+          });
+        }
+      }
     }
 
     // Handle attribute operations on simpleType, complexType, or attributeGroup
@@ -2581,8 +2780,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const visible = laidOutNodes.filter(n => !n.hidden);
       const groups: Node<SchemaNodeData>[] = [];
       visible.forEach((owner) => {
-        const baseTypeName = (owner.data as any)?.xmlExtendsType;
-        if (!baseTypeName) return;
+        // Handle both complexContent inheritance (xmlExtendsType) and substitution groups (xmlSubstitutionGroupParent)
+        const baseTypeName = (owner.data as any)?.xmlExtendsType || (owner.data as any)?.xmlSubstitutionGroupParent;
+        const inheritanceMode = (owner.data as any)?.xmlExtendsType ? 'extends' : (owner.data as any)?.xmlSubstitutionGroupParent ? 'substitutes' : undefined;
+        if (!baseTypeName || !inheritanceMode) return;
         const memberPrefix = `${owner.id}.`;
         const members = visible.filter(n => n.id !== owner.id && n.id.startsWith(memberPrefix) && (n.data as any)?.xmlInheritedFrom === baseTypeName);
         if (members.length === 0) return;
@@ -2601,12 +2802,13 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           maxY = Math.max(maxY, m.position.y + estimateHeight(m));
         });
 
+        const label = inheritanceMode === 'extends' ? `inherits ${baseTypeName}` : `substitutes ${baseTypeName}`;
         groups.push({
           id: `${owner.id}.inheritance-group`,
           type: 'inheritanceGroup',
-          position: { x: minX, y: minY - GROUP_PADDING },
-          style: { width: maxX - minX + GROUP_PADDING, height: maxY - minY + GROUP_PADDING * 2 },
-          data: { label: `inherits ${baseTypeName}` } as any,
+          position: { x: minX, y: minY - GROUP_PADDING * 2.5 },
+          style: { width: maxX - minX + GROUP_PADDING, height: maxY - minY + GROUP_PADDING * 3.5 },
+          data: { label } as any,
           draggable: false,
           selectable: false,
           focusable: false,
@@ -3910,10 +4112,15 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     setXmlShowAnnotations(show);
   };
 
+  const handleToggleShowImports = (show: boolean) => {
+    setXmlShowImports(show);
+  };
+
   // Context menu state
   const [contextMenu, setContextMenu] = React.useState<{ visible: boolean; position: { x: number; y: number }; nodeId: string | null } | null>(null);
   const [showSchemaDetails, setShowSchemaDetails] = React.useState(false);
   const [xmlShowAnnotations, setXmlShowAnnotations] = React.useState(false);
+  const [xmlShowImports, setXmlShowImports] = React.useState(false);
 
   const xmlSchemaDetails = React.useMemo(() => {
     const candidate = schema as any;
@@ -4015,7 +4222,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     const hasPersistedCollapse = collapsedNodeIdsRef.current.size > 0;
     const useDefaultCollapseHeuristic = isInitialLoad && !hasPersistedCollapse && !hasUserToggledChildrenRef.current;
     const rawGraph = isXmlGraphMode
-      ? xmlSchemaToGraph(schemaForGraph, { visibleOnly: useDefaultCollapseHeuristic, xmlShowAnnotations })
+      ? xmlSchemaToGraph(schemaForGraph, { visibleOnly: useDefaultCollapseHeuristic, xmlShowAnnotations, xmlShowImports })
       : schemaToGraph(schemaForGraph);
     const restoredExpansionState = expansionStateRef.current;
     const nodesWithRestoredExpansion = rawGraph.nodes.map((n) => {
@@ -4190,7 +4397,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     }
     // Otherwise, do not reset selection (preserve selection and form)
     persistCollapseState();
-  }, [schema, setNodes, setEdges, useTestData, schemaToGraph, fingerprintSchema, relayoutNodes, restoreExpandedStateRecursively, scheduleTask, isXmlGraphMode, resetCollapsedNodeIdsForSchema, xmlShowAnnotations]);
+  }, [schema, setNodes, setEdges, useTestData, schemaToGraph, fingerprintSchema, relayoutNodes, restoreExpandedStateRecursively, scheduleTask, isXmlGraphMode, resetCollapsedNodeIdsForSchema, xmlShowAnnotations, xmlShowImports]);
 
   // Note: dereferencing is handled by the top-level reducer/workbench.
 
@@ -5800,7 +6007,14 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           onToggleSchemaDetails={() => setShowSchemaDetails(prev => !prev)}
           onToggleShowAnnotations={handleToggleShowAnnotations}
           xmlShowAnnotations={xmlShowAnnotations}
+          onToggleShowImports={handleToggleShowImports}
+          xmlShowImports={xmlShowImports}
           onPrintGraph={handlePrintGraph}
+          getNodeByName={(name: string) => {
+            if (!reactFlowInstanceRef.current) return null;
+            const allNodes = reactFlowInstanceRef.current.getNodes();
+            return allNodes.find((n: any) => n.data?.xmlName === name) || null;
+          }}
         />
       </div>
     </HorizontalSplitPane>

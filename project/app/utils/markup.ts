@@ -232,13 +232,25 @@ function xmlElementToString(name: string, value: XmlNodeValue, indent = '', step
 
   const attrs = (value as XmlElementValue)[XML_ATTRIBUTES_KEY] as Record<string, string> | undefined;
   const text = (value as XmlElementValue)[XML_TEXT_KEY];
-  const childKeys = Object.keys(value as XmlElementValue).filter(key => key !== XML_ATTRIBUTES_KEY && key !== XML_TEXT_KEY);
+  const childrenInOrder = (value as XmlElementValue)['__childrenInOrder'] as Array<{ tagName: string; value: XmlNodeValue }> | undefined;
+
+  // Use __childrenInOrder to preserve document order if available
+  let childrenToSerialize: Array<[string, XmlNodeValue]>;
+  if (childrenInOrder) {
+    childrenToSerialize = childrenInOrder.map(({ tagName, value }) => [tagName, value]);
+  } else {
+    // Fallback to Object.keys if no order information (shouldn't happen for parsed XML)
+    childrenToSerialize = Object.entries(value as XmlElementValue).filter(
+      ([key]) => key !== XML_ATTRIBUTES_KEY && key !== XML_TEXT_KEY && !key.startsWith('__')
+    );
+  }
+
 
   const attrText = attrs
     ? Object.entries(attrs).map(([key, attrValue]) => ` ${key}="${xmlEscape(String(attrValue))}"`).join('')
     : '';
 
-  if (childKeys.length === 0 && typeof text === 'undefined') {
+  if (childrenToSerialize.length === 0 && typeof text === 'undefined') {
     return `${indent}<${name}${attrText} />`;
   }
 
@@ -249,8 +261,7 @@ function xmlElementToString(name: string, value: XmlNodeValue, indent = '', step
     body.push(xmlEscape(String(text)));
   }
 
-  for (const key of childKeys) {
-    const childValue = (value as XmlElementValue)[key];
+  for (const [key, childValue] of childrenToSerialize) {
     if (Array.isArray(childValue)) {
       for (const entry of childValue) {
         body.push(xmlElementToString(key, entry, childIndent, step));

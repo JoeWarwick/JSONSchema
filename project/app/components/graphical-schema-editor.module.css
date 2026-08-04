@@ -24,6 +24,10 @@
   --graph-node-muted: var(--color-neutral-11);
   --graph-node-shadow: 0 2px 8px rgba(0,0,0,0.08);
   --graph-node-shadow-strong: 0 4px 16px rgba(0,0,0,0.16);
+  /* Form styling variables for light mode */
+  --form-surface: #f9f5f0;
+  --form-border: #e5d4c4;
+  --form-text: #5d4a3a;
   display: flex;
   flex-direction: row;
   /* Fill whatever height the flex parent (tabPanel) gives us */
@@ -834,6 +838,10 @@
   --graph-muted: var(--color-neutral-11);
   --graph-border: var(--color-accent-7);
   --graph-surface: var(--color-neutral-1);
+  /* Dark mode form styling */
+  --form-surface: var(--color-neutral-2);
+  --form-border: var(--color-neutral-7);
+  --form-text: var(--color-neutral-11);
 }
 
 /* Spinner animation (mirrors schema-editor-form loadingSpinner) */

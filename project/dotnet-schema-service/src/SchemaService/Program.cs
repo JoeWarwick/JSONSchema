@@ -6,6 +6,8 @@ builder.Services.AddControllers();
 builder.Services.AddSingleton<XmlSchemaLocationService>();
 builder.Services.AddSingleton<SchemaInferenceService>();
 builder.Services.AddSingleton<DefaultInstanceService>();
+builder.Services.AddSingleton<XmlSchemaResolverService>();
+builder.Services.AddSingleton<SchemaValidationService>();
 
 var app = builder.Build();
 

@@ -368,9 +368,11 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
             // JSON Schema properties
             'label', 'id', 'parent', 'type', 'ofType', 'required', 'enum', 'items', 'default', 'title', 'description', '$comment', 'patternKey', 'typeUnion', 'isAdditionalProperties', 'additionalProperties', 'minProperties', 'maxProperties', '$ref',
             // XML Schema metadata (path, kind, etc.)
-            'xmlPath', 'xmlNodeKind', 'xmlName', 'xmlElementType', 'xmlHasInlineComplexType', 'xmlInlineComplexTypeName', 'xmlSimpleTypeMode', 'xmlBase', 'xmlMemberTypes', 'xmlItemType', 'xmlEnumerations', 'xmlFacets', 'xmlUnionReferencedEnumerations', 'xmlAttributes', 'xmlAvailableTypes', 'xmlAnyAttribute', 'xmlAnyAttributeNamespace', 'xmlIsRef', 'xmlHasRefExpansion', 'xmlReadOnlySource', 'xmlIsAnonymous', 'xmlAttributeInlineSimpleType', 'xmlHasInlineSimpleType', 'xmlAttributeReferencedEnumerations', 'xmlAttributeReferencedTypeName', 'xmlMyTypeNames', 'xmlMyElementNames', 'xmlAnnotation', 'xmlMixed', 'xmlDoc', 'xmlPropertyMap', 'xmlSchemaNodeData', 'xmlns',
-            // xs:complexContent inheritance metadata (used only to compute the inheritance-group bounding box, never shown as a badge)
-            'xmlExtendsType', 'xmlInheritedFrom',
+            'xmlPath', 'xmlNodeKind', 'xmlName', 'xmlElementType', 'xmlHasInlineComplexType', 'xmlInlineComplexTypeName', 'xmlSimpleTypeMode', 'xmlBase', 'xmlMemberTypes', 'xmlItemType', 'xmlEnumerations', 'xmlListValues', 'xmlFacets', 'xmlUnionReferencedEnumerations', 'xmlAttributes', 'xmlAvailableTypes', 'xmlAnyAttribute', 'xmlAnyAttributeNamespace', 'xmlIsRef', 'xmlHasRefExpansion', 'xmlReadOnlySource', 'xmlIsAnonymous', 'xmlAttributeInlineSimpleType', 'xmlHasInlineSimpleType', 'xmlAttributeReferencedEnumerations', 'xmlAttributeReferencedTypeName', 'xmlMyTypeNames', 'xmlMyElementNames', 'xmlAnnotation', 'xmlMixed', 'xmlDoc', 'xmlPropertyMap', 'xmlSchemaNodeData', 'xmlns', 'xmlImports',
+            // xs:annotation and xs:import node properties (displayed in node content, not as badges)
+            'xmlAnnotationText', 'xmlAnnotationIndex', 'xmlImportNamespace', 'xmlImportSchemaLocation', 'xmlImportIndex',
+            // xs:complexContent inheritance metadata and xs:substitutionGroup metadata (used only to compute the inheritance-group bounding box, never shown as a badge)
+            'xmlExtendsType', 'xmlInheritedFrom', 'xmlSubstitutionGroupParent', 'xmlHasSubstitutionExpansion',
             // xs:attributeGroup ref metadata (drives the isRef badge tooltip, not a separate badge)
             'xmlAttributeGroupRef',
             // XML Attribute properties
@@ -566,6 +568,43 @@ export const AnnotationNode = ({ data }: { data: any }) => {
         Annotation
       </div>
       <div style={{ whiteSpace: 'normal' }}>{truncatedText}</div>
+    </div>
+  );
+};
+
+// Import node - displays xs:import namespace and schemaLocation
+export const ImportNode = ({ data }: { data: any }) => {
+  const namespace = data?.xmlImportNamespace || '(no namespace)';
+  const schemaLocation = data?.xmlImportSchemaLocation || '(no location)';
+  const handleStyle = { background: '#2563eb', width: 8, height: 8, borderRadius: 4 };
+  
+  return (
+    <div
+      style={{
+        padding: '10px 12px',
+        background: 'var(--color-info-3)',
+        border: '1.5px solid var(--color-info-7)',
+        borderRadius: 8,
+        fontSize: 12,
+        color: 'var(--color-info-11)',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        lineHeight: 1.4,
+        maxWidth: 280,
+        wordWrap: 'break-word',
+        whiteSpace: 'pre-wrap',
+        cursor: 'grab',
+      }}
+    >
+      <Handle id="target-Left" type="target" position={Position.Left} style={handleStyle} />
+      <div style={{ fontWeight: 600, fontSize: 11, color: 'var(--color-info-11)', marginBottom: 4 }}>
+        Import
+      </div>
+      <div style={{ fontSize: 11, marginBottom: 3 }}>
+        <strong>Namespace:</strong> {namespace}
+      </div>
+      <div style={{ fontSize: 11 }}>
+        <strong>Location:</strong> {schemaLocation}
+      </div>
     </div>
   );
 };
@@ -781,6 +820,7 @@ export const nodeTypes: { [key: string]: React.FC<any> } = {
   itemsGroup: ItemsGroupNode,
   inheritanceGroup: InheritanceGroupNode,
   annotation: AnnotationNode,
+  import: ImportNode,
 };
 
 // Define edgeTypes

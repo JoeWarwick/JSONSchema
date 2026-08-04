@@ -15,6 +15,7 @@ import styles from "./workbench.module.css";
 import { generateSchema, isValidJSON } from "~/utils/schema-generator";
 import schemaReducer, { initialSchemaState, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, MERGE_RESOLVED_PATH, MERGE_RESOLVED_ALL_PATHS, ensureResolved, getPersistableSource, getEditorSchema, getResolvedSource } from "~/state/schemaReducer";
 import { resolveSchema } from "~/utils/schema-resolver";
+import { useSchemaValidation } from "~/hooks/use-schema-validation";
 
 // Utility to rename a property in an object (shallow)
 function renamePropertyInObject(obj: any, oldName: string, newName: string) {
@@ -29,6 +30,7 @@ function renamePropertyInObject(obj: any, oldName: string, newName: string) {
 import { JsonInstanceForm } from "~/components/json-instance-form";
 import { SchemaEditorForm } from "~/components/schema-editor-form";
 import { GraphicalSchemaEditor } from "~/components/graphical-schema-editor";
+import { SchemaSourceEditor } from "~/components/schema-source-editor";
 import { ErdEditor } from "~/components/erd-editor";
 import type { ErdModel } from "~/types/erd";
 import { parseDbContextFiles } from "~/utils/csharp-dbcontext-parser";
@@ -114,6 +116,7 @@ export default function Workbench() {
   const [jsonInput, setJsonInput] = useState('');
   const [hasHydratedPersistedState, setHasHydratedPersistedState] = useState(false);
   const [erdModel, setErdModel] = useState<ErdModel | null>(null);
+  const { validate: validateSchema } = useSchemaValidation();
 
   // Wholesale schema replacement (new/open/load-from-url/generate) — bumps `schemaGeneration`
   // so `<GraphicalSchemaEditor key>` fully unmounts/remounts instead of diffing the old
@@ -858,6 +861,21 @@ export default function Workbench() {
     URL.revokeObjectURL(url);
   };
 
+  const handleValidateSchema = async () => {
+    if (!jsonInput.trim()) {
+      toast.error('No schema to validate');
+      return;
+    }
+
+    // Only validate XSD schemas (XML mode)
+    if (markupLanguage !== 'xml') {
+      toast.info('Schema validation is available for XSD schemas only');
+      return;
+    }
+
+    await validateSchema(jsonInput);
+  };
+
   const handleSaveMarkup = () => {
     if (!jsonInput.trim()) return;
     try {
@@ -972,7 +990,7 @@ export default function Workbench() {
   };
 
   // Tabbed UI state
-  const [activeTab, setActiveTab] = useState<'json' | 'schema' | 'instance' | 'output' | 'graph' | 'erd'>('json');
+  const [activeTab, setActiveTab] = useState<'json' | 'xmlschema' | 'schema' | 'instance' | 'output' | 'graph' | 'erd'>('json');
   const [hasHydratedActiveTab, setHasHydratedActiveTab] = useState(false);
 
   // Restore last active tab from localStorage - deferred to avoid sync storage access during render
@@ -981,7 +999,7 @@ export default function Workbench() {
     const timer = window.setTimeout(() => {
       try {
         const savedTab = window.localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
-        if (savedTab && ['json', 'schema', 'instance', 'output', 'graph', 'erd'].includes(savedTab)) {
+        if (savedTab && ['json', 'xmlschema', 'schema', 'instance', 'output', 'graph', 'erd'].includes(savedTab)) {
           setActiveTab(savedTab as typeof activeTab);
         }
       } catch (_) {
@@ -1185,6 +1203,11 @@ export default function Workbench() {
                 Load from URL&hellip;
               </MenubarItem>
               <MenubarSeparator />
+              <MenubarItem onSelect={handleValidateSchema} disabled={!jsonInput.trim()}>
+                <ShieldCheck size={14} style={{ marginRight: 6 }} />
+                Validate Schema
+              </MenubarItem>
+              <MenubarSeparator />
               <MenubarItem onSelect={handleCopy} disabled={!state.source}>
                 {copied
                   ? <><Check size={14} style={{ marginRight: 6 }} /> Copied!</>
@@ -1328,7 +1351,8 @@ export default function Workbench() {
       <div className={styles.tabs}>
         <button className={activeTab === 'json' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('json')}>{markupLabel[markupLanguage]} Input</button>
         <button className={activeTab === 'instance' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('instance')}>Instance Editor</button>
-        <button className={activeTab === 'schema' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('schema')}>Schema Input</button>
+        <button className={activeTab === 'xmlschema' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('xmlschema')}>{markupLanguage === 'json' ? 'JSONSchema' : 'XMLSchema'} Input</button>
+        <button className={activeTab === 'schema' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('schema')}>Schema Form</button>
         <button className={activeTab === 'graph' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('graph')}>Schema Editor</button>
         <button className={activeTab === 'erd' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('erd')}>ERD</button>
       </div>
@@ -1354,11 +1378,33 @@ export default function Workbench() {
             )}
           </>
         )}
+        {activeTab === 'xmlschema' && (
+          <>
+            <div className={styles.panel}>
+              <div className={styles.panelHeader}>
+                <h2 className={styles.panelTitle}>{markupLanguage === 'json' ? 'JSONSchema' : 'XMLSchema'} Input</h2>
+              </div>
+              <div className={styles.editorContainer}>
+                {state.source ? (
+                  <SchemaSourceEditor
+                    schema={state.source as any}
+                    onChange={(newSchema) => {
+                      applySourceUpdate(newSchema);
+                    }}
+                    schemaLanguage={markupLanguage === 'yaml' ? 'json' : markupLanguage}
+                  />
+                ) : (
+                  <div className={styles.emptyState}>Load or generate a schema to begin editing</div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
         {activeTab === 'schema' && (
           <>
             <div className={styles.panel}>
               <div className={styles.panelHeader}>
-                <h2 className={styles.panelTitle}>Schema Input</h2>
+                <h2 className={styles.panelTitle}>Schema Form</h2>
               </div>
               <div className={styles.editorContainer}>
                 {editorSchema ? (

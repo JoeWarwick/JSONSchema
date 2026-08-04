@@ -1,0 +1,154 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
+.editorWrapper {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  font-family: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  background-color: #1e1e1e;
+  border: 1px solid #3e3e42;
+}
+
+.textarea {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  padding: 12px;
+  margin: 0;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: transparent;
+  background-color: transparent;
+  border: none;
+  resize: none;
+  outline: none;
+  overflow-y: auto;
+  overflow-x: auto;
+  z-index: 2;
+  caret-color: #0e639c;
+  tab-size: 2;
+  box-sizing: border-box;
+}
+
+.textarea::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.textarea::-webkit-scrollbar-thumb {
+  background: #404040;
+  border-radius: 4px;
+}
+
+.textarea::-webkit-scrollbar-thumb:hover {
+  background: #505050;
+}
+
+.textarea::selection {
+  background-color: #264f78;
+  color: transparent;
+}
+
+.highlight {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 12px;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: #d4d4d4;
+  background-color: transparent;
+  border: none;
+  resize: none;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  box-sizing: border-box;
+}
+
+.code {
+  margin: 0;
+  padding: 0;
+  background-color: transparent;
+}
+
+/* Prism.js syntax highlighting theme - explicit colors */
+:global(.token.punctuation) {
+  color: #d4d4d4;
+}
+
+:global(.token.property) {
+  color: #9cdcfe;
+}
+
+:global(.token.string) {
+  color: #ce9178;
+}
+
+:global(.token.number) {
+  color: #b5cea8;
+}
+
+:global(.token.boolean) {
+  color: #569cd6;
+}
+
+:global(.token.null) {
+  color: #569cd6;
+}
+
+:global(.token.keyword) {
+  color: #569cd6;
+}
+
+:global(.token.operator) {
+  color: #d4d4d4;
+}
+
+:global(.token.tag) {
+  color: #569cd6;
+}
+
+:global(.token.attr-name) {
+  color: #9cdcfe;
+}
+
+:global(.token.attr-value) {
+  color: #ce9178;
+}
+
+:global(.token.comment) {
+  color: #6a9955;
+  font-style: italic;
+}
+
+/* Remove Prism default theme background */
+:global(.language-json),
+:global(.language-markup) {
+  background: transparent !important;
+  color: inherit;
+}
