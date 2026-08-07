@@ -2854,11 +2854,79 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     const orderedVisibleNodes = [...visibleNodes].sort(compareLayoutSiblings);
     const visibleNodeById = new Map(orderedVisibleNodes.map((n) => [n.id, n]));
 
+    const DAGRE_NODE_SEP = 32;
+    const DAGRE_RANK_SEP = 35;
+    const SIBLING_COMPACTION_MIN_GAP = 8;
+    const SIBLING_COMPACTION_MAX_DESIRED_GAP = 24;
+    const SIBLING_COMPACTION_MAX_ALLOWED_GAP = 56;
+    const SIBLING_COMPACTION_GAP_FACTOR = 3;
+
+    // Dagre can occasionally produce very large vertical gaps between adjacent siblings.
+    // Compact those outliers by pulling the current and following siblings closer while
+    // preserving sibling order and leaving modest/intentional spacing untouched.
+    const compactSiblingVerticalGaps = (laidOutNodes: Node<SchemaNodeData>[]) => {
+      const byParent = new Map<string, Node<SchemaNodeData>[]>();
+      laidOutNodes.forEach((n) => {
+        const parentId = ((n.data as any)?.parent as string | undefined) || '';
+        const siblings = byParent.get(parentId);
+        if (siblings) {
+          siblings.push(n);
+        } else {
+          byParent.set(parentId, [n]);
+        }
+      });
+
+      const updatedById = new Map(laidOutNodes.map((n) => [n.id, n]));
+
+      for (const siblings of byParent.values()) {
+        if (siblings.length < 2) continue;
+        const ordered = [...siblings].sort(compareLayoutSiblings);
+
+        for (let i = 1; i < ordered.length; i += 1) {
+          const prev = updatedById.get(ordered[i - 1].id);
+          const curr = updatedById.get(ordered[i].id);
+          if (!prev || !curr) continue;
+
+          const prevBottom = (prev.position?.y ?? 0) + estimateHeight(prev);
+          const currentTop = curr.position?.y ?? 0;
+          const gap = currentTop - prevBottom;
+
+          const desiredGap = Math.max(
+            SIBLING_COMPACTION_MIN_GAP,
+            Math.min(
+              SIBLING_COMPACTION_MAX_DESIRED_GAP,
+              Math.round((estimateHeight(prev) + estimateHeight(curr)) / 8),
+            ),
+          );
+          const maxAllowedGap = Math.max(
+            SIBLING_COMPACTION_MAX_ALLOWED_GAP,
+            desiredGap * SIBLING_COMPACTION_GAP_FACTOR,
+          );
+          if (gap <= maxAllowedGap) continue;
+
+          const shiftUp = gap - desiredGap;
+          for (let j = i; j < ordered.length; j += 1) {
+            const nodeToShift = updatedById.get(ordered[j].id);
+            if (!nodeToShift) continue;
+            updatedById.set(nodeToShift.id, {
+              ...nodeToShift,
+              position: {
+                ...nodeToShift.position,
+                y: (nodeToShift.position?.y ?? 0) - shiftUp,
+              },
+            });
+          }
+        }
+      }
+
+      return laidOutNodes.map((n) => updatedById.get(n.id) || n);
+    };
+
     // Try dagre
     if (dagreLib) {
       try {
         const g = new dagreLib.graphlib.Graph();
-        g.setGraph({ rankdir: 'LR', nodesep: 32, ranksep: 35 });
+        g.setGraph({ rankdir: 'LR', nodesep: DAGRE_NODE_SEP, ranksep: DAGRE_RANK_SEP });
         g.setDefaultEdgeLabel(() => ({}));
 
         // All visible nodes go into dagre — let it handle spacing for
@@ -2893,17 +2961,18 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           if (!dn) return n;
           return { ...n, position: { x: dn.x - dn.width / 2, y: dn.y - dn.height / 2 } };
         });
+        const compactedFinalLaid = compactSiblingVerticalGaps(finalLaid);
 
         // Layout mode toggle for experimentation and debugging.
         // Current default keeps Dagre positions for combiner + variant nodes.
         const COMBINER_VARIANT_LAYOUT_MODE: 'manual' | 'dagre-variants' | 'dagre-all' = 'dagre-all';
         if (COMBINER_VARIANT_LAYOUT_MODE === 'dagre-all') {
-          return withInheritanceGroups([...finalLaid, ...hiddenNodes]);
+          return withInheritanceGroups([...compactedFinalLaid, ...hiddenNodes]);
         }
 
         const useDagreVariantLayout = COMBINER_VARIANT_LAYOUT_MODE === 'dagre-variants';
         return withInheritanceGroups(applySnappedDagreLayout({
-          finalLaid,
+          finalLaid: compactedFinalLaid,
           hiddenNodes,
           dagreNodeFor: (id) => g.node(id),
           estimateWidth,
@@ -2911,7 +2980,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           compareLayoutSiblings,
           useDagreVariantLayout,
           nodeGap: 16,
-          ranksep: 35,
+          ranksep: DAGRE_RANK_SEP,
           additionalPropertiesGap: 60,
         }));
       } catch (err) {
