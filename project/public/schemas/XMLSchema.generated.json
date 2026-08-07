@@ -1,0 +1,4691 @@
+{
+  "xs:schema": {
+    "@targetNamespace": "http://www.w3.org/2001/XMLSchema",
+    "@blockDefault": "#all",
+    "@elementFormDefault": "qualified",
+    "@version": "1.0",
+    "@xmlns:xs": "http://www.w3.org/2001/XMLSchema",
+    "@xml:lang": "EN",
+    "@xmlns:hfp": "http://www.w3.org/2001/XMLSchema-hasFacetAndProperty",
+    "xs:annotation": [
+      {
+        "xs:documentation": {
+          "_text": "Part 1 version: Id: structures.xsd,v 1.2 2004/01/15 11:34:25 ht Exp \n    Part 2 version: Id: datatypes.xsd,v 1.3 2004/01/23 18:11:13 ht Exp"
+        }
+      },
+      {
+        "xs:documentation": {
+          "@source": "http://www.w3.org/TR/2004/PER-xmlschema-1-20040318/structures.html",
+          "_text": "The schema corresponding to this document is normative,\n   with respect to the syntactic constraints it expresses in the\n   XML Schema language.  The documentation (within <documentation> elements)\n   below, is not normative, but rather highlights important aspects of\n   the W3C Recommendation of which this is a part"
+        }
+      },
+      {
+        "xs:documentation": {
+          "_text": "The simpleType element and all of its members are defined\n      towards the end of this schema document"
+        }
+      },
+      {
+        "xs:documentation": {
+          "_text": "simple type for the value of the 'namespace' attr of\n   'any' and 'anyAttribute'"
+        }
+      },
+      {
+        "xs:documentation": {
+          "_text": "Value is\n              ##any      - - any non-conflicting WFXML/attribute at all\n\n              ##other    - - any non-conflicting WFXML/attribute from\n                              namespace other than targetNS\n\n              ##local    - - any unqualified non-conflicting WFXML/attribute \n\n              one or     - - any non-conflicting WFXML/attribute from\n              more URI        the listed namespaces\n              references\n              (space separated)\n\n    ##targetNamespace or ##local may appear in the above list, to\n        refer to the targetNamespace of the enclosing\n        schema or an absent targetNamespace respectively"
+        }
+      },
+      {
+        "xs:documentation": {
+          "_text": "notations for use within XML Schema schemas"
+        }
+      },
+      {
+        "xs:documentation": [
+          {
+            "_text": "First the built-in primitive datatypes.  These definitions are for\n      information only, the real built-in definitions are magic."
+          },
+          {
+            "_text": "For each built-in datatype in this schema (both primitive and\n      derived) can be uniquely addressed via a URI constructed\n      as follows:\n        1) the base URI is the URI of the XML Schema namespace\n        2) the fragment identifier is the name of the datatype\n\n      For example, to address the int datatype, the URI is:\n\n        http://www.w3.org/2001/XMLSchema#int\n\n      Additionally, each facet definition element can be uniquely\n      addressed via a URI constructed as follows:\n        1) the base URI is the URI of the XML Schema namespace\n        2) the fragment identifier is the name of the facet\n\n      For example, to address the maxInclusive facet, the URI is:\n\n        http://www.w3.org/2001/XMLSchema#maxInclusive\n\n      Additionally, each facet usage in a built-in datatype definition\n      can be uniquely addressed via a URI constructed as follows:\n        1) the base URI is the URI of the XML Schema namespace\n        2) the fragment identifier is the name of the datatype, followed\n           by a period (\".\") followed by the name of the facet\n\n      For example, to address the usage of the maxInclusive facet in\n      the definition of int, the URI is:\n\n        http://www.w3.org/2001/XMLSchema#int.maxInclusive"
+          }
+        ]
+      },
+      {
+        "xs:documentation": {
+          "_text": "Now the derived primitive types"
+        }
+      }
+    ],
+    "xs:import": {
+      "@namespace": "http://www.w3.org/XML/1998/namespace",
+      "@schemaLocation": "http://www.w3.org/2001/xml.xsd",
+      "xs:annotation": {
+        "xs:documentation": {
+          "_text": "Get access to the xml: attribute groups for xml:lang\n       as declared on 'schema' and 'documentation' below"
+        }
+      }
+    },
+    "xs:complexType": [
+      {
+        "@name": "openAttrs",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "This type is extended by almost all schema types\n       to allow attributes from other namespaces to be\n       added to user schemas."
+          }
+        },
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:anyType",
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "annotated",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "This type is extended by all types which allow annotation\n       other than <schema> itself"
+          }
+        },
+        "xs:complexContent": {
+          "xs:extension": {
+            "@base": "xs:openAttrs",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              }
+            },
+            "xs:attribute": {
+              "@name": "id",
+              "@type": "xs:ID"
+            }
+          }
+        }
+      },
+      {
+        "@name": "attribute",
+        "xs:complexContent": {
+          "xs:extension": {
+            "@base": "xs:annotated",
+            "xs:sequence": {
+              "xs:element": {
+                "@name": "simpleType",
+                "@minOccurs": "0",
+                "@type": "xs:localSimpleType"
+              }
+            },
+            "xs:attributeGroup": {
+              "@ref": "xs:defRef"
+            },
+            "xs:attribute": [
+              {
+                "@name": "type",
+                "@type": "xs:QName"
+              },
+              {
+                "@name": "use",
+                "@use": "optional",
+                "@default": "optional",
+                "xs:simpleType": {
+                  "xs:restriction": {
+                    "@base": "xs:NMTOKEN",
+                    "xs:enumeration": [
+                      {
+                        "@value": "prohibited"
+                      },
+                      {
+                        "@value": "optional"
+                      },
+                      {
+                        "@value": "required"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "@name": "default",
+                "@type": "xs:string"
+              },
+              {
+                "@name": "fixed",
+                "@type": "xs:string"
+              },
+              {
+                "@name": "form",
+                "@type": "xs:formChoice"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "@name": "topLevelAttribute",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:attribute",
+            "xs:sequence": {
+              "xs:element": [
+                {
+                  "@ref": "xs:annotation",
+                  "@minOccurs": "0"
+                },
+                {
+                  "@name": "simpleType",
+                  "@minOccurs": "0",
+                  "@type": "xs:localSimpleType"
+                }
+              ]
+            },
+            "xs:attribute": [
+              {
+                "@name": "ref",
+                "@use": "prohibited"
+              },
+              {
+                "@name": "form",
+                "@use": "prohibited"
+              },
+              {
+                "@name": "use",
+                "@use": "prohibited"
+              },
+              {
+                "@name": "name",
+                "@use": "required",
+                "@type": "xs:NCName"
+              }
+            ],
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "complexType",
+        "@abstract": "true",
+        "xs:complexContent": {
+          "xs:extension": {
+            "@base": "xs:annotated",
+            "xs:group": {
+              "@ref": "xs:complexTypeModel"
+            },
+            "xs:attribute": [
+              {
+                "@name": "name",
+                "@type": "xs:NCName",
+                "xs:annotation": {
+                  "xs:documentation": {
+                    "_text": "Will be restricted to required or forbidden"
+                  }
+                }
+              },
+              {
+                "@name": "mixed",
+                "@type": "xs:boolean",
+                "@use": "optional",
+                "@default": "false",
+                "xs:annotation": {
+                  "xs:documentation": {
+                    "_text": "Not allowed if simpleContent child is chosen.\n      May be overriden by setting on complexContent child."
+                  }
+                }
+              },
+              {
+                "@name": "abstract",
+                "@type": "xs:boolean",
+                "@use": "optional",
+                "@default": "false"
+              },
+              {
+                "@name": "final",
+                "@type": "xs:derivationSet"
+              },
+              {
+                "@name": "block",
+                "@type": "xs:derivationSet"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "@name": "topLevelComplexType",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:complexType",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              },
+              "xs:group": {
+                "@ref": "xs:complexTypeModel"
+              }
+            },
+            "xs:attribute": {
+              "@name": "name",
+              "@type": "xs:NCName",
+              "@use": "required"
+            },
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "localComplexType",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:complexType",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              },
+              "xs:group": {
+                "@ref": "xs:complexTypeModel"
+              }
+            },
+            "xs:attribute": [
+              {
+                "@name": "name",
+                "@use": "prohibited"
+              },
+              {
+                "@name": "abstract",
+                "@use": "prohibited"
+              },
+              {
+                "@name": "final",
+                "@use": "prohibited"
+              },
+              {
+                "@name": "block",
+                "@use": "prohibited"
+              }
+            ],
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "restrictionType",
+        "xs:complexContent": {
+          "xs:extension": {
+            "@base": "xs:annotated",
+            "xs:sequence": {
+              "xs:choice": {
+                "@minOccurs": "0",
+                "xs:group": [
+                  {
+                    "@ref": "xs:typeDefParticle"
+                  },
+                  {
+                    "@ref": "xs:simpleRestrictionModel"
+                  }
+                ]
+              },
+              "xs:group": {
+                "@ref": "xs:attrDecls"
+              }
+            },
+            "xs:attribute": {
+              "@name": "base",
+              "@type": "xs:QName",
+              "@use": "required"
+            }
+          }
+        }
+      },
+      {
+        "@name": "complexRestrictionType",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:restrictionType",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              },
+              "xs:choice": {
+                "@minOccurs": "0",
+                "xs:annotation": {
+                  "xs:documentation": {
+                    "_text": "This choice is added simply to\n                   make this a valid restriction per the REC"
+                  }
+                },
+                "xs:group": {
+                  "@ref": "xs:typeDefParticle"
+                }
+              },
+              "xs:group": {
+                "@ref": "xs:attrDecls"
+              }
+            },
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "extensionType",
+        "xs:complexContent": {
+          "xs:extension": {
+            "@base": "xs:annotated",
+            "xs:sequence": {
+              "xs:group": [
+                {
+                  "@ref": "xs:typeDefParticle",
+                  "@minOccurs": "0"
+                },
+                {
+                  "@ref": "xs:attrDecls"
+                }
+              ]
+            },
+            "xs:attribute": {
+              "@name": "base",
+              "@type": "xs:QName",
+              "@use": "required"
+            }
+          }
+        }
+      },
+      {
+        "@name": "simpleRestrictionType",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:restrictionType",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              },
+              "xs:choice": {
+                "@minOccurs": "0",
+                "xs:annotation": {
+                  "xs:documentation": {
+                    "_text": "This choice is added simply to\n                   make this a valid restriction per the REC"
+                  }
+                },
+                "xs:group": {
+                  "@ref": "xs:simpleRestrictionModel"
+                }
+              },
+              "xs:group": {
+                "@ref": "xs:attrDecls"
+              }
+            },
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "simpleExtensionType",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:extensionType",
+            "xs:sequence": {
+              "xs:annotation": {
+                "xs:documentation": {
+                  "_text": "No typeDefParticle group reference"
+                }
+              },
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              },
+              "xs:group": {
+                "@ref": "xs:attrDecls"
+              }
+            },
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "element",
+        "@abstract": "true",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "The element element can be used either\n   at the top level to define an element-type binding globally,\n   or within a content model to either reference a globally-defined\n   element or type or declare an element-type binding locally.\n   The ref form is not allowed at the top level."
+          }
+        },
+        "xs:complexContent": {
+          "xs:extension": {
+            "@base": "xs:annotated",
+            "xs:sequence": {
+              "xs:choice": {
+                "@minOccurs": "0",
+                "xs:element": [
+                  {
+                    "@name": "simpleType",
+                    "@type": "xs:localSimpleType"
+                  },
+                  {
+                    "@name": "complexType",
+                    "@type": "xs:localComplexType"
+                  }
+                ]
+              },
+              "xs:group": {
+                "@ref": "xs:identityConstraint",
+                "@minOccurs": "0",
+                "@maxOccurs": "unbounded"
+              }
+            },
+            "xs:attributeGroup": [
+              {
+                "@ref": "xs:defRef"
+              },
+              {
+                "@ref": "xs:occurs"
+              }
+            ],
+            "xs:attribute": [
+              {
+                "@name": "type",
+                "@type": "xs:QName"
+              },
+              {
+                "@name": "substitutionGroup",
+                "@type": "xs:QName"
+              },
+              {
+                "@name": "default",
+                "@type": "xs:string"
+              },
+              {
+                "@name": "fixed",
+                "@type": "xs:string"
+              },
+              {
+                "@name": "nillable",
+                "@type": "xs:boolean",
+                "@use": "optional",
+                "@default": "false"
+              },
+              {
+                "@name": "abstract",
+                "@type": "xs:boolean",
+                "@use": "optional",
+                "@default": "false"
+              },
+              {
+                "@name": "final",
+                "@type": "xs:derivationSet"
+              },
+              {
+                "@name": "block",
+                "@type": "xs:blockSet"
+              },
+              {
+                "@name": "form",
+                "@type": "xs:formChoice"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "@name": "topLevelElement",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:element",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              },
+              "xs:choice": {
+                "@minOccurs": "0",
+                "xs:element": [
+                  {
+                    "@name": "simpleType",
+                    "@type": "xs:localSimpleType"
+                  },
+                  {
+                    "@name": "complexType",
+                    "@type": "xs:localComplexType"
+                  }
+                ]
+              },
+              "xs:group": {
+                "@ref": "xs:identityConstraint",
+                "@minOccurs": "0",
+                "@maxOccurs": "unbounded"
+              }
+            },
+            "xs:attribute": [
+              {
+                "@name": "ref",
+                "@use": "prohibited"
+              },
+              {
+                "@name": "form",
+                "@use": "prohibited"
+              },
+              {
+                "@name": "minOccurs",
+                "@use": "prohibited"
+              },
+              {
+                "@name": "maxOccurs",
+                "@use": "prohibited"
+              },
+              {
+                "@name": "name",
+                "@use": "required",
+                "@type": "xs:NCName"
+              }
+            ],
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "localElement",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:element",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              },
+              "xs:choice": {
+                "@minOccurs": "0",
+                "xs:element": [
+                  {
+                    "@name": "simpleType",
+                    "@type": "xs:localSimpleType"
+                  },
+                  {
+                    "@name": "complexType",
+                    "@type": "xs:localComplexType"
+                  }
+                ]
+              },
+              "xs:group": {
+                "@ref": "xs:identityConstraint",
+                "@minOccurs": "0",
+                "@maxOccurs": "unbounded"
+              }
+            },
+            "xs:attribute": [
+              {
+                "@name": "substitutionGroup",
+                "@use": "prohibited"
+              },
+              {
+                "@name": "final",
+                "@use": "prohibited"
+              },
+              {
+                "@name": "abstract",
+                "@use": "prohibited"
+              }
+            ],
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "group",
+        "@abstract": "true",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "group type for explicit groups, named top-level groups and\n   group references"
+          }
+        },
+        "xs:complexContent": {
+          "xs:extension": {
+            "@base": "xs:annotated",
+            "xs:group": {
+              "@ref": "xs:particle",
+              "@minOccurs": "0",
+              "@maxOccurs": "unbounded"
+            },
+            "xs:attributeGroup": [
+              {
+                "@ref": "xs:defRef"
+              },
+              {
+                "@ref": "xs:occurs"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "@name": "realGroup",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:group",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              },
+              "xs:choice": {
+                "@minOccurs": "0",
+                "@maxOccurs": "1",
+                "xs:element": [
+                  {
+                    "@ref": "xs:all"
+                  },
+                  {
+                    "@ref": "xs:choice"
+                  },
+                  {
+                    "@ref": "xs:sequence"
+                  }
+                ]
+              }
+            },
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "namedGroup",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:realGroup",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              },
+              "xs:choice": {
+                "@minOccurs": "1",
+                "@maxOccurs": "1",
+                "xs:element": [
+                  {
+                    "@name": "all",
+                    "xs:complexType": {
+                      "xs:complexContent": {
+                        "xs:restriction": {
+                          "@base": "xs:all",
+                          "xs:group": {
+                            "@ref": "xs:allModel"
+                          },
+                          "xs:attribute": [
+                            {
+                              "@name": "minOccurs",
+                              "@use": "prohibited"
+                            },
+                            {
+                              "@name": "maxOccurs",
+                              "@use": "prohibited"
+                            }
+                          ],
+                          "xs:anyAttribute": {
+                            "@namespace": "##other",
+                            "@processContents": "lax"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "@name": "choice",
+                    "@type": "xs:simpleExplicitGroup"
+                  },
+                  {
+                    "@name": "sequence",
+                    "@type": "xs:simpleExplicitGroup"
+                  }
+                ]
+              }
+            },
+            "xs:attribute": [
+              {
+                "@name": "name",
+                "@use": "required",
+                "@type": "xs:NCName"
+              },
+              {
+                "@name": "ref",
+                "@use": "prohibited"
+              },
+              {
+                "@name": "minOccurs",
+                "@use": "prohibited"
+              },
+              {
+                "@name": "maxOccurs",
+                "@use": "prohibited"
+              }
+            ],
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "groupRef",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:realGroup",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              }
+            },
+            "xs:attribute": [
+              {
+                "@name": "ref",
+                "@use": "required",
+                "@type": "xs:QName"
+              },
+              {
+                "@name": "name",
+                "@use": "prohibited"
+              }
+            ],
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "explicitGroup",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "group type for the three kinds of group"
+          }
+        },
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:group",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              },
+              "xs:group": {
+                "@ref": "xs:nestedParticle",
+                "@minOccurs": "0",
+                "@maxOccurs": "unbounded"
+              }
+            },
+            "xs:attribute": [
+              {
+                "@name": "name",
+                "@type": "xs:NCName",
+                "@use": "prohibited"
+              },
+              {
+                "@name": "ref",
+                "@type": "xs:QName",
+                "@use": "prohibited"
+              }
+            ],
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "simpleExplicitGroup",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:explicitGroup",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              },
+              "xs:group": {
+                "@ref": "xs:nestedParticle",
+                "@minOccurs": "0",
+                "@maxOccurs": "unbounded"
+              }
+            },
+            "xs:attribute": [
+              {
+                "@name": "minOccurs",
+                "@use": "prohibited"
+              },
+              {
+                "@name": "maxOccurs",
+                "@use": "prohibited"
+              }
+            ],
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "narrowMaxMin",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "restricted max/min"
+          }
+        },
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:localElement",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              },
+              "xs:choice": {
+                "@minOccurs": "0",
+                "xs:element": [
+                  {
+                    "@name": "simpleType",
+                    "@type": "xs:localSimpleType"
+                  },
+                  {
+                    "@name": "complexType",
+                    "@type": "xs:localComplexType"
+                  }
+                ]
+              },
+              "xs:group": {
+                "@ref": "xs:identityConstraint",
+                "@minOccurs": "0",
+                "@maxOccurs": "unbounded"
+              }
+            },
+            "xs:attribute": [
+              {
+                "@name": "minOccurs",
+                "@use": "optional",
+                "@default": "1",
+                "xs:simpleType": {
+                  "xs:restriction": {
+                    "@base": "xs:nonNegativeInteger",
+                    "xs:enumeration": [
+                      {
+                        "@value": "0"
+                      },
+                      {
+                        "@value": "1"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "@name": "maxOccurs",
+                "@use": "optional",
+                "@default": "1",
+                "xs:simpleType": {
+                  "xs:restriction": {
+                    "@base": "xs:allNNI",
+                    "xs:enumeration": [
+                      {
+                        "@value": "0"
+                      },
+                      {
+                        "@value": "1"
+                      }
+                    ]
+                  }
+                }
+              }
+            ],
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "all",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "Only elements allowed inside"
+          }
+        },
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:explicitGroup",
+            "xs:group": {
+              "@ref": "xs:allModel"
+            },
+            "xs:attribute": [
+              {
+                "@name": "minOccurs",
+                "@use": "optional",
+                "@default": "1",
+                "xs:simpleType": {
+                  "xs:restriction": {
+                    "@base": "xs:nonNegativeInteger",
+                    "xs:enumeration": [
+                      {
+                        "@value": "0"
+                      },
+                      {
+                        "@value": "1"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "@name": "maxOccurs",
+                "@use": "optional",
+                "@default": "1",
+                "xs:simpleType": {
+                  "xs:restriction": {
+                    "@base": "xs:allNNI",
+                    "xs:enumeration": {
+                      "@value": "1"
+                    }
+                  }
+                }
+              }
+            ],
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "wildcard",
+        "xs:complexContent": {
+          "xs:extension": {
+            "@base": "xs:annotated",
+            "xs:attribute": [
+              {
+                "@name": "namespace",
+                "@type": "xs:namespaceList",
+                "@use": "optional",
+                "@default": "##any"
+              },
+              {
+                "@name": "processContents",
+                "@use": "optional",
+                "@default": "strict",
+                "xs:simpleType": {
+                  "xs:restriction": {
+                    "@base": "xs:NMTOKEN",
+                    "xs:enumeration": [
+                      {
+                        "@value": "skip"
+                      },
+                      {
+                        "@value": "lax"
+                      },
+                      {
+                        "@value": "strict"
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "@name": "attributeGroup",
+        "@abstract": "true",
+        "xs:complexContent": {
+          "xs:extension": {
+            "@base": "xs:annotated",
+            "xs:group": {
+              "@ref": "xs:attrDecls"
+            },
+            "xs:attributeGroup": {
+              "@ref": "xs:defRef"
+            }
+          }
+        }
+      },
+      {
+        "@name": "namedAttributeGroup",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:attributeGroup",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              },
+              "xs:group": {
+                "@ref": "xs:attrDecls"
+              }
+            },
+            "xs:attribute": [
+              {
+                "@name": "name",
+                "@use": "required",
+                "@type": "xs:NCName"
+              },
+              {
+                "@name": "ref",
+                "@use": "prohibited"
+              }
+            ],
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "attributeGroupRef",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:attributeGroup",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              }
+            },
+            "xs:attribute": [
+              {
+                "@name": "ref",
+                "@use": "required",
+                "@type": "xs:QName"
+              },
+              {
+                "@name": "name",
+                "@use": "prohibited"
+              }
+            ],
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "keybase",
+        "xs:complexContent": {
+          "xs:extension": {
+            "@base": "xs:annotated",
+            "xs:sequence": {
+              "xs:element": [
+                {
+                  "@ref": "xs:selector"
+                },
+                {
+                  "@ref": "xs:field",
+                  "@minOccurs": "1",
+                  "@maxOccurs": "unbounded"
+                }
+              ]
+            },
+            "xs:attribute": {
+              "@name": "name",
+              "@type": "xs:NCName",
+              "@use": "required"
+            }
+          }
+        }
+      },
+      {
+        "@name": "anyType",
+        "@mixed": "true",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "Not the real urType, but as close an approximation as we can\n   get in the XML representation"
+          }
+        },
+        "xs:sequence": {
+          "xs:any": {
+            "@minOccurs": "0",
+            "@maxOccurs": "unbounded",
+            "@processContents": "lax"
+          }
+        },
+        "xs:anyAttribute": {
+          "@processContents": "lax"
+        }
+      },
+      {
+        "@name": "simpleType",
+        "@abstract": "true",
+        "xs:complexContent": {
+          "xs:extension": {
+            "@base": "xs:annotated",
+            "xs:group": {
+              "@ref": "xs:simpleDerivation"
+            },
+            "xs:attribute": [
+              {
+                "@name": "final",
+                "@type": "xs:simpleDerivationSet"
+              },
+              {
+                "@name": "name",
+                "@type": "xs:NCName",
+                "xs:annotation": {
+                  "xs:documentation": {
+                    "_text": "Can be restricted to required or forbidden"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "@name": "topLevelSimpleType",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:simpleType",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              },
+              "xs:group": {
+                "@ref": "xs:simpleDerivation"
+              }
+            },
+            "xs:attribute": {
+              "@name": "name",
+              "@use": "required",
+              "@type": "xs:NCName",
+              "xs:annotation": {
+                "xs:documentation": {
+                  "_text": "Required at the top level"
+                }
+              }
+            },
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "localSimpleType",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:simpleType",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              },
+              "xs:group": {
+                "@ref": "xs:simpleDerivation"
+              }
+            },
+            "xs:attribute": [
+              {
+                "@name": "name",
+                "@use": "prohibited",
+                "xs:annotation": {
+                  "xs:documentation": {
+                    "_text": "Forbidden when nested"
+                  }
+                }
+              },
+              {
+                "@name": "final",
+                "@use": "prohibited"
+              }
+            ],
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "facet",
+        "xs:complexContent": {
+          "xs:extension": {
+            "@base": "xs:annotated",
+            "xs:attribute": [
+              {
+                "@name": "value",
+                "@use": "required"
+              },
+              {
+                "@name": "fixed",
+                "@type": "xs:boolean",
+                "@use": "optional",
+                "@default": "false"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "@name": "noFixedFacet",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:facet",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              }
+            },
+            "xs:attribute": {
+              "@name": "fixed",
+              "@use": "prohibited"
+            },
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      },
+      {
+        "@name": "numFacet",
+        "xs:complexContent": {
+          "xs:restriction": {
+            "@base": "xs:facet",
+            "xs:sequence": {
+              "xs:element": {
+                "@ref": "xs:annotation",
+                "@minOccurs": "0"
+              }
+            },
+            "xs:attribute": {
+              "@name": "value",
+              "@type": "xs:nonNegativeInteger",
+              "@use": "required"
+            },
+            "xs:anyAttribute": {
+              "@namespace": "##other",
+              "@processContents": "lax"
+            }
+          }
+        }
+      }
+    ],
+    "xs:group": [
+      {
+        "@name": "schemaTop",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "This group is for the\n   elements which occur freely at the top level of schemas.\n   All of their types are based on the \"annotated\" type by extension."
+          }
+        },
+        "xs:choice": {
+          "xs:group": {
+            "@ref": "xs:redefinable"
+          },
+          "xs:element": [
+            {
+              "@ref": "xs:element"
+            },
+            {
+              "@ref": "xs:attribute"
+            },
+            {
+              "@ref": "xs:notation"
+            }
+          ]
+        }
+      },
+      {
+        "@name": "redefinable",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "This group is for the\n   elements which can self-redefine (see <redefine> below)."
+          }
+        },
+        "xs:choice": {
+          "xs:element": [
+            {
+              "@ref": "xs:simpleType"
+            },
+            {
+              "@ref": "xs:complexType"
+            },
+            {
+              "@ref": "xs:group"
+            },
+            {
+              "@ref": "xs:attributeGroup"
+            }
+          ]
+        }
+      },
+      {
+        "@name": "typeDefParticle",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "'complexType' uses this"
+          }
+        },
+        "xs:choice": {
+          "xs:element": [
+            {
+              "@name": "group",
+              "@type": "xs:groupRef"
+            },
+            {
+              "@ref": "xs:all"
+            },
+            {
+              "@ref": "xs:choice"
+            },
+            {
+              "@ref": "xs:sequence"
+            }
+          ]
+        }
+      },
+      {
+        "@name": "nestedParticle",
+        "xs:choice": {
+          "xs:element": [
+            {
+              "@name": "element",
+              "@type": "xs:localElement"
+            },
+            {
+              "@name": "group",
+              "@type": "xs:groupRef"
+            },
+            {
+              "@ref": "xs:choice"
+            },
+            {
+              "@ref": "xs:sequence"
+            },
+            {
+              "@ref": "xs:any"
+            }
+          ]
+        }
+      },
+      {
+        "@name": "particle",
+        "xs:choice": {
+          "xs:element": [
+            {
+              "@name": "element",
+              "@type": "xs:localElement"
+            },
+            {
+              "@name": "group",
+              "@type": "xs:groupRef"
+            },
+            {
+              "@ref": "xs:all"
+            },
+            {
+              "@ref": "xs:choice"
+            },
+            {
+              "@ref": "xs:sequence"
+            },
+            {
+              "@ref": "xs:any"
+            }
+          ]
+        }
+      },
+      {
+        "@name": "attrDecls",
+        "xs:sequence": {
+          "xs:choice": {
+            "@minOccurs": "0",
+            "@maxOccurs": "unbounded",
+            "xs:element": [
+              {
+                "@name": "attribute",
+                "@type": "xs:attribute"
+              },
+              {
+                "@name": "attributeGroup",
+                "@type": "xs:attributeGroupRef"
+              }
+            ]
+          },
+          "xs:element": {
+            "@ref": "xs:anyAttribute",
+            "@minOccurs": "0"
+          }
+        }
+      },
+      {
+        "@name": "complexTypeModel",
+        "xs:choice": {
+          "xs:element": [
+            {
+              "@ref": "xs:simpleContent"
+            },
+            {
+              "@ref": "xs:complexContent"
+            }
+          ],
+          "xs:sequence": {
+            "xs:annotation": {
+              "xs:documentation": {
+                "_text": "This branch is short for\n   <complexContent>\n   <restriction base=\"xs:anyType\">\n   ...\n   </restriction>\n   </complexContent>"
+              }
+            },
+            "xs:group": [
+              {
+                "@ref": "xs:typeDefParticle",
+                "@minOccurs": "0"
+              },
+              {
+                "@ref": "xs:attrDecls"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "@name": "allModel",
+        "xs:sequence": {
+          "xs:element": {
+            "@ref": "xs:annotation",
+            "@minOccurs": "0"
+          },
+          "xs:choice": {
+            "@minOccurs": "0",
+            "@maxOccurs": "unbounded",
+            "xs:annotation": {
+              "xs:documentation": {
+                "_text": "This choice with min/max is here to\n                          avoid a pblm with the Elt:All/Choice/Seq\n                          Particle derivation constraint"
+              }
+            },
+            "xs:element": {
+              "@name": "element",
+              "@type": "xs:narrowMaxMin"
+            }
+          }
+        }
+      },
+      {
+        "@name": "identityConstraint",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "The three kinds of identity constraints, all with\n                     type of or derived from 'keybase'."
+          }
+        },
+        "xs:choice": {
+          "xs:element": [
+            {
+              "@ref": "xs:unique"
+            },
+            {
+              "@ref": "xs:key"
+            },
+            {
+              "@ref": "xs:keyref"
+            }
+          ]
+        }
+      },
+      {
+        "@name": "simpleDerivation",
+        "xs:choice": {
+          "xs:element": [
+            {
+              "@ref": "xs:restriction"
+            },
+            {
+              "@ref": "xs:list"
+            },
+            {
+              "@ref": "xs:union"
+            }
+          ]
+        }
+      },
+      {
+        "@name": "facets",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "We should use a substitution group for facets, but\n       that's ruled out because it would allow users to\n       add their own, which we're not ready for yet."
+          }
+        },
+        "xs:choice": {
+          "xs:element": [
+            {
+              "@ref": "xs:minExclusive"
+            },
+            {
+              "@ref": "xs:minInclusive"
+            },
+            {
+              "@ref": "xs:maxExclusive"
+            },
+            {
+              "@ref": "xs:maxInclusive"
+            },
+            {
+              "@ref": "xs:totalDigits"
+            },
+            {
+              "@ref": "xs:fractionDigits"
+            },
+            {
+              "@ref": "xs:length"
+            },
+            {
+              "@ref": "xs:minLength"
+            },
+            {
+              "@ref": "xs:maxLength"
+            },
+            {
+              "@ref": "xs:enumeration"
+            },
+            {
+              "@ref": "xs:whiteSpace"
+            },
+            {
+              "@ref": "xs:pattern"
+            }
+          ]
+        }
+      },
+      {
+        "@name": "simpleRestrictionModel",
+        "xs:sequence": {
+          "xs:element": {
+            "@name": "simpleType",
+            "@type": "xs:localSimpleType",
+            "@minOccurs": "0"
+          },
+          "xs:group": {
+            "@ref": "xs:facets",
+            "@minOccurs": "0",
+            "@maxOccurs": "unbounded"
+          }
+        }
+      }
+    ],
+    "xs:simpleType": [
+      {
+        "@name": "formChoice",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "A utility type, not for public use"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:NMTOKEN",
+          "xs:enumeration": [
+            {
+              "@value": "qualified"
+            },
+            {
+              "@value": "unqualified"
+            }
+          ]
+        }
+      },
+      {
+        "@name": "reducedDerivationControl",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "A utility type, not for public use"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:derivationControl",
+          "xs:enumeration": [
+            {
+              "@value": "extension"
+            },
+            {
+              "@value": "restriction"
+            }
+          ]
+        }
+      },
+      {
+        "@name": "derivationSet",
+        "xs:annotation": {
+          "xs:documentation": [
+            {
+              "_text": "A utility type, not for public use"
+            },
+            {
+              "_text": "#all or (possibly empty) subset of {extension, restriction}"
+            }
+          ]
+        },
+        "xs:union": {
+          "xs:simpleType": [
+            {
+              "xs:restriction": {
+                "@base": "xs:token",
+                "xs:enumeration": {
+                  "@value": "#all"
+                }
+              }
+            },
+            {
+              "xs:list": {
+                "@itemType": "xs:reducedDerivationControl"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "@name": "typeDerivationControl",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "A utility type, not for public use"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:derivationControl",
+          "xs:enumeration": [
+            {
+              "@value": "extension"
+            },
+            {
+              "@value": "restriction"
+            },
+            {
+              "@value": "list"
+            },
+            {
+              "@value": "union"
+            }
+          ]
+        }
+      },
+      {
+        "@name": "fullDerivationSet",
+        "xs:annotation": {
+          "xs:documentation": [
+            {
+              "_text": "A utility type, not for public use"
+            },
+            {
+              "_text": "#all or (possibly empty) subset of {extension, restriction, list, union}"
+            }
+          ]
+        },
+        "xs:union": {
+          "xs:simpleType": [
+            {
+              "xs:restriction": {
+                "@base": "xs:token",
+                "xs:enumeration": {
+                  "@value": "#all"
+                }
+              }
+            },
+            {
+              "xs:list": {
+                "@itemType": "xs:typeDerivationControl"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "@name": "allNNI",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "for maxOccurs"
+          }
+        },
+        "xs:union": {
+          "@memberTypes": "xs:nonNegativeInteger",
+          "xs:simpleType": {
+            "xs:restriction": {
+              "@base": "xs:NMTOKEN",
+              "xs:enumeration": {
+                "@value": "unbounded"
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "blockSet",
+        "xs:annotation": {
+          "xs:documentation": [
+            {
+              "_text": "A utility type, not for public use"
+            },
+            {
+              "_text": "#all or (possibly empty) subset of {substitution, extension,\n    restriction}"
+            }
+          ]
+        },
+        "xs:union": {
+          "xs:simpleType": [
+            {
+              "xs:restriction": {
+                "@base": "xs:token",
+                "xs:enumeration": {
+                  "@value": "#all"
+                }
+              }
+            },
+            {
+              "xs:list": {
+                "xs:simpleType": {
+                  "xs:restriction": {
+                    "@base": "xs:derivationControl",
+                    "xs:enumeration": [
+                      {
+                        "@value": "extension"
+                      },
+                      {
+                        "@value": "restriction"
+                      },
+                      {
+                        "@value": "substitution"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "@name": "namespaceList",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "A utility type, not for public use"
+          }
+        },
+        "xs:union": {
+          "xs:simpleType": [
+            {
+              "xs:restriction": {
+                "@base": "xs:token",
+                "xs:enumeration": [
+                  {
+                    "@value": "##any"
+                  },
+                  {
+                    "@value": "##other"
+                  }
+                ]
+              }
+            },
+            {
+              "xs:list": {
+                "xs:simpleType": {
+                  "xs:union": {
+                    "@memberTypes": "xs:anyURI",
+                    "xs:simpleType": {
+                      "xs:restriction": {
+                        "@base": "xs:token",
+                        "xs:enumeration": [
+                          {
+                            "@value": "##targetNamespace"
+                          },
+                          {
+                            "@value": "##local"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "@name": "public",
+        "xs:annotation": {
+          "xs:documentation": [
+            {
+              "_text": "A utility type, not for public use"
+            },
+            {
+              "_text": "A public identifier, per ISO 8879"
+            }
+          ]
+        },
+        "xs:restriction": {
+          "@base": "xs:token"
+        }
+      },
+      {
+        "@name": "string",
+        "@id": "string",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "length"
+              },
+              {
+                "@name": "minLength"
+              },
+              {
+                "@name": "maxLength"
+              },
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "false"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#string"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "preserve",
+            "@id": "string.preserve"
+          }
+        }
+      },
+      {
+        "@name": "boolean",
+        "@id": "boolean",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "whiteSpace"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "false"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "finite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#boolean"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "boolean.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "float",
+        "@id": "float",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              },
+              {
+                "@name": "maxInclusive"
+              },
+              {
+                "@name": "maxExclusive"
+              },
+              {
+                "@name": "minInclusive"
+              },
+              {
+                "@name": "minExclusive"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "total"
+              },
+              {
+                "@name": "bounded",
+                "@value": "true"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "finite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "true"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#float"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "float.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "double",
+        "@id": "double",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              },
+              {
+                "@name": "maxInclusive"
+              },
+              {
+                "@name": "maxExclusive"
+              },
+              {
+                "@name": "minInclusive"
+              },
+              {
+                "@name": "minExclusive"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "total"
+              },
+              {
+                "@name": "bounded",
+                "@value": "true"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "finite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "true"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#double"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "double.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "decimal",
+        "@id": "decimal",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "totalDigits"
+              },
+              {
+                "@name": "fractionDigits"
+              },
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "whiteSpace"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "maxInclusive"
+              },
+              {
+                "@name": "maxExclusive"
+              },
+              {
+                "@name": "minInclusive"
+              },
+              {
+                "@name": "minExclusive"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "total"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "true"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#decimal"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "decimal.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "duration",
+        "@id": "duration",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              },
+              {
+                "@name": "maxInclusive"
+              },
+              {
+                "@name": "maxExclusive"
+              },
+              {
+                "@name": "minInclusive"
+              },
+              {
+                "@name": "minExclusive"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "partial"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#duration"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "duration.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "dateTime",
+        "@id": "dateTime",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              },
+              {
+                "@name": "maxInclusive"
+              },
+              {
+                "@name": "maxExclusive"
+              },
+              {
+                "@name": "minInclusive"
+              },
+              {
+                "@name": "minExclusive"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "partial"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#dateTime"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "dateTime.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "time",
+        "@id": "time",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              },
+              {
+                "@name": "maxInclusive"
+              },
+              {
+                "@name": "maxExclusive"
+              },
+              {
+                "@name": "minInclusive"
+              },
+              {
+                "@name": "minExclusive"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "partial"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#time"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "time.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "date",
+        "@id": "date",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              },
+              {
+                "@name": "maxInclusive"
+              },
+              {
+                "@name": "maxExclusive"
+              },
+              {
+                "@name": "minInclusive"
+              },
+              {
+                "@name": "minExclusive"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "partial"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#date"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "date.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "gYearMonth",
+        "@id": "gYearMonth",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              },
+              {
+                "@name": "maxInclusive"
+              },
+              {
+                "@name": "maxExclusive"
+              },
+              {
+                "@name": "minInclusive"
+              },
+              {
+                "@name": "minExclusive"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "partial"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#gYearMonth"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "gYearMonth.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "gYear",
+        "@id": "gYear",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              },
+              {
+                "@name": "maxInclusive"
+              },
+              {
+                "@name": "maxExclusive"
+              },
+              {
+                "@name": "minInclusive"
+              },
+              {
+                "@name": "minExclusive"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "partial"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#gYear"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "gYear.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "gMonthDay",
+        "@id": "gMonthDay",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              },
+              {
+                "@name": "maxInclusive"
+              },
+              {
+                "@name": "maxExclusive"
+              },
+              {
+                "@name": "minInclusive"
+              },
+              {
+                "@name": "minExclusive"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "partial"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#gMonthDay"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "gMonthDay.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "gDay",
+        "@id": "gDay",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              },
+              {
+                "@name": "maxInclusive"
+              },
+              {
+                "@name": "maxExclusive"
+              },
+              {
+                "@name": "minInclusive"
+              },
+              {
+                "@name": "minExclusive"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "partial"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#gDay"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "gDay.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "gMonth",
+        "@id": "gMonth",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              },
+              {
+                "@name": "maxInclusive"
+              },
+              {
+                "@name": "maxExclusive"
+              },
+              {
+                "@name": "minInclusive"
+              },
+              {
+                "@name": "minExclusive"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "partial"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#gMonth"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "gMonth.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "hexBinary",
+        "@id": "hexBinary",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "length"
+              },
+              {
+                "@name": "minLength"
+              },
+              {
+                "@name": "maxLength"
+              },
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "false"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#binary"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "hexBinary.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "base64Binary",
+        "@id": "base64Binary",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "length"
+              },
+              {
+                "@name": "minLength"
+              },
+              {
+                "@name": "maxLength"
+              },
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "false"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#base64Binary"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "base64Binary.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "anyURI",
+        "@id": "anyURI",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "length"
+              },
+              {
+                "@name": "minLength"
+              },
+              {
+                "@name": "maxLength"
+              },
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "false"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#anyURI"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "anyURI.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "QName",
+        "@id": "QName",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "length"
+              },
+              {
+                "@name": "minLength"
+              },
+              {
+                "@name": "maxLength"
+              },
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "false"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#QName"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "QName.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "NOTATION",
+        "@id": "NOTATION",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "length"
+              },
+              {
+                "@name": "minLength"
+              },
+              {
+                "@name": "maxLength"
+              },
+              {
+                "@name": "pattern"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "false"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": [
+            {
+              "@source": "http://www.w3.org/TR/xmlschema-2/#NOTATION"
+            },
+            {
+              "_text": "NOTATION cannot be used directly in a schema; rather a type\n        must be derived from it by specifying at least one enumeration\n        facet whose value is the name of a NOTATION declared in the\n        schema."
+            }
+          ]
+        },
+        "xs:restriction": {
+          "@base": "xs:anySimpleType",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@fixed": "true",
+            "@id": "NOTATION.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "normalizedString",
+        "@id": "normalizedString",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#normalizedString"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:string",
+          "xs:whiteSpace": {
+            "@value": "replace",
+            "@id": "normalizedString.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "token",
+        "@id": "token",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#token"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:normalizedString",
+          "xs:whiteSpace": {
+            "@value": "collapse",
+            "@id": "token.whiteSpace"
+          }
+        }
+      },
+      {
+        "@name": "language",
+        "@id": "language",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#language"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:token",
+          "xs:pattern": {
+            "@value": "[a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*",
+            "@id": "language.pattern",
+            "xs:annotation": {
+              "xs:documentation": {
+                "@source": "http://www.ietf.org/rfc/rfc3066.txt",
+                "_text": "pattern specifies the content of section 2.12 of XML 1.0e2\n            and RFC 3066 (Revised version of RFC 1766)."
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "IDREFS",
+        "@id": "IDREFS",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "length"
+              },
+              {
+                "@name": "minLength"
+              },
+              {
+                "@name": "maxLength"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              },
+              {
+                "@name": "pattern"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "false"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#IDREFS"
+          }
+        },
+        "xs:restriction": {
+          "xs:simpleType": {
+            "xs:list": {
+              "@itemType": "xs:IDREF"
+            }
+          },
+          "xs:minLength": {
+            "@value": "1",
+            "@id": "IDREFS.minLength"
+          }
+        }
+      },
+      {
+        "@name": "ENTITIES",
+        "@id": "ENTITIES",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "length"
+              },
+              {
+                "@name": "minLength"
+              },
+              {
+                "@name": "maxLength"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              },
+              {
+                "@name": "pattern"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "false"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#ENTITIES"
+          }
+        },
+        "xs:restriction": {
+          "xs:simpleType": {
+            "xs:list": {
+              "@itemType": "xs:ENTITY"
+            }
+          },
+          "xs:minLength": {
+            "@value": "1",
+            "@id": "ENTITIES.minLength"
+          }
+        }
+      },
+      {
+        "@name": "NMTOKEN",
+        "@id": "NMTOKEN",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#NMTOKEN"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:token",
+          "xs:pattern": {
+            "@value": "\\c+",
+            "@id": "NMTOKEN.pattern",
+            "xs:annotation": {
+              "xs:documentation": {
+                "@source": "http://www.w3.org/TR/REC-xml#NT-Nmtoken",
+                "_text": "pattern matches production 7 from the XML spec"
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "NMTOKENS",
+        "@id": "NMTOKENS",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasFacet": [
+              {
+                "@name": "length"
+              },
+              {
+                "@name": "minLength"
+              },
+              {
+                "@name": "maxLength"
+              },
+              {
+                "@name": "enumeration"
+              },
+              {
+                "@name": "whiteSpace"
+              },
+              {
+                "@name": "pattern"
+              }
+            ],
+            "hfp:hasProperty": [
+              {
+                "@name": "ordered",
+                "@value": "false"
+              },
+              {
+                "@name": "bounded",
+                "@value": "false"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "countably infinite"
+              },
+              {
+                "@name": "numeric",
+                "@value": "false"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#NMTOKENS"
+          }
+        },
+        "xs:restriction": {
+          "xs:simpleType": {
+            "xs:list": {
+              "@itemType": "xs:NMTOKEN"
+            }
+          },
+          "xs:minLength": {
+            "@value": "1",
+            "@id": "NMTOKENS.minLength"
+          }
+        }
+      },
+      {
+        "@name": "Name",
+        "@id": "Name",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#Name"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:token",
+          "xs:pattern": {
+            "@value": "\\i\\c*",
+            "@id": "Name.pattern",
+            "xs:annotation": {
+              "xs:documentation": {
+                "@source": "http://www.w3.org/TR/REC-xml#NT-Name",
+                "_text": "pattern matches production 5 from the XML spec"
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "NCName",
+        "@id": "NCName",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#NCName"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:Name",
+          "xs:pattern": {
+            "@value": "[\\i-[:]][\\c-[:]]*",
+            "@id": "NCName.pattern",
+            "xs:annotation": {
+              "xs:documentation": {
+                "@source": "http://www.w3.org/TR/REC-xml-names/#NT-NCName",
+                "_text": "pattern matches production 4 from the Namespaces in XML spec"
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "ID",
+        "@id": "ID",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#ID"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:NCName"
+        }
+      },
+      {
+        "@name": "IDREF",
+        "@id": "IDREF",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#IDREF"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:NCName"
+        }
+      },
+      {
+        "@name": "ENTITY",
+        "@id": "ENTITY",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#ENTITY"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:NCName"
+        }
+      },
+      {
+        "@name": "integer",
+        "@id": "integer",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#integer"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:decimal",
+          "xs:fractionDigits": {
+            "@value": "0",
+            "@fixed": "true",
+            "@id": "integer.fractionDigits"
+          },
+          "xs:pattern": {
+            "@value": "[\\-+]?[0-9]+"
+          }
+        }
+      },
+      {
+        "@name": "nonPositiveInteger",
+        "@id": "nonPositiveInteger",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#nonPositiveInteger"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:integer",
+          "xs:maxInclusive": {
+            "@value": "0",
+            "@id": "nonPositiveInteger.maxInclusive"
+          }
+        }
+      },
+      {
+        "@name": "negativeInteger",
+        "@id": "negativeInteger",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#negativeInteger"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:nonPositiveInteger",
+          "xs:maxInclusive": {
+            "@value": "-1",
+            "@id": "negativeInteger.maxInclusive"
+          }
+        }
+      },
+      {
+        "@name": "long",
+        "@id": "long",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasProperty": [
+              {
+                "@name": "bounded",
+                "@value": "true"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "finite"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#long"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:integer",
+          "xs:minInclusive": {
+            "@value": "-9223372036854775808",
+            "@id": "long.minInclusive"
+          },
+          "xs:maxInclusive": {
+            "@value": "9223372036854775807",
+            "@id": "long.maxInclusive"
+          }
+        }
+      },
+      {
+        "@name": "int",
+        "@id": "int",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#int"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:long",
+          "xs:minInclusive": {
+            "@value": "-2147483648",
+            "@id": "int.minInclusive"
+          },
+          "xs:maxInclusive": {
+            "@value": "2147483647",
+            "@id": "int.maxInclusive"
+          }
+        }
+      },
+      {
+        "@name": "short",
+        "@id": "short",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#short"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:int",
+          "xs:minInclusive": {
+            "@value": "-32768",
+            "@id": "short.minInclusive"
+          },
+          "xs:maxInclusive": {
+            "@value": "32767",
+            "@id": "short.maxInclusive"
+          }
+        }
+      },
+      {
+        "@name": "byte",
+        "@id": "byte",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#byte"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:short",
+          "xs:minInclusive": {
+            "@value": "-128",
+            "@id": "byte.minInclusive"
+          },
+          "xs:maxInclusive": {
+            "@value": "127",
+            "@id": "byte.maxInclusive"
+          }
+        }
+      },
+      {
+        "@name": "nonNegativeInteger",
+        "@id": "nonNegativeInteger",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#nonNegativeInteger"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:integer",
+          "xs:minInclusive": {
+            "@value": "0",
+            "@id": "nonNegativeInteger.minInclusive"
+          }
+        }
+      },
+      {
+        "@name": "unsignedLong",
+        "@id": "unsignedLong",
+        "xs:annotation": {
+          "xs:appinfo": {
+            "hfp:hasProperty": [
+              {
+                "@name": "bounded",
+                "@value": "true"
+              },
+              {
+                "@name": "cardinality",
+                "@value": "finite"
+              }
+            ]
+          },
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#unsignedLong"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:nonNegativeInteger",
+          "xs:maxInclusive": {
+            "@value": "18446744073709551615",
+            "@id": "unsignedLong.maxInclusive"
+          }
+        }
+      },
+      {
+        "@name": "unsignedInt",
+        "@id": "unsignedInt",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#unsignedInt"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:unsignedLong",
+          "xs:maxInclusive": {
+            "@value": "4294967295",
+            "@id": "unsignedInt.maxInclusive"
+          }
+        }
+      },
+      {
+        "@name": "unsignedShort",
+        "@id": "unsignedShort",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#unsignedShort"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:unsignedInt",
+          "xs:maxInclusive": {
+            "@value": "65535",
+            "@id": "unsignedShort.maxInclusive"
+          }
+        }
+      },
+      {
+        "@name": "unsignedByte",
+        "@id": "unsignedByte",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#unsignedByte"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:unsignedShort",
+          "xs:maxInclusive": {
+            "@value": "255",
+            "@id": "unsignedByte.maxInclusive"
+          }
+        }
+      },
+      {
+        "@name": "positiveInteger",
+        "@id": "positiveInteger",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#positiveInteger"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:nonNegativeInteger",
+          "xs:minInclusive": {
+            "@value": "1",
+            "@id": "positiveInteger.minInclusive"
+          }
+        }
+      },
+      {
+        "@name": "derivationControl",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "A utility type, not for public use"
+          }
+        },
+        "xs:restriction": {
+          "@base": "xs:NMTOKEN",
+          "xs:enumeration": [
+            {
+              "@value": "substitution"
+            },
+            {
+              "@value": "extension"
+            },
+            {
+              "@value": "restriction"
+            },
+            {
+              "@value": "list"
+            },
+            {
+              "@value": "union"
+            }
+          ]
+        }
+      },
+      {
+        "@name": "simpleDerivationSet",
+        "xs:annotation": {
+          "xs:documentation": [
+            {
+              "_text": "#all or (possibly empty) subset of {restriction, union, list}"
+            },
+            {
+              "_text": "A utility type, not for public use"
+            }
+          ]
+        },
+        "xs:union": {
+          "xs:simpleType": [
+            {
+              "xs:restriction": {
+                "@base": "xs:token",
+                "xs:enumeration": {
+                  "@value": "#all"
+                }
+              }
+            },
+            {
+              "xs:list": {
+                "xs:simpleType": {
+                  "xs:restriction": {
+                    "@base": "xs:derivationControl",
+                    "xs:enumeration": [
+                      {
+                        "@value": "list"
+                      },
+                      {
+                        "@value": "union"
+                      },
+                      {
+                        "@value": "restriction"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "xs:element": [
+      {
+        "@name": "schema",
+        "@id": "schema",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-schema"
+          }
+        },
+        "xs:complexType": {
+          "xs:complexContent": {
+            "xs:extension": {
+              "@base": "xs:openAttrs",
+              "xs:sequence": {
+                "xs:choice": {
+                  "@minOccurs": "0",
+                  "@maxOccurs": "unbounded",
+                  "xs:element": [
+                    {
+                      "@ref": "xs:include"
+                    },
+                    {
+                      "@ref": "xs:import"
+                    },
+                    {
+                      "@ref": "xs:redefine"
+                    },
+                    {
+                      "@ref": "xs:annotation"
+                    }
+                  ]
+                },
+                "xs:sequence": {
+                  "@minOccurs": "0",
+                  "@maxOccurs": "unbounded",
+                  "xs:group": {
+                    "@ref": "xs:schemaTop"
+                  },
+                  "xs:element": {
+                    "@ref": "xs:annotation",
+                    "@minOccurs": "0",
+                    "@maxOccurs": "unbounded"
+                  }
+                }
+              },
+              "xs:attribute": [
+                {
+                  "@name": "targetNamespace",
+                  "@type": "xs:anyURI"
+                },
+                {
+                  "@name": "version",
+                  "@type": "xs:token"
+                },
+                {
+                  "@name": "finalDefault",
+                  "@type": "xs:fullDerivationSet",
+                  "@use": "optional",
+                  "@default": ""
+                },
+                {
+                  "@name": "blockDefault",
+                  "@type": "xs:blockSet",
+                  "@use": "optional",
+                  "@default": ""
+                },
+                {
+                  "@name": "attributeFormDefault",
+                  "@type": "xs:formChoice",
+                  "@use": "optional",
+                  "@default": "unqualified"
+                },
+                {
+                  "@name": "elementFormDefault",
+                  "@type": "xs:formChoice",
+                  "@use": "optional",
+                  "@default": "unqualified"
+                },
+                {
+                  "@name": "id",
+                  "@type": "xs:ID"
+                },
+                {
+                  "@ref": "xml:lang"
+                }
+              ]
+            }
+          }
+        },
+        "xs:key": [
+          {
+            "@name": "element",
+            "xs:selector": {
+              "@xpath": "xs:element"
+            },
+            "xs:field": {
+              "@xpath": "@name"
+            }
+          },
+          {
+            "@name": "attribute",
+            "xs:selector": {
+              "@xpath": "xs:attribute"
+            },
+            "xs:field": {
+              "@xpath": "@name"
+            }
+          },
+          {
+            "@name": "type",
+            "xs:selector": {
+              "@xpath": "xs:complexType|xs:simpleType"
+            },
+            "xs:field": {
+              "@xpath": "@name"
+            }
+          },
+          {
+            "@name": "group",
+            "xs:selector": {
+              "@xpath": "xs:group"
+            },
+            "xs:field": {
+              "@xpath": "@name"
+            }
+          },
+          {
+            "@name": "attributeGroup",
+            "xs:selector": {
+              "@xpath": "xs:attributeGroup"
+            },
+            "xs:field": {
+              "@xpath": "@name"
+            }
+          },
+          {
+            "@name": "notation",
+            "xs:selector": {
+              "@xpath": "xs:notation"
+            },
+            "xs:field": {
+              "@xpath": "@name"
+            }
+          },
+          {
+            "@name": "identityConstraint",
+            "xs:selector": {
+              "@xpath": ".//xs:key|.//xs:unique|.//xs:keyref"
+            },
+            "xs:field": {
+              "@xpath": "@name"
+            }
+          }
+        ]
+      },
+      {
+        "@name": "anyAttribute",
+        "@type": "xs:wildcard",
+        "@id": "anyAttribute",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-anyAttribute"
+          }
+        }
+      },
+      {
+        "@name": "complexContent",
+        "@id": "complexContent",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-complexContent"
+          }
+        },
+        "xs:complexType": {
+          "xs:complexContent": {
+            "xs:extension": {
+              "@base": "xs:annotated",
+              "xs:choice": {
+                "xs:element": [
+                  {
+                    "@name": "restriction",
+                    "@type": "xs:complexRestrictionType"
+                  },
+                  {
+                    "@name": "extension",
+                    "@type": "xs:extensionType"
+                  }
+                ]
+              },
+              "xs:attribute": {
+                "@name": "mixed",
+                "@type": "xs:boolean",
+                "xs:annotation": {
+                  "xs:documentation": {
+                    "_text": "Overrides any setting on complexType parent."
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "simpleContent",
+        "@id": "simpleContent",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-simpleContent"
+          }
+        },
+        "xs:complexType": {
+          "xs:complexContent": {
+            "xs:extension": {
+              "@base": "xs:annotated",
+              "xs:choice": {
+                "xs:element": [
+                  {
+                    "@name": "restriction",
+                    "@type": "xs:simpleRestrictionType"
+                  },
+                  {
+                    "@name": "extension",
+                    "@type": "xs:simpleExtensionType"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "complexType",
+        "@type": "xs:topLevelComplexType",
+        "@id": "complexType",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-complexType"
+          }
+        }
+      },
+      {
+        "@name": "element",
+        "@type": "xs:topLevelElement",
+        "@id": "element",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-element"
+          }
+        }
+      },
+      {
+        "@name": "all",
+        "@id": "all",
+        "@type": "xs:all",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-all"
+          }
+        }
+      },
+      {
+        "@name": "choice",
+        "@type": "xs:explicitGroup",
+        "@id": "choice",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-choice"
+          }
+        }
+      },
+      {
+        "@name": "sequence",
+        "@type": "xs:explicitGroup",
+        "@id": "sequence",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-sequence"
+          }
+        }
+      },
+      {
+        "@name": "group",
+        "@type": "xs:namedGroup",
+        "@id": "group",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-group"
+          }
+        }
+      },
+      {
+        "@name": "any",
+        "@id": "any",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-any"
+          }
+        },
+        "xs:complexType": {
+          "xs:complexContent": {
+            "xs:extension": {
+              "@base": "xs:wildcard",
+              "xs:attributeGroup": {
+                "@ref": "xs:occurs"
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "attribute",
+        "@type": "xs:topLevelAttribute",
+        "@id": "attribute",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-attribute"
+          }
+        }
+      },
+      {
+        "@name": "attributeGroup",
+        "@type": "xs:namedAttributeGroup",
+        "@id": "attributeGroup",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-attributeGroup"
+          }
+        }
+      },
+      {
+        "@name": "include",
+        "@id": "include",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-include"
+          }
+        },
+        "xs:complexType": {
+          "xs:complexContent": {
+            "xs:extension": {
+              "@base": "xs:annotated",
+              "xs:attribute": {
+                "@name": "schemaLocation",
+                "@type": "xs:anyURI",
+                "@use": "required"
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "redefine",
+        "@id": "redefine",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-redefine"
+          }
+        },
+        "xs:complexType": {
+          "xs:complexContent": {
+            "xs:extension": {
+              "@base": "xs:openAttrs",
+              "xs:choice": {
+                "@minOccurs": "0",
+                "@maxOccurs": "unbounded",
+                "xs:element": {
+                  "@ref": "xs:annotation"
+                },
+                "xs:group": {
+                  "@ref": "xs:redefinable"
+                }
+              },
+              "xs:attribute": [
+                {
+                  "@name": "schemaLocation",
+                  "@type": "xs:anyURI",
+                  "@use": "required"
+                },
+                {
+                  "@name": "id",
+                  "@type": "xs:ID"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "@name": "import",
+        "@id": "import",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-import"
+          }
+        },
+        "xs:complexType": {
+          "xs:complexContent": {
+            "xs:extension": {
+              "@base": "xs:annotated",
+              "xs:attribute": [
+                {
+                  "@name": "namespace",
+                  "@type": "xs:anyURI"
+                },
+                {
+                  "@name": "schemaLocation",
+                  "@type": "xs:anyURI"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "@name": "selector",
+        "@id": "selector",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-selector"
+          }
+        },
+        "xs:complexType": {
+          "xs:complexContent": {
+            "xs:extension": {
+              "@base": "xs:annotated",
+              "xs:attribute": {
+                "@name": "xpath",
+                "@use": "required",
+                "xs:simpleType": {
+                  "xs:annotation": {
+                    "xs:documentation": [
+                      {
+                        "_text": "A subset of XPath expressions for use\nin selectors"
+                      },
+                      {
+                        "_text": "A utility type, not for public\nuse"
+                      }
+                    ]
+                  },
+                  "xs:restriction": {
+                    "@base": "xs:token",
+                    "xs:annotation": {
+                      "xs:documentation": {
+                        "_text": "The following pattern is intended to allow XPath\n                           expressions per the following EBNF:\n          Selector    ::=    Path ( '|' Path )*  \n          Path    ::=    ('.//')? Step ( '/' Step )*  \n          Step    ::=    '.' | NameTest  \n          NameTest    ::=    QName | '*' | NCName ':' '*'  \n                           child:: is also allowed"
+                      }
+                    },
+                    "xs:pattern": {
+                      "@value": "(\\.//)?(((child::)?((\\i\\c*:)?(\\i\\c*|\\*)))|\\.)(/(((child::)?((\\i\\c*:)?(\\i\\c*|\\*)))|\\.))*(\\|(\\.//)?(((child::)?((\\i\\c*:)?(\\i\\c*|\\*)))|\\.)(/(((child::)?((\\i\\c*:)?(\\i\\c*|\\*)))|\\.))*)*"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "field",
+        "@id": "field",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-field"
+          }
+        },
+        "xs:complexType": {
+          "xs:complexContent": {
+            "xs:extension": {
+              "@base": "xs:annotated",
+              "xs:attribute": {
+                "@name": "xpath",
+                "@use": "required",
+                "xs:simpleType": {
+                  "xs:annotation": {
+                    "xs:documentation": [
+                      {
+                        "_text": "A subset of XPath expressions for use\nin fields"
+                      },
+                      {
+                        "_text": "A utility type, not for public\nuse"
+                      }
+                    ]
+                  },
+                  "xs:restriction": {
+                    "@base": "xs:token",
+                    "xs:annotation": {
+                      "xs:documentation": {
+                        "_text": "The following pattern is intended to allow XPath\n                           expressions per the same EBNF as for selector,\n                           with the following change:\n          Path    ::=    ('.//')? ( Step '/' )* ( Step | '@' NameTest )"
+                      }
+                    },
+                    "xs:pattern": {
+                      "@value": "(\\.//)?((((child::)?((\\i\\c*:)?(\\i\\c*|\\*)))|\\.)/)*((((child::)?((\\i\\c*:)?(\\i\\c*|\\*)))|\\.)|((attribute::|@)((\\i\\c*:)?(\\i\\c*|\\*))))(\\|(\\.//)?((((child::)?((\\i\\c*:)?(\\i\\c*|\\*)))|\\.)/)*((((child::)?((\\i\\c*:)?(\\i\\c*|\\*)))|\\.)|((attribute::|@)((\\i\\c*:)?(\\i\\c*|\\*)))))*"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "unique",
+        "@type": "xs:keybase",
+        "@id": "unique",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-unique"
+          }
+        }
+      },
+      {
+        "@name": "key",
+        "@type": "xs:keybase",
+        "@id": "key",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-key"
+          }
+        }
+      },
+      {
+        "@name": "keyref",
+        "@id": "keyref",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-keyref"
+          }
+        },
+        "xs:complexType": {
+          "xs:complexContent": {
+            "xs:extension": {
+              "@base": "xs:keybase",
+              "xs:attribute": {
+                "@name": "refer",
+                "@type": "xs:QName",
+                "@use": "required"
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "notation",
+        "@id": "notation",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-notation"
+          }
+        },
+        "xs:complexType": {
+          "xs:complexContent": {
+            "xs:extension": {
+              "@base": "xs:annotated",
+              "xs:attribute": [
+                {
+                  "@name": "name",
+                  "@type": "xs:NCName",
+                  "@use": "required"
+                },
+                {
+                  "@name": "public",
+                  "@type": "xs:public"
+                },
+                {
+                  "@name": "system",
+                  "@type": "xs:anyURI"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "@name": "appinfo",
+        "@id": "appinfo",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-appinfo"
+          }
+        },
+        "xs:complexType": {
+          "@mixed": "true",
+          "xs:sequence": {
+            "@minOccurs": "0",
+            "@maxOccurs": "unbounded",
+            "xs:any": {
+              "@processContents": "lax"
+            }
+          },
+          "xs:attribute": {
+            "@name": "source",
+            "@type": "xs:anyURI"
+          },
+          "xs:anyAttribute": {
+            "@namespace": "##other",
+            "@processContents": "lax"
+          }
+        }
+      },
+      {
+        "@name": "documentation",
+        "@id": "documentation",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-documentation"
+          }
+        },
+        "xs:complexType": {
+          "@mixed": "true",
+          "xs:sequence": {
+            "@minOccurs": "0",
+            "@maxOccurs": "unbounded",
+            "xs:any": {
+              "@processContents": "lax"
+            }
+          },
+          "xs:attribute": [
+            {
+              "@name": "source",
+              "@type": "xs:anyURI"
+            },
+            {
+              "@ref": "xml:lang"
+            }
+          ],
+          "xs:anyAttribute": {
+            "@namespace": "##other",
+            "@processContents": "lax"
+          }
+        }
+      },
+      {
+        "@name": "annotation",
+        "@id": "annotation",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-1/#element-annotation"
+          }
+        },
+        "xs:complexType": {
+          "xs:complexContent": {
+            "xs:extension": {
+              "@base": "xs:openAttrs",
+              "xs:choice": {
+                "@minOccurs": "0",
+                "@maxOccurs": "unbounded",
+                "xs:element": [
+                  {
+                    "@ref": "xs:appinfo"
+                  },
+                  {
+                    "@ref": "xs:documentation"
+                  }
+                ]
+              },
+              "xs:attribute": {
+                "@name": "id",
+                "@type": "xs:ID"
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "simpleType",
+        "@type": "xs:topLevelSimpleType",
+        "@id": "simpleType",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#element-simpleType"
+          }
+        }
+      },
+      {
+        "@name": "restriction",
+        "@id": "restriction",
+        "xs:complexType": {
+          "xs:annotation": {
+            "xs:documentation": {
+              "@source": "http://www.w3.org/TR/xmlschema-2/#element-restriction",
+              "_text": "base attribute and simpleType child are mutually\n          exclusive, but one or other is required"
+            }
+          },
+          "xs:complexContent": {
+            "xs:extension": {
+              "@base": "xs:annotated",
+              "xs:group": {
+                "@ref": "xs:simpleRestrictionModel"
+              },
+              "xs:attribute": {
+                "@name": "base",
+                "@type": "xs:QName",
+                "@use": "optional"
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "list",
+        "@id": "list",
+        "xs:complexType": {
+          "xs:annotation": {
+            "xs:documentation": {
+              "@source": "http://www.w3.org/TR/xmlschema-2/#element-list",
+              "_text": "itemType attribute and simpleType child are mutually\n          exclusive, but one or other is required"
+            }
+          },
+          "xs:complexContent": {
+            "xs:extension": {
+              "@base": "xs:annotated",
+              "xs:sequence": {
+                "xs:element": {
+                  "@name": "simpleType",
+                  "@type": "xs:localSimpleType",
+                  "@minOccurs": "0"
+                }
+              },
+              "xs:attribute": {
+                "@name": "itemType",
+                "@type": "xs:QName",
+                "@use": "optional"
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "union",
+        "@id": "union",
+        "xs:complexType": {
+          "xs:annotation": {
+            "xs:documentation": {
+              "@source": "http://www.w3.org/TR/xmlschema-2/#element-union",
+              "_text": "memberTypes attribute must be non-empty or there must be\n          at least one simpleType child"
+            }
+          },
+          "xs:complexContent": {
+            "xs:extension": {
+              "@base": "xs:annotated",
+              "xs:sequence": {
+                "xs:element": {
+                  "@name": "simpleType",
+                  "@type": "xs:localSimpleType",
+                  "@minOccurs": "0",
+                  "@maxOccurs": "unbounded"
+                }
+              },
+              "xs:attribute": {
+                "@name": "memberTypes",
+                "@use": "optional",
+                "xs:simpleType": {
+                  "xs:list": {
+                    "@itemType": "xs:QName"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "minExclusive",
+        "@id": "minExclusive",
+        "@type": "xs:facet",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#element-minExclusive"
+          }
+        }
+      },
+      {
+        "@name": "minInclusive",
+        "@id": "minInclusive",
+        "@type": "xs:facet",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#element-minInclusive"
+          }
+        }
+      },
+      {
+        "@name": "maxExclusive",
+        "@id": "maxExclusive",
+        "@type": "xs:facet",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#element-maxExclusive"
+          }
+        }
+      },
+      {
+        "@name": "maxInclusive",
+        "@id": "maxInclusive",
+        "@type": "xs:facet",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#element-maxInclusive"
+          }
+        }
+      },
+      {
+        "@name": "totalDigits",
+        "@id": "totalDigits",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#element-totalDigits"
+          }
+        },
+        "xs:complexType": {
+          "xs:complexContent": {
+            "xs:restriction": {
+              "@base": "xs:numFacet",
+              "xs:sequence": {
+                "xs:element": {
+                  "@ref": "xs:annotation",
+                  "@minOccurs": "0"
+                }
+              },
+              "xs:attribute": {
+                "@name": "value",
+                "@type": "xs:positiveInteger",
+                "@use": "required"
+              },
+              "xs:anyAttribute": {
+                "@namespace": "##other",
+                "@processContents": "lax"
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "fractionDigits",
+        "@id": "fractionDigits",
+        "@type": "xs:numFacet",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#element-fractionDigits"
+          }
+        }
+      },
+      {
+        "@name": "length",
+        "@id": "length",
+        "@type": "xs:numFacet",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#element-length"
+          }
+        }
+      },
+      {
+        "@name": "minLength",
+        "@id": "minLength",
+        "@type": "xs:numFacet",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#element-minLength"
+          }
+        }
+      },
+      {
+        "@name": "maxLength",
+        "@id": "maxLength",
+        "@type": "xs:numFacet",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#element-maxLength"
+          }
+        }
+      },
+      {
+        "@name": "enumeration",
+        "@id": "enumeration",
+        "@type": "xs:noFixedFacet",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#element-enumeration"
+          }
+        }
+      },
+      {
+        "@name": "whiteSpace",
+        "@id": "whiteSpace",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#element-whiteSpace"
+          }
+        },
+        "xs:complexType": {
+          "xs:complexContent": {
+            "xs:restriction": {
+              "@base": "xs:facet",
+              "xs:sequence": {
+                "xs:element": {
+                  "@ref": "xs:annotation",
+                  "@minOccurs": "0"
+                }
+              },
+              "xs:attribute": {
+                "@name": "value",
+                "@use": "required",
+                "xs:simpleType": {
+                  "xs:restriction": {
+                    "@base": "xs:NMTOKEN",
+                    "xs:enumeration": [
+                      {
+                        "@value": "preserve"
+                      },
+                      {
+                        "@value": "replace"
+                      },
+                      {
+                        "@value": "collapse"
+                      }
+                    ]
+                  }
+                }
+              },
+              "xs:anyAttribute": {
+                "@namespace": "##other",
+                "@processContents": "lax"
+              }
+            }
+          }
+        }
+      },
+      {
+        "@name": "pattern",
+        "@id": "pattern",
+        "xs:annotation": {
+          "xs:documentation": {
+            "@source": "http://www.w3.org/TR/xmlschema-2/#element-pattern"
+          }
+        },
+        "xs:complexType": {
+          "xs:complexContent": {
+            "xs:restriction": {
+              "@base": "xs:noFixedFacet",
+              "xs:sequence": {
+                "xs:element": {
+                  "@ref": "xs:annotation",
+                  "@minOccurs": "0"
+                }
+              },
+              "xs:attribute": {
+                "@name": "value",
+                "@type": "xs:string",
+                "@use": "required"
+              },
+              "xs:anyAttribute": {
+                "@namespace": "##other",
+                "@processContents": "lax"
+              }
+            }
+          }
+        }
+      }
+    ],
+    "xs:attributeGroup": [
+      {
+        "@name": "occurs",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "for all particles"
+          }
+        },
+        "xs:attribute": [
+          {
+            "@name": "minOccurs",
+            "@type": "xs:nonNegativeInteger",
+            "@use": "optional",
+            "@default": "1"
+          },
+          {
+            "@name": "maxOccurs",
+            "@type": "xs:allNNI",
+            "@use": "optional",
+            "@default": "1"
+          }
+        ]
+      },
+      {
+        "@name": "defRef",
+        "xs:annotation": {
+          "xs:documentation": {
+            "_text": "for element, group and attributeGroup,\n   which both define and reference"
+          }
+        },
+        "xs:attribute": [
+          {
+            "@name": "name",
+            "@type": "xs:NCName"
+          },
+          {
+            "@name": "ref",
+            "@type": "xs:QName"
+          }
+        ]
+      }
+    ],
+    "xs:notation": [
+      {
+        "@name": "XMLSchemaStructures",
+        "@public": "structures",
+        "@system": "http://www.w3.org/2000/08/XMLSchema.xsd"
+      },
+      {
+        "@name": "XML",
+        "@public": "REC-xml-19980210",
+        "@system": "http://www.w3.org/TR/1998/REC-xml-19980210"
+      }
+    ]
+  }
+}

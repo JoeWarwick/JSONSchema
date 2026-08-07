@@ -1,4 +1,8 @@
 import React from 'react';
+
+// Instance-form-specific RHS editors.
+// This file is intentionally forked from xml-rhs-editors.tsx so
+// XML Instance Form behavior can evolve independently from graph tooling.
 import type { Node as FlowNode } from 'reactflow';
 import type { NodeData, InlineSimpleTypeData, SimpleTypeFacets } from './types';
 import { XSD_BUILTIN_SIMPLE_TYPES } from '~/utils/xsd-types';
@@ -375,6 +379,8 @@ function XmlSimpleTypeEditor({ node, onChange, readOnlySource, getNodeByName }: 
   const readOnly = Boolean(readOnlySource);
   const [facets, setFacets] = React.useState<SimpleTypeFacets>(data.xmlFacets && typeof data.xmlFacets === 'object' ? data.xmlFacets : {});
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
+  const hasAnnotation = (Array.isArray(data.xmlAnnotations) && data.xmlAnnotations.length > 0) || Boolean(data.xmlAnnotation);
+  const [showAnnotationEditor, setShowAnnotationEditor] = React.useState<boolean>(hasAnnotation);
 
   // Get the resolved node for itemType reference (if it points to a named type)
   const resolvedItemTypeNode = React.useMemo(() => {
@@ -397,6 +403,10 @@ function XmlSimpleTypeEditor({ node, onChange, readOnlySource, getNodeByName }: 
     setFacets(data.xmlFacets && typeof data.xmlFacets === 'object' ? data.xmlFacets : {});
     setIsRef(Boolean(data.xmlIsRef));
   }, [node?.id, data.xmlName, data.xmlSimpleTypeMode, data.xmlBase, data.xmlMemberTypes, data.xmlItemType, data.xmlEnumerations, data.xmlListValues, data.xmlFacets, data.xmlIsRef]);
+
+  React.useEffect(() => {
+    if (hasAnnotation) setShowAnnotationEditor(true);
+  }, [hasAnnotation]);
 
   const handleEnumerationsChange = (next: string[]) => {
     setEnumerations(next);
@@ -584,7 +594,67 @@ function XmlSimpleTypeEditor({ node, onChange, readOnlySource, getNodeByName }: 
         />
         <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
       </label>
-      <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
+
+      <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--graph-text)' }}>Elements</div>
+
+      {showAnnotationEditor ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Annotation element</span>
+            {!readOnly ? (
+              <button
+                type="button"
+                title="Delete annotation element"
+                onClick={() => {
+                  onChange({ id: node.id, xmlAnnotation: undefined, xmlAnnotations: [] });
+                  setShowAnnotationEditor(false);
+                }}
+                style={{
+                  padding: '2px 6px',
+                  borderRadius: 3,
+                  border: '1px solid var(--graph-node-border, #4b5563)',
+                  backgroundColor: 'var(--graph-node-bg-subtle, #1f2937)',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: 'var(--graph-text, #e5e7eb)',
+                }}
+              >
+                ✕
+              </button>
+            ) : null}
+          </div>
+          <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} disabled={readOnly} />
+        </div>
+      ) : (
+        !readOnly ? (
+          <button
+            type="button"
+            onClick={() => setShowAnnotationEditor(true)}
+            title="Add annotation element"
+            style={{
+              alignSelf: 'flex-start',
+              padding: '4px 10px',
+              borderRadius: 999,
+              border: '1px solid var(--graph-node-border, #4b5563)',
+              backgroundColor: 'var(--graph-node-bg-subtle, #1f2937)',
+              color: 'var(--graph-text, #e5e7eb)',
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              lineHeight: 1,
+              textDecoration: 'none',
+              boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.04)',
+            }}
+          >
+            <span>+</span>
+            <span>xs:annotation</span>
+          </button>
+        ) : null
+      )}
     </form>
   );
 }
@@ -661,8 +731,14 @@ function NamedSimpleTypeNestedMembersEditor({
  *   - xmlRemoveAttributeIndex: number (array index)
  *   - xmlUpdateAttributeIndex: { index, name, type, use }
  */
-export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) {
+export function XmlAttributesManager({
+  node,
+  onChange,
+  addBadgeLabel = 'xs:attribute',
+  extraBadges,
+}: XmlNodeRhsEditorProps & { addBadgeLabel?: string; extraBadges?: React.ReactNode }) {
   const data = (node?.data || {}) as any;
+  const stripNamespacePrefix = (label: string) => String(label || '').replace(/^.*:/, '');
 
   // Get attributes from node data (passed from graphical-schema-editor)
   const attributes = data.xmlAttributes || [];
@@ -704,89 +780,70 @@ export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) 
     onChange({ id: node.id, xmlRemoveAttributeIndex: nonInheritedIndex });
   };
 
-  const handleUpdateAttribute = (index: number, field: string, value: string) => {
-    if (!node) return;
-    // Calculate the actual index in the non-inherited array (for XML operations)
-    const nonInheritedIndex = attributes.slice(0, index).filter((a: any) => !a.inherited).length;
-    const updated = { ...attributes[index], [field]: value };
-    onChange({ id: node.id, xmlUpdateAttributeIndex: { index: nonInheritedIndex, ...updated } });
-  };
-
   const fieldStyle = { padding: 3, borderRadius: 3, border: '1px solid var(--graph-node-border)', background: 'var(--graph-node-bg)', color: 'var(--graph-node-text)', fontSize: 11 };
-  const inheritedFieldStyle = { ...fieldStyle, background: 'var(--graph-node-bg-subtle)', opacity: 0.7, cursor: 'not-allowed' };
+  const neutralBadgeStyle: React.CSSProperties = {
+    padding: '4px 10px',
+    borderRadius: 999,
+    border: '1px solid var(--graph-node-border, #4b5563)',
+    backgroundColor: 'var(--graph-node-bg-subtle, #1f2937)',
+    color: 'var(--graph-text, #e5e7eb)',
+    cursor: 'pointer',
+    fontSize: 11,
+    fontWeight: 600,
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    lineHeight: 1,
+    textDecoration: 'none',
+    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.04)',
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0', borderTop: '1px solid var(--graph-sidebar-border)', marginTop: 8 }}>
       <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--graph-text)' }}>Attributes</div>
       
-      {/* List existing attributes */}
-      {attributes.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {/* Existing attributes */}
+      {(attributes.length > 0 || extraBadges || !showAddForm) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'flex-start' }}>
           {attributes.map((attr: any, index: number) => {
             const isInherited = attr.inherited === true;
+            const badgeLabel = stripNamespacePrefix(attr.name || 'xs:attribute');
             return (
-              <div key={index} style={{ display: 'flex', gap: 4, fontSize: 11, padding: 4, backgroundColor: isInherited ? 'var(--graph-node-bg-subtle)' : 'var(--graph-node-bg-subtle)', borderRadius: 4, opacity: isInherited ? 0.75 : 1, position: 'relative' }}>
-                {isInherited && (
-                  <div style={{ position: 'absolute', top: 2, right: 2, fontSize: 9, color: 'var(--graph-muted)', fontWeight: 500, padding: '2px 4px', backgroundColor: 'var(--graph-node-border)', borderRadius: 2 }}>
-                    inherited
-                  </div>
-                )}
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, paddingRight: isInherited ? 50 : 0 }}>
-                  <input
-                    type="text"
-                    value={attr.name || ''}
-                    onChange={(e) => !isInherited && handleUpdateAttribute(index, 'name', e.target.value)}
-                    placeholder="name"
-                    disabled={isInherited}
-                    style={isInherited ? inheritedFieldStyle : fieldStyle}
-                  />
-                  <select
-                    value={attr.type || ''}
-                    onChange={(e) => !isInherited && handleUpdateAttribute(index, 'type', e.target.value)}
-                    disabled={isInherited}
-                    style={isInherited ? inheritedFieldStyle : fieldStyle}
-                  >
-                    <option value={attr.type || ''}>{attr.type || 'Select type...'}</option>
-                    {typeOptions.filter((t) => t !== attr.type).map((t) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={attr.use || 'optional'}
-                    onChange={(e) => !isInherited && handleUpdateAttribute(index, 'use', e.target.value)}
-                    disabled={isInherited}
-                    style={isInherited ? inheritedFieldStyle : fieldStyle}
-                  >
-                    <option value="optional">optional</option>
-                    <option value="required">required</option>
-                    <option value="prohibited">prohibited</option>
-                  </select>
-                </div>
-                {!isInherited && (
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveAttribute(index)}
-                    style={{ padding: '4px 8px', fontSize: 11, backgroundColor: 'var(--color-error-4)', color: 'var(--color-error-11)', border: '1px solid var(--color-error-7)', borderRadius: 3, cursor: 'pointer' }}
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
+              <button
+                key={index}
+                type="button"
+                onClick={() => {
+                  if (!isInherited) handleRemoveAttribute(index);
+                }}
+                title={isInherited ? `${badgeLabel} (inherited)` : `Remove ${badgeLabel} attribute`}
+                style={{
+                  ...neutralBadgeStyle,
+                  opacity: isInherited ? 0.8 : 1,
+                  cursor: isInherited ? 'default' : 'pointer',
+                }}
+              >
+                <span>+</span>
+                <span>{badgeLabel}</span>
+                {isInherited ? <span style={{ fontSize: 10 }}>(inherited)</span> : null}
+              </button>
             );
           })}
+          {extraBadges}
+          {!showAddForm ? (
+            <button
+              type="button"
+              onClick={() => setShowAddForm(true)}
+              title="Add attribute declaration"
+              style={neutralBadgeStyle}
+            >
+              <span>+</span>
+              <span>{addBadgeLabel}</span>
+            </button>
+          ) : null}
         </div>
       )}
 
-      {/* Add new attribute, hidden behind a toggle button until requested */}
-      {!showAddForm && (
-        <button
-          type="button"
-          onClick={() => setShowAddForm(true)}
-          style={{ alignSelf: 'flex-start', padding: '4px 10px', fontSize: 11, fontWeight: 500, backgroundColor: 'var(--graph-node-bg-subtle)', color: 'var(--graph-text)', border: '1px solid var(--graph-node-border)', borderRadius: 3, cursor: 'pointer' }}
-        >
-          + Add Attribute
-        </button>
-      )}
+      {/* Add new attribute form */}
       {showAddForm && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 6, backgroundColor: 'var(--graph-node-bg-subtle)', border: '1px solid var(--graph-node-border)', borderRadius: 4 }}>
           <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--graph-text)' }}>Add Attribute</span>
@@ -849,6 +906,9 @@ function XmlComplexTypeEditor({ node, onChange, readOnlySource, getNodeByName }:
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
   const [mixed, setMixed] = React.useState<boolean>(Boolean(data.xmlMixed));
   const [anyAttributeNamespace, setAnyAttributeNamespace] = React.useState<string>(String(data.xmlAnyAttribute?.namespace || ''));
+  const hasAnyAttributeNamespace = anyAttributeNamespace.trim().length > 0;
+  const hasAnnotation = (Array.isArray(data.xmlAnnotations) && data.xmlAnnotations.length > 0) || Boolean(data.xmlAnnotation);
+  const [showAnnotationEditor, setShowAnnotationEditor] = React.useState<boolean>(hasAnnotation);
   const readOnly = Boolean(readOnlySource);
 
   React.useEffect(() => {
@@ -857,6 +917,10 @@ function XmlComplexTypeEditor({ node, onChange, readOnlySource, getNodeByName }:
     setMixed(Boolean(data.xmlMixed));
     setAnyAttributeNamespace(String(data.xmlAnyAttribute?.namespace || ''));
   }, [node?.id, data.xmlName, data.xmlIsRef, data.xmlMixed, data.xmlAnyAttribute]);
+
+  React.useEffect(() => {
+    if (hasAnnotation) setShowAnnotationEditor(true);
+  }, [hasAnnotation]);
 
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
@@ -901,23 +965,107 @@ function XmlComplexTypeEditor({ node, onChange, readOnlySource, getNodeByName }:
         />
         <span style={{ fontSize: 12 }}>Mixed Content</span>
       </label>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ fontSize: 12 }}>AnyAttribute namespace</span>
-        <input
-          aria-label="AnyAttribute Namespace"
-          value={anyAttributeNamespace}
-          disabled={readOnly}
-          onChange={(e) => setAnyAttributeNamespace(e.target.value)}
-          onBlur={() => onChange({ id: node.id, xmlAnyAttributeNamespace: anyAttributeNamespace })}
-          placeholder="##other"
-          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
-        />
-      </label>
       <div style={{ fontSize: 12, color: '#666' }}>
         Sequence, choice, and all are represented by child compositor nodes. Edit min/max on the compositor node.
       </div>
-      {!readOnly ? <XmlAttributesManager node={node} onChange={onChange} /> : null}
-      <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
+      {!readOnly ? (
+        <XmlAttributesManager
+          node={node}
+          onChange={onChange}
+          addBadgeLabel="xs:attribute"
+          extraBadges={
+            <button
+              type="button"
+              onClick={() => {
+                const next = hasAnyAttributeNamespace ? '' : '##other';
+                setAnyAttributeNamespace(next);
+                onChange({ id: node.id, xmlAnyAttributeNamespace: next || undefined });
+              }}
+              title={hasAnyAttributeNamespace ? 'Remove AnyAttribute namespace' : 'Add AnyAttribute namespace'}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 999,
+                border: '1px solid var(--graph-node-border, #4b5563)',
+                backgroundColor: hasAnyAttributeNamespace ? 'var(--graph-node-bg, #111827)' : 'var(--graph-node-bg-subtle, #1f2937)',
+                color: 'var(--graph-text, #e5e7eb)',
+                cursor: 'pointer',
+                fontSize: 11,
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                lineHeight: 1,
+                textDecoration: 'none',
+                boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.04)',
+              }}
+            >
+              <span>+</span>
+              <span>Any #ns</span>
+            </button>
+          }
+        />
+      ) : null}
+
+      <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--graph-text)' }}>Elements</div>
+
+      {showAnnotationEditor ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Annotation element</span>
+            {!readOnly ? (
+              <button
+                type="button"
+                title="Delete annotation element"
+                onClick={() => {
+                  onChange({ id: node.id, xmlAnnotation: undefined, xmlAnnotations: [] });
+                  setShowAnnotationEditor(false);
+                }}
+                style={{
+                  padding: '2px 6px',
+                  borderRadius: 3,
+                  border: '1px solid var(--graph-node-border, #4b5563)',
+                  backgroundColor: 'var(--graph-node-bg-subtle, #1f2937)',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: 'var(--graph-text, #e5e7eb)',
+                }}
+              >
+                ✕
+              </button>
+            ) : null}
+          </div>
+          <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} disabled={readOnly} />
+        </div>
+      ) : (
+        !readOnly ? (
+          <button
+            type="button"
+            onClick={() => setShowAnnotationEditor(true)}
+            title="Add annotation element"
+            style={{
+              alignSelf: 'flex-start',
+              padding: '4px 10px',
+              borderRadius: 999,
+              border: '1px solid var(--graph-node-border, #4b5563)',
+              backgroundColor: 'var(--graph-node-bg-subtle, #1f2937)',
+              color: 'var(--graph-text, #e5e7eb)',
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              lineHeight: 1,
+              textDecoration: 'none',
+              boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.04)',
+            }}
+          >
+            <span>+</span>
+            <span>xs:annotation</span>
+          </button>
+        ) : null
+      )}
     </form>
   );
 }
@@ -927,11 +1075,17 @@ function XmlAttributeGroupEditor({ node, onChange, readOnlySource, getNodeByName
   if (!node) return null;
   const data = (node.data || {}) as any;
   const [name, setName] = React.useState<string>(String(data.xmlName || ''));
+  const hasAnnotation = (Array.isArray(data.xmlAnnotations) && data.xmlAnnotations.length > 0) || Boolean(data.xmlAnnotation);
+  const [showAnnotationEditor, setShowAnnotationEditor] = React.useState<boolean>(hasAnnotation);
   const readOnly = Boolean(readOnlySource);
 
   React.useEffect(() => {
     setName(String(data.xmlName || ''));
   }, [node?.id, data.xmlName]);
+
+  React.useEffect(() => {
+    if (hasAnnotation) setShowAnnotationEditor(true);
+  }, [hasAnnotation]);
 
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
@@ -951,8 +1105,65 @@ function XmlAttributeGroupEditor({ node, onChange, readOnlySource, getNodeByName
       <div style={{ fontSize: 12, color: '#666' }}>
         Attributes added here are shared by every <code>xs:attributeGroup ref="{name || '...'}"</code> that references this group.
       </div>
-      {!readOnly ? <XmlAttributesManager node={node} onChange={onChange} /> : null}
-      <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
+      {!readOnly ? <XmlAttributesManager node={node} onChange={onChange} addBadgeLabel="xs:attribute" /> : null}
+
+      <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--graph-text)' }}>Elements</div>
+
+      {showAnnotationEditor ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Annotation element</span>
+            {!readOnly ? (
+              <button
+                type="button"
+                title="Delete annotation element"
+                onClick={() => {
+                  onChange({ id: node.id, xmlAnnotation: undefined, xmlAnnotations: [] });
+                  setShowAnnotationEditor(false);
+                }}
+                style={{
+                  padding: '2px 6px',
+                  borderRadius: 3,
+                  border: '1px solid #ccc',
+                  backgroundColor: '#f5f5f5',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: '#666',
+                }}
+              >
+                ✕
+              </button>
+            ) : null}
+          </div>
+          <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} disabled={readOnly} />
+        </div>
+      ) : (
+        !readOnly ? (
+          <button
+            type="button"
+            onClick={() => setShowAnnotationEditor(true)}
+            title="Add annotation element"
+            style={{
+              alignSelf: 'flex-start',
+              padding: '3px 8px',
+              borderRadius: 12,
+              border: '1px solid #8a6116',
+              backgroundColor: '#3a2a0e',
+              color: '#fbbf24',
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            <span>+</span>
+            <span>xs:annotation</span>
+          </button>
+        ) : null
+      )}
     </form>
   );
 }
@@ -1696,10 +1907,16 @@ function XmlAttributeSimpleTypeEditor({ node, onChange, getNodeByName }: XmlNode
   const [value, setValue] = React.useState<InlineSimpleTypeData>(
     (data.xmlAttributeInlineSimpleType as InlineSimpleTypeData | undefined) || { mode: 'restriction', base: 'xs:string', enumerations: [] },
   );
+  const hasAnnotation = (Array.isArray(data.xmlAnnotations) && data.xmlAnnotations.length > 0) || Boolean(data.xmlAnnotation);
+  const [showAnnotationEditor, setShowAnnotationEditor] = React.useState<boolean>(hasAnnotation);
 
   React.useEffect(() => {
     setValue((data.xmlAttributeInlineSimpleType as InlineSimpleTypeData | undefined) || { mode: 'restriction', base: 'xs:string', enumerations: [] });
   }, [node?.id, data.xmlAttributeInlineSimpleType]);
+
+  React.useEffect(() => {
+    if (hasAnnotation) setShowAnnotationEditor(true);
+  }, [hasAnnotation]);
 
   const handleChange = (next: InlineSimpleTypeData) => {
     setValue(next);
@@ -1710,7 +1927,63 @@ function XmlAttributeSimpleTypeEditor({ node, onChange, getNodeByName }: XmlNode
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>SimpleType Editor</div>
       <InlineSimpleTypeEditor value={value} onChange={handleChange} pathLabel="SimpleType" />
-      <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
+
+      <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--graph-text)' }}>Elements</div>
+
+      {showAnnotationEditor ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Annotation element</span>
+            <button
+              type="button"
+              title="Delete annotation element"
+              onClick={() => {
+                onChange({ id: node.id, xmlAnnotation: undefined, xmlAnnotations: [] });
+                setShowAnnotationEditor(false);
+              }}
+              style={{
+                padding: '2px 6px',
+                borderRadius: 3,
+                border: '1px solid var(--graph-node-border, #4b5563)',
+                backgroundColor: 'var(--graph-node-bg-subtle, #1f2937)',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 500,
+                color: 'var(--graph-text, #e5e7eb)',
+              }}
+            >
+              ✕
+            </button>
+          </div>
+          <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowAnnotationEditor(true)}
+          title="Add annotation element"
+          style={{
+            alignSelf: 'flex-start',
+            padding: '4px 10px',
+            borderRadius: 999,
+            border: '1px solid var(--graph-node-border, #4b5563)',
+            backgroundColor: 'var(--graph-node-bg-subtle, #1f2937)',
+            color: 'var(--graph-text, #e5e7eb)',
+            cursor: 'pointer',
+            fontSize: 11,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            lineHeight: 1,
+            textDecoration: 'none',
+            boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.04)',
+          }}
+        >
+          <span>+</span>
+          <span>xs:annotation</span>
+        </button>
+      )}
     </form>
   );
 }
@@ -1739,6 +2012,8 @@ function XmlAttributeEditor({ node, onChange, readOnlySource, getNodeByName }: X
   // definition, not this attribute; edit them on the `typesType` simpleType node instead.
   const referencedEnumerations = Array.isArray(data.xmlAttributeReferencedEnumerations) ? data.xmlAttributeReferencedEnumerations as string[] : [];
   const referencedTypeName = data.xmlAttributeReferencedTypeName as string | undefined;
+  const hasAnnotation = (Array.isArray(data.xmlAnnotations) && data.xmlAnnotations.length > 0) || Boolean(data.xmlAnnotation);
+  const [showAnnotationEditor, setShowAnnotationEditor] = React.useState<boolean>(hasAnnotation);
 
   React.useEffect(() => {
     setName(String(data.xmlName || ''));
@@ -1758,6 +2033,10 @@ function XmlAttributeEditor({ node, onChange, readOnlySource, getNodeByName }: X
       xmlAttributeDefault: data.xmlAttributeDefault,
     }),
   ]);
+
+  React.useEffect(() => {
+    if (hasAnnotation) setShowAnnotationEditor(true);
+  }, [hasAnnotation]);
 
   const badgePillStyle = (active: boolean): React.CSSProperties => ({
     padding: '3px 10px',
@@ -1798,7 +2077,16 @@ function XmlAttributeEditor({ node, onChange, readOnlySource, getNodeByName }: X
             <input aria-label="Attribute Default Value" value={defaultValue} readOnly disabled style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5' }} />
           </label>
         )}
-        <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
+
+        <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--graph-text)' }}>Elements</div>
+        {showAnnotationEditor ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 12, fontWeight: 600 }}>Annotation element</span>
+            </div>
+            <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} disabled />
+          </div>
+        ) : null}
       </form>
     );
   }
@@ -1910,7 +2198,63 @@ function XmlAttributeEditor({ node, onChange, readOnlySource, getNodeByName }: X
         />
         <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
       </label>
-      <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
+
+      <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--graph-text)' }}>Elements</div>
+
+      {showAnnotationEditor ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Annotation element</span>
+            <button
+              type="button"
+              title="Delete annotation element"
+              onClick={() => {
+                onChange({ id: node.id, xmlAnnotation: undefined, xmlAnnotations: [] });
+                setShowAnnotationEditor(false);
+              }}
+              style={{
+                padding: '2px 6px',
+                borderRadius: 3,
+                border: '1px solid var(--graph-node-border, #4b5563)',
+                backgroundColor: 'var(--graph-node-bg-subtle, #1f2937)',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 500,
+                color: 'var(--graph-text, #e5e7eb)',
+              }}
+            >
+              ✕
+            </button>
+          </div>
+          <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowAnnotationEditor(true)}
+          title="Add annotation element"
+          style={{
+            alignSelf: 'flex-start',
+            padding: '4px 10px',
+            borderRadius: 999,
+            border: '1px solid var(--graph-node-border, #4b5563)',
+            backgroundColor: 'var(--graph-node-bg-subtle, #1f2937)',
+            color: 'var(--graph-text, #e5e7eb)',
+            cursor: 'pointer',
+            fontSize: 11,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            lineHeight: 1,
+            textDecoration: 'none',
+            boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.04)',
+          }}
+        >
+          <span>+</span>
+          <span>xs:annotation</span>
+        </button>
+      )}
     </form>
   );
 }
@@ -1921,12 +2265,18 @@ function XmlCompositorEditor({ node, onChange, readOnlySource, getNodeByName }: 
   const data = (node.data || {}) as any;
   const [minOccurs, setMinOccurs] = React.useState<string>(String(data.xmlMinOccurs ?? '1'));
   const [maxOccurs, setMaxOccurs] = React.useState<string>(String(data.xmlMaxOccurs ?? '1'));
+  const hasAnnotation = (Array.isArray(data.xmlAnnotations) && data.xmlAnnotations.length > 0) || Boolean(data.xmlAnnotation);
+  const [showAnnotationEditor, setShowAnnotationEditor] = React.useState<boolean>(hasAnnotation);
   const readOnly = Boolean(readOnlySource);
 
   React.useEffect(() => {
     setMinOccurs(String(data.xmlMinOccurs ?? '1'));
     setMaxOccurs(String(data.xmlMaxOccurs ?? '1'));
   }, [node?.id, data.xmlMinOccurs, data.xmlMaxOccurs]);
+
+  React.useEffect(() => {
+    if (hasAnnotation) setShowAnnotationEditor(true);
+  }, [hasAnnotation]);
 
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
@@ -1956,7 +2306,67 @@ function XmlCompositorEditor({ node, onChange, readOnlySource, getNodeByName }: 
           placeholder="1 or unbounded"
         />
       </label>
-      <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} disabled={readOnly} />
+
+      <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--graph-text)' }}>Elements</div>
+
+      {showAnnotationEditor ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Annotation element</span>
+            {!readOnly ? (
+              <button
+                type="button"
+                title="Delete annotation element"
+                onClick={() => {
+                  onChange({ id: node.id, xmlAnnotation: undefined, xmlAnnotations: [] });
+                  setShowAnnotationEditor(false);
+                }}
+                style={{
+                  padding: '2px 6px',
+                  borderRadius: 3,
+                  border: '1px solid var(--graph-node-border, #4b5563)',
+                  backgroundColor: 'var(--graph-node-bg-subtle, #1f2937)',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: 'var(--graph-text, #e5e7eb)',
+                }}
+              >
+                ✕
+              </button>
+            ) : null}
+          </div>
+          <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} disabled={readOnly} />
+        </div>
+      ) : (
+        !readOnly ? (
+          <button
+            type="button"
+            onClick={() => setShowAnnotationEditor(true)}
+            title="Add annotation element"
+            style={{
+              alignSelf: 'flex-start',
+              padding: '4px 10px',
+              borderRadius: 999,
+              border: '1px solid var(--graph-node-border, #4b5563)',
+              backgroundColor: 'var(--graph-node-bg-subtle, #1f2937)',
+              color: 'var(--graph-text, #e5e7eb)',
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              lineHeight: 1,
+              textDecoration: 'none',
+              boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.04)',
+            }}
+          >
+            <span>+</span>
+            <span>xs:annotation</span>
+          </button>
+        ) : null
+      )}
     </form>
   );
 }
@@ -2003,8 +2413,11 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
   const [mixed, setMixed] = React.useState<boolean>(Boolean(data.xmlMixed));
   const [anyAttributeNamespace, setAnyAttributeNamespace] = React.useState<string>(String(data.xmlAnyAttribute?.namespace || ''));
+  const hasAnyAttributeNamespace = anyAttributeNamespace.trim().length > 0;
   const [defaultValue, setDefaultValue] = React.useState<string>(String(data.xmlDefault || ''));
   const [fixedValue, setFixedValue] = React.useState<string>(String(data.xmlFixed || ''));
+  const hasAnnotation = (Array.isArray(data.xmlAnnotations) && data.xmlAnnotations.length > 0) || Boolean(data.xmlAnnotation);
+  const [showAnnotationEditor, setShowAnnotationEditor] = React.useState<boolean>(hasAnnotation);
   const readOnly = Boolean(readOnlySource);
 
   React.useEffect(() => {
@@ -2019,6 +2432,10 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
     setDefaultValue(String(data.xmlDefault || ''));
     setFixedValue(String(data.xmlFixed || ''));
   }, [node?.id, data.xmlName, data.xmlElementType, data.xmlSubstitutionGroupParent, data.xmlMinOccurs, data.xmlMaxOccurs, data.xmlIsRef, data.xmlMixed, data.xmlAnyAttribute, data.xmlDefault, data.xmlFixed]);
+
+  React.useEffect(() => {
+    if (hasAnnotation) setShowAnnotationEditor(true);
+  }, [hasAnnotation]);
 
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
@@ -2168,20 +2585,101 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
         />
         <span style={{ fontSize: 12 }}>Mixed Content</span>
       </label>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ fontSize: 12 }}>AnyAttribute namespace</span>
-        <input
-          aria-label="AnyAttribute Namespace"
-          value={anyAttributeNamespace}
-          disabled={readOnly || isRef}
-          onChange={(e) => setAnyAttributeNamespace(e.target.value)}
-          onBlur={() => onChange({ id: node.id, xmlAnyAttributeNamespace: anyAttributeNamespace })}
-          placeholder="##other"
-          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+      {!readOnly ? (
+        <XmlAttributesManager
+          node={node}
+          onChange={onChange}
+          addBadgeLabel="xs:attribute"
+          extraBadges={!isRef ? (
+            <button
+              type="button"
+              onClick={() => {
+                const next = hasAnyAttributeNamespace ? '' : '##other';
+                setAnyAttributeNamespace(next);
+                onChange({ id: node.id, xmlAnyAttributeNamespace: next || undefined });
+              }}
+              title={hasAnyAttributeNamespace ? 'Remove AnyAttribute namespace' : 'Add AnyAttribute namespace'}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 999,
+                border: '1px solid var(--graph-node-border, #4b5563)',
+                backgroundColor: hasAnyAttributeNamespace ? 'var(--graph-node-bg, #111827)' : 'var(--graph-node-bg-subtle, #1f2937)',
+                color: 'var(--graph-text, #e5e7eb)',
+                cursor: 'pointer',
+                fontSize: 11,
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                lineHeight: 1,
+                textDecoration: 'none',
+                boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.04)',
+              }}
+            >
+              <span>+</span>
+              <span>Any #ns</span>
+            </button>
+          ) : null}
         />
-      </label>
-      {!readOnly ? <XmlAttributesManager node={node} onChange={onChange} /> : null}
-      <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
+      ) : null}
+
+      <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--graph-text)' }}>Elements</div>
+
+      {showAnnotationEditor ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Annotation element</span>
+            {!readOnly ? (
+              <button
+                type="button"
+                title="Delete annotation element"
+                onClick={() => {
+                  onChange({ id: node.id, xmlAnnotation: undefined, xmlAnnotations: [] });
+                  setShowAnnotationEditor(false);
+                }}
+                style={{
+                  padding: '2px 6px',
+                  borderRadius: 3,
+                  border: '1px solid #ccc',
+                  backgroundColor: '#f5f5f5',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: '#666',
+                }}
+              >
+                ✕
+              </button>
+            ) : null}
+          </div>
+          <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} disabled={readOnly} />
+        </div>
+      ) : (
+        !readOnly ? (
+          <button
+            type="button"
+            onClick={() => setShowAnnotationEditor(true)}
+            title="Add annotation element"
+            style={{
+              alignSelf: 'flex-start',
+              padding: '3px 8px',
+              borderRadius: 12,
+              border: '1px solid #8a6116',
+              backgroundColor: '#3a2a0e',
+              color: '#fbbf24',
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            <span>+</span>
+            <span>xs:annotation</span>
+          </button>
+        ) : null
+      )}
     </form>
   );
 }
@@ -2448,6 +2946,7 @@ function NamespacesListEditor({
   const namespaces = (data.xmlnsNamespaces as Array<{ prefix: string; uri: string }>) || [];
   const [newPrefix, setNewPrefix] = React.useState('');
   const [newUri, setNewUri] = React.useState('');
+  const [showAddForm, setShowAddForm] = React.useState(false);
 
   const handleAdd = () => {
     if (!newPrefix.trim() || !newUri.trim()) return;
@@ -2455,6 +2954,7 @@ function NamespacesListEditor({
     onChange({ id: node.id, xmlnsNamespaces: updated });
     setNewPrefix('');
     setNewUri('');
+    setShowAddForm(false);
   };
 
   const handleUpdate = (index: number, field: 'prefix' | 'uri', value: string) => {
@@ -2520,53 +3020,96 @@ function NamespacesListEditor({
           </div>
         ))}
       </div>
-      {/* Add New Namespace */}
-      <div style={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-        <input
-          type="text"
-          placeholder="prefix"
-          value={newPrefix}
-          onChange={(e) => setNewPrefix(e.target.value)}
-          style={{
-            padding: 4,
-            borderRadius: 3,
-            border: '1px solid #ddd',
-            fontSize: 11,
-            minWidth: 80,
-          }}
-        />
-        <input
-          type="text"
-          placeholder="URI"
-          value={newUri}
-          onChange={(e) => setNewUri(e.target.value)}
-          style={{
-            padding: 4,
-            borderRadius: 3,
-            border: '1px solid #ddd',
-            fontSize: 11,
-            flex: 1,
-          }}
-        />
+      {!showAddForm ? (
         <button
           type="button"
-          onClick={handleAdd}
-          disabled={!newPrefix.trim() || !newUri.trim()}
-          title="Add namespace"
+          onClick={() => setShowAddForm(true)}
           style={{
-            padding: '2px 6px',
-            borderRadius: 3,
-            border: '1px solid #ccc',
-            backgroundColor: !newPrefix.trim() || !newUri.trim() ? '#f0f0f0' : '#f9f9f9',
-            cursor: !newPrefix.trim() || !newUri.trim() ? 'not-allowed' : 'pointer',
-            fontSize: 12,
+            alignSelf: 'flex-start',
+            padding: '3px 8px',
+            borderRadius: 12,
+            border: '1px solid #ddd',
+            backgroundColor: '#f9f9f9',
+            cursor: 'pointer',
+            fontSize: 11,
             fontWeight: 500,
-            color: !newPrefix.trim() || !newUri.trim() ? '#aaa' : '#666',
+            color: '#666',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
           }}
         >
-          +
+          <span>+</span>
+          <span>xmlns:*</span>
         </button>
-      </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+          <input
+            type="text"
+            placeholder="prefix"
+            value={newPrefix}
+            onChange={(e) => setNewPrefix(e.target.value)}
+            style={{
+              padding: 4,
+              borderRadius: 3,
+              border: '1px solid #ddd',
+              fontSize: 11,
+              minWidth: 80,
+            }}
+          />
+          <input
+            type="text"
+            placeholder="URI"
+            value={newUri}
+            onChange={(e) => setNewUri(e.target.value)}
+            style={{
+              padding: 4,
+              borderRadius: 3,
+              border: '1px solid #ddd',
+              fontSize: 11,
+              flex: 1,
+            }}
+          />
+          <button
+            type="button"
+            onClick={handleAdd}
+            disabled={!newPrefix.trim() || !newUri.trim()}
+            title="Add namespace"
+            style={{
+              padding: '2px 6px',
+              borderRadius: 3,
+              border: '1px solid #ccc',
+              backgroundColor: !newPrefix.trim() || !newUri.trim() ? '#f0f0f0' : '#f9f9f9',
+              cursor: !newPrefix.trim() || !newUri.trim() ? 'not-allowed' : 'pointer',
+              fontSize: 12,
+              fontWeight: 500,
+              color: !newPrefix.trim() || !newUri.trim() ? '#aaa' : '#666',
+            }}
+          >
+            Add
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowAddForm(false);
+              setNewPrefix('');
+              setNewUri('');
+            }}
+            style={{
+              padding: '2px 6px',
+              borderRadius: 3,
+              border: '1px solid #ccc',
+              backgroundColor: '#f5f5f5',
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 500,
+              color: '#666',
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -2577,14 +3120,17 @@ function NamespacesListEditor({
 function ImportsListEditor({
   node,
   onChange,
+  additionalBadges,
 }: {
   node: FlowNode<NodeData>;
   onChange: (patch: Partial<NodeData>) => void;
+  additionalBadges?: React.ReactNode;
 }) {
   const data = (node.data || {}) as any;
   const imports = (data.xmlImports as Array<{ namespace: string; schemaLocation: string }>) || [];
   const [newNamespace, setNewNamespace] = React.useState('');
   const [newSchemaLocation, setNewSchemaLocation] = React.useState('');
+  const [showAddForm, setShowAddForm] = React.useState(false);
 
   const handleAdd = () => {
     if (!newNamespace.trim() || !newSchemaLocation.trim()) return;
@@ -2592,6 +3138,7 @@ function ImportsListEditor({
     onChange({ id: node.id, xmlImports: updated });
     setNewNamespace('');
     setNewSchemaLocation('');
+    setShowAddForm(false);
   };
 
   const handleUpdate = (index: number, field: 'namespace' | 'schemaLocation', value: string) => {
@@ -2657,53 +3204,99 @@ function ImportsListEditor({
           </div>
         ))}
       </div>
-      {/* Add New Import */}
-      <div style={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-        <input
-          type="text"
-          placeholder="namespace"
-          value={newNamespace}
-          onChange={(e) => setNewNamespace(e.target.value)}
-          style={{
-            padding: 4,
-            borderRadius: 3,
-            border: '1px solid #ddd',
-            fontSize: 11,
-            minWidth: 100,
-          }}
-        />
-        <input
-          type="text"
-          placeholder="schemaLocation"
-          value={newSchemaLocation}
-          onChange={(e) => setNewSchemaLocation(e.target.value)}
-          style={{
-            padding: 4,
-            borderRadius: 3,
-            border: '1px solid #ddd',
-            fontSize: 11,
-            flex: 1,
-          }}
-        />
-        <button
-          type="button"
-          onClick={handleAdd}
-          disabled={!newNamespace.trim() || !newSchemaLocation.trim()}
-          title="Add import"
-          style={{
-            padding: '2px 6px',
-            borderRadius: 3,
-            border: '1px solid #ccc',
-            backgroundColor: !newNamespace.trim() || !newSchemaLocation.trim() ? '#f0f0f0' : '#f9f9f9',
-            cursor: !newNamespace.trim() || !newSchemaLocation.trim() ? 'not-allowed' : 'pointer',
-            fontSize: 12,
-            fontWeight: 500,
-            color: !newNamespace.trim() || !newSchemaLocation.trim() ? '#aaa' : '#666',
-          }}
-        >
-          +
-        </button>
-      </div>
+      {!showAddForm ? (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={() => setShowAddForm(true)}
+            style={{
+              alignSelf: 'flex-start',
+              padding: '3px 8px',
+              borderRadius: 12,
+              border: '1px solid #ddd',
+              backgroundColor: '#f9f9f9',
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 500,
+              color: '#666',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            <span>+</span>
+            <span>xs:import</span>
+          </button>
+          {additionalBadges}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+          <input
+            type="text"
+            placeholder="namespace"
+            value={newNamespace}
+            onChange={(e) => setNewNamespace(e.target.value)}
+            style={{
+              padding: 4,
+              borderRadius: 3,
+              border: '1px solid #ddd',
+              fontSize: 11,
+              minWidth: 100,
+            }}
+          />
+          <input
+            type="text"
+            placeholder="schemaLocation"
+            value={newSchemaLocation}
+            onChange={(e) => setNewSchemaLocation(e.target.value)}
+            style={{
+              padding: 4,
+              borderRadius: 3,
+              border: '1px solid #ddd',
+              fontSize: 11,
+              flex: 1,
+            }}
+          />
+          <button
+            type="button"
+            onClick={handleAdd}
+            disabled={!newNamespace.trim() || !newSchemaLocation.trim()}
+            title="Add import"
+            style={{
+              padding: '2px 6px',
+              borderRadius: 3,
+              border: '1px solid #ccc',
+              backgroundColor: !newNamespace.trim() || !newSchemaLocation.trim() ? '#f0f0f0' : '#f9f9f9',
+              cursor: !newNamespace.trim() || !newSchemaLocation.trim() ? 'not-allowed' : 'pointer',
+              fontSize: 12,
+              fontWeight: 500,
+              color: !newNamespace.trim() || !newSchemaLocation.trim() ? '#aaa' : '#666',
+            }}
+          >
+            Add
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowAddForm(false);
+              setNewNamespace('');
+              setNewSchemaLocation('');
+            }}
+            style={{
+              padding: '2px 6px',
+              borderRadius: 3,
+              border: '1px solid #ccc',
+              backgroundColor: '#f5f5f5',
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 500,
+              color: '#666',
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -2712,6 +3305,12 @@ function ImportsListEditor({
 function XmlSchemaEditor({ node, onChange, onToggleShowAnnotations, xmlShowAnnotations, onToggleShowImports, xmlShowImports, getNodeByName }: XmlNodeRhsEditorProps) {
   if (!node) return null;
   const data = (node.data || {}) as any;
+  const hasAnnotation = (Array.isArray(data.xmlAnnotations) && data.xmlAnnotations.length > 0) || Boolean(data.xmlAnnotation);
+  const [showAnnotationEditor, setShowAnnotationEditor] = React.useState<boolean>(hasAnnotation);
+
+  React.useEffect(() => {
+    if (hasAnnotation) setShowAnnotationEditor(true);
+  }, [hasAnnotation]);
 
   const handleToggleShowAnnotations = (show: boolean) => {
     if (onToggleShowAnnotations) {
@@ -2756,7 +3355,33 @@ function XmlSchemaEditor({ node, onChange, onToggleShowAnnotations, xmlShowAnnot
       ) : null}
 
       {/* xs:import Editor */}
-      <ImportsListEditor node={node} onChange={onChange} />
+      <ImportsListEditor
+        node={node}
+        onChange={onChange}
+        additionalBadges={!showAnnotationEditor ? (
+          <button
+            type="button"
+            onClick={() => setShowAnnotationEditor(true)}
+            title="Add annotation"
+            style={{
+              padding: '3px 8px',
+              borderRadius: 12,
+              border: '1px solid #8a6116',
+              backgroundColor: '#3a2a0e',
+              color: '#fbbf24',
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            <span>+</span>
+            <span>xs:annotation</span>
+          </button>
+        ) : undefined}
+      />
 
       {onToggleShowImports ? (
         <div style={{ padding: '8px 12px', border: '1px solid var(--graph-node-border)', borderRadius: 4, backgroundColor: 'var(--graph-node-bg-subtle)' }}>
@@ -2777,7 +3402,34 @@ function XmlSchemaEditor({ node, onChange, onToggleShowAnnotations, xmlShowAnnot
         </div>
       ) : null}
 
-      <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
+      {showAnnotationEditor ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Annotation</span>
+            <button
+              type="button"
+              title="Delete annotation"
+              onClick={() => {
+                onChange({ id: node.id, xmlAnnotation: undefined, xmlAnnotations: [] });
+                setShowAnnotationEditor(false);
+              }}
+              style={{
+                padding: '2px 6px',
+                borderRadius: 3,
+                border: '1px solid #ccc',
+                backgroundColor: '#f5f5f5',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 500,
+                color: '#666',
+              }}
+            >
+              ✕
+            </button>
+          </div>
+          <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
+        </div>
+      ) : null}
     </div>
   );
 }

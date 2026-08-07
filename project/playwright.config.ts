@@ -15,6 +15,8 @@ export default defineConfig({
     baseURL: process.env.BASE_URL || 'http://localhost:5173',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    // Emulate dark color scheme for all tests
+    colorScheme: 'dark',
     launchOptions: {
       args: ['--start-maximized'], // Add start-maximized argument
     },

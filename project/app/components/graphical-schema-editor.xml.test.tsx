@@ -563,7 +563,7 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     expect(await screen.findByText('Schema Editor')).toBeInTheDocument();
 
     // Edit the targetNamespace
-    const namespaceInput = await screen.findByLabelText('Target Namespace');
+    const namespaceInput = await screen.findByLabelText('Schema attribute targetNamespace');
     fireEvent.change(namespaceInput, { target: { value: 'http://example.com/new' } });
     fireEvent.blur(namespaceInput);
 
@@ -573,7 +573,7 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     });
 
     // Edit the elementFormDefault
-    const elementFormSelect = await screen.findByLabelText('Element Form Default');
+    const elementFormSelect = await screen.findByLabelText('Schema attribute elementFormDefault');
     fireEvent.change(elementFormSelect, { target: { value: 'unqualified' } });
 
     await waitFor(() => {
@@ -782,15 +782,15 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     fireEvent.click(schemaNode);
 
     // Verify that the target namespace input field is populated with the correct value
-    const targetNamespaceInput = await screen.findByLabelText('Target Namespace') as HTMLInputElement;
+    const targetNamespaceInput = await screen.findByLabelText('Schema attribute targetNamespace') as HTMLInputElement;
     expect(targetNamespaceInput.value).toBe(targetNamespaceUrl);
 
     // Verify the elementFormDefault is set correctly
-    const elementFormSelect = await screen.findByLabelText('Element Form Default') as HTMLSelectElement;
+    const elementFormSelect = await screen.findByLabelText('Schema attribute elementFormDefault') as HTMLSelectElement;
     expect(elementFormSelect.value).toBe(elementFormDefault);
 
     // Verify the attributeFormDefault is set correctly
-    const attributeFormSelect = await screen.findByLabelText('Attribute Form Default') as HTMLSelectElement;
+    const attributeFormSelect = await screen.findByLabelText('Schema attribute attributeFormDefault') as HTMLSelectElement;
     expect(attributeFormSelect.value).toBe(attributeFormDefault);
   });
 });

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:tns="http://example.com/demo"
+           targetNamespace="http://example.com/demo"
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified">
+
+  <xs:annotation>
+    <xs:documentation>Demo schema used to prove XML Instance Form inferred controls.</xs:documentation>
+  </xs:annotation>
+
+  <xs:import namespace="http://example.com/external" schemaLocation="external-types.xsd"/>
+
+  <xs:simpleType name="ColorType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="red"/>
+      <xs:enumeration value="green"/>
+      <xs:enumeration value="blue"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="TextOrTokenType">
+    <xs:union memberTypes="xs:string xs:token"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="CodeListType">
+    <xs:list itemType="xs:token"/>
+  </xs:simpleType>
+
+  <xs:complexType name="PersonType">
+    <xs:annotation>
+      <xs:documentation>Main person type with compositors and attributes.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="firstName" type="xs:string"/>
+      <xs:element name="birthDate" type="xs:date" minOccurs="0"/>
+      <xs:choice minOccurs="0">
+        <xs:element name="homeEmail" type="xs:string"/>
+        <xs:element name="homePhone" type="xs:string"/>
+      </xs:choice>
+      <xs:all>
+        <xs:element name="country" type="xs:string" minOccurs="0"/>
+        <xs:element name="city" type="xs:string" minOccurs="0"/>
+      </xs:all>
+      <xs:any minOccurs="0" maxOccurs="unbounded" processContents="lax"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:int" use="required"/>
+    <xs:attribute name="active" type="xs:boolean" default="true"/>
+    <xs:attribute name="favoriteColor" type="tns:ColorType"/>
+  </xs:complexType>
+
+  <xs:complexType name="EmployeeType">
+    <xs:complexContent>
+      <xs:extension base="tns:PersonType">
+        <xs:sequence>
+          <xs:element name="employeeNumber" type="xs:string"/>
+        </xs:sequence>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="NoteType">
+    <xs:simpleContent>
+      <xs:extension base="xs:string">
+        <xs:attribute name="lang" type="xs:language"/>
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+
+  <xs:element name="person" type="tns:PersonType"/>
+  <xs:element name="employee" type="tns:EmployeeType"/>
+  <xs:element name="note" type="tns:NoteType"/>
+</xs:schema>

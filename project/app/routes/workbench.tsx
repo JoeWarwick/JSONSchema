@@ -17,6 +17,7 @@ import schemaReducer, { initialSchemaState, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_
 import { resolveSchema } from "~/utils/schema-resolver";
 import { useSchemaValidation } from "~/hooks/use-schema-validation";
 import { JsonInstanceForm } from "~/components/json-instance-form";
+import { XmlInstanceForm } from "~/components/xml-instance-form";
 import { SchemaEditorForm } from "~/components/schema-editor-form";
 import { GraphicalSchemaEditor } from "~/components/graphical-schema-editor";
 import { SchemaSourceEditor } from "~/components/schema-source-editor";
@@ -873,6 +874,42 @@ export default function Workbench() {
     await validateSchema(jsonInput);
   };
 
+  // Dev helper: load the local copy of the W3C XMLSchema file bundled in public/schemas
+  const handleLoadLocalXsd = async () => {
+    try {
+      setError(null);
+      const resp = await fetch('/schemas/XMLSchema.xsd');
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const text = await resp.text();
+      const parsed = parseMarkup(text, 'xml') as Record<string, unknown>;
+      applySourceUpdate(parsed);
+      setInstanceData((prev: any) => (prev == null ? generateDefaultInstance(parsed) : prev));
+      setMarkupLanguageState('xml');
+      localStorage.setItem(LANGUAGE_PREFERENCE_KEY, 'xml');
+      toast.success('Loaded local XMLSchema.xsd');
+    } catch (err) {
+      setError(`Failed to load local XSD: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  // Dev helper: load a compact demo XSD that exercises form controls
+  const handleLoadDemoXsdControls = async () => {
+    try {
+      setError(null);
+      const resp = await fetch('/schemas/xml-form-controls-demo.xsd');
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const text = await resp.text();
+      const parsed = parseMarkup(text, 'xml') as Record<string, unknown>;
+      applySourceUpdate(parsed);
+      setInstanceData((prev: any) => (prev == null ? generateDefaultInstance(parsed) : prev));
+      setMarkupLanguageState('xml');
+      localStorage.setItem(LANGUAGE_PREFERENCE_KEY, 'xml');
+      toast.success('Loaded demo controls XSD');
+    } catch (err) {
+      setError(`Failed to load demo controls XSD: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   const handleSaveMarkup = () => {
     if (!jsonInput.trim()) return;
     try {
@@ -1347,11 +1384,11 @@ export default function Workbench() {
 
       <div className={styles.tabs}>
         <button className={activeTab === 'json' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('json')}>{markupLabel[markupLanguage]} Input</button>
-        <button className={activeTab === 'instance' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('instance')}>Instance Editor</button>
-        <button className={activeTab === 'xmlschema' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('xmlschema')}>{markupLanguage === 'json' ? 'JSONSchema' : 'XMLSchema'} Input</button>
+        <button className={activeTab === 'instance' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('instance')}>Instance Form</button>
+        <button className={activeTab === 'xmlschema' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('xmlschema')}>Schema Input</button>
         <button className={activeTab === 'schema' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('schema')}>Schema Form</button>
-        <button className={activeTab === 'graph' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('graph')}>Schema Editor</button>
-        <button className={activeTab === 'erd' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('erd')}>ERD</button>
+        <button className={activeTab === 'graph' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('graph')}>Schema Graph</button>
+        <button className={activeTab === 'erd' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('erd')}>Entity Graph</button>
       </div>
 
       <div className={`${styles.tabPanel}${activeTab === 'graph' ? ` ${styles.tabPanelFlush}` : ''}${activeTab === 'erd' ? ` ${styles.tabPanelFlush}` : ''}`}>
@@ -1379,7 +1416,7 @@ export default function Workbench() {
           <>
             <div className={styles.panel}>
               <div className={styles.panelHeader}>
-                <h2 className={styles.panelTitle}>{markupLanguage === 'json' ? 'JSONSchema' : 'XMLSchema'} Input</h2>
+                <h2 className={styles.panelTitle}>Schema Input</h2>
               </div>
               <div className={styles.editorContainer}>
                 {state.source ? (
@@ -1402,135 +1439,167 @@ export default function Workbench() {
             <div className={styles.panel}>
               <div className={styles.panelHeader}>
                 <h2 className={styles.panelTitle}>Schema Form</h2>
+                {markupLanguage === 'xml' ? (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className={styles.controlButton} onClick={handleLoadDemoXsdControls}>Load demo controls XSD</button>
+                    <button className={styles.controlButton} onClick={handleLoadLocalXsd}>Load local XMLSchema.xsd</button>
+                  </div>
+                ) : null}
               </div>
               <div className={styles.editorContainer}>
-                {editorSchema ? (
-                  <SchemaEditorForm
-                    schema={editorSchema as any}
-                    onChange={(newSchema) => {
-                      // Editor edits resolved view; reducer will rehydrate and update source
-                      applyResolvedEdit(newSchema);
-                    }}
-                    isSchemaImported={isSchemaImported}
-                    instanceData={instanceData}
-                    onViewSource={() => setShowSchemaSource(true)}
-                    rootSchema={state.resolvedCache as any}
-                    onResolve={async (path) => {
-                      // Dynamically resolve a sub-path of the schema
-                      let node: any = state.resolvedCache;
-                      if (!node) return;
-
-                      // Navigate to the target node in the resolved schema to get the $ref
-                      for (const p of path) {
-                        // Smart navigation: skip 'properties' if current node is a flat map (defs root)
-                        if (p === 'properties' && !node.properties && !node.type && !node.$ref && Object.keys(node).length > 0) {
-                          continue;
-                        }
-
-                        if (node.properties && node.properties[p]) {
-                          node = node.properties[p];
-                        } else if (node.items) {
-                          node = node.items;
-                        } else {
-                          node = node[p];
-                        }
-                        if (!node) break;
-                      }
-
-                      if (node && (node.$ref || (node.allOf && node.allOf.some((e: any) => e.$ref)))) {
-                        const targetRef = node.$ref || (Array.isArray(node.allOf) && node.allOf.find((e: any) => e.$ref)?.$ref);
-                        const nodeKey = JSON.stringify(node);
-
-                        try {
-                          let resolved: any = null;
-                          if (resolutionCache.current.has(nodeKey)) {
-                            resolved = resolutionCache.current.get(nodeKey);
-                          } else {
-                            // If node has local ref but no definitions, we might need to attach them
-                            // from the root source so the resolver can perform standard dereference.
-                            let toResolve = node;
-                            const targetRef = node.$ref || (Array.isArray(node.allOf) && node.allOf.find((e: any) => e.$ref)?.$ref);
-                            if (targetRef && targetRef.startsWith('#') && state.source && typeof state.source === 'object') {
-                              const src = state.source as any;
-                              const defs = src.$defs || src.definitions;
-                              if (defs) {
-                                toResolve = { ...node, [src.$defs ? '$defs' : 'definitions']: defs };
-                              }
-                            }
-                            resolved = await resolveSchema(toResolve);
-                            if (resolved) resolutionCache.current.set(nodeKey, resolved);
-                          }
-
-                          if (resolved) {
-                            // If this node represents a shared reference (targetRef), find ALL other 
-                            // occurrences in the tree and update them in one batch. 
-                            // This ensures "load once, resolve everywhere" behavior.
-                            if (targetRef) {
-                              const updates: { path: string[]; schema: any }[] = [];
-                              const scanTree = (curr: any, currPath: string[]) => {
-                                if (!curr || typeof curr !== 'object') return;
-                                const r = curr.$ref || (Array.isArray(curr.allOf) && curr.allOf.find((e: any) => e.$ref)?.$ref);
-                                if (r === targetRef) {
-                                  updates.push({ path: currPath, schema: resolved });
-                                }
-                                if (curr.properties) {
-                                  for (const k of Object.keys(curr.properties)) {
-                                    scanTree(curr.properties[k], [...currPath, 'properties', k]);
-                                  }
-                                }
-                                if (curr.patternProperties) {
-                                  for (const k of Object.keys(curr.patternProperties)) {
-                                    scanTree(curr.patternProperties[k], [...currPath, 'patternProperties', k]);
-                                  }
-                                }
-                                if (curr.items) scanTree(curr.items, [...currPath, 'items']);
-                                if (Array.isArray(curr.oneOf)) curr.oneOf.forEach((v: any, i: number) => scanTree(v, [...currPath, 'oneOf', String(i)]));
-                                if (Array.isArray(curr.anyOf)) curr.anyOf.forEach((v: any, i: number) => scanTree(v, [...currPath, 'anyOf', String(i)]));
-                                if (Array.isArray(curr.allOf)) curr.allOf.forEach((v: any, i: number) => scanTree(v, [...currPath, 'allOf', String(i)]));
-                              };
-
-                              scanTree(state.resolvedCache, []);
-                              if (updates.length > 0) {
-                                dispatch({ type: MERGE_RESOLVED_ALL_PATHS, payload: updates });
-                                return;
-                              }
-                            }
-                            dispatch({ type: MERGE_RESOLVED_PATH, payload: { path, schema: resolved } });
-                          }
-                        } catch (e) {
-                          console.error("Failed to resolve path:", path, e);
-                        }
-                      }
-                    }}
-                    onPropertyRename={(oldName, newName, path = []) => {
-                    if (!instanceData) return;
-                    if (path.length > 0) {
-                      // Nested: traverse path in instanceData
-                      let obj: any = instanceData;
-                      let parent: any = null;
-                      let key: string | null = null;
-                      for (let i = 0; i < path.length; i++) {
-                        parent = obj;
-                        key = path[i];
-                        obj = obj?.[key];
-                      }
-                      if (parent && key && typeof obj !== 'undefined') {
-                        parent[newName] = obj;
-                        delete parent[oldName];
-                        setInstanceData({ ...instanceData });
-                      }
-                    } else {
-                      setInstanceData((prev: any) => {
-                        if (!prev) return prev;
-                        return renamePropertyInObject(prev, oldName, newName);
-                      });
-                    }
-                  }}
-                />
-                ) : state.source ? (
-                  <div className={styles.emptyState}>Resolving schema&hellip;</div>
+                {markupLanguage === 'xml' ? (
+                  // XML: Use XmlInstanceForm to render the XSD schema itself as an instance
+                  state.source ? (
+                    <XmlInstanceForm
+                      schema={state.source as any}
+                      value={state.source as any}
+                      onChange={(newSchema) => {
+                        applySourceUpdate(newSchema);
+                      }}
+                      rootSchema={state.source as any}
+                    />
+                  ) : (
+                    <div className={styles.emptyState}>
+                      <div>Load or generate an XSD schema to begin editing</div>
+                      <div style={{ fontSize: 12, marginTop: 16, maxWidth: 400 }}>
+                        Tip: Use <strong>Schema menu → Load from URL</strong> or <strong>Open Schema File</strong> to load an XSD.
+                      </div>
+                      <div style={{ marginTop: 12 }}>
+                        <button className={styles.controlButton} onClick={handleLoadDemoXsdControls} style={{ marginRight: 8 }}>Load demo controls XSD</button>
+                        <button className={styles.controlButton} onClick={handleLoadLocalXsd}>Load local XMLSchema.xsd</button>
+                      </div>
+                    </div>
+                  )
                 ) : (
-                  <div className={styles.emptyState}>Load or generate a schema to begin editing</div>
+                  // JSON/YAML: Use SchemaEditorForm
+                  editorSchema ? (
+                    <SchemaEditorForm
+                      schema={editorSchema as any}
+                      onChange={(newSchema) => {
+                        // Editor edits resolved view; reducer will rehydrate and update source
+                        applyResolvedEdit(newSchema);
+                      }}
+                      isSchemaImported={isSchemaImported}
+                      instanceData={instanceData}
+                      onViewSource={() => setShowSchemaSource(true)}
+                      rootSchema={state.resolvedCache as any}
+                      onResolve={async (path) => {
+                        // Dynamically resolve a sub-path of the schema
+                        let node: any = state.resolvedCache;
+                        if (!node) return;
+
+                        // Navigate to the target node in the resolved schema to get the $ref
+                        for (const p of path) {
+                          // Smart navigation: skip 'properties' if current node is a flat map (defs root)
+                          if (p === 'properties' && !node.properties && !node.type && !node.$ref && Object.keys(node).length > 0) {
+                            continue;
+                          }
+
+                          if (node.properties && node.properties[p]) {
+                            node = node.properties[p];
+                          } else if (node.items) {
+                            node = node.items;
+                          } else {
+                            node = node[p];
+                          }
+                          if (!node) break;
+                        }
+
+                        if (node && (node.$ref || (node.allOf && node.allOf.some((e: any) => e.$ref)))) {
+                          const targetRef = node.$ref || (Array.isArray(node.allOf) && node.allOf.find((e: any) => e.$ref)?.$ref);
+                          const nodeKey = JSON.stringify(node);
+
+                          try {
+                            let resolved: any = null;
+                            if (resolutionCache.current.has(nodeKey)) {
+                              resolved = resolutionCache.current.get(nodeKey);
+                            } else {
+                              // If node has local ref but no definitions, we might need to attach them
+                              // from the root source so the resolver can perform standard dereference.
+                              let toResolve = node;
+                              const targetRef = node.$ref || (Array.isArray(node.allOf) && node.allOf.find((e: any) => e.$ref)?.$ref);
+                              if (targetRef && targetRef.startsWith('#') && state.source && typeof state.source === 'object') {
+                                const src = state.source as any;
+                                const defs = src.$defs || src.definitions;
+                                if (defs) {
+                                  toResolve = { ...node, [src.$defs ? '$defs' : 'definitions']: defs };
+                                }
+                              }
+                              resolved = await resolveSchema(toResolve);
+                              if (resolved) resolutionCache.current.set(nodeKey, resolved);
+                            }
+
+                            if (resolved) {
+                              // If this node represents a shared reference (targetRef), find ALL other 
+                              // occurrences in the tree and update them in one batch. 
+                              // This ensures "load once, resolve everywhere" behavior.
+                              if (targetRef) {
+                                const updates: { path: string[]; schema: any }[] = [];
+                                const scanTree = (curr: any, currPath: string[]) => {
+                                  if (!curr || typeof curr !== 'object') return;
+                                  const r = curr.$ref || (Array.isArray(curr.allOf) && curr.allOf.find((e: any) => e.$ref)?.$ref);
+                                  if (r === targetRef) {
+                                    updates.push({ path: currPath, schema: resolved });
+                                  }
+                                  if (curr.properties) {
+                                    for (const k of Object.keys(curr.properties)) {
+                                      scanTree(curr.properties[k], [...currPath, 'properties', k]);
+                                    }
+                                  }
+                                  if (curr.patternProperties) {
+                                    for (const k of Object.keys(curr.patternProperties)) {
+                                      scanTree(curr.patternProperties[k], [...currPath, 'patternProperties', k]);
+                                    }
+                                  }
+                                  if (curr.items) scanTree(curr.items, [...currPath, 'items']);
+                                  if (Array.isArray(curr.oneOf)) curr.oneOf.forEach((v: any, i: number) => scanTree(v, [...currPath, 'oneOf', String(i)]));
+                                  if (Array.isArray(curr.anyOf)) curr.anyOf.forEach((v: any, i: number) => scanTree(v, [...currPath, 'anyOf', String(i)]));
+                                  if (Array.isArray(curr.allOf)) curr.allOf.forEach((v: any, i: number) => scanTree(v, [...currPath, 'allOf', String(i)]));
+                                };
+
+                                scanTree(state.resolvedCache, []);
+                                if (updates.length > 0) {
+                                  dispatch({ type: MERGE_RESOLVED_ALL_PATHS, payload: updates });
+                                  return;
+                                }
+                              }
+                              dispatch({ type: MERGE_RESOLVED_PATH, payload: { path, schema: resolved } });
+                            }
+                          } catch (e) {
+                            console.error("Failed to resolve path:", path, e);
+                          }
+                        }
+                      }}
+                      onPropertyRename={(oldName, newName, path = []) => {
+                        if (!instanceData) return;
+                        if (path.length > 0) {
+                          // Nested: traverse path in instanceData
+                          let obj: any = instanceData;
+                          let parent: any = null;
+                          let key: string | null = null;
+                          for (let i = 0; i < path.length; i++) {
+                            parent = obj;
+                            key = path[i];
+                            obj = obj?.[key];
+                          }
+                          if (parent && key && typeof obj !== 'undefined') {
+                            parent[newName] = obj;
+                            delete parent[oldName];
+                            setInstanceData({ ...instanceData });
+                          }
+                        } else {
+                          setInstanceData((prev: any) => {
+                            if (!prev) return prev;
+                            return renamePropertyInObject(prev, oldName, newName);
+                          });
+                        }
+                      }}
+                    />
+                  ) : state.source ? (
+                    <div className={styles.emptyState}>Resolving schema&hellip;</div>
+                  ) : (
+                    <div className={styles.emptyState}>Load or generate a schema to begin editing</div>
+                  )
                 )}
               </div>
             </div>
@@ -1606,23 +1675,42 @@ export default function Workbench() {
         {activeTab === 'instance' && (
           <div className={styles.panel}>
             <div className={styles.panelHeader}>
-              <h2 className={styles.panelTitle}>Instance Editor</h2>
+              <h2 className={styles.panelTitle}>Instance Form</h2>
             </div>
-            {editorSchema ? (
-              <div className={styles.editorContainer}>
-                <JsonInstanceForm
-                  schema={editorSchema as any}
-                  value={instanceData ?? generateDefaultInstance(editorSchema)}
-                  onChange={(newData) => {
-                    setInstanceData(newData);
-                    setJsonInput(JSON.stringify(newData, null, 2));
-                  }}
-                />
-              </div>
-            ) : state.source ? (
-              <div className={styles.emptyState}>Resolving schema&hellip;</div>
+            {markupLanguage === 'xml' ? (
+              // XML Instance Form - render raw XML documents
+              state.source ? (
+                <div className={styles.editorContainer}>
+                  <XmlInstanceForm
+                    schema={state.source as any}
+                    value={instanceData || state.source}
+                    onChange={(newData) => {
+                      setInstanceData(newData);
+                    }}
+                    rootSchema={state.source as any}
+                  />
+                </div>
+              ) : (
+                <div className={styles.emptyState}>Load an XML schema to edit instance data</div>
+              )
             ) : (
-              <div className={styles.emptyState}>Generate a schema to edit instance data</div>
+              // JSON/YAML Instance Form
+              editorSchema ? (
+                <div className={styles.editorContainer}>
+                  <JsonInstanceForm
+                    schema={editorSchema as any}
+                    value={instanceData ?? generateDefaultInstance(editorSchema)}
+                    onChange={(newData) => {
+                      setInstanceData(newData);
+                      setJsonInput(JSON.stringify(newData, null, 2));
+                    }}
+                  />
+                </div>
+              ) : state.source ? (
+                <div className={styles.emptyState}>Resolving schema&hellip;</div>
+              ) : (
+                <div className={styles.emptyState}>Generate a schema to edit instance data</div>
+              )
             )}
           </div>
         )}
