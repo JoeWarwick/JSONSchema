@@ -15,7 +15,7 @@ import styles from "./workbench.module.css";
 import { generateSchema, isValidJSON } from "~/utils/schema-generator";
 import schemaReducer, { initialSchemaState, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, MERGE_RESOLVED_PATH, MERGE_RESOLVED_ALL_PATHS, ensureResolved, getPersistableSource, getEditorSchema, getResolvedSource } from "~/state/schemaReducer";
 import { resolveSchema } from "~/utils/schema-resolver";
-import { useSchemaValidation } from "~/hooks/use-schema-validation";
+import { useSchemaValidation, useInstanceValidationWithImports } from "~/hooks/use-schema-validation";
 import { JsonInstanceForm } from "~/components/json-instance-form";
 import { XmlInstanceForm } from "~/components/xml-instance-form";
 import { SchemaEditorForm } from "~/components/schema-editor-form";
@@ -117,6 +117,7 @@ export default function Workbench() {
   const [hasHydratedPersistedState, setHasHydratedPersistedState] = useState(false);
   const [erdModel, setErdModel] = useState<ErdModel | null>(null);
   const { validate: validateSchema } = useSchemaValidation();
+  const { validate: validateInstanceWithImports } = useInstanceValidationWithImports();
   const [error, setError] = useState<string | null>(null);
   const [schemaDetectionWarning, setSchemaDetectionWarning] = useState<boolean>(false);
   const [copied, setCopied] = useState(false);
@@ -874,6 +875,53 @@ export default function Workbench() {
     await validateSchema(jsonInput);
   };
 
+  const handleValidateInstanceWithImports = async () => {
+    // Check if we have a schema loaded
+    if (!state.source) {
+      toast.error('No schema loaded');
+      return;
+    }
+
+    if (!instanceData) {
+      toast.warning('No XML instance to validate');
+      return;
+    }
+
+    // Only validate XML instances against XSD schemas
+    if (markupLanguage !== 'xml') {
+      toast.info('Instance validation with imports is available for XSD schemas only');
+      return;
+    }
+
+    // Get the XML instance string from instanceData
+    let xmlInstanceStr: string;
+    
+    if (typeof instanceData === 'string') {
+      // instanceData is already a string (raw XML from XML Input tab)
+      xmlInstanceStr = instanceData;
+    } else {
+      // Otherwise serialize the instanceData object to XML
+      try {
+        xmlInstanceStr = serializeMarkup(instanceData, 'xml');
+      } catch (err) {
+        toast.error(`Failed to serialize instance: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+    }
+
+    // Serialize the schema (state.source) to a string for validation
+    let schemaStr: string;
+    try {
+      schemaStr = serializeMarkup(state.source, markupLanguage);
+    } catch (err) {
+      toast.error(`Failed to serialize schema: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+
+    // Validate the XML instance against the schema
+    await validateInstanceWithImports(schemaStr, xmlInstanceStr);
+  };
+
   // Dev helper: load the local copy of the W3C XMLSchema file bundled in public/schemas
   const handleLoadLocalXsd = async () => {
     try {
@@ -1240,6 +1288,10 @@ export default function Workbench() {
               <MenubarItem onSelect={handleValidateSchema} disabled={!jsonInput.trim()}>
                 <ShieldCheck size={14} style={{ marginRight: 6 }} />
                 Validate Schema
+              </MenubarItem>
+              <MenubarItem onSelect={handleValidateInstanceWithImports} disabled={!state.source || !instanceData}>
+                <ShieldCheck size={14} style={{ marginRight: 6 }} />
+                Validate Instance (with Imports)
               </MenubarItem>
               <MenubarSeparator />
               <MenubarItem onSelect={handleCopy} disabled={!state.source}>
@@ -1629,6 +1681,7 @@ export default function Workbench() {
                   </div>
                 ) : (
                   <textarea
+                    key={markupLanguage}
                     className={`${styles.jsonInput} ${error ? styles.error : ""}`}
                     value={jsonInput}
                     onChange={(e) => {
@@ -1642,7 +1695,7 @@ export default function Workbench() {
                       }
                       // Try to parse and update instance form if valid
                       try {
-                        const parsed = JSON.parse(e.target.value);
+                        const parsed = parseMarkup(e.target.value, markupLanguage);
                         setInstanceData(parsed);
                       } catch {
                         // ignore invalid
