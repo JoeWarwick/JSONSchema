@@ -12,17 +12,23 @@ public sealed class SchemaController : ControllerBase
     private readonly DefaultInstanceService defaultInstanceService;
     private readonly XmlSchemaResolverService schemaResolverService;
     private readonly SchemaValidationService schemaValidationService;
+    private readonly JsonSchemaValidationService jsonSchemaValidationService;
+    private readonly JsonSchemaInferenceService jsonSchemaInferenceService;
 
     public SchemaController(
         SchemaInferenceService schemaInferenceService,
         DefaultInstanceService defaultInstanceService,
         XmlSchemaResolverService schemaResolverService,
-        SchemaValidationService schemaValidationService)
+        SchemaValidationService schemaValidationService,
+        JsonSchemaValidationService jsonSchemaValidationService,
+        JsonSchemaInferenceService jsonSchemaInferenceService)
     {
         this.schemaInferenceService = schemaInferenceService;
         this.defaultInstanceService = defaultInstanceService;
         this.schemaResolverService = schemaResolverService;
         this.schemaValidationService = schemaValidationService;
+        this.jsonSchemaValidationService = jsonSchemaValidationService;
+        this.jsonSchemaInferenceService = jsonSchemaInferenceService;
     }
 
     [HttpPost("from-xml")]
@@ -72,6 +78,30 @@ public sealed class SchemaController : ControllerBase
         }
 
         var response = schemaValidationService.ValidateSchema(request);
+        return Ok(response);
+    }
+
+    [HttpPost("validate-json")]
+    public ActionResult<ValidateJsonDataResponse> ValidateJsonData([FromBody] ValidateJsonDataRequest request)
+    {
+        if (request is null || string.IsNullOrWhiteSpace(request.Schema) || string.IsNullOrWhiteSpace(request.JsonData))
+        {
+            return BadRequest("Both schema and jsonData are required.");
+        }
+
+        var response = jsonSchemaValidationService.ValidateJsonData(request);
+        return Ok(response);
+    }
+
+    [HttpPost("infer-json-schema")]
+    public ActionResult<InferJsonSchemaResponse> InferJsonSchema([FromBody] InferJsonSchemaRequest request)
+    {
+        if (request is null || string.IsNullOrWhiteSpace(request.JsonData))
+        {
+            return BadRequest("JSON data is required.");
+        }
+
+        var response = jsonSchemaInferenceService.InferSchema(request);
         return Ok(response);
     }
 }

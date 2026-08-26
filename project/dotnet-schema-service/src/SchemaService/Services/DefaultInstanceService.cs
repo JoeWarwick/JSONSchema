@@ -13,7 +13,9 @@ public sealed class DefaultInstanceService
         var readerSettings = new XmlReaderSettings
         {
             DtdProcessing = DtdProcessing.Prohibit,
-            XmlResolver = null
+            XmlResolver = null,
+            ConformanceLevel = ConformanceLevel.Document,
+            ValidationFlags = XmlSchemaValidationFlags.None
         };
 
         var schemaSet = new XmlSchemaSet
@@ -21,13 +23,25 @@ public sealed class DefaultInstanceService
             XmlResolver = null
         };
 
-        using (var stringReader = new StringReader(request.Schema))
-        using (var xmlReader = XmlReader.Create(stringReader, readerSettings))
+        try
         {
-            schemaSet.Add(null, xmlReader);
-        }
+            using (var stringReader = new StringReader(request.Schema))
+            using (var xmlReader = XmlReader.Create(stringReader, readerSettings))
+            {
+                schemaSet.Add(null, xmlReader);
+            }
 
-        schemaSet.Compile();
+            schemaSet.Compile();
+        }
+        catch (XmlSchemaException ex)
+        {
+            // Log warning but continue - some schemas may have validation issues
+            warnings.Add($"Schema validation warning: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException("Failed to parse schema", ex);
+        }
 
         var schema = schemaSet.Schemas().OfType<XmlSchema>().FirstOrDefault();
         if (schema is null)

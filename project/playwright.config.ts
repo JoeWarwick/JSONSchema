@@ -6,7 +6,7 @@ export default defineConfig({
   expect: { timeout: 5000 },
   fullyParallel: true,
   webServer: {
-    command: 'npm run dev',
+    command: 'npm run dev:full',
     port: 5173,
     timeout: 120000,
     reuseExistingServer: process.env.CI ? false : true,

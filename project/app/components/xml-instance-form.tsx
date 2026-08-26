@@ -21,6 +21,7 @@ interface XmlInstanceFormProps {
   path?: string[];
   rootSchema?: any;
   autoFocus?: boolean;
+  autoExpandAll?: boolean; // If true, automatically expand all nested elements
 }
 
 interface XmlAttribute {
@@ -79,6 +80,128 @@ function detectAttributeInputType(name: string, value: any) {
   return 'text';
 }
 
+/**
+ * Schema Walking Utilities
+ * These functions traverse the XML Schema (XSD) structure to extract type information
+ * and element/attribute definitions for generating instance forms.
+ */
+
+// Extract attributes from an XML element (handles both @attributes key and direct properties)
+function getXmlAttrs(obj: any): Record<string, any> {
+  if (!obj || typeof obj !== 'object') return {};
+  return obj['@attributes'] || obj;
+}
+
+// Find a type definition (complexType or simpleType) by name in the schema
+function findTypeInSchema(schema: any, typeName: string): any {
+  if (!schema || typeof schema !== 'object' || !typeName) return null;
+  
+  // Look through xs:complexType
+  const complexTypes = schema['xs:complexType'];
+  if (complexTypes) {
+    const asArray = Array.isArray(complexTypes) ? complexTypes : [complexTypes];
+    for (const ct of asArray) {
+      const attrs = getXmlAttrs(ct);
+      if (attrs.name === typeName) return ct;
+    }
+  }
+  
+  // Look through xs:simpleType
+  const simpleTypes = schema['xs:simpleType'];
+  if (simpleTypes) {
+    const asArray = Array.isArray(simpleTypes) ? simpleTypes : [simpleTypes];
+    for (const st of asArray) {
+      const attrs = getXmlAttrs(st);
+      if (attrs.name === typeName) return st;
+    }
+  }
+  
+  return null;
+}
+
+// Find an element definition by name in the schema
+function findElementInSchema(schema: any, elementName: string): any {
+  if (!schema || typeof schema !== 'object' || !elementName) return null;
+  
+  const elements = schema['xs:element'];
+  if (elements) {
+    const asArray = Array.isArray(elements) ? elements : [elements];
+    for (const elem of asArray) {
+      const attrs = getXmlAttrs(elem);
+      if (attrs.name === elementName) return elem;
+    }
+  }
+  
+  return null;
+}
+
+// Get child element definitions from a complexType
+function getChildElementsFromType(typeObj: any): Array<{ name: string; type: string | null; minOccurs: number; maxOccurs: string; definition: any }> {
+  if (!typeObj || typeof typeObj !== 'object') return [];
+  
+  const result: Array<{ name: string; type: string | null; minOccurs: number; maxOccurs: string; definition: any }> = [];
+  
+  // Handle xs:sequence, xs:choice, xs:all
+  for (const compositorKey of ['xs:sequence', 'xs:choice', 'xs:all']) {
+    const compositor = typeObj[compositorKey];
+    if (!compositor) continue;
+    
+    // Get elements from compositor
+    const elements = compositor['xs:element'];
+    if (!elements) continue;
+    
+    const elemArray = Array.isArray(elements) ? elements : [elements];
+    for (const elem of elemArray) {
+      const attrs = getXmlAttrs(elem);
+      result.push({
+        name: attrs.name || '',
+        type: attrs.type || null,
+        minOccurs: parseInt(attrs.minOccurs ?? '1', 10),
+        maxOccurs: attrs.maxOccurs ?? '1',
+        definition: elem,
+      });
+    }
+  }
+  
+  // Handle xs:complexContent/xs:extension or xs:restriction
+  const complexContent = typeObj['xs:complexContent'];
+  if (complexContent) {
+    for (const contentKey of ['xs:extension', 'xs:restriction']) {
+      const content = complexContent[contentKey];
+      if (content) {
+        // Recursively get elements from extension/restriction
+        const nestedElems = getChildElementsFromType(content);
+        result.push(...nestedElems);
+      }
+    }
+  }
+  
+  return result;
+}
+
+// Get attribute definitions from a complexType
+function getAttributesFromType(typeObj: any): Array<{ name: string; type: string | null; use: string; definition: any }> {
+  if (!typeObj || typeof typeObj !== 'object') return [];
+  
+  const result: Array<{ name: string; type: string | null; use: string; definition: any }> = [];
+  
+  const attributes = typeObj['xs:attribute'];
+  if (attributes) {
+    const attrArray = Array.isArray(attributes) ? attributes : [attributes];
+    for (const attr of attrArray) {
+      const attrs = getXmlAttrs(attr);
+      result.push({
+        name: attrs.name || '',
+        type: attrs.type || null,
+        use: attrs.use || 'optional',
+        definition: attr,
+      });
+    }
+  }
+  
+  return result;
+}
+
 // Try to locate an attribute declaration in the XSD-like `rootSchema` object.
 function findAttributeTypeInRootSchema(root: any, attrName: string): string | null {
   if (!root || typeof root !== 'object') return null;
@@ -113,6 +236,80 @@ function findAttributeTypeInRootSchema(root: any, attrName: string): string | nu
   }
 
   return null;
+}
+
+// Try to locate an element declaration in the XSD-like `rootSchema` object and return its type.
+function findElementTypeInRootSchema(root: any, elementName: string): string | null {
+  if (!root || typeof root !== 'object') {
+    if (elementName === 'birthDate' || elementName === 'homeEmail') {
+      console.log(`[findElementTypeInRootSchema] root is not object for ${elementName}`);
+    }
+    return null;
+  }
+
+  let found: string | null = null;
+
+  const walk = (node: any, depth = 0) => {
+    if (!node || typeof node !== 'object' || found) return;
+    
+    for (const key of Object.keys(node)) {
+      if (found) return; // Exit early if found
+      
+      const val = node[key];
+      if (!val) continue;
+      
+      // Look for element declarations like { 'xs:element': { '@attributes': { 'name': 'foo', 'type': 'xs:date' } } }
+      if (key === 'xs:element' || key === 'element') {
+        if (Array.isArray(val)) {
+          for (const elem of val) {
+            if (elem) {
+              // Try both @attributes structure (from XML parser) and direct properties
+              const attrs = elem['@attributes'] || elem;
+              const elemName = attrs?.name || attrs?.['@name'];
+              const elemType = attrs?.type || attrs?.['@type'];
+              
+              if (elemName === elementName) {
+                found = elemType || null;
+                if (elementName === 'birthDate' || elementName === 'homeEmail') {
+                  console.log(`[findElementTypeInRootSchema] Found ${elementName} in xs:element array, type: ${found}`);
+                }
+                return;
+              }
+            }
+          }
+        } else if (val) {
+          // Try both @attributes structure and direct properties
+          const attrs = val['@attributes'] || val;
+          const elemName = attrs?.name || attrs?.['@name'];
+          const elemType = attrs?.type || attrs?.['@type'];
+          
+          if (elemName === elementName) {
+            found = elemType || null;
+            if (elementName === 'birthDate' || elementName === 'homeEmail') {
+              console.log(`[findElementTypeInRootSchema] Found ${elementName} in xs:element object, type: ${found}`);
+            }
+            return;
+          }
+        }
+      }
+      
+      // Recurse into arrays
+      if (Array.isArray(val)) {
+        for (const item of val) {
+          walk(item, depth + 1);
+          if (found) return;
+        }
+      } else if (typeof val === 'object') {
+        walk(val, depth + 1);
+      }
+    }
+  };
+
+  walk(root, 0);
+  if ((elementName === 'birthDate' || elementName === 'homeEmail') && !found) {
+    console.log(`[findElementTypeInRootSchema] NOT FOUND ${elementName}`);
+  }
+  return found;
 }
 
 function mapXsdTypeToHtmlInput(xsdType: string | null) {
@@ -471,23 +668,26 @@ function parseXmlElement(node: any, tagNameHint?: string): XmlElement | null {
 function XmlElementNode({
   element,
   path,
-  expanded,
+  expandedPaths,
   onToggleExpand,
   value,
   onChange,
   onUpdateValue,
   rootSchema,
+  autoExpandAll = false,
 }: {
   element: XmlElement;
   path: string[];
-  expanded: boolean;
+  expandedPaths: Set<string>;
   onToggleExpand: (path: string[]) => void;
   value: any;
   onChange: (value: any) => void;
   onUpdateValue: (pathArray: string[], updateFn: (v: any) => any) => void;
   rootSchema?: any;
+  autoExpandAll?: boolean;
 }) {
   const pathKey = path.join('.');
+  const expanded = autoExpandAll || expandedPaths.has(pathKey);
   const localTagName = (element.tagName || '').replace(/^.*:/, '');
   const inferredSchemaKind = rootSchema ? ({
     schema: 'schema',
@@ -713,7 +913,7 @@ function XmlElementNode({
       <div className={styles.propertyHeader} style={{ marginBottom: hasChildren || hasAttributes ? 8 : 0 }}>
         {hasChildren || hasAttributes ? (
           <button
-            onClick={() => onToggleExpand([...path, element.tagName])}
+            onClick={() => onToggleExpand(path)}
             style={{
               background: 'none',
               border: 'none',
@@ -830,8 +1030,7 @@ function XmlElementNode({
           {/* Attributes section */}
           {hasAttributes && !hasInferredEditor && (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <label className={styles.label}>Attributes</label>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 6 }}>
                 {canAddCustomAttribute ? (
                   <button className={styles.addButton} onClick={handleAddAttribute} title="Add new attribute">
                     <Plus size={12} />
@@ -865,9 +1064,12 @@ function XmlElementNode({
 
                   const presentNames = new Set(normalized.map((a) => a.name));
 
+                  // Filter out xmlns and id attributes - they should be hidden/readonly
+                  const editableAttrs = normalized.filter((a) => a.name !== 'xmlns' && a.name !== 'id');
+
                   return (
                     <>
-                      {normalized.map((attr) => (
+                      {editableAttrs.map((attr) => (
                     <div key={attr.name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       {
                         (() => {
@@ -934,10 +1136,10 @@ function XmlElementNode({
                     </div>
                       ))}
 
-                      {suggestedAttrNames.filter((name) => !presentNames.has(name)).length > 0 && (
+                      {suggestedAttrNames.filter((name) => !presentNames.has(name) && name !== 'xmlns' && name !== 'id').length > 0 && (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
                           {suggestedAttrNames
-                            .filter((name) => !presentNames.has(name))
+                            .filter((name) => !presentNames.has(name) && name !== 'xmlns' && name !== 'id')
                             .map((name) => (
                               <button
                                 key={name}
@@ -975,9 +1177,9 @@ function XmlElementNode({
           {/* Add Attribute button (when no attributes yet) */}
           {!hasAttributes && !hasInferredEditor && (
             <div style={{ marginBottom: 12 }}>
-              {suggestedAttrNames.length > 0 ? (
+              {suggestedAttrNames.filter((name) => name !== 'xmlns' && name !== 'id').length > 0 ? (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {suggestedAttrNames.map((name) => (
+                  {suggestedAttrNames.filter((name) => name !== 'xmlns' && name !== 'id').map((name) => (
                     <button
                       key={name}
                       type="button"
@@ -1024,7 +1226,6 @@ function XmlElementNode({
           {hasChildren && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <label className={styles.label}>Children</label>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button className={styles.addButton}
@@ -1062,17 +1263,101 @@ function XmlElementNode({
                     </div>
                   );
                 }
+                
+                // Check if this child element is simple (no nested elements/attributes, only text)
+                const isSimpleChild = child.children.length === 0 && child.attributes.length === 0;
+                
+                if (isSimpleChild) {
+                  // Infer the element type from the schema
+                  if (child.tagName === 'birthDate' || child.tagName === 'homeEmail') {
+                    console.log(`[Instance Form] Processing ${child.tagName}, rootSchema available: ${!!rootSchema}`);
+                    if (rootSchema) {
+                      console.log('[Instance Form] rootSchema keys:', Object.keys(rootSchema));
+                    }
+                  }
+                  const elementType = rootSchema ? findElementTypeInRootSchema(rootSchema, child.tagName) : null;
+                  if (child.tagName === 'birthDate' || child.tagName === 'homeEmail') {
+                    console.log(`[Instance Form] Element: ${child.tagName}, type: ${elementType}`);
+                  }
+                  const htmlInputType = (elementType ? mapXsdTypeToHtmlInput(elementType) : null) || 'text';
+                  
+                  // Render simple text elements as inline inputs, like attributes
+                  return (
+                    <div key={rawIndex} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <label style={{ minWidth: 100, fontSize: 14, fontWeight: 500, color: '#a78bfa' }}>
+                        {child.tagName}:
+                      </label>
+                      <input
+                        type={htmlInputType as any}
+                        value={child.text || ''}
+                        onChange={(e) => {
+                          onUpdateValue([...path, String(rawIndex)], (current) => {
+                            return { ...current, _text: e.target.value };
+                          });
+                        }}
+                        style={{
+                          flex: 1,
+                          maxWidth: 200,
+                          padding: '6px 8px',
+                          border: '1px solid #ddd',
+                          borderRadius: 3,
+                          fontSize: 12,
+                        }}
+                      />
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => {
+                              onUpdateValue(path, (current) => {
+                                const updated = { ...current };
+                                // Find and remove the child element
+                                let childCount = 0;
+                                for (const key in updated) {
+                                  if (!key.startsWith('@') && !key.startsWith('_')) {
+                                    if (childCount === rawIndex) {
+                                      delete updated[key];
+                                      return updated;
+                                    }
+                                    if (Array.isArray(updated[key])) {
+                                      childCount += updated[key].length;
+                                    } else {
+                                      childCount++;
+                                    }
+                                  }
+                                }
+                                return updated;
+                              });
+                            }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              padding: 0,
+                              color: '#999',
+                            }}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>Remove element</TooltipContent>
+                      </Tooltip>
+                    </div>
+                  );
+                }
+                
+                // Render complex child elements as expandable nodes
                 return (
                   <div key={rawIndex} style={{ position: 'relative' }}>
                     <XmlElementNode
                       element={child}
                       path={[...path, String(rawIndex)]}
-                      expanded={expanded}
+                      expandedPaths={expandedPaths}
                       onToggleExpand={onToggleExpand}
                       value={value}
                       onChange={onChange}
                       onUpdateValue={onUpdateValue}
                       rootSchema={rootSchema}
+                      autoExpandAll={autoExpandAll}
                     />
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -1147,8 +1432,34 @@ export function XmlInstanceForm({
   path = [],
   rootSchema,
   autoFocus,
+  autoExpandAll = false,
 }: XmlInstanceFormProps) {
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  // Debug logging
+  useEffect(() => {
+    if (rootSchema && Object.keys(rootSchema).length > 0) {
+      console.log('[XmlInstanceForm] rootSchema loaded, keys:', Object.keys(rootSchema).slice(0, 10));
+      // Log schema structure for debugging
+      const schemaKeys = Object.keys(rootSchema);
+      if (schemaKeys.includes('xs:schema') || schemaKeys.includes('schema')) {
+        console.log('[XmlInstanceForm] Found xs:schema or schema key');
+        const schemaObj = rootSchema['xs:schema'] || rootSchema['schema'];
+        if (schemaObj) {
+          console.log('[XmlInstanceForm] Schema object keys:', Object.keys(schemaObj).slice(0, 10));
+        }
+      }
+    }
+  }, [rootSchema]);
+
+  // Initialize expansion state
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
+    const initial = new Set<string>();
+    initial.add(path.join('.')); // Always expand root element
+    if (autoExpandAll) {
+      // For autoExpandAll, we'll expand elements on-demand as they're rendered
+      // rather than trying to pre-compute all paths
+    }
+    return initial;
+  });
 
   // Try to parse the value as XML - it may be a string or object
   const parseValue = () => {
@@ -1159,8 +1470,8 @@ export function XmlInstanceForm({
       try {
         const parser = new DOMParser();
         const doc = parser.parseFromString(toParse, 'application/xml');
-        if (doc.parseError) {
-          console.error('[XmlInstanceForm] XML Parse error:', doc.parseError);
+        if ((doc as any).parseError) {
+          console.error('[XmlInstanceForm] XML Parse error:', (doc as any).parseError);
           return null;
         }
         // Convert DOM to object
@@ -1259,12 +1570,13 @@ export function XmlInstanceForm({
       <XmlElementNode
         element={rootElement}
         path={path}
-        expanded={true}
+        expandedPaths={expandedPaths}
         onToggleExpand={handleToggleExpand}
         value={value || schema}
         onChange={onChange}
         onUpdateValue={handleUpdateValue}
         rootSchema={rootSchema}
+        autoExpandAll={autoExpandAll}
       />
     </div>
   );

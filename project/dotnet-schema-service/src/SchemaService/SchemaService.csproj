@@ -6,4 +6,9 @@
     <RootNamespace>SchemaService</RootNamespace>
     <AssemblyName>SchemaService</AssemblyName>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="JsonSchema.Net" Version="9.0.0" />
+    <PackageReference Include="JsonSchema.Net.Generation" Version="7.0.0" />
+  </ItemGroup>
 </Project>

@@ -7,4 +7,12 @@ export default defineConfig({
   build: {
     sourcemap: true,
   },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5080',
+        changeOrigin: true,
+      },
+    },
+  },
 });

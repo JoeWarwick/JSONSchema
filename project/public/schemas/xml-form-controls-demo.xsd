@@ -27,22 +27,33 @@
     <xs:list itemType="xs:token"/>
   </xs:simpleType>
 
+  <!-- Complex type using xs:all compositor -->
+  <xs:complexType name="AddressType">
+    <xs:annotation>
+      <xs:documentation>Address type demonstrating xs:all compositor.</xs:documentation>
+    </xs:annotation>
+    <xs:all>
+      <xs:element name="street" type="xs:string"/>
+      <xs:element name="city" type="xs:string"/>
+      <xs:element name="country" type="xs:string" minOccurs="0"/>
+      <xs:element name="postalCode" type="xs:string" minOccurs="0"/>
+    </xs:all>
+  </xs:complexType>
+
+  <!-- Complex type using xs:sequence with nested xs:choice -->
   <xs:complexType name="PersonType">
     <xs:annotation>
-      <xs:documentation>Main person type with compositors and attributes.</xs:documentation>
+      <xs:documentation>Main person type with sequence and choice compositors.</xs:documentation>
     </xs:annotation>
     <xs:sequence>
       <xs:element name="firstName" type="xs:string"/>
+      <xs:element name="lastName" type="xs:string"/>
       <xs:element name="birthDate" type="xs:date" minOccurs="0"/>
       <xs:choice minOccurs="0">
         <xs:element name="homeEmail" type="xs:string"/>
-        <xs:element name="homePhone" type="xs:string"/>
+        <xs:element name="workEmail" type="xs:string"/>
       </xs:choice>
-      <xs:all>
-        <xs:element name="country" type="xs:string" minOccurs="0"/>
-        <xs:element name="city" type="xs:string" minOccurs="0"/>
-      </xs:all>
-      <xs:any minOccurs="0" maxOccurs="unbounded" processContents="lax"/>
+      <xs:element name="address" type="tns:AddressType" minOccurs="0"/>
     </xs:sequence>
     <xs:attribute name="id" type="xs:int" use="required"/>
     <xs:attribute name="active" type="xs:boolean" default="true"/>
@@ -54,6 +65,7 @@
       <xs:extension base="tns:PersonType">
         <xs:sequence>
           <xs:element name="employeeNumber" type="xs:string"/>
+          <xs:element name="department" type="xs:string" minOccurs="0"/>
         </xs:sequence>
       </xs:extension>
     </xs:complexContent>

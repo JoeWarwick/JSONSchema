@@ -8,6 +8,8 @@ builder.Services.AddSingleton<SchemaInferenceService>();
 builder.Services.AddSingleton<DefaultInstanceService>();
 builder.Services.AddSingleton<XmlSchemaResolverService>();
 builder.Services.AddSingleton<SchemaValidationService>();
+builder.Services.AddSingleton<JsonSchemaValidationService>();
+builder.Services.AddSingleton<JsonSchemaInferenceService>();
 
 // Add CORS to allow requests from the frontend
 builder.Services.AddCors(options =>

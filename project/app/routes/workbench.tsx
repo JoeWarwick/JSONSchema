@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { type MarkupLanguage, parseMarkup, serializeMarkup, fileExtension, mimeType, acceptAttr, markupLabel } from "~/utils/markup";
 import {
   Menubar, MenubarMenu, MenubarTrigger, MenubarContent, MenubarItem,
-  MenubarSeparator, MenubarLabel,
+  MenubarSeparator, MenubarLabel, MenubarSub, MenubarSubContent, MenubarSubTrigger,
 } from "~/components/ui/menubar/menubar";
 import { ToggleGroup, ToggleGroupItem } from "~/components/ui/toggle-group/toggle-group";
 import {
@@ -16,16 +16,20 @@ import { generateSchema, isValidJSON } from "~/utils/schema-generator";
 import schemaReducer, { initialSchemaState, APPLY_SOURCE_UPDATE, APPLY_RESOLVED_EDIT, MERGE_RESOLVED_PATH, MERGE_RESOLVED_ALL_PATHS, ensureResolved, getPersistableSource, getEditorSchema, getResolvedSource } from "~/state/schemaReducer";
 import { resolveSchema } from "~/utils/schema-resolver";
 import { useSchemaValidation, useInstanceValidationWithImports } from "~/hooks/use-schema-validation";
+import { validateJsonDataAgainstSchema, inferJsonSchema } from "~/utils/schema-validation";
 import { JsonInstanceForm } from "~/components/json-instance-form";
 import { XmlInstanceForm } from "~/components/xml-instance-form";
 import { SchemaEditorForm } from "~/components/schema-editor-form";
 import { GraphicalSchemaEditor } from "~/components/graphical-schema-editor";
 import { SchemaSourceEditor } from "~/components/schema-source-editor";
 import { ErdEditor } from "~/components/erd-editor";
+import { DraftIndicator } from "~/components/draft-indicator";
+import { DraftMigrationDialog } from "~/components/draft-migration-dialog";
 import type { ErdModel } from "~/types/erd";
 import { parseDbContextFiles } from "~/utils/csharp-dbcontext-parser";
 import { generateDbContextCSharp } from "~/utils/csharp-dbcontext-generator";
 import { generateErdSql } from "~/utils/sql-schema-generator";
+import { DRAFT_PROGRESSION, detectDraftFromBackend, detectDraftFromSchema, type SchemaDraft } from "~/utils/draft-utils";
 
 export function meta() {
   return [
@@ -109,6 +113,63 @@ function renamePropertyInObject(obj: any, oldName: string, newName: string) {
   return newObj;
 }
 
+// Helper to generate default instance for both JSON and XSD schemas
+// For XSD, rawSchemaText should be the raw XSD string (not serialized from parsed object)
+// Returns { instanceData, xmlInput } where xmlInput is only set for XSD schemas
+async function generateDefaultInstanceForSchema(
+  schema: Record<string, unknown> | string,
+  lang: MarkupLanguage,
+  rawSchemaText?: string
+): Promise<{ instanceData: unknown; xmlInput: string | null }> {
+  // For JSON/YAML schemas, use the synchronous generator
+  if (lang !== 'xml') {
+    // schema should be an object for JSON/YAML
+    const schemaObj = typeof schema === 'string' ? JSON.parse(schema) : schema;
+    return {
+      instanceData: generateDefaultInstance(schemaObj as Record<string, unknown>),
+      xmlInput: null,
+    };
+  }
+
+  // For XSD schemas, call the backend API
+  try {
+    // Use raw schema text if provided, otherwise serialize from parsed object
+    const schemaStr = rawSchemaText || (typeof schema === 'string' ? schema : serializeMarkup(schema, 'xml'));
+
+    const response = await fetch('/api/schema/default-instance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schema: schemaStr }),
+    });
+
+    if (!response.ok) {
+      try {
+        const errorBody = await response.text();
+        console.warn('Failed to generate XSD instance:', response.statusText, 'Response:', errorBody);
+      } catch (_) {
+        console.warn('Failed to generate XSD instance:', response.statusText);
+      }
+      return { instanceData: null, xmlInput: null };
+    }
+
+    const result = await response.json();
+    
+    // Parse the returned XML string back into object form
+    try {
+      return {
+        instanceData: parseMarkup(result.xml, 'xml'),
+        xmlInput: result.xml,
+      };
+    } catch (err) {
+      console.warn('Failed to parse generated XSD instance:', err);
+      return { instanceData: null, xmlInput: null };
+    }
+  } catch (err) {
+    console.warn('Error generating XSD default instance:', err);
+    return { instanceData: null, xmlInput: null };
+  }
+}
+
 export default function Workbench() {
   const showDevStorageTools = typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
   const [state, dispatch] = useReducer(schemaReducer, initialSchemaState(null));
@@ -139,6 +200,11 @@ export default function Workbench() {
   const [markupLanguage, setMarkupLanguageState] = useState<MarkupLanguage>('json');
   const [showMarkupUrlDialog, setShowMarkupUrlDialog] = useState(false);
   const [showSchemaUrlDialog, setShowSchemaUrlDialog] = useState(false);
+  
+  // Draft detection and migration
+  const [detectedDraft, setDetectedDraft] = useState<SchemaDraft | null>(null);
+  const [showMigrationDialog, setShowMigrationDialog] = useState(false);
+  const [targetDraft, setTargetDraft] = useState<SchemaDraft | null>(null);
   const resolutionCache = useRef<Map<string, any>>(new Map());
   const previousLanguageRef = useRef<MarkupLanguage>('json');
   const lastPersistedSourceJsonRef = useRef<string | null>(null);
@@ -149,6 +215,12 @@ export default function Workbench() {
   const applySourceUpdate = (payload: Record<string, unknown>) => {
     setSchemaGeneration((g) => g + 1);
     dispatch({ type: APPLY_SOURCE_UPDATE, payload });
+    
+    // Detect draft from the loaded schema
+    if (markupLanguage !== 'xml') {
+      const draft = detectDraftFromSchema(payload);
+      setDetectedDraft(draft);
+    }
   };
 
   // In-place edits (APPLY_RESOLVED_EDIT) already produce a fully-resolved
@@ -238,15 +310,35 @@ export default function Workbench() {
         if (jsonInputToLoad) {
           setInstanceData(instanceDataToLoad);
           setJsonInput(jsonInputToLoad);
-        } else if (persistedSchema && initialLanguage !== 'xml') {
+        } else if (persistedSchema) {
+          // For both JSON and XML schemas, generate a default instance
           try {
-            const defaultInstance = generateDefaultInstance(persistedSchema);
-            if (defaultInstance !== null && defaultInstance !== undefined) {
-              setInstanceData(defaultInstance);
-              setJsonInput(JSON.stringify(defaultInstance, null, 2));
+            if (initialLanguage === 'xml') {
+              // For XSD, need async generation via backend
+              generateDefaultInstanceForSchema(persistedSchema, 'xml').then(({ instanceData, xmlInput }) => {
+                if (instanceData !== null && instanceData !== undefined) {
+                  setInstanceData(instanceData);
+                  if (xmlInput) {
+                    setJsonInput(xmlInput);
+                  }
+                } else {
+                  setInstanceData(null);
+                  setJsonInput('');
+                }
+              }).catch(() => {
+                setInstanceData(null);
+                setJsonInput('');
+              });
             } else {
-              setInstanceData(null);
-              setJsonInput('');
+              // For JSON/YAML, use synchronous generation
+              const defaultInstance = generateDefaultInstance(persistedSchema);
+              if (defaultInstance !== null && defaultInstance !== undefined) {
+                setInstanceData(defaultInstance);
+                setJsonInput(JSON.stringify(defaultInstance, null, 2));
+              } else {
+                setInstanceData(null);
+                setJsonInput('');
+              }
             }
           } catch (_) {
             setInstanceData(null);
@@ -669,7 +761,7 @@ export default function Workbench() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const content = e.target?.result as string;
       try {
         // Detect language from file extension
@@ -687,8 +779,21 @@ export default function Workbench() {
         
         const parsedSchema = parseMarkup(content, lang) as Record<string, unknown>;
         applySourceUpdate(parsedSchema);
-        // Only generate a default instance when none is present — preserve user-loaded instance
-        setInstanceData((prev: any) => (prev == null ? generateDefaultInstance(parsedSchema) : prev));
+        
+        // Clear any persisted instance data for this language so the generated instance is used
+        try {
+          localStorage.removeItem(getLanguageInstanceKey(lang));
+          localStorage.removeItem(INSTANCE_STORAGE_KEY);
+        } catch (_) {
+          // ignore localStorage errors
+        }
+        
+        // Generate and set a default instance for this schema
+        const { instanceData, xmlInput } = await generateDefaultInstanceForSchema(parsedSchema, lang, lang === 'xml' ? content : undefined);
+        setInstanceData(instanceData);
+        if (xmlInput) {
+          setJsonInput(xmlInput);
+        }
          
         setError(null);
       } catch (err) {
@@ -732,8 +837,22 @@ export default function Workbench() {
       
       const data = parseMarkup(text, lang) as Record<string, unknown>;
       applySourceUpdate(data);
-      // Only generate a default instance when none is present — preserve user-loaded instance
-      setInstanceData((prev: any) => (prev == null ? generateDefaultInstance(data) : prev));
+      
+      // Clear any persisted instance data for this language so the generated instance is used
+      try {
+        localStorage.removeItem(getLanguageInstanceKey(lang));
+        localStorage.removeItem(INSTANCE_STORAGE_KEY);
+      } catch (_) {
+        // ignore localStorage errors
+      }
+      
+      // Generate and set a default instance for this schema
+      const { instanceData, xmlInput } = await generateDefaultInstanceForSchema(data, lang, lang === 'xml' ? text : undefined);
+      setInstanceData(instanceData);
+      if (xmlInput) {
+        setJsonInput(xmlInput);
+      }
+      
       setSchemaUrl("");
     } catch (err) {
       setError(`Failed to load schema from URL: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -757,7 +876,7 @@ export default function Workbench() {
     URL.revokeObjectURL(url);
   };
 
-  const handleCreateNewSchema = () => {
+  const handleCreateNewSchema = async () => {
     let newSchema: any;
 
     // Clear the persisted schema for this language first so the old schema can't
@@ -824,7 +943,29 @@ export default function Workbench() {
     }
     
     applySourceUpdate(newSchema);
-    setInstanceData(null);
+    
+    // Clear any persisted instance data for this language so the generated instance is used
+    try {
+      localStorage.removeItem(getLanguageInstanceKey(markupLanguage));
+      localStorage.removeItem(INSTANCE_STORAGE_KEY);
+    } catch (_) {
+      // ignore localStorage errors
+    }
+    
+    // Generate and set a default instance for the new schema
+    if (markupLanguage === 'xml') {
+      // For XSD, generate asynchronously via the backend
+      const { instanceData, xmlInput } = await generateDefaultInstanceForSchema(newSchema, markupLanguage);
+      setInstanceData(instanceData);
+      if (xmlInput) {
+        setJsonInput(xmlInput);
+      }
+    } else {
+      // For JSON/YAML, generate synchronously
+      const defaultInstance = generateDefaultInstance(newSchema);
+      setInstanceData(defaultInstance);
+    }
+    
     setError(null);
   };
 
@@ -922,6 +1063,204 @@ export default function Workbench() {
     await validateInstanceWithImports(schemaStr, xmlInstanceStr);
   };
 
+  const handleGenerateDefaultXmlInstance = async () => {
+    // Check if we have a schema loaded
+    if (!state.source) {
+      toast.error('No schema loaded');
+      return;
+    }
+
+    // Only generate instances for XSD schemas
+    if (markupLanguage !== 'xml') {
+      toast.error('Default instance generation is available for XSD schemas only');
+      return;
+    }
+
+    try {
+      // Serialize the schema to XML string
+      let schemaStr: string;
+      try {
+        schemaStr = serializeMarkup(state.source, 'xml');
+      } catch (err) {
+        toast.error(`Failed to serialize schema: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+
+      // Call the backend API to generate the default instance
+      const response = await fetch('/api/schema/default-instance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schema: schemaStr }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        toast.error(`Failed to generate instance: ${text || response.statusText}`);
+        return;
+      }
+
+      const result = await response.json();
+      
+      // Parse the returned XML string back into object form and set both the form and input
+      try {
+        const parsedInstance = parseMarkup(result.xml, 'xml');
+        setInstanceData(parsedInstance);
+        setJsonInput(result.xml);
+      } catch (err) {
+        toast.error(`Failed to parse generated instance: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+      
+      // Show warnings if any
+      if (result.warnings && result.warnings.length > 0) {
+        toast.warning(`Generated with ${result.warnings.length} warning(s)`, { duration: 5000 });
+      } else {
+        toast.success('Default instance generated', { duration: 3000 });
+      }
+    } catch (err) {
+      toast.error(`Error generating instance: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleValidateJsonData = async () => {
+    // Check if we have a schema loaded
+    if (!state.source) {
+      toast.error('No schema loaded');
+      return;
+    }
+
+    if (!jsonInput.trim()) {
+      toast.warning('No JSON data to validate');
+      return;
+    }
+
+    // Only validate JSON data against JSON schemas
+    if (markupLanguage === 'xml') {
+      toast.info('JSON validation is available for JSON schemas only');
+      return;
+    }
+
+    try {
+      // Serialize the schema to JSON string
+      let schemaStr: string;
+      try {
+        const resolvedSchema = state.resolvedCache || state.source;
+        schemaStr = JSON.stringify(resolvedSchema);
+      } catch (err) {
+        toast.error(`Failed to serialize schema: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+
+      // Validate the JSON data against the schema on the server
+      const result = await validateJsonDataAgainstSchema(schemaStr, jsonInput);
+      
+      // Capture detected draft from validation response
+      if (result.detectedDraft) {
+        const draft = detectDraftFromBackend(result.detectedDraft);
+        setDetectedDraft(draft);
+      }
+      
+      if (result.isValid) {
+        toast.success('✅ Valid — JSON data matches schema', { duration: 5000 });
+      } else {
+        // Show error summary
+        const errorCount = result.errors.length;
+        let message = `Invalid — ${errorCount} error(s)`;
+        
+        // Show first error
+        if (result.errors.length > 0) {
+          const firstError = result.errors[0];
+          message += `\n\n${firstError.message}`;
+        }
+
+        toast.error(message, { duration: 8000 });
+
+        // If there are multiple errors, show a secondary notification
+        if (result.errors.length > 1) {
+          const remaining = result.errors.length - 1;
+          setTimeout(() => {
+            toast.info(`+${remaining} more error(s)`, { duration: 6000 });
+          }, 500);
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Validation failed: ${message}`, { duration: 8000 });
+    }
+  };
+
+  const handleMigrateToFromDraft = (draft: SchemaDraft) => {
+    console.log('[handleMigrateToFromDraft] Called with draft:', draft, 'detectedDraft:', detectedDraft, 'state.source:', !!state.source);
+    
+    if (!state.source || !detectedDraft) {
+      toast.warning('No schema loaded. Load a schema first to migrate it.');
+      return;
+    }
+
+    if (detectedDraft === draft) {
+      toast.info(`Schema is already in ${draft} format`);
+      return;
+    }
+
+    console.log('[handleMigrateToFromDraft] Setting targetDraft:', draft, 'and showMigrationDialog: true');
+    setTargetDraft(draft);
+    setShowMigrationDialog(true);
+  };
+
+  const handleConfirmMigration = (migratedSchema: Record<string, unknown>) => {
+    try {
+      dispatch({
+        type: APPLY_SOURCE_UPDATE,
+        payload: migratedSchema,
+      });
+      setDetectedDraft(targetDraft);
+      setShowMigrationDialog(false);
+      setTargetDraft(null);
+      toast.success(`✅ Schema migrated to ${targetDraft}`);
+    } catch (err) {
+      toast.error(`Migration failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleCancelMigration = () => {
+    setShowMigrationDialog(false);
+    setTargetDraft(null);
+  };
+
+
+  const handleInferJsonSchema = async () => {
+    if (!jsonInput.trim()) {
+      toast.error('No JSON data to infer from');
+      return;
+    }
+
+    // Only infer JSON schemas
+    if (markupLanguage === 'xml') {
+      toast.info('Schema inference is available for JSON only');
+      return;
+    }
+
+    try {
+      // Infer schema from the JSON data on the server
+      const result = await inferJsonSchema(jsonInput);
+      
+      if (result.warnings && result.warnings.length > 0) {
+        result.warnings.forEach(warning => {
+          console.warn('[Schema Inference]', warning);
+        });
+      }
+
+      // Parse the inferred schema
+      const inferredSchema = JSON.parse(result.inferredSchema);
+      applySourceUpdate(inferredSchema);
+      
+      toast.success('✅ Schema inferred from JSON data', { duration: 5000 });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to infer schema: ${message}`, { duration: 8000 });
+    }
+  };
+
   // Dev helper: load the local copy of the W3C XMLSchema file bundled in public/schemas
   const handleLoadLocalXsd = async () => {
     try {
@@ -931,7 +1270,22 @@ export default function Workbench() {
       const text = await resp.text();
       const parsed = parseMarkup(text, 'xml') as Record<string, unknown>;
       applySourceUpdate(parsed);
-      setInstanceData((prev: any) => (prev == null ? generateDefaultInstance(parsed) : prev));
+      
+      // Clear any persisted instance data so the generated instance is used
+      try {
+        localStorage.removeItem(getLanguageInstanceKey('xml'));
+        localStorage.removeItem(INSTANCE_STORAGE_KEY);
+      } catch (_) {
+        // ignore localStorage errors
+      }
+      
+      // Generate and set a default instance for this schema (pass raw XSD text)
+      const { instanceData, xmlInput } = await generateDefaultInstanceForSchema(parsed, 'xml', text);
+      setInstanceData(instanceData);
+      if (xmlInput) {
+        setJsonInput(xmlInput);
+      }
+      
       setMarkupLanguageState('xml');
       localStorage.setItem(LANGUAGE_PREFERENCE_KEY, 'xml');
       toast.success('Loaded local XMLSchema.xsd');
@@ -949,7 +1303,22 @@ export default function Workbench() {
       const text = await resp.text();
       const parsed = parseMarkup(text, 'xml') as Record<string, unknown>;
       applySourceUpdate(parsed);
-      setInstanceData((prev: any) => (prev == null ? generateDefaultInstance(parsed) : prev));
+      
+      // Clear any persisted instance data so the generated instance is used
+      try {
+        localStorage.removeItem(getLanguageInstanceKey('xml'));
+        localStorage.removeItem(INSTANCE_STORAGE_KEY);
+      } catch (_) {
+        // ignore localStorage errors
+      }
+      
+      // Generate and set a default instance for this schema (pass raw XSD text)
+      const { instanceData, xmlInput } = await generateDefaultInstanceForSchema(parsed, 'xml', text);
+      setInstanceData(instanceData);
+      if (xmlInput) {
+        setJsonInput(xmlInput);
+      }
+      
       setMarkupLanguageState('xml');
       localStorage.setItem(LANGUAGE_PREFERENCE_KEY, 'xml');
       toast.success('Loaded demo controls XSD');
@@ -1255,6 +1624,13 @@ export default function Workbench() {
                 <ShieldCheck size={14} style={{ marginRight: 6 }} />
                 Validate against Schema
               </MenubarItem>
+              
+              {markupLanguage === 'xml' && (
+                <MenubarItem onSelect={handleGenerateDefaultXmlInstance} disabled={!state.source}>
+                  <Sparkles size={14} style={{ marginRight: 6 }} />
+                  Generate Default Instance
+                </MenubarItem>
+              )}
             </MenubarContent>
           </MenubarMenu>
 
@@ -1289,10 +1665,49 @@ export default function Workbench() {
                 <ShieldCheck size={14} style={{ marginRight: 6 }} />
                 Validate Schema
               </MenubarItem>
-              <MenubarItem onSelect={handleValidateInstanceWithImports} disabled={!state.source || !instanceData}>
-                <ShieldCheck size={14} style={{ marginRight: 6 }} />
-                Validate Instance (with Imports)
-              </MenubarItem>
+              
+              {markupLanguage === 'xml' && (
+                <MenubarItem onSelect={handleValidateInstanceWithImports} disabled={!state.source || !instanceData}>
+                  <ShieldCheck size={14} style={{ marginRight: 6 }} />
+                  Validate Instance (with Imports)
+                </MenubarItem>
+              )}
+              
+              {markupLanguage !== 'xml' && (
+                <>
+                  <MenubarItem onSelect={handleValidateJsonData} disabled={!state.source || !jsonInput.trim()}>
+                    <ShieldCheck size={14} style={{ marginRight: 6 }} />
+                    Validate JSON Data
+                  </MenubarItem>
+                  <MenubarItem onSelect={handleInferJsonSchema} disabled={!jsonInput.trim()}>
+                    <Sparkles size={14} style={{ marginRight: 6 }} />
+                    Infer Schema from Data
+                  </MenubarItem>
+                  
+                  {/* Change Draft submenu for JSON/YAML schemas */}
+                  <MenubarSeparator />
+                  <MenubarSub>
+                    <MenubarSubTrigger>
+                      Change Draft
+                      {detectedDraft && <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded">{detectedDraft}</span>}
+                    </MenubarSubTrigger>
+                    <MenubarSubContent>
+                      {DRAFT_PROGRESSION.map((draft) => (
+                        <MenubarItem
+                          key={draft}
+                          onSelect={() => handleMigrateToFromDraft(draft)}
+                          disabled={!state.source || !detectedDraft}
+                          className="flex items-center justify-between"
+                        >
+                          <span>{draft}</span>
+                          {detectedDraft === draft && <Check size={14} style={{ marginLeft: 8 }} />}
+                        </MenubarItem>
+                      ))}
+                    </MenubarSubContent>
+                  </MenubarSub>
+                </>
+              )}
+              
               <MenubarSeparator />
               <MenubarItem onSelect={handleCopy} disabled={!state.source}>
                 {copied
@@ -1351,9 +1766,12 @@ export default function Workbench() {
             </MenubarContent>
           </MenubarMenu>
         </Menubar>
-        <small className={styles.menuStatusBadge} suppressHydrationWarning data-testid="schema-source-badge">
-          Source: {state.resolvedCache ? 'resolved' : state.source ? 'source' : 'none'}
-        </small>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginLeft: 'auto', marginRight: 12 }}>
+          <DraftIndicator detectedDraft={detectedDraft} />
+          <small className={styles.menuStatusBadge} suppressHydrationWarning data-testid="schema-source-badge">
+            Source: {state.resolvedCache ? 'resolved' : state.source ? 'source' : 'none'}
+          </small>
+        </div>
       </div>
 
       {/* ── URL load dialog — markup document ───────────────────────── */}
@@ -1509,6 +1927,7 @@ export default function Workbench() {
                         applySourceUpdate(newSchema);
                       }}
                       rootSchema={state.source as any}
+                      autoExpandAll={true}
                     />
                   ) : (
                     <div className={styles.emptyState}>
@@ -1826,6 +2245,18 @@ export default function Workbench() {
           )
         )}
       </div>
+      
+      {/* Draft Migration Dialog */}
+      {detectedDraft && (
+        <DraftMigrationDialog
+          open={showMigrationDialog && !!targetDraft}
+          sourceDraft={detectedDraft}
+          targetDraft={targetDraft || detectedDraft}
+          schema={state.source || {}}
+          onConfirm={handleConfirmMigration}
+          onCancel={handleCancelMigration}
+        />
+      )}
     </div>
     </TooltipProvider>
   );
