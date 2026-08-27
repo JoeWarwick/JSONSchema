@@ -2155,7 +2155,7 @@ export default function Workbench() {
                 <div className={styles.editorContainer}>
                   <XmlInstanceForm
                     schema={state.source as any}
-                    value={instanceData || state.source}
+                    value={instanceData ?? undefined}
                     onChange={(newData) => {
                       setInstanceData(newData);
                     }}
