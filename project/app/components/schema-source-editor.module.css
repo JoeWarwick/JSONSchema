@@ -1,23 +1,37 @@
 .container {
   display: flex;
   flex-direction: column;
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-height: 0;
   width: 100%;
+  height: 100%;
+  max-height: 100%;
   overflow: hidden;
 }
 
 .editorWrapper {
   position: relative;
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-height: 0;
   width: 100%;
+  height: 100%;
+  max-height: 100%;
   overflow: hidden;
   font-family: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
   font-size: 13px;
   line-height: 1.6;
   background-color: #1e1e1e;
   border: 1px solid #3e3e42;
+}
+
+.schemaTheme {
+  background-color: #1e1e1e;
+  border: 1px solid #3e3e42;
+}
+
+.instanceTheme {
+  background-color: #101a24;
+  border: 1px solid #24425f;
 }
 
 .textarea {
@@ -44,6 +58,14 @@
   box-sizing: border-box;
 }
 
+.textarea::placeholder {
+  color: #6d7f92;
+}
+
+.instanceTheme .textarea {
+  caret-color: #5cc8ff;
+}
+
 .textarea::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -65,6 +87,10 @@
 .textarea::selection {
   background-color: #264f78;
   color: transparent;
+}
+
+.instanceTheme .textarea::selection {
+  background-color: #0b5f7a;
 }
 
 .highlight {
@@ -96,54 +122,87 @@
   background-color: transparent;
 }
 
-/* Prism.js syntax highlighting theme - explicit colors */
-:global(.token.punctuation) {
+/* Schema Input token colors */
+.schemaTheme :global(.token.punctuation) {
   color: #d4d4d4;
 }
 
-:global(.token.property) {
+.schemaTheme :global(.token.property) {
   color: #9cdcfe;
 }
 
-:global(.token.string) {
+.schemaTheme :global(.token.string) {
   color: #ce9178;
 }
 
-:global(.token.number) {
+.schemaTheme :global(.token.number) {
   color: #b5cea8;
 }
 
-:global(.token.boolean) {
+.schemaTheme :global(.token.boolean) {
   color: #569cd6;
 }
 
-:global(.token.null) {
+.schemaTheme :global(.token.null) {
   color: #569cd6;
 }
 
-:global(.token.keyword) {
+.schemaTheme :global(.token.keyword) {
   color: #569cd6;
 }
 
-:global(.token.operator) {
+.schemaTheme :global(.token.operator) {
   color: #d4d4d4;
 }
 
-:global(.token.tag) {
+.schemaTheme :global(.token.tag) {
   color: #569cd6;
 }
 
-:global(.token.attr-name) {
+.schemaTheme :global(.token.attr-name) {
   color: #9cdcfe;
 }
 
-:global(.token.attr-value) {
+.schemaTheme :global(.token.attr-value) {
   color: #ce9178;
 }
 
-:global(.token.comment) {
+.schemaTheme :global(.token.comment) {
   color: #6a9955;
   font-style: italic;
+}
+
+/* XML Input token colors (distinct from Schema Input) */
+.instanceTheme :global(.token.punctuation) {
+  color: #c7d2e0;
+}
+
+.instanceTheme :global(.token.tag) {
+  color: #58b6ff;
+}
+
+.instanceTheme :global(.token.attr-name) {
+  color: #7dd3fc;
+}
+
+.instanceTheme :global(.token.attr-value),
+.instanceTheme :global(.token.string) {
+  color: #f6c177;
+}
+
+.instanceTheme :global(.token.comment) {
+  color: #6fb18d;
+  font-style: italic;
+}
+
+.instanceTheme :global(.token.number) {
+  color: #8bd49c;
+}
+
+.instanceTheme :global(.token.boolean),
+.instanceTheme :global(.token.keyword),
+.instanceTheme :global(.token.null) {
+  color: #c084fc;
 }
 
 /* Remove Prism default theme background */

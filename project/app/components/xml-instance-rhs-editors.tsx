@@ -2777,14 +2777,14 @@ function SpecialAttributesEditor({
       <span style={{ fontSize: 12, fontWeight: 500 }}>Attributes</span>
 
       {/* Core Schema Attributes */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-start' }}>
         {coreAttrs.map((attr) => {
           const isDefined = !!data[attr.key];
           const isExpanded = expandedAttrs.has(attr.display);
           if (!isDefined && !isExpanded) return null;
 
           return (
-            <div key={attr.key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div key={attr.key} style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 'fit-content' }}>
               <label style={{ fontSize: 11, fontWeight: 500 }}>{attr.display}</label>
               <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
                 {attr.kind === 'select' ? (

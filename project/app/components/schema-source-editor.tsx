@@ -11,6 +11,12 @@ interface SchemaSourceEditorProps {
   onChange: (newSchema: Record<string, unknown>) => void;
   schemaLanguage: 'json' | 'xml' | 'yaml';
   readOnly?: boolean;
+  textValue?: string;
+  onTextChange?: (newText: string) => void;
+  onParsedChange?: (parsed: unknown) => void;
+  placeholder?: string;
+  theme?: 'schema' | 'instance';
+  minHeight?: number;
 }
 
 export function SchemaSourceEditor({
@@ -18,6 +24,12 @@ export function SchemaSourceEditor({
   onChange,
   schemaLanguage,
   readOnly = false,
+  textValue,
+  onTextChange,
+  onParsedChange,
+  placeholder = 'Schema will appear here...',
+  theme = 'schema',
+  minHeight,
 }: SchemaSourceEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const highlightRef = useRef<HTMLPreElement>(null);
@@ -25,6 +37,7 @@ export function SchemaSourceEditor({
 
   // Serialize schema to string using the appropriate format
   const schemaText = useMemo(() => {
+    if (typeof textValue === 'string') return textValue;
     if (!schema || typeof schema !== 'object') return '';
     
     try {
@@ -33,7 +46,7 @@ export function SchemaSourceEditor({
       console.error('Failed to serialize schema:', e);
       return '';
     }
-  }, [schema, schemaLanguage]);
+  }, [schema, schemaLanguage, textValue]);
 
   // Determine the language for syntax highlighting
   const language = schemaLanguage === 'xml' ? 'markup' : 'json';
@@ -57,6 +70,7 @@ export function SchemaSourceEditor({
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newText = e.target.value;
+    onTextChange?.(newText);
     
     // Update highlighting
     if (codeRef.current) {
@@ -67,6 +81,7 @@ export function SchemaSourceEditor({
     // Parse and emit change
     try {
       const parsed = parseMarkup(newText, schemaLanguage as MarkupLanguage);
+      onParsedChange?.(parsed);
       if (typeof parsed === 'object' && parsed !== null) {
         onChange(parsed);
       }
@@ -77,7 +92,10 @@ export function SchemaSourceEditor({
 
   return (
     <div className={styles.container}>
-      <div className={styles.editorWrapper}>
+      <div
+        className={`${styles.editorWrapper} ${theme === 'instance' ? styles.instanceTheme : styles.schemaTheme}`}
+        style={minHeight ? { minHeight } : undefined}
+      >
         <textarea
           ref={textareaRef}
           className={styles.textarea}
@@ -85,7 +103,7 @@ export function SchemaSourceEditor({
           onChange={handleChange}
           onScroll={handleScroll}
           readOnly={readOnly}
-          placeholder="Schema will appear here..."
+          placeholder={placeholder}
           spellCheck="false"
         />
         <pre ref={highlightRef} className={styles.highlight}>

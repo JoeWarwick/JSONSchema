@@ -75,15 +75,15 @@ function restoreChoiceDataFromStorage(instanceXml: any, path: string[], optionNa
  * Clear all stored choice data for a specific path and option.
  * Can be exposed via UI if needed to allow users to reset saved choice branches.
  */
-function clearChoiceDataFromStorage(instanceXml: any, path: string[], optionName: string): void {
-  try {
-    const key = generateChoiceStorageKey(instanceXml, path, optionName);
-    localStorage.removeItem(key);
-    console.log(`[ChoiceStorage] Cleared ${optionName} from ${key}`);
-  } catch (e) {
-    console.warn('[ChoiceStorage] Failed to clear choice data:', e);
-  }
-}
+// function clearChoiceDataFromStorage(instanceXml: any, path: string[], optionName: string): void {
+//   try {
+//     const key = generateChoiceStorageKey(instanceXml, path, optionName);
+//     localStorage.removeItem(key);
+//     console.log(`[ChoiceStorage] Cleared ${optionName} from ${key}`);
+//   } catch (e) {
+//     console.warn('[ChoiceStorage] Failed to clear choice data:', e);
+//   }
+// }
 
 interface XmlInstanceFormProps {
   schema: any; // The XML element/schema to render
@@ -702,7 +702,10 @@ function XmlElementNode({
     return choiceGroups.map(group => {
       const choiceKey = `choice_${pathKey}_${group.groupIndex}`;
       let selectedOption: string | null = null;
-      const isChoiceGroupRequired = group.options.some((opt) => (opt.node.minOccurs ?? 0) > 0 || opt.node.isRequired);
+      const isChoiceGroupRequired = group.options.some((opt) => {
+        const min = Number(opt.node.minOccurs ?? 0);
+        return Number.isFinite(min) && min > 0;
+      });
       
       // Check if user has manually selected a choice
       if (selectedChoices[choiceKey]) {
@@ -764,30 +767,32 @@ function XmlElementNode({
   const handleAttributeChange = (attrName: string, newValue: string) => {
     onUpdateValue(path, (current) => {
       const updated = { ...current };
-      // Set the attribute as @name property
-      updated['@' + attrName] = newValue;
       
-      // Remove from both possible legacy attribute storage formats
-      // Try @attributes format
-      if (updated['@attributes'] && typeof updated['@attributes'] === 'object') {
-        const attrs = { ...updated['@attributes'] };
-        delete attrs[attrName];
-        if (Object.keys(attrs).length > 0) {
-          updated['@attributes'] = attrs;
-        } else {
-          delete updated['@attributes'];
-        }
+      // Ensure @attributes object exists
+      if (!updated['@attributes']) {
+        updated['@attributes'] = {};
       }
-      // Try attributes format
+      if (typeof updated['@attributes'] !== 'object') {
+        updated['@attributes'] = {};
+      }
+      
+      const attrs = updated['@attributes'] as Record<string, any>;
+      attrs[attrName] = newValue;
+      
+      // Clean up old @<name> format if it exists
+      delete updated['@' + attrName];
+      
+      // Also clean up legacy attributes format
       if (updated.attributes && typeof updated.attributes === 'object') {
-        const attrs = { ...updated.attributes };
-        delete attrs[attrName];
-        if (Object.keys(attrs).length > 0) {
-          updated.attributes = attrs;
+        const legacyAttrs = { ...updated.attributes as Record<string, any> };
+        delete legacyAttrs[attrName];
+        if (Object.keys(legacyAttrs).length > 0) {
+          updated.attributes = legacyAttrs;
         } else {
           delete updated.attributes;
         }
       }
+      
       return updated;
     });
   };
@@ -797,7 +802,14 @@ function XmlElementNode({
     if (newAttrName && newAttrName.trim()) {
       onUpdateValue(path, (current) => {
         const updated = { ...current };
-        updated['@' + newAttrName.trim()] = '';
+        if (!updated['@attributes']) {
+          updated['@attributes'] = {};
+        }
+        if (typeof updated['@attributes'] !== 'object') {
+          updated['@attributes'] = {};
+        }
+        const attrs = updated['@attributes'] as Record<string, any>;
+        attrs[newAttrName.trim()] = '';
         return updated;
       });
     }
@@ -806,6 +818,16 @@ function XmlElementNode({
   const handleRemoveAttribute = (attrName: string) => {
     onUpdateValue(path, (current) => {
       const updated = { ...current };
+      if (updated['@attributes'] && typeof updated['@attributes'] === 'object') {
+        const attrs = { ...updated['@attributes'] as Record<string, any> };
+        delete attrs[attrName];
+        if (Object.keys(attrs).length > 0) {
+          updated['@attributes'] = attrs;
+        } else {
+          delete updated['@attributes'];
+        }
+      }
+      // Also clean up old format if it exists
       delete updated['@' + attrName];
       return updated;
     });
@@ -821,6 +843,198 @@ function XmlElementNode({
       }
       return updated;
     });
+  };
+
+  const getGlobalRootElementTriggers = () => {
+    if (path.length !== 0 || !rootSchema || typeof rootSchema !== 'object') return [];
+
+    const schemaRoot = getSchemaRootNode(rootSchema);
+    const rawElements = schemaRoot?.['xs:element'] || schemaRoot?.['element'];
+    const elements = Array.isArray(rawElements) ? rawElements : rawElements ? [rawElements] : [];
+
+    return elements
+      .map((entry: any, index: number) => {
+        const attrs = entry?.['@attributes'] || entry || {};
+        const name = String(attrs?.name || attrs?.['@name'] || entry?.name || entry?.['@name'] || `root-${index}`);
+        if (!name) return null;
+        const maxOccursRaw = attrs?.maxOccurs ?? '1';
+        const maxOccurs = maxOccursRaw === 'unbounded' ? Number.POSITIVE_INFINITY : Number(maxOccursRaw || '1');
+        const minOccurs = Number(attrs?.minOccurs ?? '1');
+
+        if (!(minOccurs === 1 && maxOccurs === 1)) {
+          return null;
+        }
+
+        return { name, maxOccurs, minOccurs };
+      })
+      .filter((entry): entry is { name: string; maxOccurs: number; minOccurs: number } => Boolean(entry));
+  };
+
+  const getRootOccurrenceCount = (currentValue: any, childName: string): number => {
+    if (!currentValue || typeof currentValue !== 'object' || Array.isArray(currentValue)) return 0;
+    const resolved = currentValue[childName];
+    if (resolved === undefined || resolved === null) return 0;
+    return Array.isArray(resolved) ? resolved.length : 1;
+  };
+
+  const addRootElementOccurrence = (childName: string, maxOccurs: number) => {
+    const current = value && typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : {};
+    const rootTriggers = getGlobalRootElementTriggers();
+    const selectedRoot = rootTriggers.find((trigger) => getRootOccurrenceCount(current, trigger.name) > 0)?.name ?? null;
+    const count = getRootOccurrenceCount(current, childName);
+    if (count >= maxOccurs) return;
+
+    const nextValue = {};
+    const updated = { ...current };
+
+    if (selectedRoot && selectedRoot !== childName) {
+      delete updated[selectedRoot];
+    }
+
+    if (count === 0) {
+      updated[childName] = nextValue;
+    } else if (Array.isArray(updated[childName])) {
+      updated[childName] = [...updated[childName], nextValue];
+    } else {
+      updated[childName] = [updated[childName], nextValue];
+    }
+
+    onChange(updated);
+  };
+
+  const getChildMinOccurs = (child: SchemaNode): number => {
+    const min = Number(child.minOccurs);
+    return Number.isFinite(min) && min >= 0 ? min : 1;
+  };
+
+  const getChildMaxOccurs = (child: SchemaNode): number => {
+    if (child.maxOccurs === 'unbounded') return Number.POSITIVE_INFINITY;
+    const max = Number(child.maxOccurs);
+    return Number.isFinite(max) && max >= 0 ? max : 1;
+  };
+
+  const getChildOccurrenceCount = (currentValue: any, childName: string): number => {
+    const resolved = compiledSchema
+      ? compiledSchema.resolveChildData(childName, element?.tagName, currentValue, path.length === 0)
+      : currentValue?.[childName];
+    if (resolved === undefined || resolved === null) return 0;
+    return Array.isArray(resolved) ? resolved.length : 1;
+  };
+
+  const createDefaultChildValue = (child: SchemaNode): any => {
+    const hasNestedChildren = (child.children?.length || 0) > 0;
+    const hasAttributes = (child.attributes?.length || 0) > 0;
+    if (!hasNestedChildren && !hasAttributes) return { _text: '' };
+    return {};
+  };
+
+  const addChildOccurrence = (childName: string, childSchema: SchemaNode) => {
+    const choiceGroupInfo = getChoiceGroupForChild(childName);
+    const choiceGroupData = choiceGroupInfo ? choiceInfo[choiceGroupInfo.groupIndex] : null;
+    if (choiceGroupData) {
+      setSelectedChoices((prev) => ({
+        ...prev,
+        [choiceGroupData.choiceKey]: childName,
+      }));
+    }
+
+    onUpdateValue(path, (current) => {
+      const updated = { ...(current || {}) };
+
+      // Enforce choice semantics by clearing sibling options when selecting a different branch.
+      if (choiceGroupData) {
+        for (const option of choiceGroupData.options) {
+          if (option.name !== childName) {
+            delete updated[option.name];
+          }
+        }
+      }
+
+      const count = getChildOccurrenceCount(updated, childName);
+      const maxOccurs = getChildMaxOccurs(childSchema);
+      if (count >= maxOccurs) return updated;
+
+      const nextValue = createDefaultChildValue(childSchema);
+      if (count === 0) {
+        updated[childName] = nextValue;
+      } else if (Array.isArray(updated[childName])) {
+        updated[childName] = [...updated[childName], nextValue];
+      } else {
+        updated[childName] = [updated[childName], nextValue];
+      }
+
+      return updated;
+    });
+  };
+
+  const removeChildOccurrence = (childName: string, childSchema: SchemaNode) => {
+    onUpdateValue(path, (current) => {
+      const updated = { ...(current || {}) };
+      const count = getChildOccurrenceCount(updated, childName);
+      const minOccurs = getChildMinOccurs(childSchema);
+
+      if (count <= minOccurs) return updated;
+
+      const existing = compiledSchema
+        ? compiledSchema.resolveChildData(childName, element?.tagName, updated, path.length === 0)
+        : updated?.[childName];
+
+      if (Array.isArray(existing)) {
+        const trimmed = existing.slice(0, -1);
+        if (trimmed.length === 0) delete updated[childName];
+        else if (trimmed.length === 1) updated[childName] = trimmed[0];
+        else updated[childName] = trimmed;
+      } else {
+        delete updated[childName];
+      }
+
+      return updated;
+    });
+  };
+
+  const canRemoveChoiceSelection = (choiceGroupData: {
+    selectedOption: string | null;
+    options: Array<{ name: string; node: SchemaNode }>;
+    isRequired: boolean;
+  } | null): boolean => {
+    if (!choiceGroupData) return false;
+    if (choiceGroupData.isRequired) return false;
+    const selected = choiceGroupData.selectedOption;
+    if (!selected) return false;
+    return getChildOccurrenceCount(value, selected) > 0;
+  };
+
+  const removeChoiceSelection = (choiceGroupData: {
+    selectedOption: string | null;
+    options: Array<{ name: string; node: SchemaNode }>;
+    choiceKey: string;
+  }) => {
+    const selected = choiceGroupData.selectedOption;
+    if (!selected) return;
+
+    onUpdateValue(path, (current) => {
+      const updated = { ...(current || {}) };
+      delete updated[selected];
+
+      if (Array.isArray(updated['__childrenInOrder'])) {
+        updated['__childrenInOrder'] = (updated['__childrenInOrder'] as any[]).filter(
+          (item) => item?.tagName !== selected
+        );
+      }
+
+      return updated;
+    });
+
+    setSelectedChoices((prev) => {
+      const next = { ...prev };
+      delete next[choiceGroupData.choiceKey];
+      return next;
+    });
+  };
+
+  const canRemoveChildOccurrence = (childName: string, childSchema: SchemaNode): boolean => {
+    const count = getChildOccurrenceCount(value, childName);
+    return count > getChildMinOccurs(childSchema);
   };
 
   // Helper to sanitize test ids
@@ -971,6 +1185,69 @@ function XmlElementNode({
 
   return (
     <div style={{ marginLeft: 0, marginBottom: 12 }}>
+      {path.length === 0 && (() => {
+        const globalTriggers = getGlobalRootElementTriggers();
+        if (globalTriggers.length === 0) return null;
+
+        const selectedRootOption = globalTriggers.find((trigger) => getRootOccurrenceCount(value, trigger.name) > 0)?.name ?? null;
+
+        return (
+          <div className={styles.elementTriggerRow} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginBottom: 12 }}>
+            {globalTriggers.map((trigger) => {
+              const count = getRootOccurrenceCount(value, trigger.name);
+              const isSelected = selectedRootOption === trigger.name;
+              const isBlockedByChoice = Boolean(selectedRootOption && selectedRootOption !== trigger.name);
+              const isBelowMinimum = count < trigger.minOccurs;
+              const isRequiredSingleton = trigger.minOccurs > 0 && trigger.maxOccurs === 1;
+              if (isRequiredSingleton && !isBelowMinimum && !isSelected) {
+                return null;
+              }
+
+              const canAdd = !isSelected && !isBlockedByChoice && (count < trigger.maxOccurs);
+              const maxLabel = Number.isFinite(trigger.maxOccurs) ? String(trigger.maxOccurs) : '∞';
+              const addTitle = isSelected
+                ? `${trigger.name} already selected (${count}/${maxLabel})`
+                : (canAdd ? `Add ${trigger.name} (${count}/${maxLabel})` : `${trigger.name} reached maxOccurs (${maxLabel})`);
+
+              return (
+                <button
+                  key={`root-trigger-${trigger.name}`}
+                  type="button"
+                  aria-pressed={isSelected}
+                  onClick={() => {
+                    if (isSelected || isBlockedByChoice) return;
+                    addRootElementOccurrence(trigger.name, trigger.maxOccurs);
+                  }}
+                  disabled={false}
+                  title={addTitle}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: 999,
+                    border: isSelected ? '1px solid #a78bfa' : (isBlockedByChoice ? '1px solid #e5e7eb' : (isBelowMinimum ? '1px solid #f59e0b' : '1px solid #d1d5db')),
+                    backgroundColor: isSelected ? '#f3e8ff' : (isBlockedByChoice ? '#f3f4f6' : (isBelowMinimum ? '#fffbeb' : '#f8fafc')),
+                    cursor: isSelected ? 'default' : (isBlockedByChoice ? 'default' : 'pointer'),
+                    fontSize: 11,
+                    fontWeight: 600,
+                    letterSpacing: '0.01em',
+                    color: isSelected ? '#5b21b6' : (isBlockedByChoice ? '#94a3b8' : (isBelowMinimum ? '#92400e' : '#374151')),
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    whiteSpace: 'nowrap',
+                    boxShadow: isSelected ? 'inset 0 0 0 1px rgba(167, 139, 250, 0.25)' : 'none',
+                    opacity: isBlockedByChoice ? 0.75 : 1,
+                  }}
+                >
+                  <span style={{ fontSize: 10, lineHeight: 1 }}>{isSelected ? '●' : '+'}</span>
+                  <span>{trigger.name}</span>
+                  {isBelowMinimum && !isSelected && <span title="Required until minimum occurrences are met">!</span>}
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {/* Element header with toggle */}
       <div className={styles.propertyHeader} style={{ marginBottom: hasChildren || hasAttributes ? 8 : 0 }}>
         {hasExpandableContent ? (
@@ -1099,298 +1376,410 @@ function XmlElementNode({
                   </button>
                 ) : null}
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {(() => {
-                  // Normalize attributes: if there's an attribute named 'attributes' whose value
-                  // is an object of primitive key/values, expand those into individual attributes
-                  const normalized: XmlAttribute[] = [];
-                  const seen = new Set<string>();
-                  for (const attr of element.attributes) {
-                    if (attr.name === 'attributes' && attr.value && typeof attr.value === 'object' && !Array.isArray(attr.value)) {
-                      for (const k of Object.keys(attr.value)) {
-                        const v = (attr.value as any)[k];
-                        if (v !== null && typeof v !== 'object' && !seen.has(k)) {
-                          normalized.push({ name: k, value: v });
-                          seen.add(k);
-                        } else if (!seen.has(k)) {
-                          // If it's non-primitive, represent it as a nested object attribute
-                          normalized.push({ name: k, value: v });
-                          seen.add(k);
-                        }
+              {(() => {
+                const normalized: XmlAttribute[] = [];
+                const seen = new Set<string>();
+                for (const attr of element.attributes) {
+                  if (attr.name === 'attributes' && attr.value && typeof attr.value === 'object' && !Array.isArray(attr.value)) {
+                    for (const k of Object.keys(attr.value)) {
+                      const v = (attr.value as any)[k];
+                      if (v !== null && typeof v !== 'object' && !seen.has(k)) {
+                        normalized.push({ name: k, value: v });
+                        seen.add(k);
+                      } else if (!seen.has(k)) {
+                        normalized.push({ name: k, value: v });
+                        seen.add(k);
                       }
-                    } else if (!seen.has(attr.name)) {
-                      normalized.push(attr);
-                      seen.add(attr.name);
                     }
+                  } else if (!seen.has(attr.name)) {
+                    normalized.push(attr);
+                    seen.add(attr.name);
                   }
+                }
 
-                  const presentNames = new Set(normalized.map((a) => a.name));
+                const presentNames = new Set(normalized.map((a) => a.name));
+                let schemaAttrs: any[] = [];
+                if (schemaNode?.attributes) {
+                  schemaAttrs = schemaNode.attributes;
+                } else if (compiledSchema && schemaNode?.elementType) {
+                  const typeAttrs = getTypeAttributes(compiledSchema, schemaNode.elementType);
+                  schemaAttrs = typeAttrs || [];
+                }
 
-                  // Filter out xmlns and id attributes - they should be hidden/readonly
-                  const editableAttrs = normalized.filter((a) => a.name !== 'xmlns' && a.name !== 'id');
+                for (const schemaAttr of schemaAttrs) {
+                  if (schemaAttr.use === 'required' && !presentNames.has(schemaAttr.name) && schemaAttr.name !== 'xmlns') {
+                    normalized.push({ name: schemaAttr.name, value: schemaAttr.default || schemaAttr.fixed || '' });
+                    presentNames.add(schemaAttr.name);
+                  }
+                }
 
-                  return (
-                    <>
-                      {editableAttrs.map((attr) => (
-                    <div key={attr.name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {
-                        (() => {
-                          const inputId = `xml-attr-input-${sanitize(element.tagName)}-${sanitize(attr.name)}`;
+                const editableAttrs = normalized.filter((a) => a.name !== 'xmlns');
+                const triggerNames = new Set<string>();
+                for (const schemaAttr of schemaAttrs) {
+                  const attrName = String(schemaAttr?.name || '').trim();
+                  if (!attrName || attrName === 'xmlns' || presentNames.has(attrName)) continue;
+                  if (schemaAttr.use === 'prohibited') continue;
+                  triggerNames.add(attrName);
+                }
+                for (const name of suggestedAttrNames) {
+                  if (name && name !== 'xmlns' && !presentNames.has(name) && !schemaAttrs.some((schemaAttr) => String(schemaAttr?.name || '') === name && schemaAttr.use === 'prohibited')) {
+                    triggerNames.add(name);
+                  }
+                }
+                const availableAttributeTriggers = [...triggerNames].sort();
+
+                return (
+                  <>
+                    {(() => {
+                      const triggerNames = new Set<string>(availableAttributeTriggers);
+                      editableAttrs.forEach((attr) => triggerNames.add(attr.name));
+                      const sortedTriggerNames = [...triggerNames].sort();
+                      const schemaUseByName = new Map<string, 'required' | 'optional' | 'prohibited'>();
+                      schemaAttrs.forEach((sa) => {
+                        if (sa?.name) schemaUseByName.set(String(sa.name), sa.use || 'optional');
+                      });
+                      return sortedTriggerNames.length > 0 ? (
+                      <div className={styles.attributeTriggerRow} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                        {sortedTriggerNames.map((name) => {
+                          const isPresent = editableAttrs.some((a) => a.name === name);
+                          const isRequired = schemaUseByName.get(name) === 'required';
+                          const canAdd = !isPresent;
+                          const canRemove = isPresent && !isRequired;
+
                           return (
-                            <label htmlFor={inputId} className={styles.label} style={{ minWidth: 100 }}>{attr.name}:</label>
-                          );
-                        })()
-                      }
-                      {typeof attr.value === 'object' ? (
-                        <textarea className={styles.input} readOnly value={JSON.stringify(attr.value, null, 2)} style={{ flex: 1, maxWidth: 400, minHeight: 40 }} />
-                      ) : (
-                        (() => {
-                          // Use compiled schema for efficient type/enumeration lookup
-                          let enumerations: string[] = [];
-                          let facets: ValidationFacets | undefined = undefined;
-                          let attrType: string | undefined;
-                          
-                          // Strategy 1: Try schemaNode first (attributes list from schema)
-                          if (schemaNode?.attributes) {
-                            const attrDef = schemaNode.attributes.find((a) => a.name === attr.name);
-                            if (attrDef?.type) {
-                              attrType = attrDef.type;
-                            }
-                          }
-                          
-                          // Strategy 2: Look up element type in compiledSchema (forward-only lookup)
-                          // This works because schemaNode.elementType is now properly populated
-                          if (!attrType && compiledSchema && schemaNode?.elementType) {
-                            // Get attributes for this element's type from compiled schema
-                            const elementTypeAttrs = getTypeAttributes(compiledSchema, schemaNode.elementType);
-                            if (elementTypeAttrs) {
-                              const attrDef = elementTypeAttrs.find((a: any) => a.name === attr.name);
-                              if (attrDef?.type) {
-                                attrType = attrDef.type;
-                              }
-                            }
-                          }
-                          
-                          // Now look up enumerations and facets for the attribute type
-                          if (attrType && compiledSchema) {
-                            enumerations = getAttributeEnumerations(compiledSchema, attrType);
-                            facets = getAttributeFacets(compiledSchema, attrType);
-                          }
-                          
-                          // Infer input type
-                          const mapAttrType = (typeName: string | null) => {
-                            if (!typeName) return null;
-                            const t = String(typeName).toLowerCase();
-                            if (t.includes('boolean')) return 'checkbox';
-                            if (t.includes('int') || t.includes('decimal') || t.includes('double') || t.includes('float') || t.includes('integer') || t.includes('number')) return 'number';
-                            if (t.includes('date') || t.includes('time')) return 'date';
-                            if (t.includes('anyuri') || t.includes('uri') || t.includes('url')) return 'url';
-                            if (t.includes('email')) return 'email';
-                            return 'text';
-                          };
-                          
-                          const xsdMapped = mapAttrType(attrType || null);
-                          const inputType = xsdMapped || detectAttributeInputType(attr.name, attr.value);
-                          const validationAttrs = facetsToInputAttrs(facets);
-                          const validationHint = facetsToHint(facets);
-                          
-                          if (enumerations.length > 0) {
-                            // Render select control for enumerated values
-                            return (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                                <select
-                                  id={`xml-attr-input-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
-                                  data-testid={`xml-attr-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
-                                  className={styles.input}
-                                  value={String(attr.value ?? '')}
-                                  onChange={(e) => handleAttributeChange(attr.name, e.target.value)}
-                                  style={{ flex: 1, maxWidth: 200 }}
-                                >
-                                  <option value="">-- Select a value --</option>
-                                  {enumerations.map((option) => (
-                                    <option key={option} value={option}>{option}</option>
-                                  ))}
-                                </select>
-                                {validationHint && (
-                                  <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{validationHint}</div>
-                                )}
-                              </div>
-                            );
-                          }
-                          
-                          if (inputType === 'checkbox') {
-                            const checked = String(attr.value).toLowerCase() === 'true' || attr.value === true;
-                            return (
-                              <input
-                                id={`xml-attr-input-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
-                                data-testid={`xml-attr-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
-                                className={styles.input}
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(e) => handleAttributeChange(attr.name, e.target.checked ? 'true' : 'false')}
-                              />
-                            );
-                          }
-                          return (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                              <input
-                                id={`xml-attr-input-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
-                                data-testid={`xml-attr-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
-                                className={styles.input}
-                                type={inputType}
-                                value={String(attr.value ?? '')}
-                                onChange={(e) => {
-                                  const v = inputType === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value;
-                                  handleAttributeChange(attr.name, v as any);
-                                }}
-                                style={{ flex: 1, maxWidth: 200 }}
-                                {...validationAttrs}
-                              />
-                              {validationHint && (
-                                <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{validationHint}</div>
-                              )}
-                            </div>
-                          );
-                        })()
-                      )}
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={() => handleRemoveAttribute(attr.name)}
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              cursor: 'pointer',
-                              padding: 0,
-                              color: '#999',
-                            }}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>Remove attribute</TooltipContent>
-                      </Tooltip>
-                    </div>
-                      ))}
-
-                      {suggestedAttrNames.filter((name) => !presentNames.has(name) && name !== 'xmlns' && name !== 'id').length > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-                          {suggestedAttrNames
-                            .filter((name) => !presentNames.has(name) && name !== 'xmlns' && name !== 'id')
-                            .map((name) => (
+                            <div key={`attr-trigger-${name}`} style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
                               <button
-                                key={name}
                                 type="button"
                                 onClick={() => handleAttributeChange(name, '')}
-                                title={`Add ${name} attribute`}
+                                disabled={!canAdd}
+                                title={canAdd ? `Add ${name} attribute` : `${name} attribute already present`}
                                 style={{
                                   padding: '3px 8px',
                                   borderRadius: 12,
                                   border: '1px solid #ddd',
-                                  backgroundColor: '#f9f9f9',
-                                  cursor: 'pointer',
+                                  backgroundColor: canAdd ? '#f9f9f9' : '#f3f4f6',
+                                  cursor: canAdd ? 'pointer' : 'not-allowed',
                                   fontSize: 11,
                                   fontWeight: 500,
-                                  color: '#666',
+                                  color: canAdd ? '#666' : '#9ca3af',
                                   display: 'flex',
                                   alignItems: 'center',
                                   gap: 4,
                                   whiteSpace: 'nowrap',
+                                  opacity: canAdd ? 1 : 0.7,
                                 }}
                               >
                                 <span>+</span>
                                 <span>{name}</span>
                               </button>
-                            ))}
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
+                              {canRemove && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveAttribute(name)}
+                                      title={`Remove ${name}`}
+                                      style={{
+                                        padding: '3px 7px',
+                                        borderRadius: 12,
+                                        border: '1px solid #fecaca',
+                                        backgroundColor: '#fef2f2',
+                                        cursor: 'pointer',
+                                        color: '#b91c1c',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                      }}
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>{`Remove ${name}`}</TooltipContent>
+                                </Tooltip>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      ) : null;
+                    })()}
+
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'flex-start' }}>
+                      {editableAttrs.map((attr) => {
+                        let isRequired = false;
+                        if (schemaNode?.attributes) {
+                          const attrDef = schemaNode.attributes.find((a) => a.name === attr.name);
+                          isRequired = attrDef?.use === 'required';
+                        }
+                        if (!isRequired && compiledSchema && schemaNode?.elementType) {
+                          const elementTypeAttrs = getTypeAttributes(compiledSchema, schemaNode.elementType);
+                          if (elementTypeAttrs) {
+                            const attrDef = elementTypeAttrs.find((a: any) => a.name === attr.name);
+                            isRequired = attrDef?.use === 'required';
+                          }
+                        }
+
+                        return (
+                          <div key={attr.name} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 'fit-content', flexShrink: 0 }}>
+                            {(() => {
+                              const inputId = `xml-attr-input-${sanitize(element.tagName)}-${sanitize(attr.name)}`;
+                              return (
+                                <label htmlFor={inputId} className={styles.label} style={{ minWidth: 100 }}>{attr.name}:</label>
+                              );
+                            })()}
+                            {typeof attr.value === 'object' ? (
+                              <textarea className={styles.input} readOnly value={JSON.stringify(attr.value, null, 2)} style={{ flex: 1, maxWidth: 400, minHeight: 40 }} />
+                            ) : (
+                              (() => {
+                                let enumerations: string[] = [];
+                                let facets: ValidationFacets | undefined = undefined;
+                                let attrType: string | undefined;
+                                if (schemaNode?.attributes) {
+                                  const attrDef = schemaNode.attributes.find((a) => a.name === attr.name);
+                                  if (attrDef?.type) attrType = attrDef.type;
+                                }
+                                if (!attrType && compiledSchema && schemaNode?.elementType) {
+                                  const elementTypeAttrs = getTypeAttributes(compiledSchema, schemaNode.elementType);
+                                  if (elementTypeAttrs) {
+                                    const attrDef = elementTypeAttrs.find((a: any) => a.name === attr.name);
+                                    if (attrDef?.type) attrType = attrDef.type;
+                                  }
+                                }
+                                if (attrType && compiledSchema) {
+                                  enumerations = getAttributeEnumerations(compiledSchema, attrType);
+                                  facets = getAttributeFacets(compiledSchema, attrType);
+                                }
+
+                                const mapAttrType = (typeName: string | null) => {
+                                  if (!typeName) return null;
+                                  const t = String(typeName).toLowerCase();
+                                  if (t.includes('boolean')) return 'checkbox';
+                                  if (t.includes('int') || t.includes('decimal') || t.includes('double') || t.includes('float') || t.includes('integer') || t.includes('number')) return 'number';
+                                  if (t.includes('date') || t.includes('time')) return 'date';
+                                  if (t.includes('anyuri') || t.includes('uri') || t.includes('url')) return 'url';
+                                  if (t.includes('email')) return 'email';
+                                  return 'text';
+                                };
+
+                                const xsdMapped = mapAttrType(attrType || null);
+                                const inputType = xsdMapped || detectAttributeInputType(attr.name, attr.value);
+                                const validationAttrs = facetsToInputAttrs(facets);
+                                const validationHint = facetsToHint(facets);
+
+                                if (enumerations.length > 0) {
+                                  return (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                                      <select
+                                        id={`xml-attr-input-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
+                                        data-testid={`xml-attr-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
+                                        className={styles.input}
+                                        value={String(attr.value ?? '')}
+                                        onChange={(e) => handleAttributeChange(attr.name, e.target.value)}
+                                        style={{ flex: 1, maxWidth: 200 }}
+                                      >
+                                        <option value="">-- Select a value --</option>
+                                        {enumerations.map((option) => (
+                                          <option key={option} value={option}>{option}</option>
+                                        ))}
+                                      </select>
+                                      {validationHint && (
+                                        <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{validationHint}</div>
+                                      )}
+                                    </div>
+                                  );
+                                }
+
+                                if (inputType === 'checkbox') {
+                                  const checked = String(attr.value).toLowerCase() === 'true' || attr.value === true;
+                                  return (
+                                    <input
+                                      id={`xml-attr-input-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
+                                      data-testid={`xml-attr-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
+                                      className={styles.input}
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={(e) => handleAttributeChange(attr.name, e.target.checked ? 'true' : 'false')}
+                                    />
+                                  );
+                                }
+
+                                return (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                                    <input
+                                      id={`xml-attr-input-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
+                                      data-testid={`xml-attr-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
+                                      className={styles.input}
+                                      type={inputType}
+                                      value={String(attr.value ?? '')}
+                                      onChange={(e) => {
+                                        const v = inputType === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value;
+                                        handleAttributeChange(attr.name, v as any);
+                                      }}
+                                      style={{ flex: 1, maxWidth: 200 }}
+                                      {...validationAttrs}
+                                    />
+                                    {validationHint && (
+                                      <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{validationHint}</div>
+                                    )}
+                                  </div>
+                                );
+                              })()
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
+
 
           {/* Add Attribute button (when no attributes yet) */}
           {!hasAttributes && !hasInferredEditor && (
             <div style={{ marginBottom: 12 }}>
-              {suggestedAttrNames.filter((name) => name !== 'xmlns' && name !== 'id').length > 0 ? (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {suggestedAttrNames.filter((name) => name !== 'xmlns' && name !== 'id').map((name) => (
-                    <button
-                      key={name}
-                      type="button"
-                      onClick={() => handleAttributeChange(name, '')}
-                      title={`Add ${name} attribute`}
-                      style={{
-                        padding: '3px 8px',
-                        borderRadius: 12,
-                        border: '1px solid #ddd',
-                        backgroundColor: '#f9f9f9',
-                        cursor: 'pointer',
-                        fontSize: 11,
-                        fontWeight: 500,
-                        color: '#666',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      <span>+</span>
-                      <span>{name}</span>
-                    </button>
-                  ))}
-                  {canAddCustomAttribute ? (
-                    <button className={styles.addButton} onClick={handleAddAttribute}>
-                      <Plus size={14} />
-                      <span style={{ marginLeft: 6 }}>Custom</span>
-                    </button>
-                  ) : null}
-                </div>
-              ) : (
-                canAddCustomAttribute ? (
-                  <button className={styles.addButton} onClick={handleAddAttribute}>
-                    <Plus size={14} />
-                    <span style={{ marginLeft: 6 }}>Add Attribute</span>
-                  </button>
-                ) : null
-              )}
+              {(() => {
+                const names = new Set<string>();
+                for (const schemaAttr of schemaNode?.attributes || []) {
+                  const attrName = String(schemaAttr?.name || '').trim();
+                  if (!attrName || attrName === 'xmlns' || schemaAttr.use === 'prohibited') continue;
+                  names.add(attrName);
+                }
+                for (const name of suggestedAttrNames) {
+                  if (name && name !== 'xmlns' && !(schemaNode?.attributes || []).some((schemaAttr) => String(schemaAttr?.name || '') === name && schemaAttr.use === 'prohibited')) {
+                    names.add(name);
+                  }
+                }
+                const availableTriggers = [...names].sort();
+
+                return (
+                  <>
+                    {availableTriggers.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                        {availableTriggers.map((name) => (
+                          <button
+                            key={name}
+                            type="button"
+                            onClick={() => handleAttributeChange(name, '')}
+                            title={`Add ${name} attribute`}
+                            style={{
+                              padding: '3px 8px',
+                              borderRadius: 12,
+                              border: '1px solid #ddd',
+                              backgroundColor: '#f9f9f9',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                              fontWeight: 500,
+                              color: '#666',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            <span>+</span>
+                            <span>{name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {canAddCustomAttribute ? (
+                      <button className={styles.addButton} onClick={handleAddAttribute}>
+                        <Plus size={14} />
+                        <span style={{ marginLeft: 6 }}>Add Attribute</span>
+                      </button>
+                    ) : null}
+                  </>
+                );
+              })()}
             </div>
           )}
 
           {/* Children section */}
-          {hasChildren && (
+          {(hasChildren || hasSchemaChildren) && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button className={styles.addButton}
-                      onClick={() => {
-                        const newElementName = prompt('Enter element name:');
-                        if (newElementName && newElementName.trim()) {
-                          onUpdateValue(path, (current) => {
-                            const updated = { ...current };
-                            const newElement = { _text: '' };
-                            if (updated[newElementName]) {
-                              if (!Array.isArray(updated[newElementName])) {
-                                updated[newElementName] = [updated[newElementName]];
+                {!hasInferredEditor && schemaNode?.children && schemaNode.children.length > 0 ? (
+                  <div className={styles.elementTriggerRow} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                    {schemaNode.children.map((childSchemaNode, triggerIndex) => {
+                      const childElementName = childSchemaNode.label || childSchemaNode.tagName || `child-${triggerIndex}`;
+                      const count = getChildOccurrenceCount(value, childElementName);
+                      const maxOccurs = getChildMaxOccurs(childSchemaNode);
+                      const minOccurs = getChildMinOccurs(childSchemaNode);
+                      const choiceGroupInfo = getChoiceGroupForChild(childElementName);
+                      const choiceGroupData = choiceGroupInfo ? choiceInfo[choiceGroupInfo.groupIndex] : null;
+                      const selectedChoiceName = choiceGroupData?.selectedOption || null;
+                      const isBlockedByChoice = Boolean(selectedChoiceName && selectedChoiceName !== childElementName);
+                      const isBelowMinimum = (count < minOccurs) && !isBlockedByChoice;
+                      const isRequiredSingleton = minOccurs > 0 && maxOccurs === 1;
+                      if (isRequiredSingleton && !isBelowMinimum) return null;
+                      const canAdd = !isBlockedByChoice && (count < maxOccurs);
+                      const maxLabel = Number.isFinite(maxOccurs) ? String(maxOccurs) : '∞';
+                      const addTitle = isBlockedByChoice
+                        ? `Choice already satisfied by ${selectedChoiceName}`
+                        : (canAdd ? `Add ${childElementName} (${count}/${maxLabel})` : `${childElementName} reached maxOccurs (${maxLabel})`);
+
+                      return (
+                        <div key={`trigger-${childElementName}-${triggerIndex}`} style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => addChildOccurrence(childElementName, childSchemaNode)}
+                            disabled={!canAdd}
+                            title={addTitle}
+                            style={{
+                              padding: '3px 8px',
+                              borderRadius: 12,
+                              border: isBelowMinimum ? '1px solid #f59e0b' : '1px solid #ddd',
+                              backgroundColor: isBelowMinimum ? '#fffbeb' : (canAdd ? '#f9f9f9' : '#f3f4f6'),
+                              cursor: canAdd ? 'pointer' : 'not-allowed',
+                              fontSize: 11,
+                              fontWeight: 500,
+                              color: isBelowMinimum ? '#92400e' : (canAdd ? '#666' : '#9ca3af'),
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              whiteSpace: 'nowrap',
+                              opacity: canAdd ? 1 : 0.7,
+                            }}
+                          >
+                            <span>+</span>
+                            <span>{childElementName}</span>
+                            {isBelowMinimum && <span title="Required until minimum occurrences are met">!</span>}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button className={styles.addButton}
+                        onClick={() => {
+                          const newElementName = prompt('Enter element name:');
+                          if (newElementName && newElementName.trim()) {
+                            onUpdateValue(path, (current) => {
+                              const updated = { ...current };
+                              const newElement = { _text: '' };
+                              if (updated[newElementName]) {
+                                if (!Array.isArray(updated[newElementName])) {
+                                  updated[newElementName] = [updated[newElementName]];
+                                }
+                                updated[newElementName].push(newElement);
+                              } else {
+                                updated[newElementName] = newElement;
                               }
-                              updated[newElementName].push(newElement);
-                            } else {
-                              updated[newElementName] = newElement;
-                            }
-                            return updated;
-                          });
-                        }
-                      }}
-                      title="Add new child element"
-                    >
-                      <Plus size={12} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>Add child element</TooltipContent>
-                </Tooltip>
+                              return updated;
+                            });
+                          }
+                        }}
+                        title="Add new child element"
+                      >
+                        <Plus size={12} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Add child element</TooltipContent>
+                  </Tooltip>
+                )}
               </div>
               {/* Walk the compiled schema structure, use instance data for values */}
               {(() => {
@@ -1505,6 +1894,7 @@ function XmlElementNode({
                   
                   // Handle both single and multiple occurrences
                   if (Array.isArray(effectiveChildInstanceData)) {
+                    const childMinOccurs = getChildMinOccurs(childSchemaNode);
                     // Render each array element
                     // For choice groups, show the dropdown before the first element
                     const arrayItems = effectiveChildInstanceData.map((child, arrayIndex) => (
@@ -1522,36 +1912,39 @@ function XmlElementNode({
                           schemaNode={childSchemaNode}
                           compiledSchema={compiledSchema}
                         />
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              onClick={() => {
-                                onUpdateValue(path, (current) => {
-                                  const updated = { ...current };
-                                  if (Array.isArray(updated[childElementName])) {
-                                    updated[childElementName].splice(arrayIndex, 1);
-                                    if (updated[childElementName].length === 0) {
-                                      delete updated[childElementName];
-                                    } else if (updated[childElementName].length === 1) {
-                                      updated[childElementName] = updated[childElementName][0];
+                        {effectiveChildInstanceData.length > childMinOccurs && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => {
+                                  onUpdateValue(path, (current) => {
+                                    const updated = { ...current };
+                                    if (Array.isArray(updated[childElementName])) {
+                                      updated[childElementName].splice(arrayIndex, 1);
+                                      if (updated[childElementName].length === 0) {
+                                        delete updated[childElementName];
+                                      } else if (updated[childElementName].length === 1) {
+                                        updated[childElementName] = updated[childElementName][0];
+                                      }
                                     }
-                                  }
-                                  return updated;
-                                });
-                              }}
-                              className={styles.removeButton}
-                              style={{ position: 'absolute', right: 0, top: 8 }}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>Remove element</TooltipContent>
-                        </Tooltip>
+                                    return updated;
+                                  });
+                                }}
+                                className={styles.removeButton}
+                                style={{ position: 'absolute', right: 0, top: 8 }}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Remove element</TooltipContent>
+                          </Tooltip>
+                        )}
                       </div>
                     ));
                     
                     // If this element is the currently selected option in a choice group, wrap array items with choice dropdown
                     if (choiceGroupData && choiceGroupData.selectedOption === childElementName) {
+                      const showChoiceRemove = canRemoveChoiceSelection(choiceGroupData);
                       return (
                         <div key={`choice-${index}`}>
                           {/* Choice Selector Dropdown */}
@@ -1605,6 +1998,21 @@ function XmlElementNode({
                                 </option>
                               ))}
                             </select>
+                            {showChoiceRemove && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeChoiceSelection(choiceGroupData)}
+                                    className={styles.removeButton}
+                                    title="Remove selected choice element"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent>Remove selected choice element</TooltipContent>
+                              </Tooltip>
+                            )}
                           </div>
                           
                           {/* Array items */}
@@ -1631,6 +2039,7 @@ function XmlElementNode({
                     // Render choice dropdown if this element is the currently selected option in a choice group
                     // Show dropdown for whichever element is selected, not just the first in schema order
                     if (choiceGroupData && choiceGroupData.selectedOption === childElementName) {
+                      const showChoiceRemove = canRemoveChoiceSelection(choiceGroupData);
                       return (
                         <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           {/* Choice Selector Dropdown as Label */}
@@ -1733,6 +2142,21 @@ function XmlElementNode({
                               fontSize: 12,
                             }}
                           />
+                          {showChoiceRemove && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() => removeChoiceSelection(choiceGroupData)}
+                                  className={styles.removeButton}
+                                  title="Remove selected choice element"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>Remove selected choice element</TooltipContent>
+                            </Tooltip>
+                          )}
                         </div>
                       );
                     }
@@ -1764,6 +2188,20 @@ function XmlElementNode({
                             fontSize: 12,
                           }}
                         />
+                        {canRemoveChildOccurrence(childElementName, childSchemaNode) && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => removeChildOccurrence(childElementName, childSchemaNode)}
+                                className={styles.removeButton}
+                                title="Remove element"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Remove element</TooltipContent>
+                          </Tooltip>
+                        )}
                       </div>
                     );
                   } else if (elementToRender) {
@@ -1771,6 +2209,7 @@ function XmlElementNode({
                     
                     // Render choice dropdown if this element is the currently selected option in a choice group
                     if (choiceGroupData && choiceGroupData.selectedOption === childElementName) {
+                      const showChoiceRemove = canRemoveChoiceSelection(choiceGroupData);
                       return (
                         <div key={index}>
                           {/* Choice selector as a dropdown label above the element */}
@@ -1824,6 +2263,21 @@ function XmlElementNode({
                                 </option>
                               ))}
                             </select>
+                            {showChoiceRemove && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeChoiceSelection(choiceGroupData)}
+                                    className={styles.removeButton}
+                                    title="Remove selected choice element"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent>Remove selected choice element</TooltipContent>
+                              </Tooltip>
+                            )}
                           </div>
                           
                           {/* Element Node */}
@@ -1861,6 +2315,21 @@ function XmlElementNode({
                           schemaNode={childSchemaNode}
                           compiledSchema={compiledSchema}
                         />
+                        {canRemoveChildOccurrence(childElementName, childSchemaNode) && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => removeChildOccurrence(childElementName, childSchemaNode)}
+                                className={styles.removeButton}
+                                style={{ position: 'absolute', right: 0, top: 8 }}
+                                title="Remove element"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Remove element</TooltipContent>
+                          </Tooltip>
+                        )}
                       </div>
                     );
                   }

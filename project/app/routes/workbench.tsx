@@ -119,7 +119,8 @@ function renamePropertyInObject(obj: any, oldName: string, newName: string) {
 async function generateDefaultInstanceForSchema(
   schema: Record<string, unknown> | string,
   lang: MarkupLanguage,
-  rawSchemaText?: string
+  rawSchemaText?: string,
+  rootElementName?: string
 ): Promise<{ instanceData: unknown; xmlInput: string | null }> {
   // For JSON/YAML schemas, use the synchronous generator
   if (lang !== 'xml') {
@@ -139,7 +140,10 @@ async function generateDefaultInstanceForSchema(
     const response = await fetch('/api/schema/default-instance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ schema: schemaStr }),
+      body: JSON.stringify({
+        schema: schemaStr,
+        rootElementName,
+      }),
     });
 
     if (!response.ok) {
@@ -168,6 +172,18 @@ async function generateDefaultInstanceForSchema(
     console.warn('Error generating XSD default instance:', err);
     return { instanceData: null, xmlInput: null };
   }
+}
+
+function getSelectedXmlRootElementName(instance: unknown): string | undefined {
+  if (!instance || typeof instance !== 'object' || Array.isArray(instance)) {
+    return undefined;
+  }
+
+  const keys = Object.keys(instance as Record<string, unknown>).filter(
+    (key) => !key.startsWith('@') && !key.startsWith('_')
+  );
+
+  return keys.length === 1 ? keys[0] : undefined;
 }
 
 export default function Workbench() {
@@ -891,6 +907,23 @@ export default function Workbench() {
     URL.revokeObjectURL(url);
   };
 
+  const handleFormatXmlInput = () => {
+    if (markupLanguage !== 'xml') return;
+    if (!jsonInput.trim()) return;
+
+    try {
+      const parsed = parseMarkup(jsonInput, 'xml');
+      const formatted = serializeMarkup(parsed, 'xml');
+      setJsonInput(formatted);
+      setInstanceData(parsed);
+      setError(null);
+      setSchemaDetectionWarning(detectXsdSchema(formatted));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Invalid XML';
+      setError(`Cannot format XML: ${msg}`);
+    }
+  };
+
   const handleCreateNewSchema = async () => {
     let newSchema: any;
 
@@ -1101,37 +1134,24 @@ export default function Workbench() {
         return;
       }
 
-      // Call the backend API to generate the default instance
-      const response = await fetch('/api/schema/default-instance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ schema: schemaStr }),
-      });
+      const selectedRootElementName = getSelectedXmlRootElementName(instanceData);
+      const result = await generateDefaultInstanceForSchema(
+        state.source as Record<string, unknown>,
+        'xml',
+        schemaStr,
+        selectedRootElementName
+      );
 
-      if (!response.ok) {
-        const text = await response.text();
-        toast.error(`Failed to generate instance: ${text || response.statusText}`);
+      if (!result.xmlInput || result.instanceData === null || result.instanceData === undefined) {
+        toast.error('Failed to generate instance');
         return;
       }
 
-      const result = await response.json();
+      // Set both the form model and raw XML input.
+      setInstanceData(result.instanceData);
+      setJsonInput(result.xmlInput);
       
-      // Parse the returned XML string back into object form and set both the form and input
-      try {
-        const parsedInstance = parseMarkup(result.xml, 'xml');
-        setInstanceData(parsedInstance);
-        setJsonInput(result.xml);
-      } catch (err) {
-        toast.error(`Failed to parse generated instance: ${err instanceof Error ? err.message : String(err)}`);
-        return;
-      }
-      
-      // Show warnings if any
-      if (result.warnings && result.warnings.length > 0) {
-        toast.warning(`Generated with ${result.warnings.length} warning(s)`, { duration: 5000 });
-      } else {
-        toast.success('Default instance generated', { duration: 3000 });
-      }
+      toast.success('Default instance generated', { duration: 3000 });
     } catch (err) {
       toast.error(`Error generating instance: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -2098,13 +2118,18 @@ export default function Workbench() {
               <div className={styles.panelHeader}>
                 <h2 className={styles.panelTitle}>{markupLabel[markupLanguage]} Input</h2>
               </div>
-              <div style={{ marginTop: 12 }}>
+              <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8, height: '100%', minHeight: 0 }}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
                   <label style={{ fontSize: 13, color: '#666' }}>
                     View:
                   </label>
                   <button className={styles.controlButton} onClick={() => setCompactJsonView(false)} disabled={compactJsonView}>Full</button>
                   <button className={styles.controlButton} onClick={() => setCompactJsonView(true)} disabled={!compactJsonView}>Compact</button>
+                  {markupLanguage === 'xml' && (
+                    <button className={styles.controlButton} onClick={handleFormatXmlInput} title="Format XML">
+                      Format XML
+                    </button>
+                  )}
                 </div>
                 {compactJsonView ? (
                   <div className={`${styles.jsonInput} ${error ? styles.error : ""}`} style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', padding: 12, borderRadius: 6, width: '100%', height: '100%', minHeight: 240, boxSizing: 'border-box', overflow: 'auto', color: 'inherit' }}>
@@ -2114,31 +2139,54 @@ export default function Workbench() {
                     </div>
                   </div>
                 ) : (
-                  <textarea
-                    key={markupLanguage}
-                    className={`${styles.jsonInput} ${error ? styles.error : ""}`}
-                    value={jsonInput}
-                    onChange={(e) => {
-                      setJsonInput(e.target.value);
-                      setError(null);
-                      // Check if user is pasting an XSD schema into the instance input
-                      if (detectXsdSchema(e.target.value)) {
-                        setSchemaDetectionWarning(true);
-                      } else {
-                        setSchemaDetectionWarning(false);
-                      }
-                      // Try to parse and update instance form if valid
-                      try {
-                        const parsed = parseMarkup(e.target.value, markupLanguage);
-                        setInstanceData(parsed);
-                      } catch {
-                        // ignore invalid
-                      }
-                    }}
-                    placeholder={`Paste your ${markupLabel[markupLanguage]} here...`}
-                    spellCheck={false}
-                    style={{ width: '100%', height: '100%', minHeight: 240, boxSizing: 'border-box' }}
-                  />
+                  markupLanguage === 'xml' ? (
+                    <div style={{ flex: 1, minHeight: 0, height: '100%' }}>
+                      <SchemaSourceEditor
+                        schema={null}
+                        onChange={() => {
+                          // no-op: XML Input edits are driven by raw text + parsed instance callbacks
+                        }}
+                        schemaLanguage="xml"
+                        textValue={jsonInput}
+                        onTextChange={(newText) => {
+                          setJsonInput(newText);
+                          setError(null);
+                          setSchemaDetectionWarning(detectXsdSchema(newText));
+                        }}
+                        onParsedChange={(parsed) => {
+                          setInstanceData(parsed);
+                        }}
+                        placeholder={`Paste your ${markupLabel[markupLanguage]} here...`}
+                        theme="instance"
+                      />
+                    </div>
+                  ) : (
+                    <textarea
+                      key={markupLanguage}
+                      className={`${styles.jsonInput} ${error ? styles.error : ""}`}
+                      value={jsonInput}
+                      onChange={(e) => {
+                        setJsonInput(e.target.value);
+                        setError(null);
+                        // Check if user is pasting an XSD schema into the instance input
+                        if (detectXsdSchema(e.target.value)) {
+                          setSchemaDetectionWarning(true);
+                        } else {
+                          setSchemaDetectionWarning(false);
+                        }
+                        // Try to parse and update instance form if valid
+                        try {
+                          const parsed = parseMarkup(e.target.value, markupLanguage);
+                          setInstanceData(parsed);
+                        } catch {
+                          // ignore invalid
+                        }
+                      }}
+                      placeholder={`Paste your ${markupLabel[markupLanguage]} here...`}
+                      spellCheck={false}
+                      style={{ width: '100%', height: '100%', minHeight: 240, boxSizing: 'border-box' }}
+                    />
+                  )
                 )}
               </div>
               {error && <div className={styles.errorMessage}>{error}</div>}
@@ -2166,19 +2214,21 @@ export default function Workbench() {
             </div>
             {markupLanguage === 'xml' ? (
               // XML Instance Form - render raw XML documents
-              state.source ? (
+              state.source && instanceData ? (
                 <div className={styles.editorContainer}>
                   <XmlInstanceForm
                     schema={state.source as any}
-                    value={instanceData ?? undefined}
+                    value={instanceData}
                     onChange={(newData) => {
                       setInstanceData(newData);
                     }}
                     rootSchema={state.source as any}
                   />
                 </div>
-              ) : (
+              ) : !state.source ? (
                 <div className={styles.emptyState}>Load an XML schema to edit instance data</div>
+              ) : (
+                <div className={styles.emptyState}>Paste XML instance data in the "XML Input" tab to view and edit it here</div>
               )
             ) : (
               // JSON/YAML Instance Form
