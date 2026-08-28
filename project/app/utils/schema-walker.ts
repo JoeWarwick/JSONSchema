@@ -78,6 +78,7 @@ export interface SchemaContext {
   rootSchema: any; // Original schema object (reference only; compiledSchema is what gets walked)
   compiledSchema: CompiledSchema; // Pre-compiled schema for efficient type lookups (required)
   visitedTypes: Set<string>; // Type names being walked (circular ref detection)
+  typeName?: string; // Specific type name to walk (if not provided, defaults to first element/type)
   depth: number;
   maxDepth: number;
   path: string[]; // Current path in tree
@@ -620,21 +621,23 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
   }
 
   // Only walk the compiled schema, never the raw schema
-  let typeName: string | undefined;
+  let typeName: string | undefined = context.typeName; // Use provided typeName if available
   
-  // First, try to get the root type from global elements
-  const elementNames = compiledSchema.getAllElementNames();
-  if (elementNames.length > 0) {
-    const firstElem = compiledSchema.getElement(elementNames[0]);
-    if (firstElem) {
-      const elemAttrs = getXmlAttrs(firstElem);
-      if (elemAttrs.type) {
-        typeName = elemAttrs.type;
+  // If no typeName provided, try to get the root type from global elements
+  if (!typeName) {
+    const elementNames = compiledSchema.getAllElementNames();
+    if (elementNames.length > 0) {
+      const firstElem = compiledSchema.getElement(elementNames[0]);
+      if (firstElem) {
+        const elemAttrs = getXmlAttrs(firstElem);
+        if (elemAttrs.type) {
+          typeName = elemAttrs.type;
+        }
       }
     }
   }
   
-  // Fall back to first type name if no global element found
+  // Fall back to first type name if no global element found and no typeName provided
   if (!typeName) {
     const allTypeNames = compiledSchema.getAllTypeNames();
     if (allTypeNames.length === 0) {
@@ -690,10 +693,23 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
 
     // Walk child elements from compiled schema
     for (const elem of resolvedType.elements) {
-      const childContext = { ...context, depth: context.depth + 1, path: [...context.path, elem.name] };
+      const childContext = {
+        ...context,
+        depth: context.depth + 1,
+        path: [...context.path, elem.name],
+        typeName: elem.type, // Pass the element's type so walkSchema knows which type to walk
+      };
       const childNode = walkSchema(compiledSchema, childContext);
+      // Preserve the element name as the label/tagName (overwrite the type name)
+      childNode.tagName = elem.name;
+      childNode.label = elem.name;
       childNode.minOccurs = elem.minOccurs;
       childNode.maxOccurs = elem.maxOccurs === 'unbounded' ? 'unbounded' : elem.maxOccurs;
+      // IMPORTANT: Transfer the compositorType from the compiled element to the child node
+      // This marks elements that are part of a choice compositor
+      if (elem.compositorType) {
+        childNode.compositorType = elem.compositorType;
+      }
       node.children.push(childNode);
     }
 

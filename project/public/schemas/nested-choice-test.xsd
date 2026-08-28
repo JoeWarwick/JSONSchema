@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="http://example.com/nested-choice-test" xmlns:tns="http://example.com/nested-choice-test" elementFormDefault="qualified">
+
+  <xs:element name="root" type="tns:RootType" />
+
+  <xs:complexType name="RootType">
+    <xs:sequence>
+      <xs:element name="name" type="xs:string" minOccurs="0" />
+      <!-- First level choice: email or phone -->
+      <xs:choice minOccurs="0">
+        <xs:element name="email" type="tns:EmailType" />
+        <xs:element name="phone" type="xs:string" />
+      </xs:choice>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Email choice with nested choice inside -->
+  <xs:complexType name="EmailType">
+    <xs:sequence>
+      <xs:element name="address" type="xs:string" />
+      <!-- Nested choice: personal or work email properties -->
+      <xs:choice minOccurs="0">
+        <xs:element name="personalEmail" type="tns:PersonalEmailType" />
+        <xs:element name="workEmail" type="tns:WorkEmailType" />
+      </xs:choice>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PersonalEmailType">
+    <xs:sequence>
+      <xs:element name="verificationDate" type="xs:date" minOccurs="0" />
+      <xs:element name="recoveryPhone" type="xs:string" minOccurs="0" />
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="WorkEmailType">
+    <xs:sequence>
+      <xs:element name="department" type="xs:string" minOccurs="0" />
+      <xs:element name="manager" type="xs:string" minOccurs="0" />
+    </xs:sequence>
+  </xs:complexType>
+
+</xs:schema>

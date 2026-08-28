@@ -106,10 +106,6 @@ test.describe('Instance Form Field Rendering', () => {
     const afterLabels = await page.locator('label').allTextContents();
     console.log(`Labels after typing: ${afterLabels.join(', ')}`);
 
-    // Debug: log the entire form content
-    const formContent = await page.locator('main').first().innerHTML();
-    console.log(`Form HTML (first 800 chars): ${formContent.substring(0, 800)}`);
-
     // The key assertion: we should still have at least 3 input fields
     // If the bug is present, some fields would render as labels instead of inputs,
     // reducing this count

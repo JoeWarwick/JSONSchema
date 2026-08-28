@@ -279,6 +279,9 @@ export class CompiledSchema {
       const compositor = container[compositorKey];
       if (!compositor) continue;
 
+      const compositorAttrs = getXmlAttrs(compositor);
+      const compositorMinOccurs = parseInt(compositorAttrs.minOccurs ?? '1', 10);
+
       const compositorType = compositorKey.replace(/^.*:/, '') as 'sequence' | 'choice' | 'all';
       if (!compiled.compositorType) {
         compiled.compositorType = compositorType;
@@ -290,15 +293,21 @@ export class CompiledSchema {
         const elemArray = Array.isArray(elements) ? elements : [elements];
         for (const elem of elemArray) {
           const attrs = getXmlAttrs(elem);
+          const declaredMinOccurs = parseInt(attrs.minOccurs ?? '1', 10);
+          const effectiveMinOccurs = compositorMinOccurs === 0 ? 0 : declaredMinOccurs;
           compiled.elements.push({
             name: attrs.name || '',
             type: attrs.type,
-            minOccurs: parseInt(attrs.minOccurs ?? '1', 10),
+            minOccurs: effectiveMinOccurs,
             maxOccurs: attrs.maxOccurs ?? '1',
             compositorType,
           });
         }
       }
+
+      // Handle nested compositors (choice within sequence, etc.)
+      // This allows proper handling of complex schema structures
+      this.extractNestedCompositorElements(compositor, compositorType, compiled);
     }
 
     // Extract attributes
@@ -315,6 +324,53 @@ export class CompiledSchema {
           fixed: attrs.fixed,
         });
       }
+    }
+  }
+
+  /**
+   * Extract nested compositor elements (choice/sequence/all within a parent compositor).
+   * This handles cases like xs:sequence containing xs:choice containing xs:element.
+   */
+  private extractNestedCompositorElements(compositor: any, parentCompositorType: 'sequence' | 'choice' | 'all', compiled: CompiledType): void {
+    if (!compositor || typeof compositor !== 'object') return;
+
+    // Look for nested choice, sequence, or all within this compositor
+    for (const nestedCompositorKey of [
+      `${this.nsPrefix}:choice`,
+      `${this.nsPrefix}:sequence`,
+      `${this.nsPrefix}:all`,
+      'choice',
+      'sequence',
+      'all',
+    ]) {
+      const nestedCompositor = compositor[nestedCompositorKey];
+      if (!nestedCompositor) continue;
+
+      const nestedCompositorAttrs = getXmlAttrs(nestedCompositor);
+      const nestedCompositorMinOccurs = parseInt(nestedCompositorAttrs.minOccurs ?? '1', 10);
+
+      const nestedCompositorType = nestedCompositorKey.replace(/^.*:/, '') as 'sequence' | 'choice' | 'all';
+      
+      // Extract elements from the nested compositor
+      const elements = nestedCompositor[`${this.nsPrefix}:element`] || nestedCompositor['element'];
+      if (elements) {
+        const elemArray = Array.isArray(elements) ? elements : [elements];
+        for (const elem of elemArray) {
+          const attrs = getXmlAttrs(elem);
+          const declaredMinOccurs = parseInt(attrs.minOccurs ?? '1', 10);
+          const effectiveMinOccurs = nestedCompositorMinOccurs === 0 ? 0 : declaredMinOccurs;
+          compiled.elements.push({
+            name: attrs.name || '',
+            type: attrs.type,
+            minOccurs: effectiveMinOccurs,
+            maxOccurs: attrs.maxOccurs ?? '1',
+            compositorType: nestedCompositorType, // Mark with the nested compositor type
+          });
+        }
+      }
+
+      // Recursively handle deeper nesting
+      this.extractNestedCompositorElements(nestedCompositor, nestedCompositorType, compiled);
     }
   }
 
@@ -539,6 +595,50 @@ export class CompiledSchema {
    */
   public getAllElementNames(): string[] {
     return Array.from(this.elementMap.keys());
+  }
+
+  /**
+   * Resolve child element data, handling wrapped values at the root level.
+   * 
+   * When the form initializes, instance values may be wrapped like { person: {...} }.
+   * This helper checks if value is wrapped and unwraps it if needed before looking up child data.
+   * 
+   * Usage:
+   *   // At root: element.tagName = "person", value = { person: { firstName: "John", ... } }
+   *   const firstNameData = compiledSchema.resolveChildData("firstName", "person", value, true);
+   *   // Returns: "John"
+   * 
+   * @param childElementName - Name of the child element to look up (e.g., "firstName")
+   * @param rootElementName - Name of the root element (e.g., "person") - only used for root level
+   * @param value - The instance data object (may be wrapped or unwrapped)
+   * @param isRootLevel - Whether we're at the root level (path.length === 0)
+   * @returns The child data value, or undefined if not found
+   */
+  public resolveChildData(
+    childElementName: string,
+    rootElementName: string | undefined,
+    value: any,
+    isRootLevel: boolean
+  ): any {
+    // Try normal lookup first
+    const result = value?.[childElementName];
+    if (result !== undefined) {
+      return result;
+    }
+
+    // If at root level and value might be wrapped, try unwrapping
+    if (isRootLevel && rootElementName && value && typeof value === 'object' && !Array.isArray(value)) {
+      // Check if value is wrapped: { person: {...} }
+      const nonAttrKeys = Object.keys(value).filter(k => !k.startsWith('@'));
+      if (nonAttrKeys.length === 1 && nonAttrKeys[0] === rootElementName) {
+        const unwrappedValue = value[rootElementName];
+        if (typeof unwrappedValue === 'object' && unwrappedValue !== null) {
+          return unwrappedValue[childElementName];
+        }
+      }
+    }
+
+    return undefined;
   }
 }
 

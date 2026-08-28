@@ -231,17 +231,49 @@ function xmlElementToString(name: string, value: XmlNodeValue, indent = '', step
   }
 
   const attrs = (value as XmlElementValue)[XML_ATTRIBUTES_KEY] as Record<string, string> | undefined;
-  const text = (value as XmlElementValue)[XML_TEXT_KEY];
+  const text = (value as XmlElementValue)[XML_TEXT_KEY] ?? (value as XmlElementValue)['_text'];
   const childrenInOrder = (value as XmlElementValue)['__childrenInOrder'] as Array<{ tagName: string; value: XmlNodeValue }> | undefined;
 
-  // Use __childrenInOrder to preserve document order if available
+  // Use __childrenInOrder to preserve document order, but serialize CURRENT values
+  // from the object instead of stale snapshots kept in __childrenInOrder entries.
   let childrenToSerialize: Array<[string, XmlNodeValue]>;
   if (childrenInOrder) {
-    childrenToSerialize = childrenInOrder.map(({ tagName, value }) => [tagName, value]);
+    const currentByTag = new Map<string, XmlNodeValue[]>();
+    const valueObj = value as XmlElementValue;
+
+    for (const [key, childValue] of Object.entries(valueObj)) {
+      if (
+        key === XML_ATTRIBUTES_KEY ||
+        key === XML_TEXT_KEY ||
+        key === '_text' ||
+        key.startsWith('__')
+      ) {
+        continue;
+      }
+      const normalized = Array.isArray(childValue) ? [...childValue] : [childValue];
+      currentByTag.set(key, normalized);
+    }
+
+    const ordered: Array<[string, XmlNodeValue]> = [];
+    for (const { tagName } of childrenInOrder) {
+      const bucket = currentByTag.get(tagName);
+      if (bucket && bucket.length > 0) {
+        ordered.push([tagName, bucket.shift() as XmlNodeValue]);
+      }
+    }
+
+    // Include newly-added children not present in __childrenInOrder.
+    for (const [tagName, bucket] of currentByTag.entries()) {
+      for (const childValue of bucket) {
+        ordered.push([tagName, childValue]);
+      }
+    }
+
+    childrenToSerialize = ordered;
   } else {
     // Fallback to Object.keys if no order information (shouldn't happen for parsed XML)
     childrenToSerialize = Object.entries(value as XmlElementValue).filter(
-      ([key]) => key !== XML_ATTRIBUTES_KEY && key !== XML_TEXT_KEY && !key.startsWith('__')
+      ([key]) => key !== XML_ATTRIBUTES_KEY && key !== XML_TEXT_KEY && key !== '_text' && !key.startsWith('__')
     );
   }
 

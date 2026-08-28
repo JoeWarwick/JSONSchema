@@ -574,6 +574,21 @@ export default function Workbench() {
     }
   }, [jsonInput, instanceData, markupLanguage, hasHydratedPersistedState]);
 
+  // Sync instanceData to jsonInput for XML language
+  // When the form updates instanceData, we need to update the XML Input tab to reflect changes
+  useEffect(() => {
+    if (markupLanguage !== 'xml' || !instanceData) return;
+    
+    try {
+      // serializeMarkup expects { rootElementName: {...} } structure
+      const serializedXml = serializeMarkup(instanceData, 'xml');
+      setJsonInput(serializedXml);
+    } catch (err) {
+      // If serialization fails, it's likely a data structure issue
+      console.debug(`XML serialization error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [instanceData, markupLanguage]);
+
   // Auto-save ERD model to localStorage whenever it changes
   useEffect(() => {
     if (typeof window === 'undefined' || !hasHydratedPersistedState) return;

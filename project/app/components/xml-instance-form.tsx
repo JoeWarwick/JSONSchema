@@ -702,6 +702,7 @@ function XmlElementNode({
     return choiceGroups.map(group => {
       const choiceKey = `choice_${pathKey}_${group.groupIndex}`;
       let selectedOption: string | null = null;
+      const isChoiceGroupRequired = group.options.some((opt) => (opt.node.minOccurs ?? 0) > 0 || opt.node.isRequired);
       
       // Check if user has manually selected a choice
       if (selectedChoices[choiceKey]) {
@@ -709,14 +710,21 @@ function XmlElementNode({
       } else {
         // Otherwise, check if any choice element has a value
         for (const option of group.options) {
-          const optionData = value?.[option.name];
+          const optionData = compiledSchema
+            ? compiledSchema.resolveChildData(
+                option.name,
+                element?.tagName,
+                value,
+                path.length === 0
+              )
+            : value?.[option.name];
           if (optionData !== undefined && optionData !== null) {
             selectedOption = option.name;
             break;
           }
         }
-        // If no value found, default to first option
-        if (!selectedOption && group.options.length > 0) {
+        // If no value found, only default when the choice is required by schema.
+        if (!selectedOption && isChoiceGroupRequired && group.options.length > 0) {
           selectedOption = group.options[0].name;
         }
       }
@@ -725,10 +733,11 @@ function XmlElementNode({
         groupIndex: group.groupIndex,
         options: group.options,
         selectedOption,
+        isRequired: isChoiceGroupRequired,
         choiceKey,
       };
     });
-  }, [choiceGroups, pathKey, selectedChoices, value]);
+  }, [choiceGroups, pathKey, selectedChoices, value, compiledSchema, element?.tagName, path.length]);
 
   const shouldHideChildInInferredView = (child: XmlElement | string): boolean => {
     if (typeof child === 'string') return false;
@@ -746,6 +755,9 @@ function XmlElementNode({
 
   const hasChildren = visibleChildren.length > 0;
   const hasAttributes = element.attributes.length > 0;
+  const hasSchemaChildren = (schemaNode?.children?.length || 0) > 0;
+  const hasSchemaAttributes = (schemaNode?.attributes?.length || 0) > 0;
+  const hasExpandableContent = hasChildren || hasAttributes || hasSchemaChildren || hasSchemaAttributes;
   const hasText = element.text.length > 0;
   const isCompositor = !!element.isCompositor;
 
@@ -961,7 +973,7 @@ function XmlElementNode({
     <div style={{ marginLeft: 0, marginBottom: 12 }}>
       {/* Element header with toggle */}
       <div className={styles.propertyHeader} style={{ marginBottom: hasChildren || hasAttributes ? 8 : 0 }}>
-        {hasChildren || hasAttributes ? (
+        {hasExpandableContent ? (
           <button
             onClick={() => onToggleExpand(path)}
             style={{
@@ -998,7 +1010,7 @@ function XmlElementNode({
       </div>
 
       {/* Expanded content: attributes and children */}
-      {expanded && (hasChildren || hasAttributes) && (
+      {expanded && hasExpandableContent && (
         <div className={styles.objectContainer}>
           {/* If this appears to be an XSD/schema node and a rootSchema was provided,
               render the RHS-style editor in read-only mode using an adapter node. */}
@@ -1450,22 +1462,52 @@ function XmlElementNode({
                     childInstanceData = value?.[childElementName];
                   }
                   
+                  const isSelectedChoiceOption = Boolean(
+                    choiceGroupData && choiceGroupData.selectedOption === childElementName
+                  );
+                  const selectedChoiceIsRequired = Boolean(
+                    choiceGroupData && choiceGroupData.isRequired
+                  );
+                  const effectiveChildInstanceData =
+                    childInstanceData !== undefined && childInstanceData !== null
+                      ? childInstanceData
+                      : (isSelectedChoiceOption && selectedChoiceIsRequired ? { _text: '' } : childInstanceData);
+
                   // Use element structure if available; use data as fallback
-                  const elementToRender = childElement || childInstanceData;
+                  const elementToRender = childElement || effectiveChildInstanceData;
                   
-                  console.log(`[XmlElementNode] Child schema element ${index}: name="${childElementName}", element=${!!childElement}, data type=${typeof childInstanceData}, found=${!!elementToRender}`);
+                  console.log(`[XmlElementNode] Child schema element ${index}: name="${childElementName}", element=${!!childElement}, data type=${typeof effectiveChildInstanceData}, found=${!!elementToRender}`);
                   
-                  // Check if this child element is simple (no nested children in schema and no complex structure in data)
-                  const isSimpleChild = childSchemaNode.children && childSchemaNode.children.length === 0 &&
-                    elementToRender && typeof elementToRender === 'object' && 
-                    elementToRender.children && elementToRender.children.length === 0 &&
-                    elementToRender.attributes && elementToRender.attributes.length === 0;
+                  // Treat schema-leaf elements as simple when either parsed element shape is simple
+                  // or the instance value is scalar/text-only data.
+                  const schemaSaysSimple = (childSchemaNode.children?.length || 0) === 0;
+                  const schemaHasNoAttrs = (childSchemaNode.attributes?.length || 0) === 0;
+                  const parsedElementIsSimple = Boolean(
+                    childElement &&
+                    childElement.children?.length === 0 &&
+                    childElement.attributes?.length === 0
+                  );
+                  const instanceValueIsTextOnly = Boolean(
+                    effectiveChildInstanceData !== undefined &&
+                    effectiveChildInstanceData !== null &&
+                    (
+                      typeof effectiveChildInstanceData === 'string' ||
+                      typeof effectiveChildInstanceData === 'number' ||
+                      typeof effectiveChildInstanceData === 'boolean' ||
+                      (
+                        typeof effectiveChildInstanceData === 'object' &&
+                        !Array.isArray(effectiveChildInstanceData) &&
+                        Object.keys(effectiveChildInstanceData).every((k) => k === '_text' || k === '#text')
+                      )
+                    )
+                  );
+                  const isSimpleChild = schemaSaysSimple && schemaHasNoAttrs && (parsedElementIsSimple || instanceValueIsTextOnly);
                   
                   // Handle both single and multiple occurrences
-                  if (Array.isArray(childInstanceData)) {
+                  if (Array.isArray(effectiveChildInstanceData)) {
                     // Render each array element
                     // For choice groups, show the dropdown before the first element
-                    const arrayItems = childInstanceData.map((child, arrayIndex) => (
+                    const arrayItems = effectiveChildInstanceData.map((child, arrayIndex) => (
                       <div key={`${index}-${arrayIndex}`} style={{ position: 'relative' }}>
                         <XmlElementNode
                           element={child}
@@ -1572,7 +1614,7 @@ function XmlElementNode({
                     }
                     
                     return arrayItems;
-                  } else if (isSimpleChild && childInstanceData) {
+                  } else if (isSimpleChild && effectiveChildInstanceData !== undefined && effectiveChildInstanceData !== null) {
                     // Render simple text elements as inline inputs
                     // Use the data value, not the parsed element
                     const elementType = rootSchema ? findElementTypeInRootSchema(rootSchema, childElementName) : null;
@@ -1580,8 +1622,11 @@ function XmlElementNode({
                     
                     // Get the text value from data (which is what gets updated)
                     // Support both _text (internal format) and #text (from parseMarkup)
-                    const dataElement = childInstanceData && typeof childInstanceData === 'object' ? childInstanceData : {};
-                    const textValue = dataElement._text !== undefined ? dataElement._text : (dataElement['#text'] || '');
+                    const dataElement = effectiveChildInstanceData && typeof effectiveChildInstanceData === 'object' ? effectiveChildInstanceData : {};
+                    const textValue =
+                      effectiveChildInstanceData !== undefined && effectiveChildInstanceData !== null && typeof effectiveChildInstanceData !== 'object'
+                        ? String(effectiveChildInstanceData)
+                        : (dataElement._text !== undefined ? dataElement._text : (dataElement['#text'] || ''));
                     
                     // Render choice dropdown if this element is the currently selected option in a choice group
                     // Show dropdown for whichever element is selected, not just the first in schema order
@@ -1671,7 +1716,12 @@ function XmlElementNode({
                             value={textValue}
                             onChange={(e) => {
                               onUpdateValue([...path, childElementName], (current) => {
-                                return { ...current, _text: e.target.value };
+                                if (current && typeof current === 'object' && !Array.isArray(current)) {
+                                  const next = { ...current, _text: e.target.value };
+                                  if ('#text' in next) delete next['#text'];
+                                  return next;
+                                }
+                                return { _text: e.target.value };
                               });
                             }}
                             style={{
@@ -1697,7 +1747,12 @@ function XmlElementNode({
                           value={textValue}
                           onChange={(e) => {
                             onUpdateValue([...path, childElementName], (current) => {
-                              return { ...current, _text: e.target.value };
+                              if (current && typeof current === 'object' && !Array.isArray(current)) {
+                                const next = { ...current, _text: e.target.value };
+                                if ('#text' in next) delete next['#text'];
+                                return next;
+                              }
+                              return { _text: e.target.value };
                             });
                           }}
                           style={{
@@ -1778,7 +1833,7 @@ function XmlElementNode({
                               path={[...path, childElementName]}
                               expandedPaths={expandedPaths}
                               onToggleExpand={onToggleExpand}
-                              value={childInstanceData}
+                              value={effectiveChildInstanceData}
                               onChange={onChange}
                               onUpdateValue={onUpdateValue}
                               rootSchema={rootSchema}
@@ -1798,7 +1853,7 @@ function XmlElementNode({
                           path={[...path, childElementName]}
                           expandedPaths={expandedPaths}
                           onToggleExpand={onToggleExpand}
-                          value={childInstanceData}
+                          value={effectiveChildInstanceData}
                           onChange={onChange}
                           onUpdateValue={onUpdateValue}
                           rootSchema={rootSchema}
@@ -1842,7 +1897,12 @@ function XmlElementNode({
                         value={child.text || ''}
                         onChange={(e) => {
                           onUpdateValue([...path, String(rawIndex)], (current) => {
-                            return { ...current, _text: e.target.value };
+                            if (current && typeof current === 'object' && !Array.isArray(current)) {
+                              const next = { ...current, _text: e.target.value };
+                              if ('#text' in next) delete next['#text'];
+                              return next;
+                            }
+                            return { _text: e.target.value };
                           });
                         }}
                         style={{
@@ -2013,16 +2073,18 @@ export function XmlInstanceForm({
     return initial;
   });
 
-  // Detect if value is wrapped (e.g., { person: {...} }) and track the wrapper key
+  // Detect if value is wrapped (e.g., { person: {...} }) and track the wrapper key.
+  // Only treat as wrapped when there is exactly one top-level non-metadata key.
   const wrapperKey = useMemo(() => {
     if (!value || typeof value !== 'object') return null;
-    // Look for a non-@ key with an object value
-    for (const key in value) {
-      if (!key.startsWith('@') && !key.startsWith('_') && typeof (value as any)[key] === 'object') {
-        return key;
-      }
-    }
-    return null;
+    const dataKeys = Object.keys(value).filter((k) => !k.startsWith('@') && !k.startsWith('_'));
+    if (dataKeys.length !== 1) return null;
+
+    const candidateKey = dataKeys[0];
+    const candidateValue = (value as any)[candidateKey];
+    if (!candidateValue || typeof candidateValue !== 'object' || Array.isArray(candidateValue)) return null;
+
+    return candidateKey;
   }, [value]);
 
   // Try to parse the value as XML - it may be a string or object
@@ -2200,11 +2262,12 @@ export function XmlInstanceForm({
     // Deep clone the current value
     const updated = JSON.parse(JSON.stringify(current));
 
-    // Adjust path for wrapped values: if path is [] and we have a wrapperKey,
-    // we should actually update at path=[wrapperKey]
+    // Adjust path for wrapped values so child element edits always target
+    // the wrapped root object (for example value.person.firstName).
     let adjustedPath = pathArray;
-    if (adjustedPath.length === 0 && wrapperKey) {
-      adjustedPath = [wrapperKey];
+    if (wrapperKey) {
+      const startsAtWrapper = adjustedPath.length > 0 && adjustedPath[0] === wrapperKey;
+      adjustedPath = startsAtWrapper ? adjustedPath : [wrapperKey, ...adjustedPath];
     }
 
     // If path is empty, update root
