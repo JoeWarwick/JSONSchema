@@ -25,6 +25,66 @@ import type { CompiledSchema, ValidationFacets } from '../utils/schema-compiler'
  * as an instance of the XML format.
  */
 
+/**
+ * Generates a unique key for storing choice data in localStorage.
+ * Key format: "choice_<instanceHash>_<path>_<optionName>"
+ */
+function generateChoiceStorageKey(instanceXml: any, path: string[], optionName: string): string {
+  // Create a simple hash of the instance XML for uniqueness
+  const instanceStr = JSON.stringify(instanceXml).substring(0, 100);
+  const instanceHash = String(instanceStr.split('').reduce((a, b) => {
+    a = ((a << 5) - a) + b.charCodeAt(0);
+    return a & a; // Convert to 32bit integer
+  }, 0));
+  
+  const pathStr = path.join('/');
+  return `choice_${instanceHash}_${pathStr}_${optionName}`;
+}
+
+/**
+ * Save a choice option's data to localStorage.
+ */
+function saveChoiceDataToStorage(instanceXml: any, path: string[], optionName: string, data: any): void {
+  try {
+    const key = generateChoiceStorageKey(instanceXml, path, optionName);
+    localStorage.setItem(key, JSON.stringify(data));
+    console.log(`[ChoiceStorage] Saved ${optionName} to ${key}`);
+  } catch (e) {
+    console.warn('[ChoiceStorage] Failed to save choice data:', e);
+  }
+}
+
+/**
+ * Restore a choice option's data from localStorage.
+ */
+function restoreChoiceDataFromStorage(instanceXml: any, path: string[], optionName: string): any {
+  try {
+    const key = generateChoiceStorageKey(instanceXml, path, optionName);
+    const stored = localStorage.getItem(key);
+    if (stored) {
+      console.log(`[ChoiceStorage] Restored ${optionName} from ${key}`);
+      return JSON.parse(stored);
+    }
+  } catch (e) {
+    console.warn('[ChoiceStorage] Failed to restore choice data:', e);
+  }
+  return null;
+}
+
+/**
+ * Clear all stored choice data for a specific path and option.
+ * Can be exposed via UI if needed to allow users to reset saved choice branches.
+ */
+function clearChoiceDataFromStorage(instanceXml: any, path: string[], optionName: string): void {
+  try {
+    const key = generateChoiceStorageKey(instanceXml, path, optionName);
+    localStorage.removeItem(key);
+    console.log(`[ChoiceStorage] Cleared ${optionName} from ${key}`);
+  } catch (e) {
+    console.warn('[ChoiceStorage] Failed to clear choice data:', e);
+  }
+}
+
 interface XmlInstanceFormProps {
   schema: any; // The XML element/schema to render
   value: any; // Current XML instance value 
@@ -463,11 +523,12 @@ function parseXmlElement(node: any, tagNameHint?: string): XmlElement | null {
 
   // Collect child elements and text content
   const children: (XmlElement | string)[] = [];
-  let text = nodeContent._text || '';
+  // Support both _text (legacy internal format) and #text (from parseMarkup)
+  let text = nodeContent._text || nodeContent['#text'] || '';
 
   for (const key in nodeContent) {
     // Skip attribute holders we've already consumed
-    if (key.startsWith('@') || key.startsWith('_') || key === 'nodeName' || key === 'name' || key === 'attributes') continue;
+    if (key.startsWith('@') || key.startsWith('_') || key.startsWith('#') || key === 'nodeName' || key === 'name' || key === 'attributes') continue;
     // child entries here are actual nested elements
     const child = nodeContent[key];
 
@@ -526,9 +587,17 @@ function XmlElementNode({
   schemaNode?: SchemaNode;
   compiledSchema?: CompiledSchema | null;
 }) {
+  // State for tracking which choice option is selected
+  const [selectedChoices, setSelectedChoices] = useState<Record<string, string>>({});
+  
   const pathKey = path.join('.');
   const expanded = autoExpandAll || expandedPaths.has(pathKey);
   const localTagName = (element.tagName || '').replace(/^.*:/, '');
+  
+  // Log schemaNode for root element
+  if (path.length === 0) {
+    console.log(`[XmlElementNode ROOT] element.tagName=${element.tagName}, schemaNode exists=${!!schemaNode}, schemaNode.children=${schemaNode?.children?.length || 0}`);
+  }
   const inferredSchemaKind = rootSchema ? ({
     schema: 'schema',
     simpleType: 'simpleType',
@@ -542,6 +611,124 @@ function XmlElementNode({
     any: 'any',
   } as Record<string, string>)[localTagName] : undefined;
   const hasInferredEditor = Boolean(inferredSchemaKind);
+  
+  // Helper to find which choice group a child element belongs to
+  const getChoiceGroupForChild = (childName: string): { groupIndex: number; isFirst: boolean } | null => {
+    if (!schemaNode?.children) return null;
+    
+    let groupIndex = -1;
+    let currentGroup: Array<string> | null = null;
+    
+    for (const child of schemaNode.children) {
+      if (child.compositorType === 'choice') {
+        if (!currentGroup) {
+          groupIndex++;
+          currentGroup = [];
+        }
+        currentGroup.push(child.label || child.tagName);
+      } else {
+        if (currentGroup) {
+          // Group ended, check if child is first in it
+          if (currentGroup.length > 0 && currentGroup[0] === childName) {
+            return { groupIndex, isFirst: true };
+          }
+          // Check if child is in the group (not first)
+          if (currentGroup.includes(childName)) {
+            return { groupIndex, isFirst: false };
+          }
+          currentGroup = null;
+        }
+      }
+    }
+    
+    // Check final group
+    if (currentGroup && currentGroup.length > 0) {
+      if (currentGroup[0] === childName) {
+        return { groupIndex, isFirst: true };
+      }
+      if (currentGroup.includes(childName)) {
+        return { groupIndex, isFirst: false };
+      }
+    }
+    
+    return null;
+  };
+  
+  // Detect choice elements and group them
+  const choiceGroups = useMemo(() => {
+    if (!schemaNode?.children) return [];
+    
+    const groups: Array<{
+      groupIndex: number;
+      options: Array<{ name: string; node: SchemaNode }>;
+    }> = [];
+    let currentGroup: Array<{ name: string; node: SchemaNode }> | null = null;
+    
+    for (const child of schemaNode.children) {
+      if (child.compositorType === 'choice') {
+        // This is a choice element
+        if (!currentGroup) {
+          currentGroup = [];
+        }
+        currentGroup.push({
+          name: child.label || child.tagName || '',
+          node: child,
+        });
+      } else {
+        // Non-choice element, close the group if one is open
+        if (currentGroup && currentGroup.length > 0) {
+          groups.push({
+            groupIndex: groups.length,
+            options: currentGroup,
+          });
+          currentGroup = null;
+        }
+      }
+    }
+    
+    // Don't forget the last group if it exists
+    if (currentGroup && currentGroup.length > 0) {
+      groups.push({
+        groupIndex: groups.length,
+        options: currentGroup,
+      });
+    }
+    
+    return groups;
+  }, [schemaNode?.children]);
+  
+  // For each choice group, determine the selected option
+  const choiceInfo = useMemo(() => {
+    return choiceGroups.map(group => {
+      const choiceKey = `choice_${pathKey}_${group.groupIndex}`;
+      let selectedOption: string | null = null;
+      
+      // Check if user has manually selected a choice
+      if (selectedChoices[choiceKey]) {
+        selectedOption = selectedChoices[choiceKey];
+      } else {
+        // Otherwise, check if any choice element has a value
+        for (const option of group.options) {
+          const optionData = value?.[option.name];
+          if (optionData !== undefined && optionData !== null) {
+            selectedOption = option.name;
+            break;
+          }
+        }
+        // If no value found, default to first option
+        if (!selectedOption && group.options.length > 0) {
+          selectedOption = group.options[0].name;
+        }
+      }
+      
+      return {
+        groupIndex: group.groupIndex,
+        options: group.options,
+        selectedOption,
+        choiceKey,
+      };
+    });
+  }, [choiceGroups, pathKey, selectedChoices, value]);
 
   const shouldHideChildInInferredView = (child: XmlElement | string): boolean => {
     if (typeof child === 'string') return false;
@@ -1194,25 +1381,98 @@ function XmlElementNode({
                 </Tooltip>
               </div>
               {/* Walk the compiled schema structure, use instance data for values */}
+              {(() => {
+                const keys = value ? Object.keys(value).filter(k => !k.startsWith('@')) : [];
+                const actualValue = value ? JSON.stringify(value).substring(0, 100) : 'null';
+                const firstKey = keys.length > 0 ? keys[0] : 'none';
+                const elementChildrenCount = element?.children?.length || 0;
+                console.log(`[XmlElementNode] schemaNode for ${element?.tagName}: firstKey=${firstKey}, elementChildren=${elementChildrenCount}, allKeys=[${keys.join(', ')}], valuePreview=${actualValue}`);
+                return null;
+              })()}
+              
+
+              
               {schemaNode?.children && schemaNode.children.length > 0 ? (
-                schemaNode.children.map((childSchemaNode, index) => {
+                schemaNode.children
+                  .map((childSchemaNode, index) => ({ childSchemaNode, index }))
+                  // Filter based on choice selections
+                  .filter(({ childSchemaNode }) => {
+                    // If this is a choice element, only show if it's the selected option in its group
+                    if (childSchemaNode.compositorType === 'choice') {
+                      // Find which choice group this element belongs to
+                      for (const choice of choiceInfo) {
+                        const matchingOption = choice.options.find(opt => opt.name === (childSchemaNode.label || childSchemaNode.tagName));
+                        if (matchingOption) {
+                          // This element is in this choice group, only show if selected
+                          return choice.selectedOption === (childSchemaNode.label || childSchemaNode.tagName);
+                        }
+                      }
+                    }
+                    // Not a choice element or not in any choice group, show it
+                    return true;
+                  })
+                  .map(({ childSchemaNode, index }) => {
                   // Get the element name from schema
                   const childElementName = childSchemaNode.label || childSchemaNode.tagName || '';
                   
-                  // Look up instance data for this schema element
-                  const childInstanceData = value?.[childElementName];
+                  // Check if this child is the first in a choice group
+                  const choiceGroupInfo = getChoiceGroupForChild(childElementName);
+                  const choiceGroupIndex = choiceGroupInfo?.groupIndex ?? -1;
+                  
+                  // Find the choice group data for rendering the dropdown
+                  // Get choiceGroupData for ANY child in a choice group, not just the first one
+                  // This allows us to show the dropdown for whichever element is currently selected
+                  let choiceGroupData = null;
+                  if (choiceGroupIndex >= 0) {
+                    choiceGroupData = choiceInfo[choiceGroupIndex];
+                  }
+                  
+                  // Find the element structure from the DOM tree
+                  // The element structure is consistent regardless of value wrapping
+                  // Find the child element in the DOM tree
+                  const childElement: any = element?.children?.find(child => 
+                    typeof child !== 'string' && 
+                    (child.tagName === childElementName || 
+                     child.tagName?.replace(/^.*:/, '') === childElementName)
+                  );
+                  
+                  // Use compiled schema helper to resolve the data value, handling wrapped values at root level
+                  let childInstanceData: any;
+                  if (compiledSchema) {
+                    childInstanceData = compiledSchema.resolveChildData(
+                      childElementName,
+                      element?.tagName,
+                      value,
+                      path.length === 0
+                    );
+                  } else {
+                    // Fallback if no compiled schema available
+                    childInstanceData = value?.[childElementName];
+                  }
+                  
+                  // Use element structure if available; use data as fallback
+                  const elementToRender = childElement || childInstanceData;
+                  
+                  console.log(`[XmlElementNode] Child schema element ${index}: name="${childElementName}", element=${!!childElement}, data type=${typeof childInstanceData}, found=${!!elementToRender}`);
+                  
+                  // Check if this child element is simple (no nested children in schema and no complex structure in data)
+                  const isSimpleChild = childSchemaNode.children && childSchemaNode.children.length === 0 &&
+                    elementToRender && typeof elementToRender === 'object' && 
+                    elementToRender.children && elementToRender.children.length === 0 &&
+                    elementToRender.attributes && elementToRender.attributes.length === 0;
                   
                   // Handle both single and multiple occurrences
                   if (Array.isArray(childInstanceData)) {
                     // Render each array element
-                    return childInstanceData.map((child, arrayIndex) => (
+                    // For choice groups, show the dropdown before the first element
+                    const arrayItems = childInstanceData.map((child, arrayIndex) => (
                       <div key={`${index}-${arrayIndex}`} style={{ position: 'relative' }}>
                         <XmlElementNode
                           element={child}
                           path={[...path, childElementName, String(arrayIndex)]}
                           expandedPaths={expandedPaths}
                           onToggleExpand={onToggleExpand}
-                          value={value}
+                          value={child}
                           onChange={onChange}
                           onUpdateValue={onUpdateValue}
                           rootSchema={rootSchema}
@@ -1247,16 +1507,298 @@ function XmlElementNode({
                         </Tooltip>
                       </div>
                     ));
-                  } else if (childInstanceData) {
-                    // Render single element
+                    
+                    // If this element is the currently selected option in a choice group, wrap array items with choice dropdown
+                    if (choiceGroupData && choiceGroupData.selectedOption === childElementName) {
+                      return (
+                        <div key={`choice-${index}`}>
+                          {/* Choice Selector Dropdown */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                            <select
+                              value={choiceGroupData.selectedOption || ''}
+                              onChange={(e) => {
+                                const newSelectedOption = e.target.value;
+                                setSelectedChoices(prev => ({
+                                  ...prev,
+                                  [choiceGroupData.choiceKey]: newSelectedOption,
+                                }));
+                                
+                                // Save old choice option data and restore/initialize new one
+                                onUpdateValue(path, (current) => {
+                                  const updated = { ...current };
+                                  
+                                  // Save all other choice options to localStorage before removing them
+                                  for (const opt of choiceGroupData.options) {
+                                    if (opt.name !== newSelectedOption) {
+                                      if (updated[opt.name] !== undefined) {
+                                        saveChoiceDataToStorage(value, path, opt.name, updated[opt.name]);
+                                      }
+                                      delete updated[opt.name];
+                                    }
+                                  }
+                                  
+                                  // For the selected option, try to restore from localStorage first
+                                  if (!updated[newSelectedOption]) {
+                                    const restored = restoreChoiceDataFromStorage(value, path, newSelectedOption);
+                                    updated[newSelectedOption] = restored || { _text: '' };
+                                  }
+                                  
+                                  return updated;
+                                });
+                              }}
+                              style={{
+                                padding: '6px 8px',
+                                border: '1px solid #ddd',
+                                borderRadius: 3,
+                                fontSize: 12,
+                                cursor: 'pointer',
+                                fontWeight: 500,
+                                minWidth: 100,
+                                color: '#a78bfa',
+                              }}
+                            >
+                              {choiceGroupData.options.map(opt => (
+                                <option key={opt.name} value={opt.name}>
+                                  {opt.name}:
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          
+                          {/* Array items */}
+                          {arrayItems}
+                        </div>
+                      );
+                    }
+                    
+                    return arrayItems;
+                  } else if (isSimpleChild && childInstanceData) {
+                    // Render simple text elements as inline inputs
+                    // Use the data value, not the parsed element
+                    const elementType = rootSchema ? findElementTypeInRootSchema(rootSchema, childElementName) : null;
+                    const htmlInputType = (elementType ? mapXsdTypeToHtmlInput(elementType) : null) || 'text';
+                    
+                    // Get the text value from data (which is what gets updated)
+                    // Support both _text (internal format) and #text (from parseMarkup)
+                    const dataElement = childInstanceData && typeof childInstanceData === 'object' ? childInstanceData : {};
+                    const textValue = dataElement._text !== undefined ? dataElement._text : (dataElement['#text'] || '');
+                    
+                    // Render choice dropdown if this element is the currently selected option in a choice group
+                    // Show dropdown for whichever element is selected, not just the first in schema order
+                    if (choiceGroupData && choiceGroupData.selectedOption === childElementName) {
+                      return (
+                        <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {/* Choice Selector Dropdown as Label */}
+                          <select
+                            value={choiceGroupData.selectedOption || ''}
+                            onChange={(e) => {
+                              const newSelectedOption = e.target.value;
+                              setSelectedChoices(prev => ({
+                                ...prev,
+                                [choiceGroupData.choiceKey]: newSelectedOption,
+                              }));
+                              
+                              // Save old choice option data and restore/initialize new one
+                              onUpdateValue(path, (current) => {
+                                const updated = { ...current };
+                                
+                                // Find which option is currently selected to know what to replace
+                                let currentlySelectedOption: string | null = null;
+                                for (const opt of choiceGroupData.options) {
+                                  if (updated[opt.name] !== undefined) {
+                                    currentlySelectedOption = opt.name;
+                                    break;
+                                  }
+                                }
+                                
+                                // Save all other choice options to localStorage before removing them
+                                for (const opt of choiceGroupData.options) {
+                                  if (opt.name !== newSelectedOption) {
+                                    if (updated[opt.name] !== undefined) {
+                                      saveChoiceDataToStorage(value, path, opt.name, updated[opt.name]);
+                                    }
+                                    delete updated[opt.name];
+                                  }
+                                }
+                                
+                                // For the selected option, try to restore from localStorage first
+                                if (!updated[newSelectedOption]) {
+                                  const restored = restoreChoiceDataFromStorage(value, path, newSelectedOption);
+                                  updated[newSelectedOption] = restored || { _text: '' };
+                                }
+                                
+                                // Update __childrenInOrder to reflect the choice change
+                                // This ensures XML serialization uses the correct element order
+                                if (Array.isArray(updated['__childrenInOrder'])) {
+                                  const childrenOrder = updated['__childrenInOrder'] as any[];
+                                  const updatedOrder = childrenOrder.map((item: any) => {
+                                    // If this order entry is for the old selected option, replace it with the new one
+                                    if (item.tagName === currentlySelectedOption) {
+                                      return {
+                                        ...item,
+                                        tagName: newSelectedOption,
+                                      };
+                                    }
+                                    return item;
+                                  });
+                                  updated['__childrenInOrder'] = updatedOrder;
+                                }
+                                
+                                return updated;
+                              });
+                            }}
+                            style={{
+                              padding: '6px 8px',
+                              border: '1px solid #ddd',
+                              borderRadius: 3,
+                              fontSize: 12,
+                              cursor: 'pointer',
+                              fontWeight: 500,
+                              minWidth: 100,
+                              color: '#a78bfa',
+                            }}
+                          >
+                            {choiceGroupData.options.map(opt => (
+                              <option key={opt.name} value={opt.name}>
+                                {opt.name}:
+                              </option>
+                            ))}
+                          </select>
+                          
+                          {/* Input Field */}
+                          <input
+                            type={htmlInputType as any}
+                            value={textValue}
+                            onChange={(e) => {
+                              onUpdateValue([...path, childElementName], (current) => {
+                                return { ...current, _text: e.target.value };
+                              });
+                            }}
+                            style={{
+                              flex: 1,
+                              maxWidth: 200,
+                              padding: '6px 8px',
+                              border: '1px solid #ddd',
+                              borderRadius: 3,
+                              fontSize: 12,
+                            }}
+                          />
+                        </div>
+                      );
+                    }
+                    
+                    return (
+                      <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <label style={{ minWidth: 100, fontSize: 14, fontWeight: 500, color: '#a78bfa' }}>
+                          {childElementName}:
+                        </label>
+                        <input
+                          type={htmlInputType as any}
+                          value={textValue}
+                          onChange={(e) => {
+                            onUpdateValue([...path, childElementName], (current) => {
+                              return { ...current, _text: e.target.value };
+                            });
+                          }}
+                          style={{
+                            flex: 1,
+                            maxWidth: 200,
+                            padding: '6px 8px',
+                            border: '1px solid #ddd',
+                            borderRadius: 3,
+                            fontSize: 12,
+                          }}
+                        />
+                      </div>
+                    );
+                  } else if (elementToRender) {
+                    // Render complex child elements as expandable nodes
+                    
+                    // Render choice dropdown if this element is the currently selected option in a choice group
+                    if (choiceGroupData && choiceGroupData.selectedOption === childElementName) {
+                      return (
+                        <div key={index}>
+                          {/* Choice selector as a dropdown label above the element */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                            <select
+                              value={choiceGroupData.selectedOption || ''}
+                              onChange={(e) => {
+                                const newSelectedOption = e.target.value;
+                                setSelectedChoices(prev => ({
+                                  ...prev,
+                                  [choiceGroupData.choiceKey]: newSelectedOption,
+                                }));
+                                
+                                // Save old choice option data and restore/initialize new one
+                                onUpdateValue(path, (current) => {
+                                  const updated = { ...current };
+                                  
+                                  // Save all other choice options to localStorage before removing them
+                                  for (const opt of choiceGroupData.options) {
+                                    if (opt.name !== newSelectedOption) {
+                                      if (updated[opt.name] !== undefined) {
+                                        saveChoiceDataToStorage(value, path, opt.name, updated[opt.name]);
+                                      }
+                                      delete updated[opt.name];
+                                    }
+                                  }
+                                  
+                                  // For the selected option, try to restore from localStorage first
+                                  if (!updated[newSelectedOption]) {
+                                    const restored = restoreChoiceDataFromStorage(value, path, newSelectedOption);
+                                    updated[newSelectedOption] = restored || { _text: '' };
+                                  }
+                                  
+                                  return updated;
+                                });
+                              }}
+                              style={{
+                                padding: '6px 8px',
+                                border: '1px solid #ddd',
+                                borderRadius: 3,
+                                fontSize: 12,
+                                cursor: 'pointer',
+                                fontWeight: 500,
+                                minWidth: 100,
+                                color: '#a78bfa',
+                              }}
+                            >
+                              {choiceGroupData.options.map(opt => (
+                                <option key={opt.name} value={opt.name}>
+                                  {opt.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          
+                          {/* Element Node */}
+                          <div style={{ position: 'relative', marginLeft: 8 }}>
+                            <XmlElementNode
+                              element={elementToRender}
+                              path={[...path, childElementName]}
+                              expandedPaths={expandedPaths}
+                              onToggleExpand={onToggleExpand}
+                              value={childInstanceData}
+                              onChange={onChange}
+                              onUpdateValue={onUpdateValue}
+                              rootSchema={rootSchema}
+                              autoExpandAll={autoExpandAll}
+                              schemaNode={childSchemaNode}
+                              compiledSchema={compiledSchema}
+                            />
+                          </div>
+                        </div>
+                      );
+                    }
+                    
                     return (
                       <div key={index} style={{ position: 'relative' }}>
                         <XmlElementNode
-                          element={childInstanceData}
+                          element={elementToRender}
                           path={[...path, childElementName]}
                           expandedPaths={expandedPaths}
                           onToggleExpand={onToggleExpand}
-                          value={value}
+                          value={childInstanceData}
                           onChange={onChange}
                           onUpdateValue={onUpdateValue}
                           rootSchema={rootSchema}
@@ -1361,7 +1903,7 @@ function XmlElementNode({
                       path={[...path, String(rawIndex)]}
                       expandedPaths={expandedPaths}
                       onToggleExpand={onToggleExpand}
-                      value={value}
+                      value={child}
                       onChange={onChange}
                       onUpdateValue={onUpdateValue}
                       rootSchema={rootSchema}
@@ -1504,11 +2046,37 @@ export function XmlInstanceForm({
       }
     }
     
+    // Normalize text key format: convert #text to _text (from parseMarkup uses #text, internal format uses _text)
+    const normalizeData = (obj: any): any => {
+      if (!obj || typeof obj !== 'object') return obj;
+      if (Array.isArray(obj)) return obj.map(normalizeData);
+      
+      const normalized: any = {};
+      for (const [key, value] of Object.entries(obj)) {
+        if (key === '#text') {
+          normalized['_text'] = value;
+        } else if (typeof value === 'object' && value !== null) {
+          normalized[key] = normalizeData(value);
+        } else {
+          normalized[key] = value;
+        }
+      }
+      return normalized;
+    };
+    
+    toParse = normalizeData(toParse);
+    
     return parseXmlElement(toParse);
   };
 
   const rootElement = useMemo(() => {
-    return parseValue();
+    const parsed = parseValue();
+    console.log('[XmlInstanceForm] rootElement computed:', {
+      tagName: parsed?.tagName,
+      childrenCount: parsed?.children?.length || 0,
+      valueLength: JSON.stringify(value || {}).length,
+    });
+    return parsed;
   }, [schema, value]);
 
   // Compile the schema for efficient type lookups (replaces fiddly manual searching)
@@ -1529,6 +2097,13 @@ export function XmlInstanceForm({
   // This provides structured schema information for rendering
   // Walk the ACTUAL ROOT ELEMENT definition, not xs:schema
   const schemaNode = useMemo(() => {
+    console.log('[SCHEMA_NODE_MEMO] Computing with:', {
+      hasSchema: !!schema,
+      hasRootElement: !!rootElement,
+      hasCompiledSchema: !!compiledSchema,
+      rootElementTag: rootElement?.tagName,
+    });
+    
     if (!schema || !rootElement || !compiledSchema) return undefined;
     try {
       // Unwrap the schema if it's wrapped with xs:schema key
@@ -1541,11 +2116,25 @@ export function XmlInstanceForm({
         return undefined;
       }
       
-      // Walk the element definition (not xs:schema) to get proper type information
+      // Extract the type from the element definition
+      const elementAttrs = elementDef['@attributes'] || elementDef;
+      const typeName = elementAttrs.type;
+      
+      console.log('[XmlInstanceForm] schemaNode recompute:', {
+        rootElementTag: rootElement.tagName,
+        elementDefKeys: elementDef ? Object.keys(elementDef) : 'none',
+        elementDefAtAttrs: elementDef?.['@attributes'] || 'none',
+        elementDefType: elementDef?.type,
+        elementAttrsKeys: elementAttrs ? Object.keys(elementAttrs) : 'none',
+        extractedTypeName: typeName,
+      });
+      
+      // Walk the element definition with the correct type name
       const walked = walkSchema(compiledSchema, {
         rootSchema: unwrappedSchema,
         compiledSchema,
         visitedTypes: new Set(),
+        typeName, // Pass the element's type to walkSchema
         depth: 0,
         maxDepth: 50,
         path: [],
@@ -1560,13 +2149,14 @@ export function XmlInstanceForm({
         attributes: walked.attributes.length,
         minOccurs: walked.minOccurs,
         maxOccurs: walked.maxOccurs,
+        childNames: walked.children.map(c => c.tagName || c.label),
       });
       return walked;
     } catch (e) {
       console.warn('[XmlInstanceForm] Schema walk failed:', e);
       return undefined;
     }
-  }, [schema, rootSchema, rootElement?.tagName, compiledSchema]);
+  }, [schema, rootSchema, compiledSchema, rootElement]);
 
   if (!rootElement) {
     const debugInfo = (() => {
@@ -1619,7 +2209,8 @@ export function XmlInstanceForm({
 
     // If path is empty, update root
     if (adjustedPath.length === 0) {
-      onChange(updateFn(updated));
+      const result = updateFn(updated);
+      onChange(result);
       return;
     }
 
