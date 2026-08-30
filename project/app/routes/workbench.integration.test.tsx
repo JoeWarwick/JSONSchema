@@ -235,4 +235,110 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     });
   });
 
+  it('XML menu default-instance submenu passes selected rootElementName', async () => {
+    const demoXsd = `<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:tns="http://example.com/demo"
+           targetNamespace="http://example.com/demo"
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified">
+  <xs:complexType name="PersonType">
+    <xs:sequence>
+      <xs:element name="firstName" type="xs:string" />
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="EmployeeType">
+    <xs:complexContent>
+      <xs:extension base="tns:PersonType">
+        <xs:sequence>
+          <xs:element name="employeeNumber" type="xs:string" />
+        </xs:sequence>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="NoteType">
+    <xs:simpleContent>
+      <xs:extension base="xs:string" />
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:element name="person" type="tns:PersonType" />
+  <xs:element name="employee" type="tns:EmployeeType" />
+  <xs:element name="note" type="tns:NoteType" />
+</xs:schema>`;
+
+    const originalFetch = global.fetch;
+    const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : String((input as Request).url);
+
+      if (url === '/schemas/xml-form-controls-demo.xsd') {
+        return {
+          ok: true,
+          text: async () => demoXsd,
+        } as Response;
+      }
+
+      if (url === '/api/schema/default-instance') {
+        const body = init?.body ? JSON.parse(String(init.body)) : {};
+        const root = body.rootElementName || 'person';
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({ xml: `<${root} xmlns="http://example.com/demo"></${root}>`, warnings: [] }),
+          text: async () => '',
+        } as Response;
+      }
+
+      return {
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        text: async () => 'Not Found',
+      } as Response;
+    });
+
+    (global as any).fetch = fetchMock;
+
+    try {
+      render(<Workbench />);
+
+      const xmlToggle = screen.getByRole('radio', { name: /^XML$/i });
+      fireEvent.click(xmlToggle);
+
+      const schemaFormTab = await screen.findByRole('button', { name: /Schema Form/i });
+      fireEvent.click(schemaFormTab);
+
+      const loadDemoButton = await screen.findByRole('button', { name: /Load demo controls XSD/i });
+      fireEvent.click(loadDemoButton);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith('/api/schema/default-instance', expect.anything());
+      });
+
+      fetchMock.mockClear();
+
+      const xmlMenuTrigger = screen.getByRole('menuitem', { name: /^XML$/i });
+      fireEvent.pointerDown(xmlMenuTrigger, { bubbles: true, cancelable: true });
+
+      const generateDefaultItem = await screen.findByRole('menuitem', { name: /Generate Default Instance/i });
+      fireEvent.pointerMove(generateDefaultItem, { bubbles: true });
+      fireEvent.click(generateDefaultItem);
+
+      const employeeMenuItem = await screen.findByRole('menuitem', { name: /^employee$/i });
+      fireEvent.click(employeeMenuItem);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith('/api/schema/default-instance', expect.anything());
+      });
+
+      const apiCall = fetchMock.mock.calls.find((call) => call[0] === '/api/schema/default-instance');
+      expect(apiCall).toBeTruthy();
+
+      const requestBody = JSON.parse(String((apiCall as any)[1]?.body || '{}'));
+      expect(requestBody.rootElementName).toBe('employee');
+    } finally {
+      (global as any).fetch = originalFetch;
+    }
+  });
+
 });

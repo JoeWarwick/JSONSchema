@@ -1,7 +1,11 @@
 import React from 'react';
+import fs from 'fs';
+import path from 'path';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { GraphicalSchemaEditor } from './graphical-schema-editor';
+import { parseMarkup } from '../utils/markup';
+import { expandNodeByDataId } from './test-fixtures/expand-all-nodes';
 
 describe('GraphicalSchemaEditor - Delete node context-menu action', () => {
   beforeEach(() => {
@@ -79,4 +83,97 @@ describe('GraphicalSchemaEditor - Delete node context-menu action', () => {
 
     confirmSpy.mockRestore();
   });
+
+  it('deletes version-number on the expanded Model branch without creating numeric phantom fields', async () => {
+    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+    const xsdPath = path.join(__dirname, '..', '..', 'public', 'schemas', 'EigerModelType.xsd');
+    const xsd = fs.readFileSync(xsdPath, 'utf-8');
+    const parsed = parseMarkup(xsd, 'xml');
+
+    let latestSchema: any = parsed;
+
+    function StatefulXmlEditor() {
+      const [currentSchema, setCurrentSchema] = React.useState<any>(parsed);
+      return (
+        <GraphicalSchemaEditor
+          schema={currentSchema}
+          schemaLanguage="xml"
+          onChange={(next) => {
+            latestSchema = next as any;
+            setCurrentSchema(next as any);
+          }}
+        />
+      );
+    }
+
+    render(<StatefulXmlEditor />);
+
+    await expandNodeByDataId('1.element_0');
+    await expandNodeByDataId('1.element_0.sequence.element_0');
+    await expandNodeByDataId('1.element_0.sequence.element_0.sequence.element_0');
+
+    const modelVersionAttrNode = document.querySelector('.react-flow__node[data-id="1.element_0.sequence.element_0.sequence.element_0.base.attribute_0"]');
+    expect(modelVersionAttrNode).toBeInTheDocument();
+
+    fireEvent.contextMenu(modelVersionAttrNode as Element);
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete Attribute' }));
+
+    await waitFor(() => {
+      const topLevelProps = (latestSchema as any)?.properties;
+      expect(topLevelProps?.['0']).toBeUndefined();
+      expect(topLevelProps?.['1']).toBeUndefined();
+    });
+
+    confirmSpy.mockRestore();
+  }, 20000);
+
+  it('removes modelType version-number in complexType editor without creating 0:/1: ghost nodes', async () => {
+    const xsdPath = path.join(__dirname, '..', '..', 'public', 'schemas', 'EigerModelType.xsd');
+    const xsd = fs.readFileSync(xsdPath, 'utf-8');
+    const parsed = parseMarkup(xsd, 'xml');
+
+    let latestSchema: any = parsed;
+
+    function StatefulXmlEditor() {
+      const [currentSchema, setCurrentSchema] = React.useState<any>(parsed);
+      return (
+        <GraphicalSchemaEditor
+          schema={currentSchema}
+          schemaLanguage="xml"
+          onChange={(next) => {
+            latestSchema = next as any;
+            setCurrentSchema(next as any);
+          }}
+        />
+      );
+    }
+
+    render(<StatefulXmlEditor />);
+
+    const modelTypeNode = await screen.findByText('modelType');
+    fireEvent.click(modelTypeNode);
+
+    expect(await screen.findByText('ComplexType Editor')).toBeInTheDocument();
+
+    const versionInput = await screen.findByDisplayValue('version-number');
+    let cursor: Element | null = versionInput;
+    let removeButton: Element | null = null;
+    while (cursor && !removeButton) {
+      removeButton = Array.from(cursor.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Remove') ?? null;
+      cursor = cursor.parentElement;
+    }
+    expect(removeButton).toBeTruthy();
+    fireEvent.click(removeButton as Element);
+
+    await waitFor(() => {
+      const modelType = (latestSchema as any)?.['xs:schema']?.['xs:complexType']?.find(
+        (ct: any) => ct?.['@attributes']?.name === 'modelType'
+      );
+      const attrs = Array.isArray(modelType?.['xs:attribute']) ? modelType['xs:attribute'] : [];
+      expect(attrs.some((a: any) => a?.['@attributes']?.name === 'version-number')).toBe(false);
+    });
+
+    expect(screen.queryByText('0:')).not.toBeInTheDocument();
+    expect(screen.queryByText('1:')).not.toBeInTheDocument();
+  }, 20000);
 });

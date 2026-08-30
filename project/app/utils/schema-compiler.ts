@@ -262,6 +262,47 @@ export class CompiledSchema {
   }
 
   /**
+   * Create (or reuse) a synthetic compiled type for an inline anonymous complexType.
+   * This preserves inline children/attributes and extension base inheritance.
+   */
+  private getOrCreateInlineComplexType(
+    ownerTypeName: string,
+    elementName: string,
+    inlineComplexType: any,
+    namespace?: string
+  ): string {
+    const syntheticName = `${ownerTypeName}__${elementName}`;
+    if (this.typeMap.has(syntheticName)) {
+      return syntheticName;
+    }
+
+    const inlineCompiled: CompiledType = {
+      name: syntheticName,
+      namespace,
+      kind: 'complexType',
+      elements: [],
+      attributes: [],
+      schemaObj: inlineComplexType,
+    };
+
+    const inlineComplexContent = inlineComplexType?.[`${this.nsPrefix}:complexContent`] || inlineComplexType?.['complexContent'];
+    if (inlineComplexContent) {
+      const inlineExtension = inlineComplexContent[`${this.nsPrefix}:extension`] || inlineComplexContent['extension'];
+      if (inlineExtension) {
+        const extAttrs = getXmlAttrs(inlineExtension);
+        if (extAttrs.base) {
+          inlineCompiled.baseType = extAttrs.base;
+        }
+        this.extractElementsAndAttributes(inlineExtension, inlineCompiled);
+      }
+    }
+
+    this.extractElementsAndAttributes(inlineComplexType, inlineCompiled);
+    this.typeMap.set(syntheticName, inlineCompiled);
+    return syntheticName;
+  }
+
+  /**
    * Extract elements and attributes from a type or content model.
    */
   private extractElementsAndAttributes(container: any, compiled: CompiledType): void {
@@ -293,11 +334,16 @@ export class CompiledSchema {
         const elemArray = Array.isArray(elements) ? elements : [elements];
         for (const elem of elemArray) {
           const attrs = getXmlAttrs(elem);
+          let inferredType = attrs.type;
+          const inlineComplexType = elem[`${this.nsPrefix}:complexType`] || elem['complexType'];
+          if (!inferredType && inlineComplexType && attrs.name) {
+            inferredType = this.getOrCreateInlineComplexType(compiled.name, attrs.name, inlineComplexType, compiled.namespace);
+          }
           const declaredMinOccurs = parseInt(attrs.minOccurs ?? '1', 10);
           const effectiveMinOccurs = compositorMinOccurs === 0 ? 0 : declaredMinOccurs;
           compiled.elements.push({
             name: attrs.name || '',
-            type: attrs.type,
+            type: inferredType,
             minOccurs: effectiveMinOccurs,
             maxOccurs: attrs.maxOccurs ?? '1',
             compositorType,

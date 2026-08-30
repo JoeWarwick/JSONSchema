@@ -449,4 +449,52 @@ describe('Schema Walker - Integration', () => {
     
     expect(type1?.name).toBe(type2?.name);
   });
+
+  test('should infer inline extension base type for child elements', () => {
+    const inlineExtensionSchema = {
+      'xs:schema': {
+        'xs:element': {
+          '@attributes': { name: 'Root', type: 'RootType' },
+        },
+        'xs:complexType': [
+          {
+            '@attributes': { name: 'RootType' },
+            'xs:sequence': {
+              'xs:element': {
+                '@attributes': { name: 'Model' },
+                'xs:complexType': {
+                  'xs:complexContent': {
+                    'xs:extension': {
+                      '@attributes': { base: 'ModelBaseType' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          {
+            '@attributes': { name: 'ModelBaseType' },
+            'xs:attribute': {
+              '@attributes': { name: 'version-number', type: 'xs:string', use: 'optional' },
+            },
+          },
+        ],
+      },
+    } as any;
+
+    const compiled = compileSchemaForWalking(inlineExtensionSchema['xs:schema']);
+    const rootNode = walkSchema(compiled, {
+      rootSchema: inlineExtensionSchema['xs:schema'],
+      compiledSchema: compiled,
+      visitedTypes: new Set(),
+      depth: 0,
+      maxDepth: 50,
+      path: [],
+      typeName: 'RootType',
+    });
+
+    const modelNode = rootNode.children.find((child) => child.tagName === 'Model');
+    expect(modelNode).toBeTruthy();
+    expect(modelNode?.attributes.some((attr) => attr.name === 'version-number')).toBe(true);
+  });
 });

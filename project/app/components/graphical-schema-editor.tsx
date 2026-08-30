@@ -1983,7 +1983,19 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       console.warn(`[updateXmlNodeAtPath] target not found or not an object at path ${JSON.stringify(xmlPath)}`);
       return null;
     }
-    const kind = String((node?.data as any)?.xmlNodeKind || '');
+    const kind = String((targetNode?.data as any)?.xmlNodeKind || '');
+
+    const getAttributeDeclEntries = (container: any): any[] => {
+      const raw = container?.['xs:attribute'];
+      if (Array.isArray(raw)) return [...raw];
+      if (raw && typeof raw === 'object') return [raw];
+      return [];
+    };
+
+    const setAttributeDeclEntries = (container: any, entries: any[]) => {
+      if (!container || typeof container !== 'object') return;
+      container['xs:attribute'] = Array.isArray(entries) ? entries : [];
+    };
 
     // `xs:annotation/xs:documentation` is a free-text field common to every XSD node kind, so it's
     // handled generically here (once) rather than duplicated in each kind-specific branch below.
@@ -2328,26 +2340,30 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     if ((kind === 'simpleType' || kind === 'complexType' || kind === 'attributeGroup') && target && typeof target === 'object') {
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlAddAttribute')) {
         const newAttr = (patch as any).xmlAddAttribute;
-        if (!Array.isArray(target['xs:attribute'])) target['xs:attribute'] = [];
+        const attrDecls = getAttributeDeclEntries(target);
         const attrObj: any = { '@attributes': {} };
         if (newAttr.name) attrObj['@attributes'].name = newAttr.name;
         if (newAttr.type) attrObj['@attributes'].type = newAttr.type;
         if (newAttr.use && newAttr.use !== 'optional') attrObj['@attributes'].use = newAttr.use;
-        (target['xs:attribute'] as any[]).push(attrObj);
+        attrDecls.push(attrObj);
+        setAttributeDeclEntries(target, attrDecls);
       }
 
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlRemoveAttributeIndex')) {
-        const index = (patch as any).xmlRemoveAttributeIndex;
-        if (Array.isArray(target['xs:attribute']) && index >= 0 && index < target['xs:attribute'].length) {
-          (target['xs:attribute'] as any[]).splice(index, 1);
+        const index = Number((patch as any).xmlRemoveAttributeIndex);
+        const attrDecls = getAttributeDeclEntries(target);
+        if (!Number.isNaN(index) && index >= 0 && index < attrDecls.length) {
+          attrDecls.splice(index, 1);
+          setAttributeDeclEntries(target, attrDecls);
         }
       }
 
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlUpdateAttributeIndex')) {
         const update = (patch as any).xmlUpdateAttributeIndex;
-        const index = update.index;
-        if (Array.isArray(target['xs:attribute']) && index >= 0 && index < target['xs:attribute'].length) {
-          const attrEntry = target['xs:attribute'][index];
+        const index = Number(update.index);
+        const attrDecls = getAttributeDeclEntries(target);
+        if (!Number.isNaN(index) && index >= 0 && index < attrDecls.length) {
+          const attrEntry = attrDecls[index];
           if (attrEntry && typeof attrEntry === 'object') {
             const attrs = getOrCreateAttrs(attrEntry);
             if (attrs) {
@@ -2358,6 +2374,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
               if (update.use && update.use !== 'optional') attrs.use = update.use;
               else delete attrs.use;
             }
+            setAttributeDeclEntries(target, attrDecls);
           }
         }
       }

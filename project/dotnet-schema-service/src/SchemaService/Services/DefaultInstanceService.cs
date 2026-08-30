@@ -23,19 +23,33 @@ public sealed class DefaultInstanceService
             XmlResolver = null
         };
 
+        XmlSchema? parsedSchema = null;
+
         try
         {
             using (var stringReader = new StringReader(request.Schema))
             using (var xmlReader = XmlReader.Create(stringReader, readerSettings))
             {
-                schemaSet.Add(null, xmlReader);
+                parsedSchema = XmlSchema.Read(xmlReader, (_, args) =>
+                {
+                    if (!string.IsNullOrWhiteSpace(args.Message))
+                    {
+                        warnings.Add($"Schema validation warning: {args.Message}");
+                    }
+                });
             }
+
+            if (parsedSchema is null)
+            {
+                throw new InvalidOperationException("The schema could not be parsed as an XML Schema document.");
+            }
+
+            schemaSet.Add(parsedSchema);
 
             schemaSet.Compile();
         }
         catch (XmlSchemaException ex)
         {
-            // Log warning but continue - some schemas may have validation issues
             warnings.Add($"Schema validation warning: {ex.Message}");
         }
         catch (Exception ex)
@@ -43,7 +57,7 @@ public sealed class DefaultInstanceService
             throw new InvalidOperationException("Failed to parse schema", ex);
         }
 
-        var schema = schemaSet.Schemas().OfType<XmlSchema>().FirstOrDefault();
+        var schema = parsedSchema ?? schemaSet.Schemas().OfType<XmlSchema>().FirstOrDefault();
         if (schema is null)
         {
             throw new InvalidOperationException("The schema did not contain any XML Schema document.");
@@ -67,7 +81,7 @@ public sealed class DefaultInstanceService
         using var stringWriter = new StringWriter(builder);
         using (var xmlWriter = XmlWriter.Create(stringWriter, xmlSettings))
         {
-            WriteElement(xmlWriter, rootElement, schema.TargetNamespace, rootElement.IsNillable);
+            WriteElement(xmlWriter, rootElement, schema.TargetNamespace, rootElement.IsNillable, schema, new HashSet<string>(StringComparer.Ordinal));
         }
 
         return new DefaultInstanceResponse
@@ -80,6 +94,11 @@ public sealed class DefaultInstanceService
     private static XmlSchemaElement? FindRootElement(XmlSchema schema, string? preferredRootName)
     {
         var elements = schema.Elements.Values.OfType<XmlSchemaElement>().ToArray();
+        if (elements.Length == 0)
+        {
+            elements = schema.Items.OfType<XmlSchemaElement>().ToArray();
+        }
+
         if (elements.Length == 0)
         {
             return null;
@@ -97,7 +116,13 @@ public sealed class DefaultInstanceService
         return elements[0];
     }
 
-    private static void WriteElement(XmlWriter writer, XmlSchemaElement element, string? defaultNamespace, bool suppressNamespaceDeclaration)
+    private static void WriteElement(
+        XmlWriter writer,
+        XmlSchemaElement element,
+        string? defaultNamespace,
+        bool suppressNamespaceDeclaration,
+        XmlSchema schema,
+        HashSet<string> visitedTypeNames)
     {
         var localName = element.QualifiedName.IsEmpty ? element.Name : element.QualifiedName.Name;
         var namespaceUri = string.IsNullOrWhiteSpace(element.QualifiedName.Namespace)
@@ -110,41 +135,272 @@ public sealed class DefaultInstanceService
             writer.WriteAttributeString("xmlns", namespaceUri);
         }
 
-        if (element.ElementSchemaType is XmlSchemaComplexType complexType)
+        if (TryResolveComplexType(element, schema) is XmlSchemaComplexType complexType)
         {
-            WriteComplexType(writer, complexType);
+            WriteComplexType(writer, complexType, schema, visitedTypeNames);
         }
         else
         {
-            writer.WriteString(GetPlaceholderValue(element.ElementSchemaType));
+            var placeholder = element.DefaultValue ?? element.FixedValue ?? GetElementPlaceholderValue(element, schema);
+            writer.WriteString(placeholder);
         }
 
         writer.WriteEndElement();
     }
 
-    private static void WriteComplexType(XmlWriter writer, XmlSchemaComplexType complexType)
+    private static XmlSchemaComplexType? TryResolveComplexType(XmlSchemaElement element, XmlSchema schema)
     {
-        foreach (XmlSchemaAttribute attribute in complexType.AttributeUses.Values.OfType<XmlSchemaAttribute>())
+        if (element.SchemaType is XmlSchemaComplexType inlineComplexType)
         {
-            if (string.IsNullOrWhiteSpace(attribute.Name))
-            {
-                continue;
-            }
-
-            var attributeValue = attribute.DefaultValue ?? attribute.FixedValue ?? GetPlaceholderValue(attribute.AttributeSchemaType);
-            writer.WriteAttributeString(attribute.Name, attributeValue);
+            return inlineComplexType;
         }
 
-        var particle = complexType.ContentTypeParticle;
-        if (particle is null)
+        var typeName = element.SchemaTypeName;
+        if (!typeName.IsEmpty)
+        {
+            var localTypeName = typeName.Name;
+            if (!string.IsNullOrWhiteSpace(localTypeName))
+            {
+                var declared = schema.Items
+                    .OfType<XmlSchemaComplexType>()
+                    .FirstOrDefault(item => string.Equals(item.Name, localTypeName, StringComparison.Ordinal));
+                if (declared is not null)
+                {
+                    return declared;
+                }
+            }
+        }
+
+        if (element.ElementSchemaType is XmlSchemaComplexType resolved && resolved.Datatype is null)
+        {
+            return resolved;
+        }
+
+        return element.ElementSchemaType as XmlSchemaComplexType;
+    }
+
+    private static void WriteComplexType(
+        XmlWriter writer,
+        XmlSchemaComplexType complexType,
+        XmlSchema schema,
+        HashSet<string> visitedTypeNames)
+    {
+        var typeName = complexType.Name ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(typeName) && !visitedTypeNames.Add(typeName))
         {
             return;
         }
 
-        WriteParticle(writer, particle);
+        var writtenAttributeNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (XmlSchemaAttribute attribute in EnumerateDeclaredAttributes(complexType))
+        {
+            var attributeName = attribute.Name;
+            if (string.IsNullOrWhiteSpace(attributeName) && !attribute.RefName.IsEmpty)
+            {
+                attributeName = attribute.RefName.Name;
+            }
+
+            if (string.IsNullOrWhiteSpace(attributeName) || !writtenAttributeNames.Add(attributeName))
+            {
+                continue;
+            }
+
+            var attributeValue = attribute.DefaultValue ?? attribute.FixedValue ?? GetAttributePlaceholderValue(attribute, schema);
+            writer.WriteAttributeString(attributeName, attributeValue);
+        }
+
+        var contentModel = complexType.ContentModel;
+        if (contentModel is XmlSchemaComplexContent complexContent &&
+            complexContent.Content is XmlSchemaComplexContentExtension extension)
+        {
+            var baseTypeName = extension.BaseTypeName.Name;
+            if (!string.IsNullOrWhiteSpace(baseTypeName))
+            {
+                var baseComplexType = schema.Items
+                    .OfType<XmlSchemaComplexType>()
+                    .FirstOrDefault(item => string.Equals(item.Name, baseTypeName, StringComparison.Ordinal));
+                if (baseComplexType is not null)
+                {
+                    WriteComplexType(writer, baseComplexType, schema, visitedTypeNames);
+                }
+            }
+
+            if (extension.Particle is XmlSchemaParticle extensionParticle)
+            {
+                WriteParticle(writer, extensionParticle, schema, visitedTypeNames);
+            }
+
+            if (!string.IsNullOrWhiteSpace(typeName))
+            {
+                visitedTypeNames.Remove(typeName);
+            }
+
+            return;
+        }
+
+        if (contentModel is XmlSchemaSimpleContent simpleContent &&
+            simpleContent.Content is XmlSchemaSimpleContentExtension simpleExtension)
+        {
+            var simplePlaceholder = GetPlaceholderValueFromTypeName(simpleExtension.BaseTypeName.Name, schema);
+            writer.WriteString(simplePlaceholder);
+
+            if (!string.IsNullOrWhiteSpace(typeName))
+            {
+                visitedTypeNames.Remove(typeName);
+            }
+
+            return;
+        }
+
+        var particle = complexType.ContentTypeParticle;
+        if (particle is not null)
+        {
+            WriteParticle(writer, particle, schema, visitedTypeNames);
+        }
+        else if (complexType.Particle is XmlSchemaParticle declaredParticle)
+        {
+            WriteParticle(writer, declaredParticle, schema, visitedTypeNames);
+        }
+
+        if (!string.IsNullOrWhiteSpace(typeName))
+        {
+            visitedTypeNames.Remove(typeName);
+        }
     }
 
-    private static void WriteParticle(XmlWriter writer, XmlSchemaParticle particle)
+    private static IEnumerable<XmlSchemaAttribute> EnumerateDeclaredAttributes(XmlSchemaComplexType complexType)
+    {
+        foreach (var item in complexType.Attributes.OfType<XmlSchemaAttribute>())
+        {
+            yield return item;
+        }
+
+        if (complexType.ContentModel is XmlSchemaComplexContent complexContent &&
+            complexContent.Content is XmlSchemaComplexContentExtension extension)
+        {
+            foreach (var item in extension.Attributes.OfType<XmlSchemaAttribute>())
+            {
+                yield return item;
+            }
+        }
+
+        if (complexType.ContentModel is XmlSchemaSimpleContent simpleContent &&
+            simpleContent.Content is XmlSchemaSimpleContentExtension simpleExtension)
+        {
+            foreach (var item in simpleExtension.Attributes.OfType<XmlSchemaAttribute>())
+            {
+                yield return item;
+            }
+        }
+    }
+
+    private static string GetElementPlaceholderValue(XmlSchemaElement element, XmlSchema schema)
+    {
+        if (!element.SchemaTypeName.IsEmpty)
+        {
+            var byName = GetPlaceholderValueFromTypeName(element.SchemaTypeName.Name, schema);
+            if (!string.Equals(byName, "string", StringComparison.Ordinal))
+            {
+                return byName;
+            }
+        }
+
+        return GetPlaceholderValue(element.ElementSchemaType);
+    }
+
+    private static string GetAttributePlaceholderValue(XmlSchemaAttribute attribute, XmlSchema schema)
+    {
+        if (!attribute.SchemaTypeName.IsEmpty)
+        {
+            var byName = GetPlaceholderValueFromTypeName(attribute.SchemaTypeName.Name, schema);
+            if (!string.Equals(byName, "string", StringComparison.Ordinal))
+            {
+                return byName;
+            }
+        }
+
+        return GetPlaceholderValue(attribute.AttributeSchemaType);
+    }
+
+    private static string GetPlaceholderValueFromTypeName(string? typeName, XmlSchema schema)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+        {
+            return "string";
+        }
+
+        var localName = typeName.Contains(':', StringComparison.Ordinal)
+            ? typeName[(typeName.IndexOf(':', StringComparison.Ordinal) + 1)..]
+            : typeName;
+
+        var builtIn = localName switch
+        {
+            "boolean" => "true",
+            "byte" or "unsignedByte" or "short" or "unsignedShort" or "int" or "unsignedInt" or "long" or "unsignedLong" => "0",
+            "decimal" or "double" or "float" => "0",
+            "date" => "2026-07-22",
+            "dateTime" => "2026-07-22T00:00:00Z",
+            "time" => "00:00:00",
+            _ => "string"
+        };
+
+        if (!string.Equals(builtIn, "string", StringComparison.Ordinal) ||
+            localName.StartsWith("string", StringComparison.OrdinalIgnoreCase))
+        {
+            return builtIn;
+        }
+
+        return ResolveSimpleTypePlaceholder(localName, schema, new HashSet<string>(StringComparer.Ordinal));
+    }
+
+    private static string ResolveSimpleTypePlaceholder(string localTypeName, XmlSchema schema, HashSet<string> visitedSimpleTypes)
+    {
+        if (string.IsNullOrWhiteSpace(localTypeName) || !visitedSimpleTypes.Add(localTypeName))
+        {
+            return "string";
+        }
+
+        var simpleType = schema.Items
+            .OfType<XmlSchemaSimpleType>()
+            .FirstOrDefault(item => string.Equals(item.Name, localTypeName, StringComparison.Ordinal));
+
+        if (simpleType?.Content is XmlSchemaSimpleTypeRestriction restriction)
+        {
+            return GetPlaceholderValueFromTypeName(restriction.BaseTypeName.Name, schema);
+        }
+
+        if (simpleType?.Content is XmlSchemaSimpleTypeList list)
+        {
+            var itemTypeName = list.ItemTypeName.Name;
+            return GetPlaceholderValueFromTypeName(itemTypeName, schema);
+        }
+
+        if (simpleType?.Content is XmlSchemaSimpleTypeUnion union)
+        {
+            var baseMemberTypes = union.BaseMemberTypes;
+            var firstMember = baseMemberTypes is null
+                ? null
+                : baseMemberTypes.OfType<XmlSchemaSimpleType>().FirstOrDefault();
+
+            if (firstMember?.QualifiedName.Name is { Length: > 0 } firstName)
+            {
+                return GetPlaceholderValueFromTypeName(firstName, schema);
+            }
+
+            if (union.MemberTypes is { Length: > 0 })
+            {
+                return GetPlaceholderValueFromTypeName(union.MemberTypes[0].Name, schema);
+            }
+        }
+
+        return "string";
+    }
+
+    private static void WriteParticle(
+        XmlWriter writer,
+        XmlSchemaParticle particle,
+        XmlSchema schema,
+        HashSet<string> visitedTypeNames)
     {
         switch (particle)
         {
@@ -157,7 +413,7 @@ public sealed class DefaultInstanceService
 
                 for (var index = 0; index < occurrenceCount; index++)
                 {
-                    WriteNestedElement(writer, element);
+                    WriteNestedElement(writer, element, schema, visitedTypeNames);
                 }
                 break;
 
@@ -166,15 +422,19 @@ public sealed class DefaultInstanceService
                 {
                     if (item is XmlSchemaElement nestedElement)
                     {
-                        WriteNestedElement(writer, nestedElement);
+                        WriteNestedElement(writer, nestedElement, schema, visitedTypeNames);
                     }
                     else if (item is XmlSchemaChoice choice)
                     {
                         var firstChoice = choice.Items.OfType<XmlSchemaElement>().FirstOrDefault();
                         if (firstChoice is not null)
                         {
-                            WriteNestedElement(writer, firstChoice);
+                            WriteNestedElement(writer, firstChoice, schema, visitedTypeNames);
                         }
+                    }
+                    else if (item is XmlSchemaSequence nestedSequence)
+                    {
+                        WriteParticle(writer, nestedSequence, schema, visitedTypeNames);
                     }
                     else if (item is XmlSchemaAny)
                     {
@@ -188,7 +448,7 @@ public sealed class DefaultInstanceService
                 {
                     if (item is XmlSchemaElement nestedElement)
                     {
-                        WriteNestedElement(writer, nestedElement);
+                        WriteNestedElement(writer, nestedElement, schema, visitedTypeNames);
                     }
                 }
                 break;
@@ -197,26 +457,32 @@ public sealed class DefaultInstanceService
                 var firstElement = choice.Items.OfType<XmlSchemaElement>().FirstOrDefault();
                 if (firstElement is not null)
                 {
-                    WriteNestedElement(writer, firstElement);
+                    WriteNestedElement(writer, firstElement, schema, visitedTypeNames);
                 }
                 break;
         }
     }
 
-    private static void WriteNestedElement(XmlWriter writer, XmlSchemaElement nestedElement)
+    private static void WriteNestedElement(
+        XmlWriter writer,
+        XmlSchemaElement nestedElement,
+        XmlSchema schema,
+        HashSet<string> visitedTypeNames)
     {
-        var localName = nestedElement.QualifiedName.IsEmpty ? nestedElement.Name : nestedElement.QualifiedName.Name;
+        var localName = nestedElement.QualifiedName.IsEmpty
+            ? (nestedElement.RefName.IsEmpty ? nestedElement.Name : nestedElement.RefName.Name)
+            : nestedElement.QualifiedName.Name;
         var namespaceUri = nestedElement.QualifiedName.Namespace ?? string.Empty;
 
         writer.WriteStartElement(string.Empty, localName ?? "item", namespaceUri);
 
-        if (nestedElement.ElementSchemaType is XmlSchemaComplexType nestedComplexType)
+        if (TryResolveComplexType(nestedElement, schema) is XmlSchemaComplexType nestedComplexType)
         {
-            WriteComplexType(writer, nestedComplexType);
+            WriteComplexType(writer, nestedComplexType, schema, visitedTypeNames);
         }
         else
         {
-            var placeholder = nestedElement.DefaultValue ?? nestedElement.FixedValue ?? GetPlaceholderValue(nestedElement.ElementSchemaType);
+            var placeholder = nestedElement.DefaultValue ?? nestedElement.FixedValue ?? GetElementPlaceholderValue(nestedElement, schema);
             writer.WriteString(placeholder);
         }
 

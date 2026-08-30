@@ -136,13 +136,18 @@ async function generateDefaultInstanceForSchema(
   try {
     // Use raw schema text if provided, otherwise serialize from parsed object
     const schemaStr = rawSchemaText || (typeof schema === 'string' ? schema : serializeMarkup(schema, 'xml'));
+    const effectiveRootElementName = rootElementName || (
+      typeof schema === 'object' && schema !== null
+        ? getAvailableXmlRootElementNames(schema)[0]
+        : undefined
+    );
 
     const response = await fetch('/api/schema/default-instance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         schema: schemaStr,
-        rootElementName,
+        rootElementName: effectiveRootElementName,
       }),
     });
 
@@ -184,6 +189,29 @@ function getSelectedXmlRootElementName(instance: unknown): string | undefined {
   );
 
   return keys.length === 1 ? keys[0] : undefined;
+}
+
+function getAvailableXmlRootElementNames(schema: unknown): string[] {
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
+    return [];
+  }
+
+  const schemaRoot = (schema as Record<string, any>)['xs:schema'] || (schema as Record<string, any>)['schema'] || schema;
+  if (!schemaRoot || typeof schemaRoot !== 'object') {
+    return [];
+  }
+
+  const rawElements = (schemaRoot as Record<string, any>)['xs:element'] || (schemaRoot as Record<string, any>)['element'];
+  const elements = Array.isArray(rawElements) ? rawElements : rawElements ? [rawElements] : [];
+
+  const names = elements
+    .map((entry: any) => {
+      const attrs = entry?.['@attributes'] || entry || {};
+      return String(attrs?.name || attrs?.['@name'] || entry?.name || entry?.['@name'] || '').trim();
+    })
+    .filter((name: string) => Boolean(name));
+
+  return Array.from(new Set(names));
 }
 
 export default function Workbench() {
@@ -1111,7 +1139,7 @@ export default function Workbench() {
     await validateInstanceWithImports(schemaStr, xmlInstanceStr);
   };
 
-  const handleGenerateDefaultXmlInstance = async () => {
+  const handleGenerateDefaultXmlInstance = async (requestedRootElementName?: string) => {
     // Check if we have a schema loaded
     if (!state.source) {
       toast.error('No schema loaded');
@@ -1134,7 +1162,9 @@ export default function Workbench() {
         return;
       }
 
-      const selectedRootElementName = getSelectedXmlRootElementName(instanceData);
+      const selectedRootElementName = requestedRootElementName
+        || getSelectedXmlRootElementName(instanceData)
+        || getAvailableXmlRootElementNames(state.source)[0];
       const result = await generateDefaultInstanceForSchema(
         state.source as Record<string, unknown>,
         'xml',
@@ -1597,6 +1627,11 @@ export default function Workbench() {
     }
   }, [editorSchema]);
 
+  const availableXmlRootElementNames = useMemo(() => {
+    if (markupLanguage !== 'xml') return [];
+    return getAvailableXmlRootElementNames(state.source);
+  }, [markupLanguage, state.source]);
+
   return (
     <TooltipProvider>
     <div className={styles.container}>
@@ -1661,10 +1696,26 @@ export default function Workbench() {
               </MenubarItem>
               
               {markupLanguage === 'xml' && (
-                <MenubarItem onSelect={handleGenerateDefaultXmlInstance} disabled={!state.source}>
-                  <Sparkles size={14} style={{ marginRight: 6 }} />
-                  Generate Default Instance
-                </MenubarItem>
+                availableXmlRootElementNames.length > 0 ? (
+                  <MenubarSub>
+                    <MenubarSubTrigger>
+                      <Sparkles size={14} style={{ marginRight: 6 }} />
+                      Generate Default Instance
+                    </MenubarSubTrigger>
+                    <MenubarSubContent>
+                      {availableXmlRootElementNames.map((rootName) => (
+                        <MenubarItem key={`default-instance-root-${rootName}`} onSelect={() => handleGenerateDefaultXmlInstance(rootName)}>
+                          {rootName}
+                        </MenubarItem>
+                      ))}
+                    </MenubarSubContent>
+                  </MenubarSub>
+                ) : (
+                  <MenubarItem onSelect={() => handleGenerateDefaultXmlInstance()} disabled={!state.source}>
+                    <Sparkles size={14} style={{ marginRight: 6 }} />
+                    Generate Default Instance
+                  </MenubarItem>
+                )
               )}
             </MenubarContent>
           </MenubarMenu>
@@ -1963,6 +2014,7 @@ export default function Workbench() {
                       }}
                       rootSchema={state.source as any}
                       autoExpandAll={true}
+                      showRootElementTriggers={false}
                     />
                   ) : (
                     <div className={styles.emptyState}>

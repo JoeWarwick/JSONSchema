@@ -93,6 +93,7 @@ interface XmlInstanceFormProps {
   rootSchema?: any;
   autoFocus?: boolean;
   autoExpandAll?: boolean; // If true, automatically expand all nested elements
+  showRootElementTriggers?: boolean;
 }
 
 interface XmlAttribute {
@@ -764,36 +765,51 @@ function XmlElementNode({
   const hasText = element.text.length > 0;
   const isCompositor = !!element.isCompositor;
 
+  const asMutableElementObject = (entry: any): Record<string, any> => {
+    if (entry && typeof entry === 'object' && !Array.isArray(entry)) return { ...entry };
+    return {};
+  };
+
+  const mutateElementOrArray = (current: any, mutate: (entry: Record<string, any>) => Record<string, any>): any => {
+    if (Array.isArray(current)) {
+      return current.map((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+        return mutate(asMutableElementObject(item));
+      });
+    }
+    return mutate(asMutableElementObject(current));
+  };
+
   const handleAttributeChange = (attrName: string, newValue: string) => {
     onUpdateValue(path, (current) => {
-      const updated = { ...current };
-      
-      // Ensure @attributes object exists
-      if (!updated['@attributes']) {
-        updated['@attributes'] = {};
-      }
-      if (typeof updated['@attributes'] !== 'object') {
-        updated['@attributes'] = {};
-      }
-      
-      const attrs = updated['@attributes'] as Record<string, any>;
-      attrs[attrName] = newValue;
-      
-      // Clean up old @<name> format if it exists
-      delete updated['@' + attrName];
-      
-      // Also clean up legacy attributes format
-      if (updated.attributes && typeof updated.attributes === 'object') {
-        const legacyAttrs = { ...updated.attributes as Record<string, any> };
-        delete legacyAttrs[attrName];
-        if (Object.keys(legacyAttrs).length > 0) {
-          updated.attributes = legacyAttrs;
-        } else {
-          delete updated.attributes;
+      return mutateElementOrArray(current, (updated) => {
+        // Ensure @attributes object exists
+        if (!updated['@attributes']) {
+          updated['@attributes'] = {};
         }
-      }
-      
-      return updated;
+        if (typeof updated['@attributes'] !== 'object') {
+          updated['@attributes'] = {};
+        }
+
+        const attrs = updated['@attributes'] as Record<string, any>;
+        attrs[attrName] = newValue;
+
+        // Clean up old @<name> format if it exists
+        delete updated['@' + attrName];
+
+        // Also clean up legacy attributes format
+        if (updated.attributes && typeof updated.attributes === 'object') {
+          const legacyAttrs = { ...updated.attributes as Record<string, any> };
+          delete legacyAttrs[attrName];
+          if (Object.keys(legacyAttrs).length > 0) {
+            updated.attributes = legacyAttrs;
+          } else {
+            delete updated.attributes;
+          }
+        }
+
+        return updated;
+      });
     });
   };
 
@@ -801,47 +817,59 @@ function XmlElementNode({
     const newAttrName = prompt('Enter attribute name:');
     if (newAttrName && newAttrName.trim()) {
       onUpdateValue(path, (current) => {
-        const updated = { ...current };
-        if (!updated['@attributes']) {
-          updated['@attributes'] = {};
-        }
-        if (typeof updated['@attributes'] !== 'object') {
-          updated['@attributes'] = {};
-        }
-        const attrs = updated['@attributes'] as Record<string, any>;
-        attrs[newAttrName.trim()] = '';
-        return updated;
+        return mutateElementOrArray(current, (updated) => {
+          if (!updated['@attributes']) {
+            updated['@attributes'] = {};
+          }
+          if (typeof updated['@attributes'] !== 'object') {
+            updated['@attributes'] = {};
+          }
+          const attrs = updated['@attributes'] as Record<string, any>;
+          attrs[newAttrName.trim()] = '';
+          return updated;
+        });
       });
     }
   };
 
   const handleRemoveAttribute = (attrName: string) => {
     onUpdateValue(path, (current) => {
-      const updated = { ...current };
-      if (updated['@attributes'] && typeof updated['@attributes'] === 'object') {
-        const attrs = { ...updated['@attributes'] as Record<string, any> };
-        delete attrs[attrName];
-        if (Object.keys(attrs).length > 0) {
-          updated['@attributes'] = attrs;
-        } else {
-          delete updated['@attributes'];
+      return mutateElementOrArray(current, (updated) => {
+        if (updated['@attributes'] && typeof updated['@attributes'] === 'object') {
+          const attrs = { ...updated['@attributes'] as Record<string, any> };
+          delete attrs[attrName];
+          if (Object.keys(attrs).length > 0) {
+            updated['@attributes'] = attrs;
+          } else {
+            delete updated['@attributes'];
+          }
         }
-      }
-      // Also clean up old format if it exists
-      delete updated['@' + attrName];
-      return updated;
+        if (updated.attributes && typeof updated.attributes === 'object' && !Array.isArray(updated.attributes)) {
+          const legacyAttrs = { ...updated.attributes as Record<string, any> };
+          delete legacyAttrs[attrName];
+          if (Object.keys(legacyAttrs).length > 0) {
+            updated.attributes = legacyAttrs;
+          } else {
+            delete updated.attributes;
+          }
+        }
+        // Also clean up old format if it exists
+        delete updated['@' + attrName];
+        return updated;
+      });
     });
   };
 
   const handleTextContentChange = (newText: string) => {
     onUpdateValue(path, (current) => {
-      const updated = { ...current };
-      if (newText.trim()) {
-        updated._text = newText;
-      } else {
-        delete updated._text;
-      }
-      return updated;
+      return mutateElementOrArray(current, (updated) => {
+        if (newText.trim()) {
+          updated._text = newText;
+        } else {
+          delete updated._text;
+        }
+        return updated;
+      });
     });
   };
 
@@ -939,7 +967,7 @@ function XmlElementNode({
     }
 
     onUpdateValue(path, (current) => {
-      const updated = { ...(current || {}) };
+      const updated = asMutableElementObject(current);
 
       // Enforce choice semantics by clearing sibling options when selecting a different branch.
       if (choiceGroupData) {
@@ -1196,18 +1224,15 @@ function XmlElementNode({
             {globalTriggers.map((trigger) => {
               const count = getRootOccurrenceCount(value, trigger.name);
               const isSelected = selectedRootOption === trigger.name;
-              const isBlockedByChoice = Boolean(selectedRootOption && selectedRootOption !== trigger.name);
               const isBelowMinimum = count < trigger.minOccurs;
-              const isRequiredSingleton = trigger.minOccurs > 0 && trigger.maxOccurs === 1;
-              if (isRequiredSingleton && !isBelowMinimum && !isSelected) {
-                return null;
-              }
 
-              const canAdd = !isSelected && !isBlockedByChoice && (count < trigger.maxOccurs);
+              const canAdd = !isSelected && (count < trigger.maxOccurs);
               const maxLabel = Number.isFinite(trigger.maxOccurs) ? String(trigger.maxOccurs) : '∞';
               const addTitle = isSelected
                 ? `${trigger.name} already selected (${count}/${maxLabel})`
-                : (canAdd ? `Add ${trigger.name} (${count}/${maxLabel})` : `${trigger.name} reached maxOccurs (${maxLabel})`);
+                : (selectedRootOption
+                  ? `Switch to ${trigger.name} (${count}/${maxLabel})`
+                  : (canAdd ? `Add ${trigger.name} (${count}/${maxLabel})` : `${trigger.name} reached maxOccurs (${maxLabel})`));
 
               return (
                 <button
@@ -1215,7 +1240,7 @@ function XmlElementNode({
                   type="button"
                   aria-pressed={isSelected}
                   onClick={() => {
-                    if (isSelected || isBlockedByChoice) return;
+                    if (isSelected) return;
                     addRootElementOccurrence(trigger.name, trigger.maxOccurs);
                   }}
                   disabled={false}
@@ -1223,19 +1248,19 @@ function XmlElementNode({
                   style={{
                     padding: '5px 10px',
                     borderRadius: 999,
-                    border: isSelected ? '1px solid #a78bfa' : (isBlockedByChoice ? '1px solid #e5e7eb' : (isBelowMinimum ? '1px solid #f59e0b' : '1px solid #d1d5db')),
-                    backgroundColor: isSelected ? '#f3e8ff' : (isBlockedByChoice ? '#f3f4f6' : (isBelowMinimum ? '#fffbeb' : '#f8fafc')),
-                    cursor: isSelected ? 'default' : (isBlockedByChoice ? 'default' : 'pointer'),
+                    border: isSelected ? '1px solid #a78bfa' : (isBelowMinimum ? '1px solid #f59e0b' : '1px solid #d1d5db'),
+                    backgroundColor: isSelected ? '#f3e8ff' : (isBelowMinimum ? '#fffbeb' : '#f8fafc'),
+                    cursor: isSelected ? 'default' : 'pointer',
                     fontSize: 11,
                     fontWeight: 600,
                     letterSpacing: '0.01em',
-                    color: isSelected ? '#5b21b6' : (isBlockedByChoice ? '#94a3b8' : (isBelowMinimum ? '#92400e' : '#374151')),
+                    color: isSelected ? '#5b21b6' : (isBelowMinimum ? '#92400e' : '#374151'),
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: 6,
                     whiteSpace: 'nowrap',
                     boxShadow: isSelected ? 'inset 0 0 0 1px rgba(167, 139, 250, 0.25)' : 'none',
-                    opacity: isBlockedByChoice ? 0.75 : 1,
+                    opacity: 1,
                   }}
                 >
                   <span style={{ fontSize: 10, lineHeight: 1 }}>{isSelected ? '●' : '+'}</span>
@@ -1519,11 +1544,11 @@ function XmlElementNode({
                         }
 
                         return (
-                          <div key={attr.name} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 'fit-content', flexShrink: 0 }}>
+                          <div key={attr.name} style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 'fit-content', flexShrink: 0 }}>
                             {(() => {
                               const inputId = `xml-attr-input-${sanitize(element.tagName)}-${sanitize(attr.name)}`;
                               return (
-                                <label htmlFor={inputId} className={styles.label} style={{ minWidth: 100 }}>{attr.name}:</label>
+                                <label htmlFor={inputId} className={styles.label} style={{ minWidth: 100, marginBottom: 0, textAlign: 'right', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 500, color: '#94a3b8' }}>{attr.name}:</label>
                               );
                             })()}
                             {typeof attr.value === 'object' ? (
@@ -1564,17 +1589,24 @@ function XmlElementNode({
                                 const inputType = xsdMapped || detectAttributeInputType(attr.name, attr.value);
                                 const validationAttrs = facetsToInputAttrs(facets);
                                 const validationHint = facetsToHint(facets);
+                                const subtleControlStyle = {
+                                  padding: '4px 6px',
+                                  border: '1px solid #d1d5db',
+                                  borderRadius: 3,
+                                  fontSize: 12,
+                                  fontFamily: 'inherit',
+                                } as const;
 
                                 if (enumerations.length > 0) {
                                   return (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                       <select
                                         id={`xml-attr-input-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
                                         data-testid={`xml-attr-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
                                         className={styles.input}
                                         value={String(attr.value ?? '')}
                                         onChange={(e) => handleAttributeChange(attr.name, e.target.value)}
-                                        style={{ flex: 1, maxWidth: 200 }}
+                                        style={{ width: 180, maxWidth: 180, ...subtleControlStyle }}
                                       >
                                         <option value="">-- Select a value --</option>
                                         {enumerations.map((option) => (
@@ -1602,8 +1634,10 @@ function XmlElementNode({
                                   );
                                 }
 
+                                const compactWidth = inputType === 'number' ? 96 : 180;
+
                                 return (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                     <input
                                       id={`xml-attr-input-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
                                       data-testid={`xml-attr-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
@@ -1614,7 +1648,7 @@ function XmlElementNode({
                                         const v = inputType === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value;
                                         handleAttributeChange(attr.name, v as any);
                                       }}
-                                      style={{ flex: 1, maxWidth: 200 }}
+                                      style={{ width: compactWidth, maxWidth: compactWidth, ...subtleControlStyle }}
                                       {...validationAttrs}
                                     />
                                     {validationHint && (
@@ -1750,36 +1784,7 @@ function XmlElementNode({
                       );
                     })}
                   </div>
-                ) : (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button className={styles.addButton}
-                        onClick={() => {
-                          const newElementName = prompt('Enter element name:');
-                          if (newElementName && newElementName.trim()) {
-                            onUpdateValue(path, (current) => {
-                              const updated = { ...current };
-                              const newElement = { _text: '' };
-                              if (updated[newElementName]) {
-                                if (!Array.isArray(updated[newElementName])) {
-                                  updated[newElementName] = [updated[newElementName]];
-                                }
-                                updated[newElementName].push(newElement);
-                              } else {
-                                updated[newElementName] = newElement;
-                              }
-                              return updated;
-                            });
-                          }
-                        }}
-                        title="Add new child element"
-                      >
-                        <Plus size={12} />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>Add child element</TooltipContent>
-                  </Tooltip>
-                )}
+                ) : null}
               </div>
               {/* Walk the compiled schema structure, use instance data for values */}
               {(() => {
@@ -2511,6 +2516,8 @@ export function XmlInstanceForm({
   onChange,
   path = [],
   rootSchema,
+  autoExpandAll = false,
+  showRootElementTriggers = true,
 }: XmlInstanceFormProps) {
   // Debug logging
   useEffect(() => {
@@ -2746,30 +2753,70 @@ export function XmlInstanceForm({
       return;
     }
 
-    // Navigate to parent and apply update
-    let target = updated;
+    // Navigate to the parent container for the last path segment.
+    let target: any = updated;
     for (let i = 0; i < adjustedPath.length - 1; i++) {
-      const key = adjustedPath[i];
-      if (!target[key]) target[key] = {};
-      target = target[key];
-      if (Array.isArray(target)) {
-        const index = parseInt(adjustedPath[i + 1], 10);
-        if (!isNaN(index) && target[index]) {
-          target = target[index];
-          i++; // Skip the next index since we handled it
+      const segment = adjustedPath[i];
+      const nextSegment = adjustedPath[i + 1];
+      const currentIsArray = Array.isArray(target);
+      const segmentIsIndex = /^\d+$/.test(segment);
+      const nextIsIndex = /^\d+$/.test(nextSegment);
+
+      if (currentIsArray) {
+        const index = Number.parseInt(segment, 10);
+        if (!Number.isFinite(index) || index < 0) return;
+        if (target[index] === undefined) {
+          target[index] = nextIsIndex ? [] : {};
         }
+        target = target[index];
+      } else {
+        if (segmentIsIndex) return;
+        if (target[segment] === undefined) {
+          target[segment] = nextIsIndex ? [] : {};
+        }
+        target = target[segment];
       }
     }
 
-    // Apply the update function to the target
-    const lastKey = adjustedPath[adjustedPath.length - 1];
-    const isNumericIndex = /^\d+$/.test(lastKey);
+    // Apply the update function at the last path segment.
+    const lastSegment = adjustedPath[adjustedPath.length - 1];
+    const lastIsIndex = /^\d+$/.test(lastSegment);
 
-    if (isNumericIndex && Array.isArray(target)) {
-      const index = parseInt(lastKey, 10);
+    if (Array.isArray(target)) {
+      if (!lastIsIndex) return;
+      const index = Number.parseInt(lastSegment, 10);
+      if (!Number.isFinite(index) || index < 0) return;
       target[index] = updateFn(target[index]);
-    } else if (!isNumericIndex && target) {
-      target[lastKey] = updateFn(target[lastKey]);
+    } else {
+      if (lastIsIndex) {
+        let remaining = Number.parseInt(lastSegment, 10);
+        if (!Number.isFinite(remaining) || remaining < 0) return;
+
+        const dataKeys = Object.keys(target).filter((k) => !k.startsWith('@') && !k.startsWith('_'));
+        for (const key of dataKeys) {
+          const entry = target[key];
+          if (Array.isArray(entry)) {
+            if (remaining < entry.length) {
+              const nextArray = [...entry];
+              nextArray[remaining] = updateFn(nextArray[remaining]);
+              target[key] = nextArray;
+              onChange(updated);
+              return;
+            }
+            remaining -= entry.length;
+          } else {
+            if (remaining === 0) {
+              target[key] = updateFn(entry);
+              onChange(updated);
+              return;
+            }
+            remaining -= 1;
+          }
+        }
+        return;
+      }
+
+      target[lastSegment] = updateFn(target[lastSegment]);
     }
 
     onChange(updated);
@@ -2785,7 +2832,8 @@ export function XmlInstanceForm({
         value={value || schema}
         onChange={onChange}
         onUpdateValue={handleUpdateValue}
-        rootSchema={rootSchema}
+        rootSchema={showRootElementTriggers ? rootSchema : undefined}
+        autoExpandAll={autoExpandAll}
         schemaNode={schemaNode}
         compiledSchema={compiledSchema}
       />

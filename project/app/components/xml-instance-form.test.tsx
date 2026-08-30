@@ -304,7 +304,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     expect(input.nextElementSibling).toBe(removeChoice);
   });
 
-  test('hides sibling root options once one root element is active', () => {
+  test('keeps sibling root options visible and allows switching active root', () => {
     const onChange = jest.fn();
     const rootSchema = {
       'xs:schema': {
@@ -330,8 +330,16 @@ describe('XmlInstanceForm trigger-row behavior', () => {
       />,
     );
 
-    expect(screen.queryByRole('button', { name: /^\+\s*person$/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /^\+\s*note$/i })).toBeNull();
+    const personButton = screen.getByRole('button', { name: /^\+\s*person\s*!$/i });
+    const noteButton = screen.getByRole('button', { name: /^\+\s*note\s*!$/i });
+    expect(personButton).toBeTruthy();
+    expect(noteButton).toBeTruthy();
+
+    fireEvent.click(personButton);
+    const switchedPayload = onChange.mock.calls[0][0];
+    expect(switchedPayload.employee).toBeUndefined();
+    expect(switchedPayload.person).toBeTruthy();
+
     const employeeButton = screen.getByTitle('employee already selected (1/1)');
     expect(employeeButton).toBeTruthy();
     expect(employeeButton.getAttribute('aria-pressed')).toBe('true');
@@ -366,7 +374,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     );
 
     expect(screen.getByTitle('person already selected (1/1)')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /^\+\s*employee$/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /^\+\s*employee\s*!$/i })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /^\+\s*note$/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /^\+\s*archive$/i })).toBeNull();
   });
@@ -393,4 +401,5 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     // Inline per-row "Remove attribute" buttons are removed.
     expect(screen.queryByTitle('Remove attribute')).toBeNull();
   });
+
 });
