@@ -2585,43 +2585,63 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
         />
         <span style={{ fontSize: 12 }}>Mixed Content</span>
       </label>
-      {!readOnly ? (
-        <XmlAttributesManager
-          node={node}
-          onChange={onChange}
-          addBadgeLabel="xs:attribute"
-          extraBadges={!isRef ? (
+      {data.xmlHasInlineComplexType ? (
+        !readOnly ? (
+          <XmlAttributesManager
+            node={node}
+            onChange={onChange}
+            addBadgeLabel="xs:attribute"
+            extraBadges={!isRef ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const next = hasAnyAttributeNamespace ? '' : '##other';
+                  setAnyAttributeNamespace(next);
+                  onChange({ id: node.id, xmlAnyAttributeNamespace: next || undefined });
+                }}
+                title={hasAnyAttributeNamespace ? 'Remove AnyAttribute namespace' : 'Add AnyAttribute namespace'}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 999,
+                  border: '1px solid var(--graph-node-border, #4b5563)',
+                  backgroundColor: hasAnyAttributeNamespace ? 'var(--graph-node-bg, #111827)' : 'var(--graph-node-bg-subtle, #1f2937)',
+                  color: 'var(--graph-text, #e5e7eb)',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  lineHeight: 1,
+                  textDecoration: 'none',
+                  boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.04)',
+                }}
+              >
+                <span>+</span>
+                <span>Any #ns</span>
+              </button>
+            ) : null}
+          />
+        ) : null
+      ) : (
+        !readOnly && !isRef ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12, color: '#666', background: '#fff7ed', border: '1px solid #f5c2b7', borderRadius: 6, padding: 8 }}>
+            <div>
+              This element is currently simpleType-backed. Convert it to ComplexType before adding xs:attribute or xs:anyAttribute.
+            </div>
             <button
               type="button"
+              aria-label="Convert to ComplexType"
               onClick={() => {
-                const next = hasAnyAttributeNamespace ? '' : '##other';
-                setAnyAttributeNamespace(next);
-                onChange({ id: node.id, xmlAnyAttributeNamespace: next || undefined });
+                onChange({ id: node.id, xmlConvertToComplexType: true });
               }}
-              title={hasAnyAttributeNamespace ? 'Remove AnyAttribute namespace' : 'Add AnyAttribute namespace'}
-              style={{
-                padding: '4px 10px',
-                borderRadius: 999,
-                border: '1px solid var(--graph-node-border, #4b5563)',
-                backgroundColor: hasAnyAttributeNamespace ? 'var(--graph-node-bg, #111827)' : 'var(--graph-node-bg-subtle, #1f2937)',
-                color: 'var(--graph-text, #e5e7eb)',
-                cursor: 'pointer',
-                fontSize: 11,
-                fontWeight: 600,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-                lineHeight: 1,
-                textDecoration: 'none',
-                boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.04)',
-              }}
+              style={{ alignSelf: 'flex-start', padding: '4px 10px', borderRadius: 999, border: '1px solid var(--graph-node-border, #4b5563)', backgroundColor: 'var(--graph-node-bg-subtle, #1f2937)', color: 'var(--graph-text, #e5e7eb)', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
             >
-              <span>+</span>
-              <span>Any #ns</span>
+              Convert to ComplexType
             </button>
-          ) : null}
-        />
-      ) : null}
+          </div>
+        ) : null
+      )}
 
       <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--graph-text)' }}>Elements</div>
 

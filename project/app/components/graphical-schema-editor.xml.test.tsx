@@ -58,6 +58,56 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     expect(screen.getByLabelText('SimpleType Mode')).toHaveValue('restriction');
   });
 
+  it('does not show add-target badge on simpleType-backed element nodes', async () => {
+    const schema = {
+      'xs:schema': {
+        'xs:element': [
+          {
+            '@attributes': { name: 'firstName', type: 'xs:string' },
+          },
+        ],
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={schema} schemaLanguage="xml" onChange={() => {}} />);
+
+    const elementLabel = await screen.findByText('firstName');
+    const node = elementLabel.closest('.react-flow__node');
+    expect(node).not.toBeNull();
+    expect(within(node as Element).queryByLabelText('Add target: complexType')).not.toBeInTheDocument();
+    expect(within(node as Element).queryByLabelText('Add target: extension')).not.toBeInTheDocument();
+  });
+
+  it('shows top add-target badge on complexType nodes only when extension mode is active', async () => {
+    const schema = {
+      'xs:schema': {
+        'xs:complexType': [
+          {
+            '@attributes': { name: 'PlainType' },
+          },
+          {
+            '@attributes': { name: 'ExtType' },
+            'xs:complexContent': {
+              'xs:extension': {
+                '@attributes': { base: 'BaseType' },
+              },
+            },
+          },
+        ],
+      },
+    } as any;
+
+    render(<GraphicalSchemaEditor schema={schema} schemaLanguage="xml" onChange={() => {}} />);
+
+    const plainNode = (await screen.findByText('PlainType')).closest('.react-flow__node');
+    expect(plainNode).not.toBeNull();
+    expect(within(plainNode as Element).queryByLabelText('Add target: complexType')).not.toBeInTheDocument();
+
+    const extNode = (await screen.findByText('ExtType')).closest('.react-flow__node');
+    expect(extNode).not.toBeNull();
+    expect(within(extNode as Element).getByLabelText('Add target: extension')).toBeInTheDocument();
+  });
+
   it('does not switch to the JSON RHS editor when clicking empty space in XML mode', async () => {
     const schema = {
       'xs:schema': {
@@ -81,6 +131,45 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
 
     expect(screen.getByText('SimpleType Editor')).toBeInTheDocument();
     expect(screen.queryByText('Select a node to edit its properties.')).not.toBeInTheDocument();
+  });
+
+  it('converts a simpleType-backed element to complexType from RHS and then exposes anyAttribute controls', async () => {
+    const initialSchema = {
+      'xs:schema': {
+        'xs:element': [
+          { '@attributes': { name: 'Root', type: 'xs:string' } },
+        ],
+      },
+    } as any;
+
+    let latestSchema = initialSchema;
+
+    function StatefulXmlEditor() {
+      const [currentSchema, setCurrentSchema] = React.useState<any>(initialSchema);
+      return (
+        <GraphicalSchemaEditor
+          schema={currentSchema}
+          schemaLanguage="xml"
+          onChange={(next) => {
+            latestSchema = next as any;
+            setCurrentSchema(next as any);
+          }}
+        />
+      );
+    }
+
+    render(<StatefulXmlEditor />);
+
+    fireEvent.click(await screen.findByText('Root'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Convert to ComplexType' }));
+
+    await waitFor(() => {
+      const element = latestSchema?.['xs:schema']?.['xs:element']?.[0];
+      expect(element?.['@attributes']?.type).toBeUndefined();
+      expect(element?.['xs:complexType']?.['xs:simpleContent']?.['xs:extension']?.['@attributes']?.base).toBe('xs:string');
+    });
+
+    expect(await screen.findByLabelText('Enable AnyAttribute')).toBeInTheDocument();
   });
 
   it('adds sequence from complexType context menu and edits min/max in XML RHS', async () => {
@@ -215,6 +304,101 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
       const attrs = compositor?.['@attributes'];
       expect(attrs?.minOccurs).toBe(minValue);
       expect(attrs?.maxOccurs).toBe(maxValue);
+    });
+  });
+
+  it('creates complexContent extension from RHS and routes Add element into extension content for complexType nodes', async () => {
+    const initialSchema = {
+      'xs:schema': {
+        'xs:complexType': [
+          { '@attributes': { name: 'PersonType' } },
+          { '@attributes': { name: 'EmployeeType' } },
+        ],
+      },
+    } as any;
+
+    let latestSchema = initialSchema;
+
+    function StatefulXmlEditor() {
+      const [currentSchema, setCurrentSchema] = React.useState<any>(initialSchema);
+      return (
+        <GraphicalSchemaEditor
+          schema={currentSchema}
+          schemaLanguage="xml"
+          onChange={(next) => {
+            latestSchema = next as any;
+            setCurrentSchema(next as any);
+          }}
+        />
+      );
+    }
+
+    render(<StatefulXmlEditor />);
+
+    const employeeTypeNode = await screen.findByText('EmployeeType');
+    fireEvent.click(employeeTypeNode);
+
+    fireEvent.click(await screen.findByLabelText('Use complexContent extension'));
+    fireEvent.change(await screen.findByLabelText('ComplexContent Base Type'), { target: { value: 'PersonType' } });
+
+    fireEvent.contextMenu(employeeTypeNode);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add element' }));
+
+    await waitFor(() => {
+      const employeeType = latestSchema?.['xs:schema']?.['xs:complexType']?.[1];
+      const extension = employeeType?.['xs:complexContent']?.['xs:extension'];
+      expect(extension?.['@attributes']?.base).toBe('PersonType');
+      expect(extension?.['xs:sequence']?.['xs:element']?.['@attributes']?.name).toBe('element1');
+    });
+  });
+
+  it('routes element-node Add attribute into inline complexContent extension when enabled from RHS', async () => {
+    const initialSchema = {
+      'xs:schema': {
+        'xs:complexType': [
+          { '@attributes': { name: 'PersonType' } },
+        ],
+        'xs:element': [
+          {
+            '@attributes': { name: 'Root' },
+            'xs:complexType': {},
+          },
+        ],
+      },
+    } as any;
+
+    let latestSchema = initialSchema;
+
+    function StatefulXmlEditor() {
+      const [currentSchema, setCurrentSchema] = React.useState<any>(initialSchema);
+      return (
+        <GraphicalSchemaEditor
+          schema={currentSchema}
+          schemaLanguage="xml"
+          onChange={(next) => {
+            latestSchema = next as any;
+            setCurrentSchema(next as any);
+          }}
+        />
+      );
+    }
+
+    render(<StatefulXmlEditor />);
+
+    const rootElementNode = await screen.findByText('Root');
+    fireEvent.click(rootElementNode);
+
+    fireEvent.click(await screen.findByLabelText('Use complexContent extension'));
+    fireEvent.change(await screen.findByLabelText('ComplexContent Base Type'), { target: { value: 'PersonType' } });
+
+    fireEvent.contextMenu(rootElementNode);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add Attribute' }));
+
+    await waitFor(() => {
+      const rootElement = latestSchema?.['xs:schema']?.['xs:element']?.[0];
+      const extension = rootElement?.['xs:complexType']?.['xs:complexContent']?.['xs:extension'];
+      expect(extension?.['@attributes']?.base).toBe('PersonType');
+      expect(extension?.['xs:attribute']?.['@attributes']?.name).toBe('attribute1');
     });
   });
 

@@ -265,6 +265,25 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
   const badges = buildBadges(data);
   const compositorKind = (data as any).xmlNodeKind as string | undefined;
   const CompositorIcon = compositorKind ? XML_COMPOSITOR_ICONS[compositorKind] : undefined;
+  const localTypeName = (value: unknown) => (typeof value === 'string' && value.length > 0
+    ? (value.includes(':') ? value.split(':').pop() || value : value)
+    : undefined);
+  const elementTypeName = localTypeName((data as any).xmlElementType);
+  const elementReferencesNamedComplexType = !!elementTypeName && Array.isArray((data as any).xmlMyComplexTypeNames)
+    ? ((data as any).xmlMyComplexTypeNames as unknown[]).some((name) => localTypeName(name) === elementTypeName)
+    : false;
+  const isComplexTypeAuthoringElement = compositorKind === 'element' && (
+    Boolean((data as any).xmlHasInlineComplexType) ||
+    Boolean((data as any).xmlExtendsType) ||
+    elementReferencesNamedComplexType
+  );
+  const showTopTargetBadge =
+    (compositorKind === 'complexType' && Boolean((data as any).xmlExtendsType)) ||
+    isComplexTypeAuthoringElement;
+  const addTargetLabel = (data as any).xmlExtendsType ? 'extension' : 'complexType';
+  const addTargetTooltip = (data as any).xmlExtendsType
+    ? 'Target: extension. Add actions write into xs:complexContent/xs:extension.'
+    : 'Target: complexType. Add actions write into complexType content (Add element creates xs:sequence when needed).';
   
   // In XML mode, filter out the 'property' type badge (internal node type, not useful for display)
   const isXmlMode = Boolean((data as any).xmlNodeKind);
@@ -325,6 +344,34 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
             <TooltipContent>{XML_COMPOSITOR_TITLES[compositorKind as string]}</TooltipContent>
           </Tooltip>
         ) : label}
+        {showTopTargetBadge ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                aria-label={`Add target: ${addTargetLabel}`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  marginLeft: 6,
+                  padding: '1px 6px',
+                  borderRadius: 999,
+                  border: '1px solid var(--graph-node-border)',
+                  background: 'var(--graph-node-bg-subtle)',
+                  color: 'var(--graph-node-muted)',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: '0.03em',
+                  textTransform: 'uppercase',
+                  verticalAlign: 'middle',
+                  cursor: 'help',
+                }}
+              >
+                {addTargetLabel}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{addTargetTooltip}</TooltipContent>
+          </Tooltip>
+        ) : null}
         {data.imported && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -372,7 +419,7 @@ export const CustomNode = ({ data }: { data: SchemaNodeData & { required?: boole
             // xs:annotation and xs:import node properties (displayed in node content, not as badges)
             'xmlAnnotationText', 'xmlAnnotationIndex', 'xmlImportNamespace', 'xmlImportSchemaLocation', 'xmlImportIndex',
             // xs:complexContent inheritance metadata and xs:substitutionGroup metadata (used only to compute the inheritance-group bounding box, never shown as a badge)
-            'xmlExtendsType', 'xmlInheritedFrom', 'xmlSubstitutionGroupParent', 'xmlHasSubstitutionExpansion',
+            'xmlExtendsType', 'xmlComplexContentEnabled', 'xmlMyComplexTypeNames', 'xmlInheritedFrom', 'xmlSubstitutionGroupParent', 'xmlHasSubstitutionExpansion',
             // xs:attributeGroup ref metadata (drives the isRef badge tooltip, not a separate badge)
             'xmlAttributeGroupRef',
             // XML Attribute properties

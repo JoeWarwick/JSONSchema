@@ -888,6 +888,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlMinOccurs: elemAttrs.minOccurs ?? '1',
         xmlMaxOccurs: elemAttrs.maxOccurs ?? '1',
         xmlMyTypeNames: namedElementTypeNames,
+        xmlMyComplexTypeNames: namedComplexTypeNames,
         xmlMyElementNames: namedGlobalElementNames,
         xmlIsRef: Boolean(elemAttrs.ref),
         // Inline `xs:complexType` (no `type` attribute) — the RHS Type field has nothing to show
@@ -1568,7 +1569,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           const attrs = getXmlAttrs(entry);
           const complexId = `1.complexType_${index}`;
           const simpleContentInfo = getSimpleContentBaseInfo(entry);
-          const attributeSourceValue = simpleContentInfo ? (simpleContentInfo.derivation as any)['xs:attribute'] : (entry as any)?.['xs:attribute'];
+          const baseInfo = getComplexContentBaseInfo(entry);
+          const complexContent = (entry as any)['xs:complexContent'];
+          const complexDerivation = baseInfo ? (complexContent as any)?.[baseInfo.derivationKey] : undefined;
+          const attributeSourceValue = simpleContentInfo
+            ? (simpleContentInfo.derivation as any)['xs:attribute']
+            : (complexDerivation && typeof complexDerivation === 'object' ? (complexDerivation as any)['xs:attribute'] : (entry as any)?.['xs:attribute']);
           const complexTypeAttributes = asArray(attributeSourceValue).map((attrEntry: any) => {
             const attrAttrs = getXmlAttrs(attrEntry);
             return { name: attrAttrs.name, type: attrAttrs.type, use: attrAttrs.use || 'optional' };
@@ -1576,7 +1582,6 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           
           const isGlobalRef = Boolean(attrs.ref);
           const nodeType = isGlobalRef ? 'globalType' : 'property';
-          const baseInfo = getComplexContentBaseInfo(entry);
 
           const anyAttributeValue = (entry as any)['xs:anyAttribute'];
           const anyAttributeAttrs = anyAttributeValue && typeof anyAttributeValue === 'object' ? getXmlAttrs(anyAttributeValue) : undefined;
@@ -1591,6 +1596,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
             xmlName: attrs.name,
             xmlAttributes: complexTypeAttributes,
             xmlAvailableTypes: availableTypes,
+            xmlMyComplexTypeNames: namedComplexTypeNames,
             xmlIsRef: isGlobalRef,
             xmlMixed: attrs.mixed === 'true',
             ...(anyAttributeAttrs ? { xmlAnyAttribute: anyAttributeAttrs } : {}),
@@ -1802,7 +1808,12 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         const attrs = getXmlAttrs(entry);
         const complexId = `1.complexType_${idx}`;
         const simpleContentInfo = getSimpleContentBaseInfo(entry);
-        const attributeSourceValue = simpleContentInfo ? (simpleContentInfo.derivation as any)['xs:attribute'] : (entry as any)?.['xs:attribute'];
+        const baseInfo = getComplexContentBaseInfo(entry);
+        const complexContent = (entry as any)['xs:complexContent'];
+        const complexDerivation = baseInfo ? (complexContent as any)?.[baseInfo.derivationKey] : undefined;
+        const attributeSourceValue = simpleContentInfo
+          ? (simpleContentInfo.derivation as any)['xs:attribute']
+          : (complexDerivation && typeof complexDerivation === 'object' ? (complexDerivation as any)['xs:attribute'] : (entry as any)?.['xs:attribute']);
         const complexTypeAttributes = asArray(attributeSourceValue).map((attrEntry: any) => {
           const attrAttrs = getXmlAttrs(attrEntry);
           return { name: attrAttrs.name, type: attrAttrs.type, use: attrAttrs.use || 'optional' };
@@ -1810,7 +1821,6 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         
         const isGlobalRef = Boolean(attrs.ref);
         const nodeType = isGlobalRef ? 'globalType' : 'property';
-        const baseInfo = getComplexContentBaseInfo(entry);
 
         const anyAttributeValue = (entry as any)['xs:anyAttribute'];
         const anyAttributeAttrs = anyAttributeValue && typeof anyAttributeValue === 'object' ? getXmlAttrs(anyAttributeValue) : undefined;
@@ -1825,6 +1835,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           xmlName: attrs.name,
           xmlAttributes: complexTypeAttributes,
           xmlAvailableTypes: availableTypes,
+          xmlMyComplexTypeNames: namedComplexTypeNames,
           xmlIsRef: isGlobalRef,
           xmlMixed: attrs.mixed === 'true',
           ...(anyAttributeAttrs ? { xmlAnyAttribute: anyAttributeAttrs } : {}),
@@ -1952,6 +1963,31 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       if (!target || typeof target !== 'object') return null;
       if (!target['@attributes'] || typeof target['@attributes'] !== 'object') target['@attributes'] = {};
       return target['@attributes'] as Record<string, unknown>;
+    };
+
+    const getComplexContentExtension = (complexTypeTarget: any) => {
+      if (!complexTypeTarget || typeof complexTypeTarget !== 'object') return null;
+      const complexContent = (complexTypeTarget as any)['xs:complexContent'];
+      if (!complexContent || typeof complexContent !== 'object') return null;
+      const extension = (complexContent as any)['xs:extension'];
+      if (!extension || typeof extension !== 'object') return null;
+      return extension;
+    };
+
+    const ensureComplexContentExtension = (complexTypeTarget: any) => {
+      if (!complexTypeTarget || typeof complexTypeTarget !== 'object') return null;
+      if (!(complexTypeTarget as any)['xs:complexContent'] || typeof (complexTypeTarget as any)['xs:complexContent'] !== 'object') {
+        (complexTypeTarget as any)['xs:complexContent'] = {};
+      }
+      const complexContent = (complexTypeTarget as any)['xs:complexContent'];
+      if (!(complexContent as any)['xs:extension'] || typeof (complexContent as any)['xs:extension'] !== 'object') {
+        (complexContent as any)['xs:extension'] = { '@attributes': {} };
+      }
+      const extension = (complexContent as any)['xs:extension'];
+      if (!(extension as any)['@attributes'] || typeof (extension as any)['@attributes'] !== 'object') {
+        (extension as any)['@attributes'] = {};
+      }
+      return extension;
     };
 
     let target = getAtPath(cloned, xmlPath);
@@ -2146,6 +2182,27 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           delete (target as any)['xs:anyAttribute'];
         }
       }
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlComplexContentEnabled')) {
+        const enabled = Boolean((patch as any).xmlComplexContentEnabled);
+        if (enabled) {
+          const extension = ensureComplexContentExtension(target);
+          const extensionAttrs = extension ? getOrCreateAttrs(extension) : null;
+          if (extensionAttrs && !extensionAttrs.base) {
+            const fallbackBase = String((patch as any).xmlExtendsType || (targetNode.data as any)?.xmlExtendsType || 'xs:anyType');
+            extensionAttrs.base = fallbackBase;
+          }
+        } else {
+          delete (target as any)['xs:complexContent'];
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlExtendsType')) {
+        const value = String((patch as any).xmlExtendsType || '').trim();
+        if (value) {
+          const extension = ensureComplexContentExtension(target);
+          const extensionAttrs = extension ? getOrCreateAttrs(extension) : null;
+          if (extensionAttrs) extensionAttrs.base = value;
+        }
+      }
     }
 
     if (kind === 'attributeGroup') {
@@ -2200,6 +2257,24 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     if (kind === 'element') {
       const attrs = getOrCreateAttrs(target);
       if (!attrs) return null;
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlConvertToComplexType')) {
+        const existingType = typeof attrs.type === 'string' ? attrs.type : undefined;
+        if (!(target as any)['xs:complexType'] || typeof (target as any)['xs:complexType'] !== 'object') {
+          (target as any)['xs:complexType'] = {};
+        }
+        const complexTypeTarget = (target as any)['xs:complexType'];
+        if (existingType && existingType.trim().length > 0) {
+          (complexTypeTarget as any)['xs:simpleContent'] = {
+            'xs:extension': {
+              '@attributes': {
+                base: existingType,
+              },
+            },
+          };
+        }
+        delete (complexTypeTarget as any)['xs:complexContent'];
+        delete attrs.type;
+      }
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlName')) {
         const value = (patch as any).xmlName;
         // A `ref`-only element stores its display name on `ref`, not `name` — write back
@@ -2244,6 +2319,34 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
           (anyAttributeTarget as any)['xs:anyAttribute'] = { '@attributes': { namespace: value } };
         } else {
           delete (anyAttributeTarget as any)['xs:anyAttribute'];
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlComplexContentEnabled') || Object.prototype.hasOwnProperty.call(patch, 'xmlExtendsType')) {
+        if (!(target as any)['xs:complexType'] || typeof (target as any)['xs:complexType'] !== 'object') {
+          (target as any)['xs:complexType'] = {};
+          delete attrs.type;
+        }
+        const complexTypeTarget = (target as any)['xs:complexType'];
+        if (Object.prototype.hasOwnProperty.call(patch, 'xmlComplexContentEnabled')) {
+          const enabled = Boolean((patch as any).xmlComplexContentEnabled);
+          if (enabled) {
+            const extension = ensureComplexContentExtension(complexTypeTarget);
+            const extensionAttrs = extension ? getOrCreateAttrs(extension) : null;
+            if (extensionAttrs && !extensionAttrs.base) {
+              const fallbackBase = String((patch as any).xmlExtendsType || (targetNode.data as any)?.xmlExtendsType || 'xs:anyType');
+              extensionAttrs.base = fallbackBase;
+            }
+          } else {
+            delete (complexTypeTarget as any)['xs:complexContent'];
+          }
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'xmlExtendsType')) {
+          const value = String((patch as any).xmlExtendsType || '').trim();
+          if (value) {
+            const extension = ensureComplexContentExtension(complexTypeTarget);
+            const extensionAttrs = extension ? getOrCreateAttrs(extension) : null;
+            if (extensionAttrs) extensionAttrs.base = value;
+          }
         }
       }
     }
@@ -2338,30 +2441,34 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
     // Handle attribute operations on simpleType, complexType, or attributeGroup
     if ((kind === 'simpleType' || kind === 'complexType' || kind === 'attributeGroup') && target && typeof target === 'object') {
+      const attributeOpsTarget = kind === 'complexType'
+        ? (getComplexContentExtension(target) || target)
+        : target;
+
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlAddAttribute')) {
         const newAttr = (patch as any).xmlAddAttribute;
-        const attrDecls = getAttributeDeclEntries(target);
+        const attrDecls = getAttributeDeclEntries(attributeOpsTarget);
         const attrObj: any = { '@attributes': {} };
         if (newAttr.name) attrObj['@attributes'].name = newAttr.name;
         if (newAttr.type) attrObj['@attributes'].type = newAttr.type;
         if (newAttr.use && newAttr.use !== 'optional') attrObj['@attributes'].use = newAttr.use;
         attrDecls.push(attrObj);
-        setAttributeDeclEntries(target, attrDecls);
+        setAttributeDeclEntries(attributeOpsTarget, attrDecls);
       }
 
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlRemoveAttributeIndex')) {
         const index = Number((patch as any).xmlRemoveAttributeIndex);
-        const attrDecls = getAttributeDeclEntries(target);
+        const attrDecls = getAttributeDeclEntries(attributeOpsTarget);
         if (!Number.isNaN(index) && index >= 0 && index < attrDecls.length) {
           attrDecls.splice(index, 1);
-          setAttributeDeclEntries(target, attrDecls);
+          setAttributeDeclEntries(attributeOpsTarget, attrDecls);
         }
       }
 
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlUpdateAttributeIndex')) {
         const update = (patch as any).xmlUpdateAttributeIndex;
         const index = Number(update.index);
-        const attrDecls = getAttributeDeclEntries(target);
+        const attrDecls = getAttributeDeclEntries(attributeOpsTarget);
         if (!Number.isNaN(index) && index >= 0 && index < attrDecls.length) {
           const attrEntry = attrDecls[index];
           if (attrEntry && typeof attrEntry === 'object') {
@@ -2374,7 +2481,7 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
               if (update.use && update.use !== 'optional') attrs.use = update.use;
               else delete attrs.use;
             }
-            setAttributeDeclEntries(target, attrDecls);
+            setAttributeDeclEntries(attributeOpsTarget, attrDecls);
           }
         }
       }
@@ -5227,6 +5334,17 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     return target['xs:complexType'];
   };
 
+  // If this complexType is authored as complexContent/extension, content mutations
+  // (attributes and compositors) should be written into the extension body.
+  const resolveComplexContentAuthoringTarget = (complexTypeLikeTarget: any): any => {
+    if (!complexTypeLikeTarget || typeof complexTypeLikeTarget !== 'object') return complexTypeLikeTarget;
+    const complexContent = complexTypeLikeTarget['xs:complexContent'];
+    if (!complexContent || typeof complexContent !== 'object') return complexTypeLikeTarget;
+    const extension = (complexContent as any)['xs:extension'];
+    if (!extension || typeof extension !== 'object') return complexTypeLikeTarget;
+    return extension;
+  };
+
   // Appends a default `xs:element` particle to a compositor's raw value at `container[key]`,
   // creating the compositor itself if missing. Supports both the flat-array convention (used
   // when this editor authors compositors itself) and the tag-keyed convention produced by
@@ -5291,7 +5409,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     const { ctxNode, cloned, target: rawTarget } = resolved;
 
     const ctxKind = String((ctxNode.data as any)?.xmlNodeKind || '');
-    const target = resolveComplexTypeLikeTarget(rawTarget, ctxKind);
+    const complexTypeLike = resolveComplexTypeLikeTarget(rawTarget, ctxKind);
+    const target = resolveComplexContentAuthoringTarget(complexTypeLike);
 
     const key = `xs:${compositorKind}`;
     if (!target[key] || typeof target[key] !== 'object') {
@@ -5418,9 +5537,10 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
     const ctxKind = String((ctxNode.data as any)?.xmlNodeKind || '');
     const complexTypeLike = resolveComplexTypeLikeTarget(rawTarget, ctxKind);
+    const contentTarget = resolveComplexContentAuthoringTarget(complexTypeLike);
 
-    const compositorKey = (['xs:sequence', 'xs:choice', 'xs:all'] as const).find((key) => complexTypeLike[key] !== undefined) || 'xs:sequence';
-    appendXmlElementToCompositorRawValue(complexTypeLike, compositorKey);
+    const compositorKey = (['xs:sequence', 'xs:choice', 'xs:all'] as const).find((key) => contentTarget[key] !== undefined) || 'xs:sequence';
+    appendXmlElementToCompositorRawValue(contentTarget, compositorKey);
 
     emitLocalSchemaUpdate(cloned as Record<string, unknown>);
 
@@ -5444,13 +5564,14 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
 
     const ctxKind = String((ctxNode.data as any)?.xmlNodeKind || '');
     const complexTypeLike = resolveComplexTypeLikeTarget(rawTarget, ctxKind);
+    const contentTarget = resolveComplexContentAuthoringTarget(complexTypeLike);
 
-    const existingAttributeValue = complexTypeLike['xs:attribute'];
+    const existingAttributeValue = contentTarget['xs:attribute'];
     const attributeIndex = asArray(existingAttributeValue).length;
     const newAttribute = { '@attributes': { name: `attribute${attributeIndex + 1}`, type: 'xs:string' } };
-    if (existingAttributeValue === undefined) complexTypeLike['xs:attribute'] = newAttribute;
+    if (existingAttributeValue === undefined) contentTarget['xs:attribute'] = newAttribute;
     else if (Array.isArray(existingAttributeValue)) existingAttributeValue.push(newAttribute);
-    else complexTypeLike['xs:attribute'] = [existingAttributeValue, newAttribute];
+    else contentTarget['xs:attribute'] = [existingAttributeValue, newAttribute];
 
     emitLocalSchemaUpdate(cloned as Record<string, unknown>);
 
@@ -5461,6 +5582,59 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
     const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, ctxNode.id);
     setNodes(rebuiltNodes);
     setEdges(applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+
+    setContextMenu(null);
+  };
+
+  // Explicitly convert a simpleType-backed element into an inline complexType.
+  // If a `type` exists, preserve simple content via `xs:simpleContent/xs:extension/@base`.
+  const convertXmlElementToInlineComplexType = () => {
+    const resolved = resolveCtxNodeCloneTarget();
+    if (!resolved) return;
+    const { ctxNode, cloned, target } = resolved;
+
+    const ctxKind = String((ctxNode.data as any)?.xmlNodeKind || '');
+    if (ctxKind !== 'element' || !target || typeof target !== 'object') {
+      setContextMenu(null);
+      return;
+    }
+
+    if (target['xs:complexType'] && typeof target['xs:complexType'] === 'object') {
+      setContextMenu(null);
+      return;
+    }
+
+    const attrs = (target['@attributes'] && typeof target['@attributes'] === 'object')
+      ? target['@attributes'] as Record<string, unknown>
+      : undefined;
+    const existingType = typeof attrs?.type === 'string' ? attrs.type : undefined;
+
+    if (existingType && existingType.trim().length > 0) {
+      target['xs:complexType'] = {
+        'xs:simpleContent': {
+          'xs:extension': {
+            '@attributes': {
+              base: existingType,
+            },
+          },
+        },
+      };
+      delete attrs!.type;
+    } else {
+      target['xs:complexType'] = {};
+      if (attrs) delete attrs.type;
+    }
+
+    emitLocalSchemaUpdate(cloned as Record<string, unknown>);
+
+    const rawRebuilt = schemaToGraph(cloned as Record<string, unknown>);
+    const laidOutNodes = relayoutNodes(rawRebuilt.nodes, rawRebuilt.edges).map(n =>
+      (n.type === 'combiner' || n.type === 'variant') ? { ...n, data: { ...n.data, id: n.id, ...nodeHandlersRef.current } } : n
+    );
+    const rebuiltNodes = preserveAnchorY(laidOutNodes, nodes, ctxNode.id);
+    setNodes(rebuiltNodes);
+    setEdges(applyEdgePositioningCached(rawRebuilt.edges, rebuiltNodes) as Edge[]);
+    setSelectedNodeId(ctxNode.id);
 
     setContextMenu(null);
   };
@@ -5847,13 +6021,35 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       const items: any[] = [];
       const ctxNode = nodes.find((n) => n.id === contextMenu?.nodeId);
       const kind = String((ctxNode?.data as any)?.xmlNodeKind || '');
-      if (kind === 'complexType' || kind === 'element') {
+      if (kind === 'complexType') {
         items.push({ label: 'Add sequence', onClick: () => addXmlCompositorToComplexType('sequence'), disabled: false });
         items.push({ label: 'Add choice', onClick: () => addXmlCompositorToComplexType('choice'), disabled: false });
         items.push({ label: 'Add all', onClick: () => addXmlCompositorToComplexType('all'), disabled: false });
         items.push({ label: 'Add element', onClick: () => addXmlElementToComplexTypeOrElement(), disabled: false });
         items.push({ label: 'Add Attribute', onClick: () => addXmlAttributeToComplexTypeOrElement(), disabled: false });
         items.push({ label: 'Add AttributeGroup', onClick: () => addXmlAttributeGroupToSchema(), disabled: false });
+      } else if (kind === 'element') {
+        const hasInlineComplexType = Boolean((ctxNode?.data as any)?.xmlHasInlineComplexType);
+        const isRefElement = Boolean((ctxNode?.data as any)?.xmlIsRef);
+        const elementType = String((ctxNode?.data as any)?.xmlElementType || '');
+        const localElementType = elementType.includes(':') ? elementType.split(':').pop()! : elementType;
+        const referencesNamedComplexType =
+          localElementType.length > 0
+          && Array.isArray((ctxNode?.data as any)?.xmlMyComplexTypeNames)
+          && ((ctxNode?.data as any).xmlMyComplexTypeNames as string[]).some((name) => {
+            const localName = String(name || '').includes(':') ? String(name).split(':').pop()! : String(name);
+            return localName === localElementType;
+          });
+        if (hasInlineComplexType) {
+          items.push({ label: 'Add sequence', onClick: () => addXmlCompositorToComplexType('sequence'), disabled: false });
+          items.push({ label: 'Add choice', onClick: () => addXmlCompositorToComplexType('choice'), disabled: false });
+          items.push({ label: 'Add all', onClick: () => addXmlCompositorToComplexType('all'), disabled: false });
+          items.push({ label: 'Add element', onClick: () => addXmlElementToComplexTypeOrElement(), disabled: false });
+          items.push({ label: 'Add Attribute', onClick: () => addXmlAttributeToComplexTypeOrElement(), disabled: false });
+          items.push({ label: 'Add AttributeGroup', onClick: () => addXmlAttributeGroupToSchema(), disabled: false });
+        } else if (!referencesNamedComplexType) {
+          items.push({ label: 'Convert to ComplexType', onClick: () => convertXmlElementToInlineComplexType(), disabled: isRefElement });
+        }
       } else if (kind === 'sequence' || kind === 'choice' || kind === 'all') {
         // Compositor node context menu
         items.push({ label: 'Add sequence', onClick: () => addXmlCompositorToCompositor('sequence'), disabled: false });

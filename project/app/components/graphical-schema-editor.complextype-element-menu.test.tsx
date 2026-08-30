@@ -3,8 +3,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { GraphicalSchemaEditor } from './graphical-schema-editor';
 
-// Verifies that both `complexType` and `element` nodes expose the full
-// Add [Element, Attribute, AttributeGroup, Sequence, Choice, All] action set.
+// Verifies that complexType nodes expose full add actions, while simpleType-backed
+// element nodes require an explicit conversion before complexType-only add actions appear.
 describe('GraphicalSchemaEditor - complexType/element "Add …" context-menu actions', () => {
   function StatefulXmlEditor({ initialSchema, onLatest }: { initialSchema: any; onLatest: (s: any) => void }) {
     const [currentSchema, setCurrentSchema] = React.useState<any>(initialSchema);
@@ -35,6 +35,7 @@ describe('GraphicalSchemaEditor - complexType/element "Add …" context-menu act
     for (const label of ['Add sequence', 'Add choice', 'Add all', 'Add element', 'Add Attribute', 'Add AttributeGroup']) {
       expect(await screen.findByRole('button', { name: label })).toBeInTheDocument();
     }
+    expect(screen.queryByRole('button', { name: 'Convert to ComplexType' })).not.toBeInTheDocument();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Add Attribute' }));
 
@@ -44,7 +45,7 @@ describe('GraphicalSchemaEditor - complexType/element "Add …" context-menu act
     });
   });
 
-  it('shows all six Add actions on an element node and adding element/attribute creates an inline complexType', async () => {
+  it('requires explicit Convert to ComplexType on a simpleType-backed element before add actions are shown', async () => {
     let latestSchema: any = {
       'xs:schema': {
         'xs:element': [{ '@attributes': { name: 'Root', type: 'xs:string' } }],
@@ -56,9 +57,26 @@ describe('GraphicalSchemaEditor - complexType/element "Add …" context-menu act
     const elementLabel = await screen.findByText('Root');
     fireEvent.contextMenu(elementLabel);
 
+    expect(await screen.findByRole('button', { name: 'Convert to ComplexType' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add Attribute' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add element' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add AttributeGroup' })).not.toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Convert to ComplexType' }));
+
+    await waitFor(() => {
+      const element = latestSchema['xs:schema']['xs:element'][0];
+      expect(element['@attributes'].type).toBeUndefined();
+      expect(element['xs:complexType']?.['xs:simpleContent']?.['xs:extension']?.['@attributes']?.base).toBe('xs:string');
+    });
+
+    // Re-open context menu after conversion to verify complexType-only add actions are now available.
+    fireEvent.contextMenu(await screen.findByText('Root'));
+
     for (const label of ['Add sequence', 'Add choice', 'Add all', 'Add element', 'Add Attribute', 'Add AttributeGroup']) {
       expect(await screen.findByRole('button', { name: label })).toBeInTheDocument();
     }
+    expect(screen.queryByRole('button', { name: 'Convert to ComplexType' })).not.toBeInTheDocument();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Add element' }));
 
@@ -68,5 +86,21 @@ describe('GraphicalSchemaEditor - complexType/element "Add …" context-menu act
       const sequence = element['xs:complexType']?.['xs:sequence'];
       expect(sequence?.['xs:element']?.['@attributes']?.name).toBe('element1');
     });
+  });
+
+  it('does not show Convert to ComplexType for an element typed to a named complexType', async () => {
+    let latestSchema: any = {
+      'xs:schema': {
+        'xs:complexType': [{ '@attributes': { name: 'AddressType' } }],
+        'xs:element': [{ '@attributes': { name: 'address', type: 'AddressType' } }],
+      },
+    };
+
+    render(<StatefulXmlEditor initialSchema={latestSchema} onLatest={(s) => { latestSchema = s; }} />);
+
+    const elementLabel = await screen.findByText('address');
+    fireEvent.contextMenu(elementLabel);
+
+    expect(screen.queryByRole('button', { name: 'Convert to ComplexType' })).not.toBeInTheDocument();
   });
 });

@@ -849,6 +849,10 @@ function XmlComplexTypeEditor({ node, onChange, readOnlySource, getNodeByName }:
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
   const [mixed, setMixed] = React.useState<boolean>(Boolean(data.xmlMixed));
   const [anyAttributeNamespace, setAnyAttributeNamespace] = React.useState<string>(String(data.xmlAnyAttribute?.namespace || ''));
+  const [hasAnyAttributeNamespace, setHasAnyAttributeNamespace] = React.useState<boolean>(String(data.xmlAnyAttribute?.namespace || '').trim().length > 0);
+  const [hasComplexContentExtension, setHasComplexContentExtension] = React.useState<boolean>(Boolean(data.xmlExtendsType));
+  const [extendsType, setExtendsType] = React.useState<string>(String(data.xmlExtendsType || ''));
+  const complexTypeNames = Array.isArray(data.xmlMyComplexTypeNames) ? (data.xmlMyComplexTypeNames as string[]) : [];
   const readOnly = Boolean(readOnlySource);
 
   React.useEffect(() => {
@@ -856,7 +860,10 @@ function XmlComplexTypeEditor({ node, onChange, readOnlySource, getNodeByName }:
     setIsRef(Boolean(data.xmlIsRef));
     setMixed(Boolean(data.xmlMixed));
     setAnyAttributeNamespace(String(data.xmlAnyAttribute?.namespace || ''));
-  }, [node?.id, data.xmlName, data.xmlIsRef, data.xmlMixed, data.xmlAnyAttribute]);
+    setHasAnyAttributeNamespace(String(data.xmlAnyAttribute?.namespace || '').trim().length > 0);
+    setHasComplexContentExtension(Boolean(data.xmlExtendsType));
+    setExtendsType(String(data.xmlExtendsType || ''));
+  }, [node?.id, data.xmlName, data.xmlIsRef, data.xmlMixed, data.xmlAnyAttribute, data.xmlExtendsType]);
 
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
@@ -901,21 +908,82 @@ function XmlComplexTypeEditor({ node, onChange, readOnlySource, getNodeByName }:
         />
         <span style={{ fontSize: 12 }}>Mixed Content</span>
       </label>
+      <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+        <input
+          type="checkbox"
+          checked={hasComplexContentExtension}
+          disabled={readOnly || isRef}
+          onChange={(e) => {
+            const enabled = e.target.checked;
+            setHasComplexContentExtension(enabled);
+            onChange({ id: node.id, xmlComplexContentEnabled: enabled });
+            if (enabled) {
+              const fallbackBase = extendsType || complexTypeNames[0] || 'xs:anyType';
+              setExtendsType(fallbackBase);
+              onChange({ id: node.id, xmlExtendsType: fallbackBase });
+            }
+          }}
+          aria-label="Use complexContent extension"
+          style={{ cursor: (readOnly || isRef) ? 'not-allowed' : 'pointer' }}
+        />
+        <span style={{ fontSize: 12 }}>Use complexContent extension</span>
+      </label>
+      {hasComplexContentExtension && (
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 12 }}>ComplexContent base</span>
+          <XmlTypeSelector
+            value={extendsType}
+            disabled={readOnly || isRef}
+            onChange={(next) => {
+              setExtendsType(next);
+              onChange({ id: node.id, xmlExtendsType: next });
+            }}
+            myTypeNames={complexTypeNames}
+            ariaLabel="ComplexContent Base Type"
+          />
+        </label>
+      )}
+      <div style={{ fontSize: 12, color: '#666' }}>
+        Sequence, choice, and all are represented by child compositor nodes. Edit min/max on the compositor node.
+        {' '}Add element writes into the first existing compositor, or creates an xs:sequence when none exists.
+        {hasComplexContentExtension ? ' In extension mode, these add actions write into complexContent/extension.' : ''}
+      </div>
+      <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+        <input
+          type="checkbox"
+          checked={hasAnyAttributeNamespace}
+          disabled={readOnly || isRef}
+          onChange={(e) => {
+            const enabled = e.target.checked;
+            setHasAnyAttributeNamespace(enabled);
+            if (enabled) {
+              const next = anyAttributeNamespace.trim().length > 0 ? anyAttributeNamespace : '##other';
+              setAnyAttributeNamespace(next);
+              onChange({ id: node.id, xmlAnyAttributeNamespace: next });
+            } else {
+              setAnyAttributeNamespace('');
+              onChange({ id: node.id, xmlAnyAttributeNamespace: '' });
+            }
+          }}
+          aria-label="Enable AnyAttribute"
+          style={{ cursor: (readOnly || isRef) ? 'not-allowed' : 'pointer' }}
+        />
+        <span style={{ fontSize: 12 }}>Enable AnyAttribute</span>
+      </label>
+      {hasAnyAttributeNamespace && (
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ fontSize: 12 }}>AnyAttribute namespace</span>
         <input
           aria-label="AnyAttribute Namespace"
           value={anyAttributeNamespace}
-          disabled={readOnly}
+          disabled={readOnly || isRef}
           onChange={(e) => setAnyAttributeNamespace(e.target.value)}
           onBlur={() => onChange({ id: node.id, xmlAnyAttributeNamespace: anyAttributeNamespace })}
           placeholder="##other"
           style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
         />
       </label>
-      <div style={{ fontSize: 12, color: '#666' }}>
-        Sequence, choice, and all are represented by child compositor nodes. Edit min/max on the compositor node.
-      </div>
+      )}
       {!readOnly ? <XmlAttributesManager node={node} onChange={onChange} /> : null}
       <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
     </form>
@@ -2003,6 +2071,10 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
   const [mixed, setMixed] = React.useState<boolean>(Boolean(data.xmlMixed));
   const [anyAttributeNamespace, setAnyAttributeNamespace] = React.useState<string>(String(data.xmlAnyAttribute?.namespace || ''));
+  const [hasAnyAttributeNamespace, setHasAnyAttributeNamespace] = React.useState<boolean>(String(data.xmlAnyAttribute?.namespace || '').trim().length > 0);
+  const [hasComplexContentExtension, setHasComplexContentExtension] = React.useState<boolean>(Boolean(data.xmlExtendsType));
+  const [extendsType, setExtendsType] = React.useState<string>(String(data.xmlExtendsType || ''));
+  const complexTypeNames = Array.isArray(data.xmlMyComplexTypeNames) ? (data.xmlMyComplexTypeNames as string[]) : [];
   const [defaultValue, setDefaultValue] = React.useState<string>(String(data.xmlDefault || ''));
   const [fixedValue, setFixedValue] = React.useState<string>(String(data.xmlFixed || ''));
   const readOnly = Boolean(readOnlySource);
@@ -2016,9 +2088,12 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
     setIsRef(Boolean(data.xmlIsRef));
     setMixed(Boolean(data.xmlMixed));
     setAnyAttributeNamespace(String(data.xmlAnyAttribute?.namespace || ''));
+    setHasAnyAttributeNamespace(String(data.xmlAnyAttribute?.namespace || '').trim().length > 0);
+    setHasComplexContentExtension(Boolean(data.xmlExtendsType));
+    setExtendsType(String(data.xmlExtendsType || ''));
     setDefaultValue(String(data.xmlDefault || ''));
     setFixedValue(String(data.xmlFixed || ''));
-  }, [node?.id, data.xmlName, data.xmlElementType, data.xmlSubstitutionGroupParent, data.xmlMinOccurs, data.xmlMaxOccurs, data.xmlIsRef, data.xmlMixed, data.xmlAnyAttribute, data.xmlDefault, data.xmlFixed]);
+  }, [node?.id, data.xmlName, data.xmlElementType, data.xmlSubstitutionGroupParent, data.xmlMinOccurs, data.xmlMaxOccurs, data.xmlIsRef, data.xmlMixed, data.xmlAnyAttribute, data.xmlExtendsType, data.xmlDefault, data.xmlFixed]);
 
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
@@ -2168,19 +2243,112 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
         />
         <span style={{ fontSize: 12 }}>Mixed Content</span>
       </label>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ fontSize: 12 }}>AnyAttribute namespace</span>
-        <input
-          aria-label="AnyAttribute Namespace"
-          value={anyAttributeNamespace}
-          disabled={readOnly || isRef}
-          onChange={(e) => setAnyAttributeNamespace(e.target.value)}
-          onBlur={() => onChange({ id: node.id, xmlAnyAttributeNamespace: anyAttributeNamespace })}
-          placeholder="##other"
-          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
-        />
-      </label>
-      {!readOnly ? <XmlAttributesManager node={node} onChange={onChange} /> : null}
+      {data.xmlHasInlineComplexType ? (
+        <>
+          <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={hasComplexContentExtension}
+              disabled={readOnly || isRef}
+              onChange={(e) => {
+                const enabled = e.target.checked;
+                setHasComplexContentExtension(enabled);
+                onChange({ id: node.id, xmlComplexContentEnabled: enabled });
+                if (enabled) {
+                  const fallbackBase = extendsType || complexTypeNames[0] || 'xs:anyType';
+                  setExtendsType(fallbackBase);
+                  onChange({ id: node.id, xmlExtendsType: fallbackBase });
+                }
+              }}
+              aria-label="Use complexContent extension"
+              style={{ cursor: (readOnly || isRef) ? 'not-allowed' : 'pointer' }}
+            />
+            <span style={{ fontSize: 12 }}>Use complexContent extension</span>
+          </label>
+          {hasComplexContentExtension && (
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 12 }}>ComplexContent base</span>
+              <XmlTypeSelector
+                value={extendsType}
+                disabled={readOnly || isRef}
+                onChange={(next) => {
+                  setExtendsType(next);
+                  onChange({ id: node.id, xmlExtendsType: next });
+                }}
+                myTypeNames={complexTypeNames}
+                ariaLabel="ComplexContent Base Type"
+              />
+            </label>
+          )}
+        </>
+      ) : null}
+      {data.xmlHasInlineComplexType ? (
+        <div style={{ fontSize: 12, color: '#666' }}>
+          Add element writes into the first existing compositor under this inline complexType, or creates an xs:sequence when none exists.
+          {hasComplexContentExtension ? ' In extension mode, these add actions write into complexContent/extension.' : ''}
+        </div>
+      ) : null}
+      {data.xmlHasInlineComplexType ? (
+        <>
+          <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={hasAnyAttributeNamespace}
+              disabled={readOnly || isRef}
+              onChange={(e) => {
+                const enabled = e.target.checked;
+                setHasAnyAttributeNamespace(enabled);
+                if (enabled) {
+                  const next = anyAttributeNamespace.trim().length > 0 ? anyAttributeNamespace : '##other';
+                  setAnyAttributeNamespace(next);
+                  onChange({ id: node.id, xmlAnyAttributeNamespace: next });
+                } else {
+                  setAnyAttributeNamespace('');
+                  onChange({ id: node.id, xmlAnyAttributeNamespace: '' });
+                }
+              }}
+              aria-label="Enable AnyAttribute"
+              style={{ cursor: (readOnly || isRef) ? 'not-allowed' : 'pointer' }}
+            />
+            <span style={{ fontSize: 12 }}>Enable AnyAttribute</span>
+          </label>
+          {hasAnyAttributeNamespace && (
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 12 }}>AnyAttribute namespace</span>
+              <input
+                aria-label="AnyAttribute Namespace"
+                value={anyAttributeNamespace}
+                disabled={readOnly || isRef}
+                onChange={(e) => setAnyAttributeNamespace(e.target.value)}
+                onBlur={() => onChange({ id: node.id, xmlAnyAttributeNamespace: anyAttributeNamespace })}
+                placeholder="##other"
+                style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+              />
+            </label>
+          )}
+          {!readOnly ? <XmlAttributesManager node={node} onChange={onChange} /> : null}
+        </>
+      ) : (
+        !isRef ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12, color: '#666', background: '#fff7ed', border: '1px solid #f5c2b7', borderRadius: 6, padding: 8 }}>
+            <div>
+              This element is currently simpleType-backed. Convert it to ComplexType before adding xs:attribute or xs:anyAttribute.
+            </div>
+            {!readOnly ? (
+              <button
+                type="button"
+                aria-label="Convert to ComplexType"
+                onClick={() => {
+                  onChange({ id: node.id, xmlConvertToComplexType: true });
+                }}
+                style={{ alignSelf: 'flex-start', padding: '4px 10px', borderRadius: 999, border: '1px solid var(--graph-node-border, #4b5563)', backgroundColor: 'var(--graph-node-bg-subtle, #1f2937)', color: 'var(--graph-text, #e5e7eb)', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+              >
+                Convert to ComplexType
+              </button>
+            ) : null}
+          </div>
+        ) : null
+      )}
       <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
     </form>
   );
