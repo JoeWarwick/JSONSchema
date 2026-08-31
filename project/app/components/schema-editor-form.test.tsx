@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { SchemaEditorForm } from './schema-editor-form';
 import { TooltipProvider } from "./ui/tooltip/tooltip";
@@ -177,6 +177,44 @@ describe('SchemaEditorForm UI', () => {
     // + default should live in the same inlineAdd container as format/pattern for string nodes
     const parent = formatBtn.parentElement!;
     expect(within(parent).getByRole('button', { name: '+ default' })).toBeInTheDocument();
+  });
+
+  it('allows nested property nodes to collapse and expand independently', async () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        parent: {
+          type: 'object',
+          properties: {
+            child: {
+              type: 'object',
+              properties: {
+                leaf: { type: 'string' }
+              }
+            }
+          }
+        }
+      }
+    } as any;
+
+    render(
+      <TooltipProvider>
+        <SchemaEditorForm schema={schema} onChange={() => {}} />
+      </TooltipProvider>
+    );
+
+    const parentContainer = screen.getByTestId('prop-parent');
+    fireEvent.click(within(parentContainer).getByRole('button', { name: /^Expand$/i }));
+
+    const childContainer = await screen.findByTestId('prop-child');
+    fireEvent.click(within(childContainer).getByRole('button', { name: /^Expand$/i }));
+
+    await screen.findByTestId('prop-leaf');
+    fireEvent.click(within(childContainer).getByRole('button', { name: /^Collapse$/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('prop-leaf')).not.toBeInTheDocument();
+    });
   });
 
   it('renders ref buttons in the type control row even when no local definitions exist', async () => {

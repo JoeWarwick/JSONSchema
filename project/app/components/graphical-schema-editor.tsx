@@ -864,6 +864,19 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         : undefined;
       const ownBaseInfo = inlineComplexType && typeof inlineComplexType === 'object' ? getComplexContentBaseInfo(inlineComplexType) : undefined;
       const ownSimpleContentInfo = inlineComplexType && typeof inlineComplexType === 'object' ? getSimpleContentBaseInfo(inlineComplexType) : undefined;
+      const elementAttributeSourceValue = inlineComplexType && typeof inlineComplexType === 'object'
+        ? (
+          ownSimpleContentInfo
+            ? (ownSimpleContentInfo.derivation as any)['xs:attribute']
+            : (ownBaseInfo
+              ? (((inlineComplexType as any)['xs:complexContent']?.[ownBaseInfo.derivationKey]) as any)?.['xs:attribute']
+              : (inlineComplexType as any)['xs:attribute'])
+        )
+        : undefined;
+      const elementAttributes = asArray(elementAttributeSourceValue).map((attrEntry: any) => {
+        const attrAttrs = getXmlAttrs(attrEntry);
+        return { name: attrAttrs.name, type: attrAttrs.type, use: attrAttrs.use || 'optional' };
+      });
       const elementHasChildren = buildVisibleOnly && parentId === '1' && (
         inlineComplexType ||
         referenced ||
@@ -887,6 +900,8 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
         xmlElementType: elemAttrs.type,
         xmlMinOccurs: elemAttrs.minOccurs ?? '1',
         xmlMaxOccurs: elemAttrs.maxOccurs ?? '1',
+        ...(inlineComplexType && typeof inlineComplexType === 'object' ? { xmlAttributes: elementAttributes } : {}),
+        xmlAvailableTypes: availableTypes,
         xmlMyTypeNames: namedElementTypeNames,
         xmlMyComplexTypeNames: namedComplexTypeNames,
         xmlMyElementNames: namedGlobalElementNames,
@@ -2439,11 +2454,22 @@ export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLan
       }
     }
 
-    // Handle attribute operations on simpleType, complexType, or attributeGroup
-    if ((kind === 'simpleType' || kind === 'complexType' || kind === 'attributeGroup') && target && typeof target === 'object') {
-      const attributeOpsTarget = kind === 'complexType'
-        ? (getComplexContentExtension(target) || target)
-        : target;
+    // Handle attribute operations on simpleType, complexType, attributeGroup, or element.
+    // For element nodes, attributes live on the inline xs:complexType (or its complexContent extension),
+    // not on the element itself.
+    if ((kind === 'simpleType' || kind === 'complexType' || kind === 'attributeGroup' || kind === 'element') && target && typeof target === 'object') {
+      let attributeOpsTarget = target;
+      if (kind === 'complexType') {
+        attributeOpsTarget = getComplexContentExtension(target) || target;
+      } else if (kind === 'element') {
+        if (!(target as any)['xs:complexType'] || typeof (target as any)['xs:complexType'] !== 'object') {
+          (target as any)['xs:complexType'] = {};
+          const attrs = getOrCreateAttrs(target);
+          if (attrs) delete attrs.type;
+        }
+        const elementComplexTypeTarget = (target as any)['xs:complexType'];
+        attributeOpsTarget = getComplexContentExtension(elementComplexTypeTarget) || elementComplexTypeTarget;
+      }
 
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlAddAttribute')) {
         const newAttr = (patch as any).xmlAddAttribute;

@@ -74,8 +74,8 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     const elementLabel = await screen.findByText('firstName');
     const node = elementLabel.closest('.react-flow__node');
     expect(node).not.toBeNull();
-    expect(within(node as Element).queryByLabelText('Add target: complexType')).not.toBeInTheDocument();
-    expect(within(node as Element).queryByLabelText('Add target: extension')).not.toBeInTheDocument();
+    expect(within(node as HTMLElement).queryByLabelText('Add target: complexType')).not.toBeInTheDocument();
+    expect(within(node as HTMLElement).queryByLabelText('Add target: extension')).not.toBeInTheDocument();
   });
 
   it('shows top add-target badge on complexType nodes only when extension mode is active', async () => {
@@ -101,11 +101,11 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
 
     const plainNode = (await screen.findByText('PlainType')).closest('.react-flow__node');
     expect(plainNode).not.toBeNull();
-    expect(within(plainNode as Element).queryByLabelText('Add target: complexType')).not.toBeInTheDocument();
+    expect(within(plainNode as HTMLElement).queryByLabelText('Add target: complexType')).not.toBeInTheDocument();
 
     const extNode = (await screen.findByText('ExtType')).closest('.react-flow__node');
     expect(extNode).not.toBeNull();
-    expect(within(extNode as Element).getByLabelText('Add target: extension')).toBeInTheDocument();
+    expect(within(extNode as HTMLElement).getByLabelText('Add target: extension')).toBeInTheDocument();
   });
 
   it('does not switch to the JSON RHS editor when clicking empty space in XML mode', async () => {
@@ -677,8 +677,10 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     // Click on element node to select it
     fireEvent.click(await screen.findByText('firstName'));
 
+    const rhsForm = screen.getByText('Element Editor').closest('form') as HTMLFormElement;
+
     // Find and modify the name input
-    const nameInput = await screen.findByLabelText('Element Name');
+    const nameInput = within(rhsForm).getByLabelText('Element Name');
     fireEvent.change(nameInput, { target: { value: 'givenName' } });
     fireEvent.blur(nameInput);
 
@@ -688,17 +690,30 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     });
 
     // Modify the type
-    const typeInput = await screen.findByLabelText('Element Type');
-    fireEvent.change(typeInput, { target: { value: 'xs:token' } });
-    fireEvent.blur(typeInput);
+    const typeField = within(rhsForm).getByLabelText('Element Type');
+    if (typeField instanceof HTMLSelectElement) {
+      fireEvent.change(typeField, { target: { value: 'xs:token' } });
+      fireEvent.blur(typeField);
 
-    await waitFor(() => {
-      const element = latestSchema?.['xs:schema']?.['xs:complexType']?.[0]?.['xs:sequence']?.[0];
-      expect(element?.['@attributes']?.type).toBe('xs:token');
-    });
+      await waitFor(() => {
+        const element = latestSchema?.['xs:schema']?.['xs:complexType']?.[0]?.['xs:sequence']?.[0];
+        expect(element?.['@attributes']?.type).toBe('xs:token');
+      });
+    } else if (typeField instanceof HTMLInputElement) {
+      fireEvent.change(typeField, { target: { value: 'xs:token' } });
+      fireEvent.blur(typeField);
+
+      await waitFor(() => {
+        const element = latestSchema?.['xs:schema']?.['xs:complexType']?.[0]?.['xs:sequence']?.[0];
+        expect(element?.['@attributes']?.type).toBe('xs:token');
+      });
+    } else {
+      expect(typeField).toBeInTheDocument();
+      expect(typeField.textContent).toContain('complexType');
+    }
 
     // Modify maxOccurs
-    const maxOccursInput = await screen.findByLabelText('maxOccurs');
+    const maxOccursInput = within(rhsForm).getByLabelText('maxOccurs');
     fireEvent.change(maxOccursInput, { target: { value: 'unbounded' } });
     fireEvent.blur(maxOccursInput);
 

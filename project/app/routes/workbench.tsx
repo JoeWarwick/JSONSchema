@@ -2015,6 +2015,7 @@ export default function Workbench() {
                       rootSchema={state.source as any}
                       autoExpandAll={true}
                       showRootElementTriggers={false}
+                      expansionStateKey="xml-schema-form-expanded"
                     />
                   ) : (
                     <div className={styles.emptyState}>
@@ -2275,6 +2276,7 @@ export default function Workbench() {
                       setInstanceData(newData);
                     }}
                     rootSchema={state.source as any}
+                    expansionStateKey="xml-instance-form-expanded"
                   />
                 </div>
               ) : !state.source ? (

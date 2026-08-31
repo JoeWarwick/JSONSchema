@@ -119,6 +119,12 @@ describe('GraphicalSchemaEditor - Delete node context-menu action', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Delete Attribute' }));
 
     await waitFor(() => {
+      const modelType = (latestSchema as any)?.['xs:schema']?.['xs:complexType']?.find(
+        (ct: any) => ct?.['@attributes']?.name === 'modelType'
+      );
+      const attrs = Array.isArray(modelType?.['xs:attribute']) ? modelType['xs:attribute'] : [];
+      expect(attrs.some((a: any) => a?.['@attributes']?.name === 'version-number')).toBe(false);
+
       const topLevelProps = (latestSchema as any)?.properties;
       expect(topLevelProps?.['0']).toBeUndefined();
       expect(topLevelProps?.['1']).toBeUndefined();
@@ -176,4 +182,5 @@ describe('GraphicalSchemaEditor - Delete node context-menu action', () => {
     expect(screen.queryByText('0:')).not.toBeInTheDocument();
     expect(screen.queryByText('1:')).not.toBeInTheDocument();
   }, 20000);
+
 });

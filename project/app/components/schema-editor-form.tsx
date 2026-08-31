@@ -25,10 +25,15 @@ import { getVariantLabel } from "../utils/labels";
 import { RegexInput } from "./RegexInput";
 import { useExpandedNodes } from "../hooks/useExpandedNodes";
 
-// Helper to generate a consistent path identifier for expandable nodes
+// Helper to generate a consistent path identifier for expandable nodes.
+// path arrays are already fully qualified for the node itself in many callers,
+// so avoid duplicating the final segment when it is already present.
 function getNodePath(basePath: string[], nodeName?: string): string {
   const parts = [...basePath];
-  if (nodeName) parts.push(nodeName);
+  if (nodeName) {
+    const last = parts[parts.length - 1];
+    if (last !== nodeName) parts.push(nodeName);
+  }
   return parts.join('/');
 }
 

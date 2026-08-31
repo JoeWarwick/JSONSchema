@@ -1,13 +1,67 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { TooltipProvider } from './ui/tooltip/tooltip';
 import { XmlInstanceForm } from './xml-instance-form';
+import { parseMarkup } from '../utils/markup';
 
 function renderForm(ui: React.ReactElement) {
   return render(<TooltipProvider delayDuration={0}>{ui}</TooltipProvider>);
 }
 
 describe('XmlInstanceForm trigger-row behavior', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  test('restores persisted expanded paths across rerenders', () => {
+    const onChange = jest.fn();
+    const value = {
+      person: {
+        address: {
+          city: {
+            _text: 'Paris',
+          },
+        },
+      },
+    };
+
+    const payload = JSON.stringify(value ?? {});
+    let hash = 0;
+    for (let i = 0; i < payload.length; i += 1) {
+      hash = (hash * 31 + payload.charCodeAt(i)) >>> 0;
+    }
+    const storageKey = `xml-instance-form-expanded::${hash}`;
+    window.localStorage.setItem(storageKey, JSON.stringify(['person', 'person.address']));
+
+    const { rerender } = renderForm(
+      <XmlInstanceForm
+        schema={value}
+        rootSchema={value}
+        value={value}
+        onChange={onChange}
+      />,
+    );
+
+    expect(JSON.parse(window.localStorage.getItem(storageKey) || '[]')).toEqual(
+      expect.arrayContaining(['person', 'person.address'])
+    );
+
+    rerender(
+      <TooltipProvider delayDuration={0}>
+        <XmlInstanceForm
+          schema={value}
+          rootSchema={value}
+          value={value}
+          onChange={onChange}
+        />
+      </TooltipProvider>
+    );
+
+    expect(JSON.parse(window.localStorage.getItem(storageKey) || '[]')).toEqual(
+      expect.arrayContaining(['person', 'person.address'])
+    );
+  });
+
   const schema = {
     'xs:schema': {
       'xs:element': {
@@ -68,6 +122,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
         rootSchema={schema}
         value={{ person: { id: { _text: 'A1' } } }}
         onChange={onChange}
+        autoExpandAll
       />,
     );
 
@@ -90,6 +145,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
         rootSchema={maxOneSchema}
         value={{ person: { id: { _text: 'A1' }, nickname: { _text: '' } } }}
         onChange={onChange}
+        autoExpandAll
       />,
     );
 
@@ -105,6 +161,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
         rootSchema={schema}
         value={{ person: { id: { _text: 'A1' }, nickname: { _text: 'N' } } }}
         onChange={onChange}
+        autoExpandAll
       />,
     );
 
@@ -123,6 +180,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
         rootSchema={schema}
         value={{ person: { id: { _text: 'A1' }, nickname: { _text: 'N' } } }}
         onChange={onChange}
+        autoExpandAll
       />,
     );
 
@@ -142,6 +200,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
         rootSchema={schema}
         value={{ person: {} }}
         onChange={onChange}
+        autoExpandAll
       />,
     );
 
@@ -189,6 +248,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
         rootSchema={choiceSchema}
         value={{ person: { workEmail: { _text: 'a@corp.test' } } }}
         onChange={onChange}
+        autoExpandAll
       />,
     );
 
@@ -240,6 +300,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
         rootSchema={optionalChoiceSchema}
         value={{ person: { workEmail: { _text: 'a@corp.test' } } }}
         onChange={onChange}
+        autoExpandAll
       />,
     );
 
@@ -295,6 +356,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
         rootSchema={optionalChoiceSchema}
         value={{ person: { workEmail: { _text: 'a@corp.test' } } }}
         onChange={onChange}
+        autoExpandAll
       />,
     );
 
@@ -379,6 +441,165 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     expect(screen.queryByRole('button', { name: /^\+\s*archive$/i })).toBeNull();
   });
 
+  test('renders inherited attributes and elements for an inline extension based on modelType', () => {
+    const onChange = jest.fn();
+    const modelSchema = parseMarkup(`<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:complexType name="modelType">
+    <xs:choice>
+      <xs:sequence>
+        <xs:element name="ClassFields" type="xs:string" minOccurs="0"/>
+      </xs:sequence>
+    </xs:choice>
+    <xs:attribute name="name" type="xs:string" use="required"/>
+    <xs:attribute name="namespace" type="xs:string"/>
+  </xs:complexType>
+
+  <xs:element name="Model">
+    <xs:complexType>
+      <xs:complexContent>
+        <xs:extension base="modelType">
+          <xs:sequence>
+            <xs:element name="PostScript" type="xs:string" minOccurs="0"/>
+          </xs:sequence>
+        </xs:extension>
+      </xs:complexContent>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>`, 'xml');
+
+    renderForm(
+      <XmlInstanceForm
+        schema={modelSchema}
+        rootSchema={modelSchema}
+        value={{ Model: { '@attributes': { name: 'DemoModel' }, PostScript: { _text: 'done' } } }}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /^\+\s*name$/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^\+\s*namespace$/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^\+\s*PostScript$/i })).toBeTruthy();
+  });
+
+  test('removes attributes declared in an inline complexContent extension on the model element', async () => {
+    const onChange = jest.fn();
+    const modelSchema = parseMarkup(`<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="UpgradeStep">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="Models">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="Model" type="ModelType" maxOccurs="unbounded"/>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:complexType name="ModelType">
+    <xs:complexContent>
+      <xs:extension base="BaseModelType">
+        <xs:attribute name="version-number" type="xs:string" use="optional"/>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="BaseModelType">
+    <xs:attribute name="name" type="xs:string" use="optional"/>
+  </xs:complexType>
+</xs:schema>`, 'xml');
+    const value = parseMarkup(`<?xml version="1.0" encoding="UTF-8"?>
+<UpgradeStep>
+  <Models>
+    <Model version-number="2.0" name="DemoModel" />
+  </Models>
+</UpgradeStep>`, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={modelSchema}
+        rootSchema={modelSchema}
+        value={value}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+
+    const removeButton = screen.getByTitle('Remove version-number');
+    expect(removeButton).toBeTruthy();
+
+    fireEvent.click(removeButton as HTMLElement);
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const payload = onChange.mock.calls[0][0];
+    expect(payload.UpgradeStep.Models.Model['@attributes']?.['version-number']).toBeUndefined();
+    expect(payload.UpgradeStep.Models.Model['@attributes']?.name).toBe('DemoModel');
+  });
+
+  test('keeps the @attributes bag when deleting a single attribute from the second model in the list', async () => {
+    const onChange = jest.fn();
+    const modelSchema = parseMarkup(`<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="UpgradeStep">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="Models">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="Model" type="ModelType" maxOccurs="unbounded"/>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:complexType name="ModelType">
+    <xs:complexContent>
+      <xs:extension base="BaseModelType">
+        <xs:attribute name="version-number" type="xs:string" use="optional"/>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="BaseModelType">
+    <xs:attribute name="name" type="xs:string" use="optional"/>
+  </xs:complexType>
+</xs:schema>`, 'xml');
+    const value = parseMarkup(`<?xml version="1.0" encoding="UTF-8"?>
+<UpgradeStep>
+  <Models>
+    <Model version-number="1.0" name="Alpha" />
+    <Model version-number="2.0" name="Bravo" />
+  </Models>
+</UpgradeStep>`, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={modelSchema}
+        rootSchema={modelSchema}
+        value={value}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+
+    const removeButton = screen.getAllByTitle('Remove version-number')[1];
+    fireEvent.click(removeButton as HTMLElement);
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const payload = onChange.mock.calls[0][0];
+    const attrs = payload.UpgradeStep.Models.Model[1]?.['@attributes'];
+
+    expect(attrs).toBeTruthy();
+    expect(attrs?.['version-number']).toBeUndefined();
+    expect(attrs?.name).toBe('Bravo');
+  });
+
   test('uses attribute trigger row for remove controls and hides inline attribute trash', () => {
     const onChange = jest.fn();
 
@@ -388,6 +609,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
         rootSchema={schema}
         value={{ person: { '@attributes': { alias: 'Alpha' }, id: { _text: 'A1' } } }}
         onChange={onChange}
+        autoExpandAll
       />,
     );
 

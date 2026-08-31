@@ -79,6 +79,7 @@ export interface SchemaContext {
   compiledSchema: CompiledSchema; // Pre-compiled schema for efficient type lookups (required)
   visitedTypes: Set<string>; // Type names being walked (circular ref detection)
   typeName?: string; // Specific type name to walk (if not provided, defaults to first element/type)
+  inlineTypeDefinition?: any; // Inline complexType/simpleType defined directly on an element
   depth: number;
   maxDepth: number;
   path: string[]; // Current path in tree
@@ -606,6 +607,149 @@ export function walkSchemaWithCompiled(
  * @param context - Traversal context (required; rootSchema is the schema object being walked)
  * @returns SchemaNode representing the schema structure
  */
+function buildInlineTypeNode(typeDef: any, context: SchemaContext): SchemaNode {
+  const attrs = getXmlAttrs(typeDef);
+  const inlineName = attrs.name || 'inlineType';
+
+  const baseTypeName = (() => {
+    const complexContent = typeDef['xs:complexContent'] || typeDef['complexContent'];
+    if (complexContent) {
+      const ext = complexContent['xs:extension'] || complexContent['extension'];
+      if (ext) {
+        const extAttrs = getXmlAttrs(ext);
+        return typeof extAttrs.base === 'string' ? extAttrs.base : undefined;
+      }
+      const restriction = complexContent['xs:restriction'] || complexContent['restriction'];
+      if (restriction) {
+        const restAttrs = getXmlAttrs(restriction);
+        return typeof restAttrs.base === 'string' ? restAttrs.base : undefined;
+      }
+    }
+    const simpleContent = typeDef['xs:simpleContent'] || typeDef['simpleContent'];
+    if (simpleContent) {
+      const ext = simpleContent['xs:extension'] || simpleContent['extension'];
+      if (ext) {
+        const extAttrs = getXmlAttrs(ext);
+        return typeof extAttrs.base === 'string' ? extAttrs.base : undefined;
+      }
+      const restriction = simpleContent['xs:restriction'] || simpleContent['restriction'];
+      if (restriction) {
+        const restAttrs = getXmlAttrs(restriction);
+        return typeof restAttrs.base === 'string' ? restAttrs.base : undefined;
+      }
+    }
+    return undefined;
+  })();
+
+  const inheritedType = baseTypeName && context.compiledSchema
+    ? context.compiledSchema.resolveType(baseTypeName.replace(/^.*:/, ''))
+    : undefined;
+
+  const inheritedChildren: SchemaNode[] = (inheritedType?.elements || []).map((elem): SchemaNode => ({
+    tagName: elem.name,
+    label: elem.name,
+    nodeType: 'element',
+    minOccurs: elem.minOccurs,
+    maxOccurs: elem.maxOccurs === 'unbounded' ? 'unbounded' : elem.maxOccurs,
+    children: [],
+    attributes: [],
+    elementType: elem.type,
+    isRequired: elem.minOccurs > 0,
+    compositorType: elem.compositorType,
+  }));
+
+  const directChildren: SchemaNode[] = getChildElementsFromType(typeDef).map((elem): SchemaNode => {
+    const parsedMaxOccurs = elem.maxOccurs === 'unbounded'
+      ? 'unbounded'
+      : Number.isFinite(Number(elem.maxOccurs))
+        ? Number(elem.maxOccurs)
+        : 1;
+
+    return {
+      tagName: elem.name,
+      label: elem.name,
+      nodeType: 'element',
+      minOccurs: elem.minOccurs,
+      maxOccurs: parsedMaxOccurs,
+      children: [],
+      attributes: [],
+      elementType: elem.type || undefined,
+      isRequired: elem.minOccurs > 0,
+      compositorType: (elem.compositorType as 'sequence' | 'choice' | 'all' | undefined),
+    };
+  });
+
+  const elementMap = new Map<string, SchemaNode>();
+  for (const child of [...inheritedChildren, ...directChildren]) {
+    if (!child.tagName) continue;
+    elementMap.set(child.tagName, child);
+  }
+
+  const inheritedAttributes = (inheritedType?.attributes || []).map((attr) => ({
+    name: attr.name,
+    type: attr.type || null,
+    use: attr.use,
+    default: attr.default,
+    fixed: attr.fixed,
+  }));
+  const directAttributes = getAttributesFromType(typeDef);
+  const attributeMap = new Map<string, SchemaAttribute>();
+  for (const attr of [...inheritedAttributes, ...directAttributes]) {
+    if (!attr.name) continue;
+    attributeMap.set(attr.name, attr);
+  }
+
+  const node: SchemaNode = {
+    tagName: inlineName,
+    label: inlineName,
+    nodeType: 'element',
+    minOccurs: 1,
+    maxOccurs: 1,
+    children: Array.from(elementMap.values()),
+    attributes: Array.from(attributeMap.values()),
+    isRequired: true,
+    schemaObj: typeDef,
+    path: context.path.join('/'),
+  };
+
+  if (typeDef['xs:restriction'] || typeDef['restriction']) {
+    const restriction = typeDef['xs:restriction'] || typeDef['restriction'];
+    node.enumerations = getEnumerationsFromRestriction(restriction);
+    const restrictionAttrs = getXmlAttrs(restriction);
+    if (restrictionAttrs.base) {
+      node.restriction = String(restrictionAttrs.base);
+      node.inputType = inferInputType(node);
+    }
+  }
+
+  if (typeDef['xs:choice'] || typeDef['choice'] || typeDef['xs:sequence'] || typeDef['sequence'] || typeDef['xs:all'] || typeDef['all']) {
+    const compositor = typeDef['xs:choice'] || typeDef['choice'] || typeDef['xs:sequence'] || typeDef['sequence'] || typeDef['xs:all'] || typeDef['all'];
+    const key = Object.keys(typeDef).find((candidate) => typeDef[candidate] === compositor);
+    if (key) {
+      const compositorType = key.replace(/^xs:/, '') as 'sequence' | 'choice' | 'all';
+      node.compositorType = compositorType;
+    }
+  }
+
+  node.inputType = inferInputType(node);
+  return node;
+}
+
+function isSchemaContainer(schema: any): boolean {
+  if (!schema || typeof schema !== 'object') return false;
+
+  return !!(
+    schema['xs:schema'] ||
+    schema['schema'] ||
+    schema['xs:element'] ||
+    schema['element'] ||
+    schema['xs:complexType'] ||
+    schema['complexType'] ||
+    schema['xs:simpleType'] ||
+    schema['simpleType']
+  );
+}
+
 export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContext): SchemaNode {
   if (context.depth > context.maxDepth) {
     return {
@@ -620,8 +764,23 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
     };
   }
 
+  const inlineTypeDefinition = context.inlineTypeDefinition || (
+    context.rootSchema &&
+    !isSchemaContainer(context.rootSchema) && (
+      context.rootSchema['xs:complexType'] ||
+      context.rootSchema['complexType'] ||
+      context.rootSchema['xs:simpleType'] ||
+      context.rootSchema['simpleType']
+    )
+  );
+
   // Only walk the compiled schema, never the raw schema
   let typeName: string | undefined = context.typeName; // Use provided typeName if available
+
+  if (!typeName && inlineTypeDefinition) {
+    const directInlineName = getXmlAttrs(context.rootSchema)?.name || 'inlineType';
+    typeName = `inline:${directInlineName}`;
+  }
   
   // If no typeName provided, try to get the root type from global elements
   if (!typeName) {
@@ -652,6 +811,13 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
       };
     }
     typeName = allTypeNames[0];
+  }
+
+  if ((typeName || '').startsWith('inline:')) {
+    const directType = inlineTypeDefinition || context.inlineTypeDefinition;
+    if (directType) {
+      return buildInlineTypeNode(directType, context);
+    }
   }
 
   const resolvedType = compiledSchema.resolveType(typeName);

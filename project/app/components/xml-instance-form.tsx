@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import styles from "./xml-instance-form.module.css";
 import { Trash2, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip/tooltip";
@@ -94,6 +94,16 @@ interface XmlInstanceFormProps {
   autoFocus?: boolean;
   autoExpandAll?: boolean; // If true, automatically expand all nested elements
   showRootElementTriggers?: boolean;
+  expansionStateKey?: string;
+}
+
+function getXmlInstanceExpansionStorageKey(schema: any, path: string[], expansionStateKey: string) {
+  const payload = JSON.stringify(schema ?? {});
+  let hash = 0;
+  for (let i = 0; i < payload.length; i += 1) {
+    hash = (hash * 31 + payload.charCodeAt(i)) >>> 0;
+  }
+  return `${expansionStateKey}:${path.join('.')}:${hash}`;
 }
 
 interface XmlAttribute {
@@ -575,6 +585,9 @@ function XmlElementNode({
   autoExpandAll = false,
   schemaNode,
   compiledSchema,
+  initialAutoExpandPathsRef,
+  autoExpandCaptureActiveRef,
+  isSchemaForm = false,
 }: {
   element: XmlElement;
   path: string[];
@@ -587,13 +600,25 @@ function XmlElementNode({
   autoExpandAll?: boolean;
   schemaNode?: SchemaNode;
   compiledSchema?: CompiledSchema | null;
+  initialAutoExpandPathsRef?: React.MutableRefObject<Set<string>>;
+  autoExpandCaptureActiveRef?: React.MutableRefObject<boolean>;
+  isSchemaForm?: boolean;
 }) {
   // State for tracking which choice option is selected
   const [selectedChoices, setSelectedChoices] = useState<Record<string, string>>({});
   
   const pathKey = path.join('.');
-  const expanded = autoExpandAll || expandedPaths.has(pathKey);
-  const localTagName = (element.tagName || '').replace(/^.*:/, '');
+  if (autoExpandAll && autoExpandCaptureActiveRef?.current) {
+    initialAutoExpandPathsRef?.current.add(pathKey);
+  }
+
+  const collapsedKey = `__collapsed__:${pathKey}`;
+  const initiallyExpanded = Boolean(autoExpandAll && initialAutoExpandPathsRef?.current.has(pathKey));
+  const explicitlyExpanded = expandedPaths.has(pathKey);
+  const explicitlyCollapsed = expandedPaths.has(collapsedKey);
+  const expanded = explicitlyExpanded || (initiallyExpanded && !explicitlyCollapsed);
+  const elementTagName = typeof element.tagName === 'string' ? element.tagName : '';
+  const localTagName = elementTagName.replace(/^.*:/, '');
   
   // Log schemaNode for root element
   if (path.length === 0) {
@@ -753,17 +778,25 @@ function XmlElementNode({
     return childLocalTag === 'attribute' || childLocalTag === 'anyAttribute';
   };
 
-  const visibleChildren = element.children
+  const elementChildren = Array.isArray(element.children) ? element.children : [];
+  const elementAttributes = Array.isArray(element.attributes) ? element.attributes : [];
+  const elementText = typeof element.text === 'string' ? element.text : '';
+
+  const visibleChildren = elementChildren
     .map((child, rawIndex) => ({ child, rawIndex }))
     .filter(({ child }) => !shouldHideChildInInferredView(child));
 
   const hasChildren = visibleChildren.length > 0;
-  const hasAttributes = element.attributes.length > 0;
+  const hasAttributes = elementAttributes.length > 0;
   const hasSchemaChildren = (schemaNode?.children?.length || 0) > 0;
   const hasSchemaAttributes = (schemaNode?.attributes?.length || 0) > 0;
   const hasExpandableContent = hasChildren || hasAttributes || hasSchemaChildren || hasSchemaAttributes;
-  const hasText = element.text.length > 0;
+  const hasText = elementText.length > 0;
   const isCompositor = !!element.isCompositor;
+  const nodeNameAttribute = elementAttributes.find((a) => a.name === 'name')?.value;
+  const collapsedSchemaNodeName = !expanded && isSchemaForm && typeof nodeNameAttribute === 'string' && nodeNameAttribute.trim().length > 0
+    ? nodeNameAttribute.trim()
+    : null;
 
   const asMutableElementObject = (entry: any): Record<string, any> => {
     if (entry && typeof entry === 'object' && !Array.isArray(entry)) return { ...entry };
@@ -833,8 +866,9 @@ function XmlElementNode({
   };
 
   const handleRemoveAttribute = (attrName: string) => {
+    console.log('[debug-remove-attribute]', { path, attrName, value, currentPathValue: path.length ? (path.reduce((acc, part) => acc?.[part], value)) : value });
     onUpdateValue(path, (current) => {
-      return mutateElementOrArray(current, (updated) => {
+      const result = mutateElementOrArray(current, (updated) => {
         if (updated['@attributes'] && typeof updated['@attributes'] === 'object') {
           const attrs = { ...updated['@attributes'] as Record<string, any> };
           delete attrs[attrName];
@@ -855,8 +889,11 @@ function XmlElementNode({
         }
         // Also clean up old format if it exists
         delete updated['@' + attrName];
+        console.log('[debug-remove-attribute-result]', { attrName, updated });
         return updated;
       });
+      console.log('[debug-remove-attribute-final]', { attrName, result });
+      return result;
     });
   };
 
@@ -1066,9 +1103,9 @@ function XmlElementNode({
   };
 
   // Helper to sanitize test ids
-  const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9-_]/g, '_');
-  const suggestedAttrNames = getSuggestedAttributeNamesForTag(element.tagName);
-  const canAddCustomAttribute = canAddCustomAttributeForElement(element, rootSchema);
+  const sanitize = (s: string) => String(s || '').replace(/[^a-zA-Z0-9-_]/g, '_');
+  const suggestedAttrNames = getSuggestedAttributeNamesForTag(elementTagName);
+  const canAddCustomAttribute = canAddCustomAttributeForElement({ ...element, tagName: elementTagName }, rootSchema);
 
   const applyInferredEditorPatch = (patch: Record<string, any>) => {
     const tagPrefix = element.tagName.includes(':') ? `${element.tagName.split(':')[0]}:` : '';
@@ -1077,6 +1114,11 @@ function XmlElementNode({
     const documentationKey = `${tagPrefix}documentation`;
     const attributeDeclKey = `${tagPrefix}attribute`;
     const anyAttributeKey = `${tagPrefix}anyAttribute`;
+    const complexTypeKey = `${tagPrefix}complexType`;
+    const simpleContentKey = `${tagPrefix}simpleContent`;
+    const complexContentKey = `${tagPrefix}complexContent`;
+    const extensionKey = `${tagPrefix}extension`;
+    const restrictionKey = `${tagPrefix}restriction`;
 
     const setAttr = (obj: any, attrName: string, attrValue: any) => {
       if (attrValue === undefined || attrValue === null || attrValue === '') {
@@ -1084,6 +1126,42 @@ function XmlElementNode({
       } else {
         obj[`@${attrName}`] = attrValue;
       }
+    };
+
+    const firstObjectNode = (value: any): Record<string, any> | null => {
+      if (Array.isArray(value)) {
+        const first = value.find((entry) => entry && typeof entry === 'object' && !Array.isArray(entry));
+        return first && typeof first === 'object' && !Array.isArray(first) ? first : null;
+      }
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    };
+
+    const resolveAttributeAuthoringTarget = (entry: Record<string, any>): Record<string, any> => {
+      const localTag = String(element.tagName || '').replace(/^.*:/, '');
+      let target: Record<string, any> = entry;
+
+      if (localTag === 'element') {
+        const inlineComplexType = firstObjectNode(entry[complexTypeKey]);
+        if (!inlineComplexType) return entry;
+        target = inlineComplexType;
+      }
+
+      if (localTag === 'element' || localTag === 'complexType') {
+        const simpleContent = firstObjectNode(target[simpleContentKey]);
+        if (simpleContent) {
+          const derivation = firstObjectNode(simpleContent[extensionKey]) || firstObjectNode(simpleContent[restrictionKey]);
+          if (derivation) return derivation;
+          return target;
+        }
+
+        const complexContent = firstObjectNode(target[complexContentKey]);
+        if (complexContent) {
+          const derivation = firstObjectNode(complexContent[extensionKey]) || firstObjectNode(complexContent[restrictionKey]);
+          if (derivation) return derivation;
+        }
+      }
+
+      return target;
     };
 
     onUpdateValue(path, (current) => {
@@ -1102,17 +1180,19 @@ function XmlElementNode({
       if ('xmlElementFormDefault' in patch) setAttr(updated, 'elementFormDefault', patch.xmlElementFormDefault);
       if ('xmlAttributeFormDefault' in patch) setAttr(updated, 'attributeFormDefault', patch.xmlAttributeFormDefault);
       if ('xmlSubstitutionGroupParent' in patch) setAttr(updated, 'substitutionGroup', patch.xmlSubstitutionGroupParent);
+      const attributeTarget = resolveAttributeAuthoringTarget(updated);
+
       if ('xmlAnyAttributeNamespace' in patch) {
         const nextNs = patch.xmlAnyAttributeNamespace;
         if (nextNs === undefined || nextNs === null || nextNs === '') {
-          if (updated[anyAttributeKey] && typeof updated[anyAttributeKey] === 'object') {
-            delete updated[anyAttributeKey]['@namespace'];
-            if (Object.keys(updated[anyAttributeKey]).length === 0) delete updated[anyAttributeKey];
+          if (attributeTarget[anyAttributeKey] && typeof attributeTarget[anyAttributeKey] === 'object') {
+            delete attributeTarget[anyAttributeKey]['@namespace'];
+            if (Object.keys(attributeTarget[anyAttributeKey]).length === 0) delete attributeTarget[anyAttributeKey];
           }
         } else {
-          const anyAttrNode = (updated[anyAttributeKey] && typeof updated[anyAttributeKey] === 'object') ? { ...updated[anyAttributeKey] } : {};
+          const anyAttrNode = (attributeTarget[anyAttributeKey] && typeof attributeTarget[anyAttributeKey] === 'object') ? { ...attributeTarget[anyAttributeKey] } : {};
           anyAttrNode['@namespace'] = String(nextNs);
-          updated[anyAttributeKey] = anyAttrNode;
+          attributeTarget[anyAttributeKey] = anyAttrNode;
         }
       }
       if ('xmlBlockDefault' in patch) setAttr(updated, 'blockDefault', patch.xmlBlockDefault);
@@ -1124,16 +1204,16 @@ function XmlElementNode({
 
       // Attribute manager operations emitted by XmlAttributesManager
       const getAttributeDecls = (): any[] => {
-        const raw = updated[attributeDeclKey];
+        const raw = attributeTarget[attributeDeclKey];
         if (!raw) return [];
         return Array.isArray(raw) ? [...raw] : [raw];
       };
       const setAttributeDecls = (decls: any[]) => {
         if (!decls || decls.length === 0) {
-          delete updated[attributeDeclKey];
+          delete attributeTarget[attributeDeclKey];
           return;
         }
-        updated[attributeDeclKey] = decls.length === 1 ? decls[0] : decls;
+        attributeTarget[attributeDeclKey] = decls.length === 1 ? decls[0] : decls;
       };
 
       if ('xmlAddAttribute' in patch && patch.xmlAddAttribute) {
@@ -1299,6 +1379,23 @@ function XmlElementNode({
         {/* Render as a label (no angle-bracket markup) to match JSON Instance Form style */}
         <div className={styles.propertyName} data-testid={`xml-tag-${sanitize(element.tagName)}`}>
           <span>{element.tagName}</span>
+          {collapsedSchemaNodeName && (
+            <span
+              style={{
+                marginLeft: 8,
+                color: '#155e75',
+                backgroundColor: '#ecfeff',
+                border: '1px solid #a5f3fc',
+                borderRadius: 999,
+                padding: '1px 8px',
+                fontSize: 11,
+                fontWeight: 600,
+                lineHeight: 1.6,
+              }}
+            >
+              {collapsedSchemaNodeName}
+            </span>
+          )}
           {/* Compositor badge for XSD-specific nodes */}
           {isCompositor && (
             <span className={styles.badge}>Compositor</span>
@@ -1323,11 +1420,44 @@ function XmlElementNode({
                 const found = element.attributes.find((a) => a.name === name);
                 return found ? String(found.value ?? '') : '';
               };
+              const childElements = (node: XmlElement) => node.children.filter((c): c is XmlElement => typeof c !== 'string');
+              const firstChildByLocalTag = (node: XmlElement, tagName: string): XmlElement | null => {
+                return childElements(node).find((c) => localTag(c.tagName) === tagName) || null;
+              };
+              const resolveAttributeDeclNode = (): XmlElement => {
+                const elementLocalTag = localTag(element.tagName);
+                let targetNode: XmlElement = element;
+
+                if (elementLocalTag === 'element') {
+                  const inlineComplexType = firstChildByLocalTag(element, 'complexType');
+                  if (!inlineComplexType) return element;
+                  targetNode = inlineComplexType;
+                }
+
+                if (elementLocalTag === 'element' || elementLocalTag === 'complexType') {
+                  const simpleContent = firstChildByLocalTag(targetNode, 'simpleContent');
+                  if (simpleContent) {
+                    return firstChildByLocalTag(simpleContent, 'extension')
+                      || firstChildByLocalTag(simpleContent, 'restriction')
+                      || targetNode;
+                  }
+
+                  const complexContent = firstChildByLocalTag(targetNode, 'complexContent');
+                  if (complexContent) {
+                    return firstChildByLocalTag(complexContent, 'extension')
+                      || firstChildByLocalTag(complexContent, 'restriction')
+                      || targetNode;
+                  }
+                }
+
+                return targetNode;
+              };
+
+              const attributeDeclNode = resolveAttributeDeclNode();
               const getDeclaredAttributes = () => {
-                // Use actual xs:attribute child declarations for editor attribute rows.
-                // This avoids treating node metadata attributes (@name/@type/etc.) as declarations.
-                const childAttrs = element.children
-                  .filter((c): c is XmlElement => typeof c !== 'string')
+                // Use actual xs:attribute child declarations from the authoring target node.
+                // This keeps attribute row indices aligned with XmlAttributesManager patches.
+                const childAttrs = childElements(attributeDeclNode)
                   .filter((c) => localTag(c.tagName) === 'attribute');
 
                 return childAttrs.map((c) => {
@@ -1341,8 +1471,7 @@ function XmlElementNode({
                 }).filter((a) => a.name);
               };
 
-              const anyAttributeNode = element.children
-                .filter((c): c is XmlElement => typeof c !== 'string')
+              const anyAttributeNode = childElements(attributeDeclNode)
                 .find((c) => localTag(c.tagName) === 'anyAttribute');
               const anyAttributeNamespace = anyAttributeNode
                 ? String(anyAttributeNode.attributes.find((a) => a.name === 'namespace')?.value ?? '')
@@ -1916,6 +2045,7 @@ function XmlElementNode({
                           autoExpandAll={autoExpandAll}
                           schemaNode={childSchemaNode}
                           compiledSchema={compiledSchema}
+                          isSchemaForm={isSchemaForm}
                         />
                         {effectiveChildInstanceData.length > childMinOccurs && (
                           <Tooltip>
@@ -2299,6 +2429,9 @@ function XmlElementNode({
                               autoExpandAll={autoExpandAll}
                               schemaNode={childSchemaNode}
                               compiledSchema={compiledSchema}
+                              initialAutoExpandPathsRef={initialAutoExpandPathsRef}
+                              autoExpandCaptureActiveRef={autoExpandCaptureActiveRef}
+                              isSchemaForm={isSchemaForm}
                             />
                           </div>
                         </div>
@@ -2319,6 +2452,9 @@ function XmlElementNode({
                           autoExpandAll={autoExpandAll}
                           schemaNode={childSchemaNode}
                           compiledSchema={compiledSchema}
+                          initialAutoExpandPathsRef={initialAutoExpandPathsRef}
+                          autoExpandCaptureActiveRef={autoExpandCaptureActiveRef}
+                          isSchemaForm={isSchemaForm}
                         />
                         {canRemoveChildOccurrence(childElementName, childSchemaNode) && (
                           <Tooltip>
@@ -2443,6 +2579,9 @@ function XmlElementNode({
                       rootSchema={rootSchema}
                       autoExpandAll={autoExpandAll}
                       compiledSchema={compiledSchema}
+                      initialAutoExpandPathsRef={initialAutoExpandPathsRef}
+                      autoExpandCaptureActiveRef={autoExpandCaptureActiveRef}
+                      isSchemaForm={isSchemaForm}
                     />
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -2518,6 +2657,7 @@ export function XmlInstanceForm({
   rootSchema,
   autoExpandAll = false,
   showRootElementTriggers = true,
+  expansionStateKey = 'xml-instance-form-expanded',
 }: XmlInstanceFormProps) {
   // Debug logging
   useEffect(() => {
@@ -2535,25 +2675,85 @@ export function XmlInstanceForm({
     }
   }, [rootSchema]);
 
-  // Reset expansion state when schema changes
-  useEffect(() => {
-    const initial = new Set<string>();
-    initial.add(path.join('.')); // Always expand root element
-    setExpandedPaths(initial);
-  }, [schema, rootSchema]);
+  const expansionStorageKey = useMemo(
+    () => getXmlInstanceExpansionStorageKey(schema, path, expansionStateKey),
+    [schema, path, expansionStateKey]
+  );
 
-  // Initialize expansion state
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
     const initial = new Set<string>();
-    initial.add(path.join('.')); // Always expand root element
-    return initial;
+    const rootPath = path.join('.');
+    if (rootPath) {
+      initial.add(rootPath);
+    }
+
+    if (typeof window === 'undefined') {
+      return initial;
+    }
+
+    try {
+      const stored = window.localStorage.getItem(expansionStorageKey);
+      if (!stored) {
+        return initial;
+      }
+      const parsed = JSON.parse(stored);
+      if (!Array.isArray(parsed)) {
+        return initial;
+      }
+      for (const entry of parsed) {
+        if (typeof entry === 'string') {
+          initial.add(entry);
+        }
+      }
+      return initial;
+    } catch {
+      return initial;
+    }
   });
+
+  const initialAutoExpandPathsRef = useRef<Set<string>>(new Set());
+  const autoExpandCaptureActiveRef = useRef(Boolean(autoExpandAll));
+  const isSchemaForm = expansionStateKey === 'xml-schema-form-expanded';
+
+  useEffect(() => {
+    if (!autoExpandAll) {
+      autoExpandCaptureActiveRef.current = false;
+      return;
+    }
+
+    initialAutoExpandPathsRef.current = new Set();
+    autoExpandCaptureActiveRef.current = true;
+    const timeoutId = window.setTimeout(() => {
+      autoExpandCaptureActiveRef.current = false;
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      autoExpandCaptureActiveRef.current = false;
+    };
+  }, [autoExpandAll, expansionStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const next = new Set(expandedPaths);
+      const rootPath = path.join('.');
+      if (rootPath) {
+        next.add(rootPath);
+      }
+      window.localStorage.setItem(expansionStorageKey, JSON.stringify(Array.from(next)));
+    } catch {
+      // Ignore storage failures.
+    }
+  }, [expandedPaths, expansionStorageKey, path]);
 
   // Detect if value is wrapped (e.g., { person: {...} }) and track the wrapper key.
   // Only treat as wrapped when there is exactly one top-level non-metadata key.
   const wrapperKey = useMemo(() => {
     if (!value || typeof value !== 'object') return null;
-    const dataKeys = Object.keys(value).filter((k) => !k.startsWith('@') && !k.startsWith('_'));
+    const dataKeys = Object.keys(value).filter(
+      (k) => !k.startsWith('@') && !k.startsWith('_') && !k.startsWith('__')
+    );
     if (dataKeys.length !== 1) return null;
 
     const candidateKey = dataKeys[0];
@@ -2672,7 +2872,8 @@ export function XmlInstanceForm({
         rootSchema: unwrappedSchema,
         compiledSchema,
         visitedTypes: new Set(),
-        typeName, // Pass the element's type to walkSchema
+        typeName,
+        inlineTypeDefinition: elementDef['xs:complexType'] || elementDef['complexType'] || elementDef['xs:simpleType'] || elementDef['simpleType'],
         depth: 0,
         maxDepth: 50,
         path: [],
@@ -2721,11 +2922,21 @@ export function XmlInstanceForm({
   const handleToggleExpand = (pathArray: string[]) => {
     const pathKey = pathArray.join('.');
     const newExpanded = new Set(expandedPaths);
-    if (newExpanded.has(pathKey)) {
+
+    const collapsedKey = `__collapsed__:${pathKey}`;
+    const initiallyExpanded = Boolean(autoExpandAll && initialAutoExpandPathsRef.current.has(pathKey));
+    const explicitlyExpanded = newExpanded.has(pathKey);
+    const explicitlyCollapsed = newExpanded.has(collapsedKey);
+    const isExpanded = explicitlyExpanded || (initiallyExpanded && !explicitlyCollapsed);
+
+    if (isExpanded) {
       newExpanded.delete(pathKey);
+      newExpanded.add(collapsedKey);
     } else {
       newExpanded.add(pathKey);
+      newExpanded.delete(collapsedKey);
     }
+
     setExpandedPaths(newExpanded);
   };
 
@@ -2734,6 +2945,8 @@ export function XmlInstanceForm({
   const handleUpdateValue = (pathArray: string[], updateFn: (v: any) => any) => {
     const current = value || schema;
     if (!current || typeof current !== 'object') return;
+
+    console.log('[debug-handleUpdateValue-start]', { pathArray, current });
 
     // Deep clone the current value
     const updated = JSON.parse(JSON.stringify(current));
@@ -2754,6 +2967,19 @@ export function XmlInstanceForm({
     }
 
     // Navigate to the parent container for the last path segment.
+    const resolveObjectIndex = (container: any, index: number): any => {
+      if (!container || typeof container !== 'object') return undefined;
+      const orderedKeys = Object.keys(container).filter((key) => {
+        if (key.startsWith('@') || key.startsWith('_') || key.startsWith('#')) return false;
+        if (key === 'nodeName' || key === 'name') return false;
+        if (key.startsWith('__')) return false;
+        return true;
+      });
+      if (orderedKeys.length === 0) return undefined;
+      if (index < 0 || index >= orderedKeys.length) return undefined;
+      return container[orderedKeys[index]];
+    };
+
     let target: any = updated;
     for (let i = 0; i < adjustedPath.length - 1; i++) {
       const segment = adjustedPath[i];
@@ -2769,8 +2995,11 @@ export function XmlInstanceForm({
           target[index] = nextIsIndex ? [] : {};
         }
         target = target[index];
+      } else if (segmentIsIndex) {
+        const resolved = resolveObjectIndex(target, Number.parseInt(segment, 10));
+        if (resolved === undefined) return;
+        target = resolved;
       } else {
-        if (segmentIsIndex) return;
         if (target[segment] === undefined) {
           target[segment] = nextIsIndex ? [] : {};
         }
@@ -2786,7 +3015,9 @@ export function XmlInstanceForm({
       if (!lastIsIndex) return;
       const index = Number.parseInt(lastSegment, 10);
       if (!Number.isFinite(index) || index < 0) return;
-      target[index] = updateFn(target[index]);
+      const nextValue = updateFn(target[index]);
+      console.log('[debug-handleUpdateValue-array]', { target, index, nextValue });
+      target[index] = nextValue;
     } else {
       if (lastIsIndex) {
         let remaining = Number.parseInt(lastSegment, 10);
@@ -2816,9 +3047,12 @@ export function XmlInstanceForm({
         return;
       }
 
-      target[lastSegment] = updateFn(target[lastSegment]);
+      const nextValue = updateFn(target[lastSegment]);
+      console.log('[debug-handleUpdateValue-object]', { lastSegment, target, nextValue });
+      target[lastSegment] = nextValue;
     }
 
+    console.log('[debug-handleUpdateValue-finish]', { updated });
     onChange(updated);
   };
 
@@ -2836,6 +3070,9 @@ export function XmlInstanceForm({
         autoExpandAll={autoExpandAll}
         schemaNode={schemaNode}
         compiledSchema={compiledSchema}
+        initialAutoExpandPathsRef={initialAutoExpandPathsRef}
+        autoExpandCaptureActiveRef={autoExpandCaptureActiveRef}
+        isSchemaForm={isSchemaForm}
       />
     </div>
   );
