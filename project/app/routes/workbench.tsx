@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useReducer, useMemo } from "react";
 import { Sparkles, Copy, Check, X, Link as LinkIcon, Download, FileUp, ShieldCheck } from "lucide-react";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { toast } from "sonner";
+import { useT } from "~/i18n";
 import { type MarkupLanguage, parseMarkup, serializeMarkup, fileExtension, mimeType, acceptAttr, markupLabel } from "~/utils/markup";
 import {
   Menubar, MenubarMenu, MenubarTrigger, MenubarContent, MenubarItem,
@@ -215,6 +216,7 @@ function getAvailableXmlRootElementNames(schema: unknown): string[] {
 }
 
 export default function Workbench() {
+  const t = useT();
   const showDevStorageTools = typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
   const [state, dispatch] = useReducer(schemaReducer, initialSchemaState(null));
   const [instanceData, setInstanceData] = useState<unknown>(null);
@@ -1646,7 +1648,7 @@ export default function Workbench() {
         
         {/* Language selector as toggle group */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 24 }}>
-          <span style={{ fontSize: 12, fontWeight: 500, color: '#666' }}>Language:</span>
+          <span style={{ fontSize: 12, fontWeight: 500, color: '#666' }}>{t('workbench.language')}:</span>
           <ToggleGroup
             type="single"
             value={markupLanguage}
@@ -1670,7 +1672,7 @@ export default function Workbench() {
         <Menubar loop>
           {/* Markup document operations — label tracks selected language */}
           <MenubarMenu>
-            <MenubarTrigger>{markupLabel[markupLanguage]}</MenubarTrigger>
+            <MenubarTrigger>{t('workbench.markupMenu', { language: markupLabel[markupLanguage] })}</MenubarTrigger>
             <MenubarContent>
               <MenubarItem onSelect={() => fileInputRef.current?.click()}>
                 <FileUp size={14} style={{ marginRight: 6 }} />
@@ -1723,7 +1725,7 @@ export default function Workbench() {
           {/* Schema operations - hidden for YAML since it uses JSON schema */}
           {markupLanguage !== 'yaml' && (
             <MenubarMenu>
-              <MenubarTrigger>Schema</MenubarTrigger>
+              <MenubarTrigger>{t('workbench.schemaMenu')}</MenubarTrigger>
               <MenubarContent>
                 <MenubarItem onSelect={() => schemaFileInputRef.current?.click()}>
                   <FileUp size={14} style={{ marginRight: 6 }} />
@@ -1841,13 +1843,13 @@ export default function Workbench() {
           <MenubarMenu>
             <MenubarTrigger>About</MenubarTrigger>
             <MenubarContent>
-              <MenubarLabel>Schema Sculptor</MenubarLabel>
+              <MenubarLabel>{t('workbench.aboutTitle')}</MenubarLabel>
               <MenubarLabel style={{ fontWeight: 'normal', fontSize: 11, color: 'var(--color-neutral-10)' }}>
-                JSON Schema Workbench
+                {t('workbench.aboutSubtitle')}
               </MenubarLabel>
               <MenubarSeparator />
               <MenubarLabel style={{ fontWeight: 'normal', fontSize: 11, maxWidth: 220, whiteSpace: 'normal', lineHeight: 1.4, color: 'var(--color-neutral-9)', padding: '4px 8px' }}>
-                Generate and modify JSON schemas with an intuitive form&#8209;based editor.
+                {t('workbench.aboutDescription')}
               </MenubarLabel>
             </MenubarContent>
           </MenubarMenu>

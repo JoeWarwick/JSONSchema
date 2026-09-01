@@ -349,22 +349,27 @@ export function XmlSchemaForm({
 
   const resolveRefDefinition = (refName: string, refPath: string[]): any => {
     if (!rootSchema) return null;
-    
+
     // Navigate rootSchema using refPath to find the actual definition
-    let current = rootSchema;
+    let current: unknown = rootSchema;
     for (const segment of refPath) {
       if (!current || typeof current !== 'object') break;
-      
-      // Handle array indices like "xs:complexType[0]"
+
+      const obj = current as Record<string, unknown>;
       const arrayMatch = segment.match(/^(.+)\[(\d+)\]$/);
       if (arrayMatch) {
         const [, key, index] = arrayMatch;
-        current = current[key]?.[parseInt(index)];
+        const value = obj[key];
+        if (Array.isArray(value)) {
+          current = value[Number.parseInt(index, 10)];
+        } else {
+          current = undefined;
+        }
       } else {
-        current = current[segment];
+        current = obj[segment];
       }
     }
-    
+
     return current || null;
   };
 
@@ -515,7 +520,7 @@ export function XmlSchemaForm({
   // ============================================================================
 
   const attrs = getXmlAttrs(rawSchema);
-  const nodeName = attrs['@name'] || attrs['@ref'] || 'Schema Node';
+  const nodeName = String(attrs['@name'] ?? attrs['@ref'] ?? 'Schema Node');
   const compositor = detectCompositor();
   const hasAttributes = Array.isArray(rawSchema['xs:attribute']) && rawSchema['xs:attribute'].length > 0;
   const expandedRef = expandedRefs.find(r => r.isEditing);
@@ -611,8 +616,8 @@ export function XmlSchemaForm({
               <input
                 type="number"
                 min="0"
-                value={rawSchema['@minOccurs'] || ''}
-                onChange={(e) => updateCompositorCardinality(e.target.value ? parseInt(e.target.value) : undefined)}
+                value={typeof rawSchema['@minOccurs'] === 'number' || typeof rawSchema['@minOccurs'] === 'string' ? String(rawSchema['@minOccurs']) : ''}
+                onChange={(e) => updateCompositorCardinality(e.target.value ? parseInt(e.target.value, 10) : undefined)}
                 placeholder="0"
                 style={{ width: '100%', padding: '4px 8px', border: '1px solid #ddd', borderRadius: 3, fontSize: 12 }}
               />
@@ -623,7 +628,7 @@ export function XmlSchemaForm({
               </label>
               <input
                 type="text"
-                value={rawSchema['@maxOccurs'] || ''}
+                value={typeof rawSchema['@maxOccurs'] === 'number' || typeof rawSchema['@maxOccurs'] === 'string' ? String(rawSchema['@maxOccurs']) : ''}
                 onChange={(e) => updateCompositorCardinality(undefined, e.target.value)}
                 placeholder="1 or 'unbounded'"
                 style={{ width: '100%', padding: '4px 8px', border: '1px solid #ddd', borderRadius: 3, fontSize: 12 }}

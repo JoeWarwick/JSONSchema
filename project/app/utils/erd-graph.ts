@@ -5,7 +5,7 @@ import type { ErdModel, ErdNavigation, ErdRelationship, ErdTable } from '../type
 
 export interface ErdTableNodeData {
   table: ErdTable;
-  onNavigationClick?: (navigation: ErdNavigation) => void;
+  onNavigationClick?: (tableId: string, navigation: ErdNavigation) => void;
   highlightedNavigationName?: string;
 }
 

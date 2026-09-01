@@ -317,7 +317,7 @@ describe('Workbench integration - load unresolved $defs schema', () => {
 
       fetchMock.mockClear();
 
-      const xmlMenuTrigger = screen.getByRole('menuitem', { name: /^XML$/i });
+      const xmlMenuTrigger = screen.getByText(/XML Document/i);
       fireEvent.pointerDown(xmlMenuTrigger, { bubbles: true, cancelable: true });
 
       const generateDefaultItem = await screen.findByRole('menuitem', { name: /Generate Default Instance/i });

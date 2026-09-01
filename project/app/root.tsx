@@ -4,6 +4,7 @@ import type { Route } from "./+types/root";
 import { Toaster } from "./components/ui/toaster/toaster";
 import { Toaster as SonnerToaster } from "./components/ui/sonner/sonner";
 import { TooltipProvider } from "./components/ui/tooltip/tooltip";
+import { LocaleProvider } from "./i18n";
 import colorSchemeApi from "@dazl/color-scheme/client?url";
 
 import "./styles/reset.css";
@@ -46,11 +47,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body>
-        <TooltipProvider>
-          {children}
-        </TooltipProvider>
-        <Toaster />
-        <SonnerToaster />
+        <LocaleProvider>
+          <TooltipProvider>
+            {children}
+          </TooltipProvider>
+          <Toaster />
+          <SonnerToaster />
+        </LocaleProvider>
         <ScrollRestoration />
         <Scripts />
       </body>

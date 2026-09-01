@@ -74,6 +74,6 @@ test('simple field rendering with firstName typing', async ({ page }) => {
     const afterLabels = await page.locator('label, [style*="minWidth: 100"]').allTextContents();
     console.log(`[TEST] Field labels after typing: ${afterLabels.filter(l => l.includes(':')).join(', ')}`);
 
-    expect(afterCount).toBeGreaterThanOrEqual(initialCount, 'Fields should not disappear when typing');
+    expect(afterCount).toBeGreaterThanOrEqual(initialCount);
   }
 });

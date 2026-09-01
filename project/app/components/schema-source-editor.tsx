@@ -33,7 +33,7 @@ export function SchemaSourceEditor({
 }: SchemaSourceEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const highlightRef = useRef<HTMLPreElement>(null);
-  const codeRef = useRef<HTMLCodeElement>(null);
+  const codeRef = useRef<HTMLElement>(null);
 
   // Serialize schema to string using the appropriate format
   const schemaText = useMemo(() => {
@@ -83,7 +83,7 @@ export function SchemaSourceEditor({
       const parsed = parseMarkup(newText, schemaLanguage as MarkupLanguage);
       onParsedChange?.(parsed);
       if (typeof parsed === 'object' && parsed !== null) {
-        onChange(parsed);
+        onChange(parsed as Record<string, unknown>);
       }
     } catch (e) {
       // Ignore parse errors during typing - allow invalid markup while editing

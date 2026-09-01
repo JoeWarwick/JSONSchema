@@ -63,7 +63,7 @@ export type SchemaNodeType = "object" | "array" | "string" | "number" | "boolean
 
 export interface GraphicalSchemaEditorProps {
   schema: Record<string, unknown>;
-  onChange: (schema: Record<string, unknown>) => void;
+  onChange?: (schema: Record<string, unknown>) => void;
   useTestData?: boolean;
   schemaLanguage?: 'json' | 'yaml' | 'xml';
 }

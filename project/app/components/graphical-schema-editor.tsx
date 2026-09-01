@@ -447,7 +447,7 @@ const XML_GLOBAL_REF_TARGETS: Record<string, { tagKeys: string[]; attrKey: 'type
   attribute: { tagKeys: ['xs:attribute'], attrKey: 'ref' },
 };
 
-export function GraphicalSchemaEditor({ schema, onChange, useTestData, schemaLanguage }: GraphicalSchemaEditorProps) {
+export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData, schemaLanguage }: GraphicalSchemaEditorProps) {
   type ExpansionState = {
     combiners: Record<string, boolean>;
     variants: Record<string, boolean>;

@@ -1,4 +1,5 @@
-import { compileSchema, CompiledSchema, CompiledType, ValidationFacets } from './schema-compiler';
+import { compileSchema, CompiledSchema } from './schema-compiler';
+import type { CompiledType, ValidationFacets } from './schema-compiler';
 
 /**
  * Sample XSD schema for testing (minimal, self-contained)
