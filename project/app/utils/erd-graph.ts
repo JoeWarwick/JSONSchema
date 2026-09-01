@@ -56,15 +56,15 @@ interface ErdModelToGraphOptions {
   minVerticalGap?: number;
 }
 
-interface LinearExpr {
-  constant: number;
-  coeffs: Record<string, number>;
-}
-
 interface IlpUntangleResult {
   status: ErdLayoutMeta['ilpStatus'];
   attempted: boolean;
   nodes?: Node<ErdTableNodeData>[];
+}
+
+interface LinearExpr {
+  constant: number;
+  coeffs: Record<string, number>;
 }
 
 export const tableWidth = (table: ErdTable): number => Math.max(240, Math.min(360, table.name.length * 10 + 80));
@@ -215,6 +215,15 @@ function scoreLayout(nodes: Node<ErdTableNodeData>[], edges: Edge<ErdRelationshi
   return crossings * 1_000_000 + length;
 }
 
+function ilpTimeoutMs(nodeCount: number, edgeCount: number): number {
+  // Keep high-quality solves on smaller graphs, but cap time on larger ones to avoid UI stutter.
+  const scale = nodeCount + Math.floor(edgeCount / 3);
+  if (scale <= 20) return 1200;
+  if (scale <= 28) return 900;
+  if (scale <= 36) return 700;
+  return 500;
+}
+
 function createVar(model: any, name: string, kind: 'int' | 'binary' | 'continuous' = 'continuous'): void {
   if (!model.variables[name]) model.variables[name] = { obj: 0 };
   if (kind === 'int') model.ints[name] = 1;
@@ -314,7 +323,7 @@ function applyIlpRankUntangle(
     ints: {},
     binaries: {},
     options: {
-      timeout: 1200,
+      timeout: ilpTimeoutMs(nodes.length, edges.length),
       tolerance: 0.0,
     },
   };
