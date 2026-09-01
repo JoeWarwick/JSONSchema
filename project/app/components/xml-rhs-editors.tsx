@@ -1,4 +1,5 @@
 import type { XmlNodeKind, XmlNodeRhsEditorProps } from './types';
+import { useT } from '~/i18n';
 import { XmlCompositorEditor } from './xml-compositor-editor';
 import { XmlAnyEditor } from './xml-any-editor';
 import { XmlSchemaEditor } from './xml-schema-editor';
@@ -10,7 +11,9 @@ import { XmlAttributeGroupEditor } from './xml-attribute-group-editor';
 import { XmlAttributesManager } from './xml-attributes-manager';
 
 export function XmlNodeRhsEditor({ node, onChange, onToggleShowAnnotations, xmlShowAnnotations, onToggleShowImports, xmlShowImports, getNodeByName }: XmlNodeRhsEditorProps) {
-  if (!node) return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a node to edit XML properties.</div>;
+  const t = useT();
+
+  if (!node) return <div style={{ color: '#888', fontStyle: 'italic' }}>{t('workbench.xmlRhsEditor.selectNode')}</div>;
   const data = (node.data || {}) as any;
   const kind = (data.xmlNodeKind || '') as XmlNodeKind;
   const readOnlySource = typeof data.xmlReadOnlySource === 'string' && data.xmlReadOnlySource ? data.xmlReadOnlySource : undefined;
@@ -61,5 +64,5 @@ export function XmlNodeRhsEditor({ node, onChange, onToggleShowAnnotations, xmlS
     />
   );
 
-  return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a schema, SimpleType, ComplexType, attribute, element, or compositor node to edit.</div>;
+  return <div style={{ color: '#888', fontStyle: 'italic' }}>{t('workbench.xmlRhsEditor.selectEditorNode')}</div>;
 }

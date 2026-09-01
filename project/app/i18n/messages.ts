@@ -1,8 +1,9 @@
 import { DEFAULT_LOCALE, type SupportedLocale } from "./locales";
 
 type MessageValue = string | { one: string; other: string };
-
-type MessageCatalog = Record<string, MessageValue | Record<string, MessageValue>>;
+type MessageCatalog = {
+  [key: string]: MessageValue | MessageCatalog;
+};
 
 export const messages: Record<SupportedLocale, MessageCatalog> = {
   en: {
@@ -26,6 +27,10 @@ export const messages: Record<SupportedLocale, MessageCatalog> = {
       aboutDescription: "Generate and modify JSON schemas with an intuitive form-based editor.",
       loadFromUrl: "Load from URL…",
       openFile: "Open {language} file…",
+      xmlRhsEditor: {
+        selectNode: "Select a node to edit XML properties.",
+        selectEditorNode: "Select a schema, SimpleType, ComplexType, attribute, element, or compositor node to edit.",
+      },
     },
   },
   fr: {},
