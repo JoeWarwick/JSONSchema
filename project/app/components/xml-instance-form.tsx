@@ -770,6 +770,9 @@ function XmlElementNode({
 
   const shouldHideChildInInferredView = (child: XmlElement | string): boolean => {
     if (typeof child === 'string') return false;
+    // In Schema Form mode we are editing the schema document itself, so show every
+    // concrete child node (including xs:attribute/xs:anyAttribute) in the tree.
+    if (isSchemaForm) return false;
     if (!hasInferredEditor) return false;
     if (!['complexType', 'attributeGroup', 'element'].includes(String(inferredSchemaKind))) return false;
 
