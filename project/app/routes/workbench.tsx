@@ -1467,7 +1467,7 @@ export default function Workbench() {
         content: await file.text(),
       })));
       const parsedModel = parseDbContextFiles(sourceFiles);
-      const graph = erdModelToGraph(parsedModel);
+      const graph = erdModelToGraph(parsedModel, { useIlpUntangle: true, spacingScale: 1.3, minVerticalGap: 84 });
       setErdModel({
         ...parsedModel,
         nodePositions: Object.fromEntries(graph.nodes.map((node) => [node.id, node.position])),

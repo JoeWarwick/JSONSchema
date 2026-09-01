@@ -60,7 +60,7 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
   const [focusedNavigation, setFocusedNavigation] = React.useState<{ tableId: string; navigationName: string } | null>(null);
   const [focusRequest, setFocusRequest] = React.useState<ErdFocusRequest | null>(null);
   const focusTokenRef = React.useRef(0);
-  const edgeCrossings = React.useMemo(() => countErdGraphCrossings({ nodes: nodes as any, edges: edges as any }), [nodes, edges]);
+  const edgeCrossings = React.useMemo(() => countErdGraphCrossings(graph), [graph]);
   const selectedTable = normalizedModel.tables.find((table) => table.id === selectedTableId);
   const tableRelationships = React.useMemo(() => selectedTable ? relatedRelationships(normalizedModel, selectedTable.id) : [], [normalizedModel, selectedTable]);
 
@@ -202,6 +202,9 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
     const freshGraph = erdModelToGraph(normalizedModel, {
       useStoredPositions: false,
       preferDifferentLayout: true,
+      useIlpUntangle: true,
+      spacingScale: 1.3,
+      minVerticalGap: 84,
     });
     const nodePositions = Object.fromEntries(
       freshGraph.nodes.map((node) => [node.id, node.position]),

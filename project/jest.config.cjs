@@ -10,6 +10,7 @@ module.exports = {
   moduleNameMapper: {
     "\\.(css|less|scss|sass)$": "<rootDir>/__mocks__/styleMock.js",
     "^~/(.*)$": "<rootDir>/app/$1",
+    "^javascript-lp-solver$": "<rootDir>/node_modules/javascript-lp-solver/dist/index.cjs",
   },
   setupFilesAfterEnv: ["<rootDir>/jest.setup.js"],
 };
