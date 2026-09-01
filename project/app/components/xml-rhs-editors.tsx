@@ -15,9 +15,16 @@ export function XmlNodeRhsEditor({ node, onChange, onToggleShowAnnotations, xmlS
   const kind = (data.xmlNodeKind || '') as XmlNodeKind;
   const readOnlySource = typeof data.xmlReadOnlySource === 'string' && data.xmlReadOnlySource ? data.xmlReadOnlySource : undefined;
 
-  if (kind === 'schema') return <XmlSchemaEditor node={node} onChange={onChange} onToggleShowAnnotations={onToggleShowAnnotations} xmlShowAnnotations={xmlShowAnnotations} onToggleShowImports={onToggleShowImports} xmlShowImports={xmlShowImports} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
-  if (kind === 'simpleType' && data.xmlIsAnonymous) return <XmlAttributeSimpleTypeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
-  if (kind === 'simpleType') return <XmlSimpleTypeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
+  if (kind === 'schema') 
+    return <XmlSchemaEditor node={node} onChange={onChange} onToggleShowAnnotations={onToggleShowAnnotations} xmlShowAnnotations={xmlShowAnnotations} onToggleShowImports={onToggleShowImports} xmlShowImports={xmlShowImports} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
+  if (kind === 'simpleType' && data.xmlIsAnonymous) 
+    return <XmlAttributeSimpleTypeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
+  if (kind === 'simpleType') 
+    return <XmlSimpleTypeEditor node={node} onChange={onChange} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
+  if (kind === 'sequence' || kind === 'choice' || kind === 'all') 
+    return <XmlCompositorEditor node={node} onChange={onChange} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
+  if (kind === 'any') 
+    return <XmlAnyEditor node={node} onChange={onChange} getNodeByName={getNodeByName} />;
   if (kind === 'complexType') return (
     <XmlComplexTypeEditor
       node={node}
@@ -53,10 +60,6 @@ export function XmlNodeRhsEditor({ node, onChange, onToggleShowAnnotations, xmlS
       )}
     />
   );
-  if (kind === 'sequence' || kind === 'choice' || kind === 'all') 
-    return <XmlCompositorEditor node={node} onChange={onChange} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
-  if (kind === 'any') 
-    return <XmlAnyEditor node={node} onChange={onChange} getNodeByName={getNodeByName} />;
 
   return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a schema, SimpleType, ComplexType, attribute, element, or compositor node to edit.</div>;
 }
