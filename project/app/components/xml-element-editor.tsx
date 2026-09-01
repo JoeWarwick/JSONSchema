@@ -3,6 +3,15 @@ import type { Node as FlowNode } from 'reactflow';
 import type { NodeData, XmlNodeRhsEditorProps } from './types';
 import { XmlAnnotationFieldAuto, XmlReadOnlyHint } from './xml-editor-controls';
 import { XmlTypeSelector } from './xml-simple-type-controls';
+import {
+  XmlElementComplexContentFields,
+  XmlElementComplexContentNotice,
+  XmlElementDefaultFields,
+  XmlElementOccursFields,
+  XmlElementToggleField,
+  XmlElementTypeField,
+  XmlElementWidgetField,
+} from './xml-element-editor-sections';
 
 type ElementEditorProps = XmlNodeRhsEditorProps & {
   renderAttributesManager?: (node: FlowNode<NodeData>, onChange: (patch: Partial<NodeData>) => void) => React.ReactNode;
@@ -64,54 +73,32 @@ export function XmlElementEditor({ node, onChange, readOnlySource, renderAttribu
           />
         </label>
       )}
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ fontSize: 12 }}>{isRef ? 'ref' : 'Type'}</span>
-        {isRef ? (
-          <XmlTypeSelector
-            value={name}
-            disabled
-            onChange={(next) => {
-              setName(next);
-              onChange({ id: node.id, xmlName: next });
-            }}
-            myTypeNames={Array.isArray(data.xmlMyElementNames) ? data.xmlMyElementNames : []}
-            ariaLabel="Element Ref Target"
-          />
-        ) : data.xmlHasInlineComplexType ? (
-          <span aria-label="Element Type" style={{ padding: 6, fontStyle: 'italic', color: '#666' }}>complexType - {data.xmlInlineComplexTypeName || 'Anon'}</span>
-        ) : (
-          <XmlTypeSelector
-            value={type}
-            disabled={readOnly}
-            onChange={(next) => {
-              setType(next);
-              onChange({ id: node.id, xmlElementType: next });
-            }}
-            myTypeNames={Array.isArray(data.xmlMyTypeNames) ? data.xmlMyTypeNames : []}
-            ariaLabel="Element Type"
-          />
-        )}
-      </label>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ fontSize: 12 }}>Widget</span>
-        <select
-          aria-label="Element Widget"
-          value={widget}
-          disabled={readOnly}
-          onChange={(e) => {
-            const next = e.target.value;
-            setWidget(next);
-            onChange({ id: node.id, xmlWidget: next || undefined });
-          }}
-          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
-        >
-          <option value="">(none)</option>
-          <option value="color">color</option>
-          <option value="email">email</option>
-          <option value="country">country</option>
-          <option value="lang">lang</option>
-        </select>
-      </label>
+      <XmlElementTypeField
+        isRef={isRef}
+        readOnly={readOnly}
+        name={name}
+        type={type}
+        xmlHasInlineComplexType={Boolean(data.xmlHasInlineComplexType)}
+        xmlInlineComplexTypeName={data.xmlInlineComplexTypeName}
+        xmlMyElementNames={Array.isArray(data.xmlMyElementNames) ? data.xmlMyElementNames : []}
+        xmlMyTypeNames={Array.isArray(data.xmlMyTypeNames) ? data.xmlMyTypeNames : []}
+        onNameChange={(next) => {
+          setName(next);
+          onChange({ id: node.id, xmlName: next });
+        }}
+        onTypeChange={(next) => {
+          setType(next);
+          onChange({ id: node.id, xmlElementType: next });
+        }}
+      />
+      <XmlElementWidgetField
+        widget={widget}
+        readOnly={readOnly}
+        onChange={(next) => {
+          setWidget(next);
+          onChange({ id: node.id, xmlWidget: next || undefined });
+        }}
+      />
       {data.xmlHasSubstitutionExpansion ? (
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span style={{ fontSize: 12 }}>Substitution Group Parent</span>
@@ -127,172 +114,89 @@ export function XmlElementEditor({ node, onChange, readOnlySource, renderAttribu
           />
         </label>
       ) : null}
-      <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 12 }}>minOccurs</span>
-          <input
-            aria-label="minOccurs"
-            value={minOccurs}
-            disabled={readOnly && !isRef}
-            onChange={(e) => setMinOccurs(e.target.value)}
-            onBlur={() => onChange({ id: node.id, xmlMinOccurs: minOccurs })}
-            placeholder="1"
-            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' }}
-          />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 12 }}>maxOccurs</span>
-          <input
-            aria-label="maxOccurs"
-            value={maxOccurs}
-            disabled={readOnly && !isRef}
-            onChange={(e) => setMaxOccurs(e.target.value)}
-            onBlur={() => onChange({ id: node.id, xmlMaxOccurs: maxOccurs })}
-            placeholder="1 or unbounded"
-            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' }}
-          />
-        </label>
-      </label>
-      <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 12 }}>default</span>
-          <input
-            aria-label="default value"
-            value={defaultValue}
-            disabled={readOnly && !isRef}
-            onChange={(e) => setDefaultValue(e.target.value)}
-            onBlur={() => onChange({ id: node.id, xmlDefault: defaultValue })}
-            placeholder="(none)"
-            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' }}
-          />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 12 }}>fixed</span>
-          <input
-            aria-label="fixed value"
-            value={fixedValue}
-            disabled={readOnly && !isRef}
-            onChange={(e) => setFixedValue(e.target.value)}
-            onBlur={() => onChange({ id: node.id, xmlFixed: fixedValue })}
-            placeholder="(none)"
-            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
-          />
-        </label>
-      </label>
-      <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-        <input
-          type="checkbox"
-          checked={isRef}
-          disabled={readOnly || isRef}
-          onChange={(e) => {
-            setIsRef(e.target.checked);
-            onChange({ id: node.id, xmlIsRef: e.target.checked });
-          }}
-          aria-label="Global Reference"
-          style={{ cursor: (readOnly || isRef) ? 'not-allowed' : 'pointer' }}
-        />
-        <span style={{ fontSize: 12 }}>Global Reference (ref)</span>
-      </label>
-      <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-        <input
-          type="checkbox"
-          checked={mixed}
-          disabled={readOnly || isRef}
-          onChange={(e) => {
-            setMixed(e.target.checked);
-            onChange({ id: node.id, xmlMixed: e.target.checked });
-          }}
-          aria-label="Mixed Content"
-          style={{ cursor: (readOnly || isRef) ? 'not-allowed' : 'pointer' }}
-        />
-        <span style={{ fontSize: 12 }}>Mixed Content</span>
-      </label>
+      <XmlElementOccursFields
+        minOccurs={minOccurs}
+        maxOccurs={maxOccurs}
+        readOnly={readOnly}
+        isRef={isRef}
+        onMinOccursChange={setMinOccurs}
+        onMaxOccursChange={setMaxOccurs}
+        onMinOccursBlur={() => onChange({ id: node.id, xmlMinOccurs: minOccurs })}
+        onMaxOccursBlur={() => onChange({ id: node.id, xmlMaxOccurs: maxOccurs })}
+      />
+      <XmlElementDefaultFields
+        defaultValue={defaultValue}
+        fixedValue={fixedValue}
+        readOnly={readOnly}
+        isRef={isRef}
+        onDefaultChange={setDefaultValue}
+        onFixedChange={setFixedValue}
+        onDefaultBlur={() => onChange({ id: node.id, xmlDefault: defaultValue })}
+        onFixedBlur={() => onChange({ id: node.id, xmlFixed: fixedValue })}
+      />
+      <XmlElementToggleField
+        checked={isRef}
+        disabled={readOnly || isRef}
+        label="Global Reference (ref)"
+        ariaLabel="Global Reference"
+        onChange={(next) => {
+          setIsRef(next);
+          onChange({ id: node.id, xmlIsRef: next });
+        }}
+      />
+      <XmlElementToggleField
+        checked={mixed}
+        disabled={readOnly || isRef}
+        label="Mixed Content"
+        ariaLabel="Mixed Content"
+        onChange={(next) => {
+          setMixed(next);
+          onChange({ id: node.id, xmlMixed: next });
+        }}
+      />
+      <XmlElementComplexContentFields
+        hasInlineComplexType={Boolean(data.xmlHasInlineComplexType)}
+        readOnly={readOnly}
+        isRef={isRef}
+        hasComplexContentExtension={hasComplexContentExtension}
+        extendsType={extendsType}
+        complexTypeNames={complexTypeNames}
+        hasAnyAttributeNamespace={hasAnyAttributeNamespace}
+        anyAttributeNamespace={anyAttributeNamespace}
+        onComplexContentExtensionChange={(enabled) => {
+          setHasComplexContentExtension(enabled);
+          onChange({ id: node.id, xmlComplexContentEnabled: enabled });
+        }}
+        onExtendsTypeChange={(next) => {
+          setExtendsType(next);
+          onChange({ id: node.id, xmlExtendsType: next });
+        }}
+        onAnyAttributeNamespaceChange={(next) => {
+          setAnyAttributeNamespace(next);
+          onChange({ id: node.id, xmlAnyAttributeNamespace: next });
+        }}
+        onHasAnyAttributeNamespaceChange={(enabled) => {
+          setHasAnyAttributeNamespace(enabled);
+          if (enabled) {
+            // When enabling, ensure we have a valid value
+            const next = anyAttributeNamespace.trim().length > 0 ? anyAttributeNamespace : '##other';
+            setAnyAttributeNamespace(next);
+            onChange({ id: node.id, xmlAnyAttributeNamespace: next });
+          } else {
+            // When disabling, clear it
+            setAnyAttributeNamespace('');
+            onChange({ id: node.id, xmlAnyAttributeNamespace: '' });
+          }
+        }}
+        renderAttributesManager={renderAttributesManager}
+        node={node}
+        onChange={onChange}
+      />
+      <XmlElementComplexContentNotice
+        hasInlineComplexType={Boolean(data.xmlHasInlineComplexType)}
+        hasComplexContentExtension={hasComplexContentExtension}
+      />
       {data.xmlHasInlineComplexType ? (
-        <>
-          <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-            <input
-              type="checkbox"
-              checked={hasComplexContentExtension}
-              disabled={readOnly || isRef}
-              onChange={(e) => {
-                const enabled = e.target.checked;
-                setHasComplexContentExtension(enabled);
-                onChange({ id: node.id, xmlComplexContentEnabled: enabled });
-                if (enabled) {
-                  const fallbackBase = extendsType || complexTypeNames[0] || 'xs:anyType';
-                  setExtendsType(fallbackBase);
-                  onChange({ id: node.id, xmlExtendsType: fallbackBase });
-                }
-              }}
-              aria-label="Use complexContent extension"
-              style={{ cursor: (readOnly || isRef) ? 'not-allowed' : 'pointer' }}
-            />
-            <span style={{ fontSize: 12 }}>Use complexContent extension</span>
-          </label>
-          {hasComplexContentExtension && (
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 12 }}>ComplexContent base</span>
-              <XmlTypeSelector
-                value={extendsType}
-                disabled={readOnly || isRef}
-                onChange={(next) => {
-                  setExtendsType(next);
-                  onChange({ id: node.id, xmlExtendsType: next });
-                }}
-                myTypeNames={complexTypeNames}
-                ariaLabel="ComplexContent Base Type"
-              />
-            </label>
-          )}
-        </>
-      ) : null}
-      {data.xmlHasInlineComplexType ? (
-        <div style={{ fontSize: 12, color: '#666' }}>
-          Add element writes into the first existing compositor under this inline complexType, or creates an xs:sequence when none exists.
-          {hasComplexContentExtension ? ' In extension mode, these add actions write into complexContent/extension.' : ''}
-        </div>
-      ) : null}
-      {data.xmlHasInlineComplexType ? (
-        <>
-          <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-            <input
-              type="checkbox"
-              checked={hasAnyAttributeNamespace}
-              disabled={readOnly || isRef}
-              onChange={(e) => {
-                const enabled = e.target.checked;
-                setHasAnyAttributeNamespace(enabled);
-                if (enabled) {
-                  const next = anyAttributeNamespace.trim().length > 0 ? anyAttributeNamespace : '##other';
-                  setAnyAttributeNamespace(next);
-                  onChange({ id: node.id, xmlAnyAttributeNamespace: next });
-                } else {
-                  setAnyAttributeNamespace('');
-                  onChange({ id: node.id, xmlAnyAttributeNamespace: '' });
-                }
-              }}
-              aria-label="Enable AnyAttribute"
-              style={{ cursor: (readOnly || isRef) ? 'not-allowed' : 'pointer' }}
-            />
-            <span style={{ fontSize: 12 }}>Enable AnyAttribute</span>
-          </label>
-          {hasAnyAttributeNamespace && (
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 12 }}>AnyAttribute namespace</span>
-              <input
-                aria-label="AnyAttribute Namespace"
-                value={anyAttributeNamespace}
-                disabled={readOnly || isRef}
-                onChange={(e) => setAnyAttributeNamespace(e.target.value)}
-                onBlur={() => onChange({ id: node.id, xmlAnyAttributeNamespace: anyAttributeNamespace })}
-                placeholder="##other"
-                style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
-              />
-            </label>
-          )}
-          {!readOnly && renderAttributesManager ? renderAttributesManager(node, onChange) : null}
-        </>
-      ) : (
         !isRef ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12, color: '#666', background: '#fff7ed', border: '1px solid #f5c2b7', borderRadius: 6, padding: 8 }}>
             <div>
@@ -312,7 +216,7 @@ export function XmlElementEditor({ node, onChange, readOnlySource, renderAttribu
             ) : null}
           </div>
         ) : null
-      )}
+      ) : null}
       <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
     </form>
   );

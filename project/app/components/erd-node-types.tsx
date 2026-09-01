@@ -2,7 +2,7 @@ import React from 'react';
 import { Handle, Position } from 'reactflow';
 import type { ErdColumn, ErdNavigation } from '../types/erd';
 import type { ErdTableNodeData } from '../utils/erd-graph';
-import styles from './erd-editor.module.css';
+import styles from './erd/erd-editor.module.css';
 
 function columnIcon(column: ErdColumn): string {
   if (column.isPrimaryKey) return 'key';

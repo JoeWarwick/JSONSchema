@@ -1,53 +1,19 @@
 import React from 'react';
-import ReactFlow, { Background, Controls, ReactFlowProvider, useEdgesState, useNodesState, useReactFlow } from 'reactflow';
+import ReactFlow, { Background, Controls, ReactFlowProvider, useEdgesState, useNodesState } from 'reactflow';
 import type { Node } from 'reactflow';
-import { ChevronDown, Printer, Sparkles, Trash2 } from 'lucide-react';
 import type { ErdModel, ErdNavigation } from '../types/erd';
-import { countErdGraphCrossings, erdModelToGraph, tableHeight, tableWidth, type ErdTableNodeData } from '../utils/erd-graph';
+import { countErdGraphCrossings, erdModelToGraph, type ErdTableNodeData } from '../utils/erd-graph';
 import { addErdRelationship, addErdTable, addErdTableColumn, deleteErdRelationship, deleteErdTable, deleteErdTableColumn, normalizeErdModel, reorderErdTableColumns, renameErdTable, relatedRelationships, resolveNavigationFocusTarget, updateErdRelationship, updateErdTableColumn } from '../utils/erd-model-editing';
+import { commonPropertyTypes, isIdentityEligibleColumnType, isTimestampColumnType } from '../utils/erd-editor-utils';
+import { buildErdDisplayNodes } from '../utils/erd-editor-display';
 import { printErdModel } from '../utils/print-erd';
 import { erdNodeTypes } from './erd-node-types';
+import { ErdEditorSidebar } from './erd-editor-sidebar';
+import { ErdFocusController } from './erd-focus-controller';
 import { HorizontalSplitPane } from './ui/split-pane';
-import styles from './erd-editor.module.css';
+import type { ErdEditorProps, ErdFocusRequest } from '../types/erd-editor';
+import styles from './erd/erd-editor.module.css';
 import 'reactflow/dist/style.css';
-
-const commonPropertyTypes = ['string', 'int', 'long', 'short', 'decimal', 'double', 'float', 'bool', 'DateTime', 'DateTimeOffset', 'Guid'];
-
-const identityColumnTypes = new Set(['int', 'long', 'short']);
-
-function isIdentityEligibleColumnType(type: string): boolean {
-  return identityColumnTypes.has(type.replace(/\?$/, ''));
-}
-
-function isTimestampColumnType(type: string): boolean {
-  return ['DateTime', 'DateTimeOffset'].includes(type.replace(/\?$/, ''));
-}
-
-interface ErdFocusRequest {
-  tableId: string;
-  token: number;
-}
-
-/** Lives inside ReactFlowProvider so it can pan/zoom the canvas to center on a focused entity. */
-function ErdFocusController({ focusRequest }: { focusRequest: ErdFocusRequest | null }) {
-  const { getNode, setCenter } = useReactFlow();
-
-  React.useEffect(() => {
-    if (!focusRequest) return;
-    const node = getNode(focusRequest.tableId) as Node<ErdTableNodeData> | undefined;
-    if (!node) return;
-    const width = node.width ?? tableWidth(node.data.table);
-    const height = node.height ?? tableHeight(node.data.table);
-    setCenter(node.position.x + width / 2, node.position.y + height / 2, { zoom: 1, duration: 500 });
-  }, [focusRequest, getNode, setCenter]);
-
-  return null;
-}
-
-export interface ErdEditorProps {
-  model: ErdModel;
-  onChange?: (model: ErdModel) => void;
-}
 
 export function ErdEditor({ model, onChange }: ErdEditorProps) {
   const normalizedModel = React.useMemo(() => normalizeErdModel(model), [model]);
@@ -93,32 +59,10 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
 
   const displayNodesRef = React.useRef<Map<string, any>>(new Map());
 
-  // Inject the per-node click handler and highlight state without recomputing the layout.
-  // Only update nodes whose highlight state changed; skip nodes that haven't changed.
-  const displayNodes = React.useMemo(() => {
-    const cache = displayNodesRef.current;
-    return nodes.map((node) => {
-      const highlightedNavName = focusedNavigation?.tableId === node.id ? focusedNavigation.navigationName : undefined;
-      const cachedNode = cache.get(node.id);
-      
-      // Reuse cached node if both data identity and highlight are unchanged
-      if (cachedNode && cachedNode.node.data === node.data && cachedNode.highlight === highlightedNavName) {
-        return cachedNode.node;
-      }
-      
-      const updatedNode = {
-        ...node,
-        data: {
-          ...node.data,
-          onNavigationClick: handleNavigationClick,
-          highlightedNavigationName: highlightedNavName,
-        },
-      } as any;
-      
-      cache.set(node.id, { node: updatedNode, highlight: highlightedNavName });
-      return updatedNode;
-    });
-  }, [nodes, focusedNavigation, handleNavigationClick]);
+  const displayNodes = React.useMemo(
+    () => buildErdDisplayNodes(nodes, focusedNavigation, handleNavigationClick, displayNodesRef.current),
+    [nodes, focusedNavigation, handleNavigationClick],
+  );
 
   const commitModel = React.useCallback((nextModel: ErdModel) => {
     onChange?.(nextModel);
@@ -303,212 +247,38 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
         </div>
       </div>
       <div className={styles.sidebarPanel}>
-        <aside className={styles.sidebar} aria-label="ERD details">
-          {selectedTable ? (
-            <div className={styles.sidebarTitleRow}>
-              <div>
-                <h2>{selectedTable.name}</h2>
-                <p className={styles.muted}>Crossings: {edgeCrossings}</p>
-              </div>
-              <div className={styles.sidebarTitleActions}>
-                <button type="button" className={styles.buttonSecondary} onClick={handleAutoLayout} title="Auto layout" aria-label="Auto layout ERD">
-                  <Sparkles size={16} />
-                </button>
-                <button type="button" className={styles.buttonSecondary} onClick={handlePrintGraph} title="Print graph" aria-label="Print graph">
-                  <Printer size={16} />
-                </button>
-                <button type="button" className={styles.buttonDanger} aria-label={`Delete entity ${selectedTable.name}`} onClick={removeSelectedTable} title="Delete entity">
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className={styles.sidebarTitleRow}>
-              <div>
-                <h2>Entity Relationship Diagram</h2>
-                <p className={styles.muted}>Crossings: {edgeCrossings}</p>
-              </div>
-              <div className={styles.sidebarTitleActions}>
-                <button type="button" className={styles.buttonSecondary} onClick={handleAutoLayout} title="Auto layout" aria-label="Auto layout ERD">
-                  <Sparkles size={16} />
-                </button>
-                <button type="button" className={styles.buttonSecondary} onClick={handlePrintGraph} title="Print graph" aria-label="Print graph">
-                  <Printer size={16} />
-                </button>
-              </div>
-            </div>
-          )}
-          {selectedTable ? (
-          <div className={styles.sidebarSection}>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>Table name</span>
-              <input aria-label="Table name" className={styles.fieldInput} value={selectedTable.name} onChange={(event) => renameSelectedTable(event.target.value)} />
-            </label>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>CLR name</span>
-              <input aria-label="CLR name" className={styles.fieldInput} value={selectedTable.clrName} onChange={(event) => handleCLRNameChange(event.target.value)} />
-            </label>
-
-            <div className={styles.sidebarSection}>
-              <div className={styles.sectionHeader}>
-                <h3 className={styles.sectionTitle}>Properties</h3>
-                <button type="button" className={styles.buttonSecondary} onClick={addSelectedColumn}>Add property</button>
-              </div>
-              {selectedTable.columns.length === 0 ? <p className={styles.muted}>No properties available for this table.</p> : selectedTable.columns.map((column) => (
-                <div
-                  key={`${selectedTable.id}-${column.name}`}
-                  className={styles.propertyCard}
-                  data-testid={`property-card-${column.name}`}
-                  draggable
-                  onDragStart={() => handleDragStart(column.name)}
-                  onDragEnd={handleDragEnd}
-                  onDragOver={handleDragOver}
-                  onDrop={() => handleDrop(draggedColumnName ?? '', column.name)}
-                >
-                  <div className={styles.cardHeader}>
-                    <span className={styles.dragHandle} aria-hidden="true">⋮⋮</span>
-                    <strong>{column.name}</strong>
-                    <button type="button" className={styles.buttonDanger} aria-label={`Delete property ${column.name}`} onClick={() => removeSelectedColumn(column.name)}>Delete</button>
-                  </div>
-                  <div className={styles.fieldRow}>
-                    <label className={styles.field}>
-                      <span className={styles.fieldLabel}>Name</span>
-                      <input
-                        className={styles.fieldInput}
-                        defaultValue={column.name}
-                        onBlur={(event) => handleColumnNameChange(column.name, event.target.value)}
-                      />
-                    </label>
-                    <label className={styles.field}>
-                      <span className={styles.fieldLabel}>Type</span>
-                      <select
-                        className={styles.fieldInput}
-                        value={column.type}
-                        onChange={(event) => handleColumnTypeChange(column.name, event.target.value)}
-                      >
-                        {column.type && !commonPropertyTypes.includes(column.type) && <option value={column.type}>{column.type}</option>}
-                        {commonPropertyTypes.map((type) => <option key={type} value={type}>{type}</option>)}
-                      </select>
-                    </label>
-                  </div>
-                  <div className={styles.checkboxRow}>
-                    <label className={styles.checkboxLabel}><input type="checkbox" checked={column.isNullable} onChange={(event) => handleColumnNullableChange(column.name, event.target.checked)} /> Nullable</label>
-                    <label className={styles.checkboxLabel}><input type="checkbox" checked={column.isPrimaryKey} onChange={(event) => handleColumnPrimaryKeyChange(column.name, event.target.checked)} /> Primary key</label>
-                    <span className={styles.columnBadge}>{column.isForeignKey ? `FK${column.foreignKeyTarget ? ` → ${column.foreignKeyTarget}` : ''}` : 'Regular'}</span>
-                    {column.isPrimaryKey && isIdentityEligibleColumnType(column.type) && (
-                      <span className={styles.columnBadge} title="Numeric primary keys are exported as IDENTITY columns">Auto</span>
-                    )}
-                    {isTimestampColumnType(column.type) && (
-                      <button
-                        type="button"
-                        className={`${styles.defaultChip} ${column.defaultGeneration === 'current-timestamp' ? styles.defaultChipActive : ''}`}
-                        onClick={() => setColumnCurrentTimestamp(column.name, column.defaultGeneration !== 'current-timestamp')}
-                        title="Use the current time as the default value"
-                        aria-label={`Default for ${column.name}`}
-                      >
-                        Now
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className={styles.sidebarSection}>
-              <div className={styles.sectionHeader}>
-                <h3 className={styles.sectionTitle}>Relationships</h3>
-                <button type="button" className={styles.buttonSecondary} onClick={addSelectedRelationship}>Add relationship</button>
-              </div>
-              {tableRelationships.length === 0 ? <p className={styles.muted}>No relationships involve this table.</p> : tableRelationships.map((relationship) => (
-                <div key={relationship.id} className={styles.relationshipCard}>
-                  <div className={styles.cardHeader}>
-                    <strong>{relationship.dependentTable} → {relationship.principalTable}</strong>
-                    <button type="button" className={styles.buttonDanger} aria-label={`Delete relationship ${relationship.dependentTable} to ${relationship.principalTable}`} onClick={() => removeSelectedRelationship(relationship.id)}>Delete</button>
-                  </div>
-                  <div className={styles.fieldRow}>
-                    <label className={styles.field}>
-                      <span className={styles.fieldLabel}>Dependent table</span>
-                      <select className={styles.fieldInput} value={relationship.dependentTable} onChange={(event) => updateSelectedRelationship(relationship.id, { dependentTable: event.target.value })}>
-                        {normalizedModel.tables.map((table) => <option key={table.id} value={table.id}>{table.name}</option>)}
-                      </select>
-                    </label>
-                    <label className={styles.field}>
-                      <span className={styles.fieldLabel}>Principal table</span>
-                      <select className={styles.fieldInput} value={relationship.principalTable} onChange={(event) => updateSelectedRelationship(relationship.id, { principalTable: event.target.value })}>
-                        {normalizedModel.tables.map((table) => <option key={table.id} value={table.id}>{table.name}</option>)}
-                      </select>
-                    </label>
-                  </div>
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Foreign key columns</span>
-                    <input
-                      key={relationship.id}
-                      className={styles.fieldInput}
-                      defaultValue={relationship.foreignKeyColumns.join(', ')}
-                      onBlur={(event) => updateSelectedRelationship(relationship.id, {
-                        foreignKeyColumns: event.target.value.split(',').map((column) => column.trim()).filter(Boolean),
-                      })}
-                    />
-                  </label>
-                  <div className={styles.fieldRow}>
-                    <label className={styles.field}>
-                      <span className={styles.fieldLabel}>Dependent cardinality</span>
-                      <select className={styles.fieldInput} value={relationship.dependentCardinality} onChange={(event) => updateSelectedRelationship(relationship.id, { dependentCardinality: event.target.value as ErdModel['relationships'][number]['dependentCardinality'] })}>
-                        <option value="one">one</option>
-                        <option value="zero-or-one">zero-or-one</option>
-                        <option value="many">many</option>
-                      </select>
-                    </label>
-                    <label className={styles.field}>
-                      <span className={styles.fieldLabel}>Principal cardinality</span>
-                      <select className={styles.fieldInput} value={relationship.principalCardinality} onChange={(event) => updateSelectedRelationship(relationship.id, { principalCardinality: event.target.value as ErdModel['relationships'][number]['principalCardinality'] })}>
-                        <option value="one">one</option>
-                        <option value="zero-or-one">zero-or-one</option>
-                        <option value="many">many</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div className={styles.fieldRow}>
-                    <label className={styles.field}>
-                      <span className={styles.fieldLabel}>Dependent navigation</span>
-                      <input className={styles.fieldInput} value={relationship.dependentNavigation || ''} onChange={(event) => updateSelectedRelationship(relationship.id, { dependentNavigation: event.target.value || undefined })} />
-                    </label>
-                    <label className={styles.field}>
-                      <span className={styles.fieldLabel}>Principal navigation</span>
-                      <input className={styles.fieldInput} value={relationship.principalNavigation || ''} onChange={(event) => updateSelectedRelationship(relationship.id, { principalNavigation: event.target.value || undefined })} />
-                    </label>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          ) : (
-            <div className={styles.emptySidebarState}>
-              <p>Select a table to inspect it.</p>
-              <button type="button" className={styles.buttonSecondary} onClick={addSelectedTable}>Add Entity</button>
-            </div>
-          )}
-          {normalizedModel.diagnostics.length > 0 && (
-            <section className={styles.diagnosticsSection} aria-label="Diagnostics" role="status">
-              <button
-                type="button"
-                className={styles.diagnosticsToggle}
-                aria-expanded={diagnosticsOpen}
-                aria-label={diagnosticsOpen ? 'Collapse diagnostics' : 'Expand diagnostics'}
-                title={diagnosticsOpen ? 'Collapse diagnostics' : 'Expand diagnostics'}
-                onClick={() => setDiagnosticsOpen((open) => !open)}
-              >
-                <ChevronDown className={`${styles.diagnosticsIcon}${diagnosticsOpen ? ` ${styles.diagnosticsIconOpen}` : ''}`} aria-hidden="true" />
-                <span>Diagnostics</span>
-              </button>
-              {diagnosticsOpen && (
-                <div className={styles.diagnosticsList}>
-                  {normalizedModel.diagnostics.map((diagnostic, index) => <div key={`${diagnostic.message}-${index}`}>{diagnostic.message}</div>)}
-                </div>
-              )}
-            </section>
-          )}
-        </aside>
+        <ErdEditorSidebar
+          selectedTable={selectedTable}
+          edgeCrossings={edgeCrossings}
+          diagnosticsOpen={diagnosticsOpen}
+          normalizedModel={normalizedModel}
+          tableRelationships={tableRelationships}
+          commonPropertyTypes={commonPropertyTypes}
+          onAutoLayout={handleAutoLayout}
+          onPrintGraph={handlePrintGraph}
+          onDeleteTable={removeSelectedTable}
+          onToggleDiagnostics={() => setDiagnosticsOpen((open) => !open)}
+          onAddEntity={addSelectedTable}
+          onAddColumn={addSelectedColumn}
+          onAddRelationship={addSelectedRelationship}
+          onRenameTable={renameSelectedTable}
+          onChangeClrName={handleCLRNameChange}
+          onDeleteColumn={removeSelectedColumn}
+          onColumnNameChange={handleColumnNameChange}
+          onColumnTypeChange={handleColumnTypeChange}
+          onColumnNullableChange={handleColumnNullableChange}
+          onColumnPrimaryKeyChange={handleColumnPrimaryKeyChange}
+          onSetColumnCurrentTimestamp={setColumnCurrentTimestamp}
+          onDeleteRelationship={removeSelectedRelationship}
+          onUpdateRelationship={updateSelectedRelationship}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          draggedColumnName={draggedColumnName}
+          isIdentityEligibleColumnType={isIdentityEligibleColumnType}
+          isTimestampColumnType={isTimestampColumnType}
+        />
       </div>
     </HorizontalSplitPane>
   );
