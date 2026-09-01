@@ -52,6 +52,72 @@ const getXmlAttrs = (node: Record<string, unknown> | null | undefined) => {
   );
 };
 
+const asArray = <T,>(value: T | T[] | null | undefined): T[] => {
+  if (Array.isArray(value)) return value;
+  if (value === null || value === undefined) return [];
+  return [value];
+};
+
+const readAnnotationDocs = (node: Record<string, unknown> | null | undefined): string[] => {
+  if (!node || typeof node !== 'object') return [];
+  const annotations = asArray((node as any)['xs:annotation']);
+  return annotations
+    .map((annotation: any) => {
+      if (!annotation || typeof annotation !== 'object') return '';
+      const documentation = Array.isArray(annotation['xs:documentation'])
+        ? annotation['xs:documentation'][0]
+        : annotation['xs:documentation'];
+      if (typeof documentation === 'string') return documentation;
+      if (documentation && typeof documentation === 'object') {
+        const text = (documentation as any)['#text'];
+        if (typeof text === 'string') return text;
+      }
+      return '';
+    })
+    .filter((text: string) => text.trim().length > 0);
+};
+
+const upsertElementAnnotation = (element: Record<string, unknown>, value: string): Record<string, unknown> => {
+  const trimmed = value.trim();
+  const nextElement: Record<string, unknown> = { ...element };
+
+  if (trimmed.length === 0) {
+    delete (nextElement as any)['xs:annotation'];
+    return nextElement;
+  }
+
+  const existingAnnotations = asArray((nextElement as any)['xs:annotation']);
+  const annotations = existingAnnotations.length > 0
+    ? existingAnnotations.map((annotation: any) => (annotation && typeof annotation === 'object' ? { ...annotation } : annotation))
+    : [{}];
+
+  const first = annotations[0];
+  if (first && typeof first === 'object') {
+    const annotationObj: Record<string, unknown> = { ...(first as Record<string, unknown>) };
+    const existingDoc = annotationObj['xs:documentation'];
+    if (Array.isArray(existingDoc) && existingDoc.length > 0) {
+      const docs = [...existingDoc];
+      const firstDoc = docs[0];
+      if (firstDoc && typeof firstDoc === 'object') {
+        docs[0] = { ...(firstDoc as Record<string, unknown>), '#text': value };
+      } else {
+        docs[0] = value;
+      }
+      annotationObj['xs:documentation'] = docs;
+    } else if (existingDoc && typeof existingDoc === 'object') {
+      annotationObj['xs:documentation'] = { ...(existingDoc as Record<string, unknown>), '#text': value };
+    } else {
+      annotationObj['xs:documentation'] = value;
+    }
+    annotations[0] = annotationObj;
+  } else {
+    annotations[0] = { 'xs:documentation': value };
+  }
+
+  (nextElement as any)['xs:annotation'] = annotations;
+  return nextElement;
+};
+
 /**
  * Navigate to a node at the given XML path within schema
  * @param schema Root schema document
@@ -384,9 +450,19 @@ export function XmlSchemaForm({
           {elements.map((element, idx) => {
             const elemName = element['@name'] || `Element ${idx}`;
             const elemType = element['@type'];
+            const inlineComplexType = (element as Record<string, unknown>)['xs:complexType'];
+            const hasInlineComplexType = Array.isArray(inlineComplexType)
+              ? inlineComplexType.length > 0
+              : Boolean(inlineComplexType && typeof inlineComplexType === 'object');
             const minOccurs = element['@minOccurs'] || '1';
             const maxOccurs = element['@maxOccurs'] || '1';
             const isExpanded = expandedPaths.has(`element-${idx}`);
+            const annotationPath = `element-${idx}-annotation`;
+            const annotationDocs = readAnnotationDocs(element as Record<string, unknown>);
+            const annotationText = annotationDocs.join('\n\n');
+            const annotationCount = annotationDocs.length;
+            const hasAnnotation = annotationDocs.length > 0;
+            const annotationExpanded = expandedPaths.has(annotationPath);
 
             return (
               <div
@@ -421,6 +497,34 @@ export function XmlSchemaForm({
                         </span>
                       )}
                     </div>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!isExpanded) togglePathExpansion(`element-${idx}`);
+                            togglePathExpansion(annotationPath);
+                          }}
+                          style={{
+                            border: hasAnnotation ? '1px solid #c5cae9' : '1px dashed #d6d6d6',
+                            backgroundColor: hasAnnotation ? '#e8eaf6' : '#f5f5f5',
+                            color: hasAnnotation ? '#283593' : '#666',
+                            borderRadius: 10,
+                            padding: '2px 8px',
+                            fontSize: 10,
+                            fontWeight: hasAnnotation ? 700 : 600,
+                            cursor: 'pointer'
+                          }}
+                          aria-label="Toggle annotation"
+                        >
+                          {annotationCount > 1 ? `annotation (${annotationCount})` : 'annotation'}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {hasAnnotation ? renderTooltipContentChildren(annotationText) : 'No annotation. Click to add.'}
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                   <div style={{ fontSize: 11, color: '#999', whiteSpace: 'nowrap' }}>
                     {minOccurs}..{maxOccurs}
@@ -429,28 +533,50 @@ export function XmlSchemaForm({
 
                 {isExpanded && (
                   <div style={{ padding: '12px', backgroundColor: 'white', borderTop: '1px solid #eee' }}>
-                    <div style={{ marginBottom: 10 }}>
-                      <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                        Element Type
-                      </label>
-                      <input
-                        type="text"
-                        value={elemType || ''}
-                        onChange={(e) => {
-                          const updated = [...elements];
-                          updated[idx] = { ...updated[idx], '@type': e.target.value };
-                          onChange({ ...rawSchema, 'xs:element': updated });
-                        }}
-                        placeholder="e.g., xs:string"
-                        style={{
-                          width: '100%',
-                          padding: '4px 8px',
-                          border: '1px solid #ddd',
-                          borderRadius: 3,
-                          fontSize: 12
-                        }}
-                      />
-                    </div>
+                    {hasInlineComplexType && !elemType ? (
+                      <div style={{ marginBottom: 10 }}>
+                        <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600 }}>
+                          Element Type
+                        </label>
+                        <div
+                          style={{
+                            width: '100%',
+                            padding: '6px 8px',
+                            border: '1px solid #ddd',
+                            borderRadius: 3,
+                            fontSize: 12,
+                            backgroundColor: '#f8f9fa',
+                            color: '#495057',
+                            fontWeight: 600
+                          }}
+                        >
+                          inline xs:complexType
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ marginBottom: 10 }}>
+                        <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600 }}>
+                          Element Type
+                        </label>
+                        <input
+                          type="text"
+                          value={elemType || ''}
+                          onChange={(e) => {
+                            const updated = [...elements];
+                            updated[idx] = { ...updated[idx], '@type': e.target.value };
+                            onChange({ ...rawSchema, 'xs:element': updated });
+                          }}
+                          placeholder="e.g., xs:string"
+                          style={{
+                            width: '100%',
+                            padding: '4px 8px',
+                            border: '1px solid #ddd',
+                            borderRadius: 3,
+                            fontSize: 12
+                          }}
+                        />
+                      </div>
+                    )}
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
                       <div>
@@ -499,6 +625,32 @@ export function XmlSchemaForm({
                         />
                       </div>
                     </div>
+
+                    {annotationExpanded && (
+                      <div style={{ marginBottom: 10 }}>
+                        <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600 }}>
+                          xs:annotation/xs:documentation
+                        </label>
+                        <textarea
+                          value={annotationText}
+                          onChange={(e) => {
+                            const updated = [...elements];
+                            updated[idx] = upsertElementAnnotation(updated[idx] as Record<string, unknown>, e.target.value);
+                            onChange({ ...rawSchema, 'xs:element': updated });
+                          }}
+                          placeholder="Add annotation text"
+                          rows={3}
+                          style={{
+                            width: '100%',
+                            padding: '6px 8px',
+                            border: '1px solid #ddd',
+                            borderRadius: 3,
+                            fontSize: 12,
+                            resize: 'vertical'
+                          }}
+                        />
+                      </div>
+                    )}
 
                     {elemType && elemType.startsWith('xs:') === false && rootSchema && (
                       <div style={{ fontSize: 11, color: '#666', padding: '8px', backgroundColor: '#f0f0f0', borderRadius: 3 }}>

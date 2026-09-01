@@ -1789,6 +1789,7 @@ function XmlAttributeEditor({ node, onChange, readOnlySource, getNodeByName }: X
   const data = (node.data || {}) as any;
   const [name, setName] = React.useState<string>(String(data.xmlName || ''));
   const [type, setType] = React.useState<string>(String(data.xmlAttributeType || ''));
+  const [widget, setWidget] = React.useState<string>(String(data.xmlWidget || ''));
   const [useValue, setUseValue] = React.useState<string>(String(data.xmlAttributeUse || 'optional'));
   const [isRef, setIsRef] = React.useState<boolean>(Boolean(data.xmlIsRef));
   const [defaultValue, setDefaultValue] = React.useState<string>(String(data.xmlAttributeDefault ?? ''));
@@ -1811,6 +1812,7 @@ function XmlAttributeEditor({ node, onChange, readOnlySource, getNodeByName }: X
   React.useEffect(() => {
     setName(String(data.xmlName || ''));
     setType(String(data.xmlAttributeType || ''));
+    setWidget(String(data.xmlWidget || ''));
     setUseValue(String(data.xmlAttributeUse || 'optional'));
     setIsRef(Boolean(data.xmlIsRef));
     setDefaultValue(String(data.xmlAttributeDefault ?? ''));
@@ -1821,6 +1823,7 @@ function XmlAttributeEditor({ node, onChange, readOnlySource, getNodeByName }: X
     JSON.stringify({
       xmlName: data.xmlName,
       xmlAttributeType: data.xmlAttributeType,
+      xmlWidget: data.xmlWidget,
       xmlAttributeUse: data.xmlAttributeUse,
       xmlIsRef: data.xmlIsRef,
       xmlAttributeDefault: data.xmlAttributeDefault,
@@ -1860,6 +1863,12 @@ function XmlAttributeEditor({ node, onChange, readOnlySource, getNodeByName }: X
           <span style={{ fontSize: 12 }}>Use</span>
           <input aria-label="Attribute Use" value={useValue} readOnly disabled style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5' }} />
         </label>
+        {referencedEnumerations.length === 0 && (
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 12 }}>Widget</span>
+            <input aria-label="Attribute Widget" value={widget || '(none)'} readOnly disabled style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5' }} />
+          </label>
+        )}
         {showDefault && (
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span style={{ fontSize: 12 }}>Default</span>
@@ -1916,6 +1925,27 @@ function XmlAttributeEditor({ node, onChange, readOnlySource, getNodeByName }: X
           <option value="prohibited">prohibited</option>
         </select>
       </label>
+      {referencedEnumerations.length === 0 && (
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 12 }}>Widget</span>
+          <select
+            aria-label="Attribute Widget"
+            value={widget}
+            onChange={(e) => {
+              const next = e.target.value;
+              setWidget(next);
+              onChange({ id: node.id, xmlWidget: next || undefined });
+            }}
+            style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+          >
+            <option value="">(none)</option>
+            <option value="color">color</option>
+            <option value="email">email</option>
+            <option value="country">country</option>
+            <option value="lang">lang</option>
+          </select>
+        </label>
+      )}
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
         <button
           type="button"
@@ -2065,6 +2095,7 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
   const data = (node.data || {}) as any;
   const [name, setName] = React.useState<string>(String(data.xmlName || ''));
   const [type, setType] = React.useState<string>(String(data.xmlElementType || ''));
+  const [widget, setWidget] = React.useState<string>(String(data.xmlWidget || ''));
   const [substitutionGroupParent, setSubstitutionGroupParent] = React.useState<string>(String(data.xmlSubstitutionGroupParent || ''));
   const [minOccurs, setMinOccurs] = React.useState<string>(String(data.xmlMinOccurs ?? '1'));
   const [maxOccurs, setMaxOccurs] = React.useState<string>(String(data.xmlMaxOccurs ?? '1'));
@@ -2082,6 +2113,7 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
   React.useEffect(() => {
     setName(String(data.xmlName || ''));
     setType(String(data.xmlElementType || ''));
+    setWidget(String(data.xmlWidget || ''));
     setSubstitutionGroupParent(String(data.xmlSubstitutionGroupParent || ''));
     setMinOccurs(String(data.xmlMinOccurs ?? '1'));
     setMaxOccurs(String(data.xmlMaxOccurs ?? '1'));
@@ -2093,7 +2125,7 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
     setExtendsType(String(data.xmlExtendsType || ''));
     setDefaultValue(String(data.xmlDefault || ''));
     setFixedValue(String(data.xmlFixed || ''));
-  }, [node?.id, data.xmlName, data.xmlElementType, data.xmlSubstitutionGroupParent, data.xmlMinOccurs, data.xmlMaxOccurs, data.xmlIsRef, data.xmlMixed, data.xmlAnyAttribute, data.xmlExtendsType, data.xmlDefault, data.xmlFixed]);
+  }, [node?.id, data.xmlName, data.xmlElementType, data.xmlWidget, data.xmlSubstitutionGroupParent, data.xmlMinOccurs, data.xmlMaxOccurs, data.xmlIsRef, data.xmlMixed, data.xmlAnyAttribute, data.xmlExtendsType, data.xmlDefault, data.xmlFixed]);
 
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
@@ -2147,6 +2179,26 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
             ariaLabel="Element Type"
           />
         )}
+      </label>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 12 }}>Widget</span>
+        <select
+          aria-label="Element Widget"
+          value={widget}
+          disabled={readOnly}
+          onChange={(e) => {
+            const next = e.target.value;
+            setWidget(next);
+            onChange({ id: node.id, xmlWidget: next || undefined });
+          }}
+          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+        >
+          <option value="">(none)</option>
+          <option value="color">color</option>
+          <option value="email">email</option>
+          <option value="country">country</option>
+          <option value="lang">lang</option>
+        </select>
       </label>
       {data.xmlHasSubstitutionExpansion ? (
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>

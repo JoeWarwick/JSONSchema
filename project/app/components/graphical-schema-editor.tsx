@@ -667,6 +667,14 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
     return {};
   }, [getXmlAnnotationDocs]);
 
+  const getXmlWidgetHint = React.useCallback((node: any): string | undefined => {
+    if (!node || typeof node !== 'object') return undefined;
+    const attrs = getXmlAttrs(node);
+    const direct = attrs['ui:widget'] || attrs['x-ui:widget'] || attrs.widget;
+    if (typeof direct === 'string' && direct.trim().length > 0) return direct.trim();
+    return undefined;
+  }, [getXmlAttrs]);
+
   const xmlSchemaToGraph = React.useCallback(
     (xmlDoc: Record<string, unknown>, options?: { visibleOnly?: boolean; xmlShowAnnotations?: boolean; xmlShowImports?: boolean }): { nodes: Node<SchemaNodeData>[]; edges: Edge[] } => {
       const buildVisibleOnly = options?.visibleOnly === true;
@@ -898,6 +906,7 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
         // all — fall back to `ref` so the RHS Name field isn't blank, matching the graph label.
         xmlName: (elemAttrs.name as string) || (elemAttrs.ref as string),
         xmlElementType: elemAttrs.type,
+        ...(getXmlWidgetHint(elemEntry) ? { xmlWidget: getXmlWidgetHint(elemEntry) } : {}),
         xmlMinOccurs: elemAttrs.minOccurs ?? '1',
         xmlMaxOccurs: elemAttrs.maxOccurs ?? '1',
         ...(inlineComplexType && typeof inlineComplexType === 'object' ? { xmlAttributes: elementAttributes } : {}),
@@ -1010,6 +1019,7 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
           xmlPath: attrPath,
           xmlName: attributeAttrs.name,
           xmlAttributeType: attributeAttrs.type,
+          ...(getXmlWidgetHint(attributeEntry) ? { xmlWidget: getXmlWidgetHint(attributeEntry) } : {}),
           xmlAttributeUse: attributeAttrs.use || 'optional',
           required: (attributeAttrs.use || 'optional') === 'required',
           isRef: true,
@@ -1100,6 +1110,7 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
             xmlPath: attrPath,
             xmlName: attributeAttrs.name,
             xmlAttributeType: attributeAttrs.type,
+            ...(getXmlWidgetHint(attributeEntry) ? { xmlWidget: getXmlWidgetHint(attributeEntry) } : {}),
             xmlAttributeUse: attributeAttrs.use || 'optional',
             required: (attributeAttrs.use || 'optional') === 'required',
             ...(attributeAttrs.default !== undefined ? { xmlAttributeDefault: attributeAttrs.default } : {}),
@@ -1140,6 +1151,7 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
           xmlPath: attrPath,
           xmlName: attributeAttrs.name,
           xmlAttributeType: attributeAttrs.type,
+          ...(getXmlWidgetHint(attributeEntry) ? { xmlWidget: getXmlWidgetHint(attributeEntry) } : {}),
           xmlAttributeUse: attributeAttrs.use || 'optional',
           required: (attributeAttrs.use || 'optional') === 'required',
           ...(attributeAttrs.default !== undefined ? { xmlAttributeDefault: attributeAttrs.default } : {}),
@@ -1682,6 +1694,7 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
             xmlPath: attrPath,
             xmlName: attrs.name,
             xmlAttributeType: attrs.type,
+            ...(getXmlWidgetHint(entry) ? { xmlWidget: getXmlWidgetHint(entry) } : {}),
             xmlAttributeUse: attrs.use || 'optional',
             required: (attrs.use || 'optional') === 'required',
             ...(attrs.default !== undefined ? { xmlAttributeDefault: attrs.default } : {}),
@@ -1921,6 +1934,7 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
           xmlPath: attrPath,
           xmlName: attrs.name,
           xmlAttributeType: attrs.type,
+          ...(getXmlWidgetHint(entry) ? { xmlWidget: getXmlWidgetHint(entry) } : {}),
           xmlAttributeUse: attrs.use || 'optional',
           required: (attrs.use || 'optional') === 'required',
           ...(attrs.default !== undefined ? { xmlAttributeDefault: attrs.default } : {}),
@@ -1936,7 +1950,7 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
     }
 
     return { nodes, edges };
-  }, [asArray, getXmlAttrs, toNodeLabel]);
+  }, [asArray, getXmlAttrs, getXmlWidgetHint, toNodeLabel]);
 
   const updateXmlNodeAtPath = React.useCallback((sourceSchema: Record<string, unknown>, patch: Partial<NodeData>, node?: Node<SchemaNodeData>) => {
     // Use provided node or search in nodesRef
@@ -2257,6 +2271,13 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
         if (value) attrs.default = value;
         else delete attrs.default;
       }
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlWidget')) {
+        const value = String((patch as any).xmlWidget || '').trim();
+        if (value) attrs['ui:widget'] = value;
+        else delete attrs['ui:widget'];
+        delete attrs['x-ui:widget'];
+        delete attrs.widget;
+      }
       if (Object.prototype.hasOwnProperty.call(patch, 'xmlAttributeInlineSimpleType')) {
         const value = (patch as any).xmlAttributeInlineSimpleType as InlineSimpleTypeData | undefined | null;
         if (value) {
@@ -2317,6 +2338,13 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
         const value = (patch as any).xmlMaxOccurs;
         if (value !== undefined && value !== null && String(value).length > 0) attrs.maxOccurs = String(value);
         else delete attrs.maxOccurs;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlWidget')) {
+        const value = String((patch as any).xmlWidget || '').trim();
+        if (value) attrs['ui:widget'] = value;
+        else delete attrs['ui:widget'];
+        delete attrs['x-ui:widget'];
+        delete attrs.widget;
       }
       const complexTypeTarget = (target as any)['xs:complexType'];
       const anyAttributeTarget = complexTypeTarget && typeof complexTypeTarget === 'object' ? complexTypeTarget : target;

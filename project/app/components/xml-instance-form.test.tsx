@@ -13,6 +13,208 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     window.localStorage.clear();
   });
 
+  test('renders a color picker when xs:element declares ui:widget color', async () => {
+    const onChange = jest.fn();
+    const schemaWithColorWidget = {
+      'xs:schema': {
+        '@attributes': {
+          'xmlns:xs': 'http://www.w3.org/2001/XMLSchema',
+          'xmlns:ui': 'urn:schemasculptor:ui',
+        },
+        'xs:element': {
+          '@attributes': {
+            name: 'person',
+            type: 'PersonType',
+          },
+        },
+        'xs:complexType': {
+          '@attributes': {
+            name: 'PersonType',
+          },
+          'xs:sequence': {
+            'xs:element': [
+              {
+                '@attributes': {
+                  name: 'favoriteColor',
+                  type: 'xs:string',
+                  'ui:widget': 'color',
+                },
+              },
+            ],
+          },
+        },
+      },
+    } as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={schemaWithColorWidget}
+        rootSchema={schemaWithColorWidget}
+        value={{ person: { favoriteColor: { _text: '#ff0000' } } }}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+
+    await waitFor(() => {
+      const colorInput = document.querySelector('input[type="color"]') as HTMLInputElement | null;
+      expect(colorInput).not.toBeNull();
+      expect(colorInput?.value.toLowerCase()).toBe('#ff0000');
+    });
+  });
+
+  test('renders a color picker for xs:attribute when ui:widget is color', async () => {
+    const onChange = jest.fn();
+    const schemaWithAttributeColorWidget = {
+      'xs:schema': {
+        '@attributes': {
+          'xmlns:xs': 'http://www.w3.org/2001/XMLSchema',
+          'xmlns:ui': 'urn:schemasculptor:ui',
+        },
+        'xs:element': {
+          '@attributes': {
+            name: 'person',
+            type: 'PersonType',
+          },
+        },
+        'xs:complexType': {
+          '@attributes': {
+            name: 'PersonType',
+          },
+          'xs:attribute': [
+            {
+              '@attributes': {
+                name: 'favoriteColor',
+                type: 'xs:string',
+                use: 'optional',
+                'ui:widget': 'color',
+              },
+            },
+          ],
+        },
+      },
+    } as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={schemaWithAttributeColorWidget}
+        rootSchema={schemaWithAttributeColorWidget}
+        value={{ person: { '@attributes': { favoriteColor: '#00ff00' } } }}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+
+    await waitFor(() => {
+      const colorInput = screen.getByTestId('xml-attr-person-favoriteColor') as HTMLInputElement;
+      expect(colorInput).toBeTruthy();
+      expect(colorInput.type).toBe('color');
+      expect(colorInput.value.toLowerCase()).toBe('#00ff00');
+    });
+  });
+
+  test('renders a typeable country select when ui:widget is country', async () => {
+    const onChange = jest.fn();
+    const schemaWithCountryWidget = {
+      'xs:schema': {
+        '@attributes': {
+          'xmlns:xs': 'http://www.w3.org/2001/XMLSchema',
+          'xmlns:ui': 'urn:schemasculptor:ui',
+        },
+        'xs:element': {
+          '@attributes': {
+            name: 'person',
+            type: 'PersonType',
+          },
+        },
+        'xs:complexType': {
+          '@attributes': {
+            name: 'PersonType',
+          },
+          'xs:attribute': [
+            {
+              '@attributes': {
+                name: 'country',
+                type: 'xs:string',
+                use: 'optional',
+                'ui:widget': 'country',
+              },
+            },
+          ],
+        },
+      },
+    } as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={schemaWithCountryWidget}
+        rootSchema={schemaWithCountryWidget}
+        value={{ person: { '@attributes': { country: 'Canada' } } }}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+
+    await waitFor(() => {
+      const countryInput = screen.getByTestId('xml-attr-person-country') as HTMLInputElement;
+      expect(countryInput).toBeTruthy();
+      expect(countryInput.type).toBe('text');
+      expect(countryInput.value).toBe('Canada');
+      expect(document.querySelector('datalist')).not.toBeNull();
+    });
+  });
+
+  test('renders a typeable language tag select when ui:widget is lang', async () => {
+    const onChange = jest.fn();
+    const schemaWithLangWidget = {
+      'xs:schema': {
+        '@attributes': {
+          'xmlns:xs': 'http://www.w3.org/2001/XMLSchema',
+          'xmlns:ui': 'urn:schemasculptor:ui',
+        },
+        'xs:element': {
+          '@attributes': {
+            name: 'person',
+            type: 'PersonType',
+          },
+        },
+        'xs:complexType': {
+          '@attributes': {
+            name: 'PersonType',
+          },
+          'xs:attribute': [
+            {
+              '@attributes': {
+                name: 'languageCode',
+                type: 'xs:string',
+                use: 'optional',
+                'ui:widget': 'lang',
+              },
+            },
+          ],
+        },
+      },
+    } as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={schemaWithLangWidget}
+        rootSchema={schemaWithLangWidget}
+        value={{ person: { '@attributes': { languageCode: 'en-US' } } }}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+
+    await waitFor(() => {
+      const languageInput = screen.getByTestId('xml-attr-person-languageCode') as HTMLInputElement;
+      expect(languageInput).toBeTruthy();
+      expect(languageInput.type).toBe('text');
+      expect(languageInput.value).toBe('en-US');
+      expect(document.querySelector('datalist')).not.toBeNull();
+    });
+  });
+
   test('restores persisted expanded paths across rerenders', () => {
     const onChange = jest.fn();
     const value = {

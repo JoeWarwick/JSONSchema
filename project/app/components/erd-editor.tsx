@@ -1,9 +1,9 @@
 import React from 'react';
 import ReactFlow, { Background, Controls, ReactFlowProvider, useEdgesState, useNodesState, useReactFlow } from 'reactflow';
 import type { Node } from 'reactflow';
-import { ChevronDown, Printer, Trash2 } from 'lucide-react';
+import { ChevronDown, Printer, Sparkles, Trash2 } from 'lucide-react';
 import type { ErdModel, ErdNavigation } from '../types/erd';
-import { erdModelToGraph, tableHeight, tableWidth, type ErdTableNodeData } from '../utils/erd-graph';
+import { countErdGraphCrossings, erdModelToGraph, tableHeight, tableWidth, type ErdTableNodeData } from '../utils/erd-graph';
 import { addErdRelationship, addErdTable, addErdTableColumn, deleteErdRelationship, deleteErdTable, deleteErdTableColumn, normalizeErdModel, reorderErdTableColumns, renameErdTable, relatedRelationships, resolveNavigationFocusTarget, updateErdRelationship, updateErdTableColumn } from '../utils/erd-model-editing';
 import { printErdModel } from '../utils/print-erd';
 import { erdNodeTypes } from './erd-node-types';
@@ -60,6 +60,7 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
   const [focusedNavigation, setFocusedNavigation] = React.useState<{ tableId: string; navigationName: string } | null>(null);
   const [focusRequest, setFocusRequest] = React.useState<ErdFocusRequest | null>(null);
   const focusTokenRef = React.useRef(0);
+  const edgeCrossings = React.useMemo(() => countErdGraphCrossings({ nodes: nodes as any, edges: edges as any }), [nodes, edges]);
   const selectedTable = normalizedModel.tables.find((table) => table.id === selectedTableId);
   const tableRelationships = React.useMemo(() => selectedTable ? relatedRelationships(normalizedModel, selectedTable.id) : [], [normalizedModel, selectedTable]);
 
@@ -197,6 +198,20 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
     printErdModel(normalizedModel);
   }, [normalizedModel]);
 
+  const handleAutoLayout = React.useCallback(() => {
+    const freshGraph = erdModelToGraph(normalizedModel, {
+      useStoredPositions: false,
+      preferDifferentLayout: true,
+    });
+    const nodePositions = Object.fromEntries(
+      freshGraph.nodes.map((node) => [node.id, node.position]),
+    );
+    commitModel({
+      ...normalizedModel,
+      nodePositions,
+    });
+  }, [normalizedModel, commitModel]);
+
   const handlePaneClick = React.useCallback(() => {
     setSelectedTableId(null);
   }, []);
@@ -288,8 +303,14 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
         <aside className={styles.sidebar} aria-label="ERD details">
           {selectedTable ? (
             <div className={styles.sidebarTitleRow}>
-              <h2>{selectedTable.name}</h2>
+              <div>
+                <h2>{selectedTable.name}</h2>
+                <p className={styles.muted}>Crossings: {edgeCrossings}</p>
+              </div>
               <div className={styles.sidebarTitleActions}>
+                <button type="button" className={styles.buttonSecondary} onClick={handleAutoLayout} title="Auto layout" aria-label="Auto layout ERD">
+                  <Sparkles size={16} />
+                </button>
                 <button type="button" className={styles.buttonSecondary} onClick={handlePrintGraph} title="Print graph" aria-label="Print graph">
                   <Printer size={16} />
                 </button>
@@ -300,10 +321,18 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
             </div>
           ) : (
             <div className={styles.sidebarTitleRow}>
-              <h2>Entity Relationship Diagram</h2>
-              <button type="button" className={styles.buttonSecondary} onClick={handlePrintGraph} title="Print graph" aria-label="Print graph">
-                <Printer size={16} />
-              </button>
+              <div>
+                <h2>Entity Relationship Diagram</h2>
+                <p className={styles.muted}>Crossings: {edgeCrossings}</p>
+              </div>
+              <div className={styles.sidebarTitleActions}>
+                <button type="button" className={styles.buttonSecondary} onClick={handleAutoLayout} title="Auto layout" aria-label="Auto layout ERD">
+                  <Sparkles size={16} />
+                </button>
+                <button type="button" className={styles.buttonSecondary} onClick={handlePrintGraph} title="Print graph" aria-label="Print graph">
+                  <Printer size={16} />
+                </button>
+              </div>
             </div>
           )}
           {selectedTable ? (

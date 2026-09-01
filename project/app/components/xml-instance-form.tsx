@@ -3,6 +3,7 @@ import styles from "./xml-instance-form.module.css";
 import { Trash2, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip/tooltip";
 import { XmlNodeRhsEditor as XmlInstanceNodeRhsEditor } from './xml-instance-rhs-editors';
+import { readPreferredLocale } from '../i18n/intl';
 import type { SchemaNode } from '../utils/schema-walker';
 import { 
   walkSchema, 
@@ -231,77 +232,434 @@ function facetsToHint(facets: ValidationFacets | undefined): string | null {
 }
 
 // Try to locate an element declaration in the XSD-like `rootSchema` object and return its type.
-function findElementTypeInRootSchema(root: any, elementName: string): string | null {
-  if (!root || typeof root !== 'object') {
-    if (elementName === 'birthDate' || elementName === 'homeEmail') {
-      console.log(`[findElementTypeInRootSchema] root is not object for ${elementName}`);
-    }
-    return null;
-  }
+const normalizeXmlName = (name: unknown): string => String(name ?? '').replace(/^.*:/, '');
 
-  let found: string | null = null;
+const toArray = <T,>(value: T | T[] | null | undefined): T[] =>
+  Array.isArray(value) ? value : (value == null ? [] : [value]);
 
-  const walk = (node: any, depth = 0) => {
+function findElementDefinitionInRootSchema(root: any, elementName: string): any | null {
+  if (!root || typeof root !== 'object') return null;
+
+  const targetName = normalizeXmlName(elementName);
+  let found: any | null = null;
+
+  const walk = (node: any) => {
     if (!node || typeof node !== 'object' || found) return;
-    
+
     for (const key of Object.keys(node)) {
-      if (found) return; // Exit early if found
-      
+      if (found) return;
+
       const val = node[key];
       if (!val) continue;
-      
-      // Look for element declarations like { 'xs:element': { '@attributes': { 'name': 'foo', 'type': 'xs:date' } } }
+
       if (key === 'xs:element' || key === 'element') {
-        if (Array.isArray(val)) {
-          for (const elem of val) {
-            if (elem) {
-              // Try both @attributes structure (from XML parser) and direct properties
-              const attrs = elem['@attributes'] || elem;
-              const elemName = attrs?.name || attrs?.['@name'];
-              const elemType = attrs?.type || attrs?.['@type'];
-              
-              if (elemName === elementName) {
-                found = elemType || null;
-                if (elementName === 'birthDate' || elementName === 'homeEmail') {
-                  console.log(`[findElementTypeInRootSchema] Found ${elementName} in xs:element array, type: ${found}`);
-                }
-                return;
-              }
-            }
-          }
-        } else if (val) {
-          // Try both @attributes structure and direct properties
-          const attrs = val['@attributes'] || val;
-          const elemName = attrs?.name || attrs?.['@name'];
-          const elemType = attrs?.type || attrs?.['@type'];
-          
-          if (elemName === elementName) {
-            found = elemType || null;
-            if (elementName === 'birthDate' || elementName === 'homeEmail') {
-              console.log(`[findElementTypeInRootSchema] Found ${elementName} in xs:element object, type: ${found}`);
-            }
+        const candidates = toArray(val);
+        for (const elem of candidates) {
+          if (!elem) continue;
+          const attrs = elem['@attributes'] || elem;
+          const candidateName = normalizeXmlName(attrs?.name || attrs?.['@name']);
+          if (candidateName && candidateName === targetName) {
+            found = elem;
             return;
           }
         }
       }
-      
-      // Recurse into arrays
+
       if (Array.isArray(val)) {
         for (const item of val) {
-          walk(item, depth + 1);
+          walk(item);
           if (found) return;
         }
       } else if (typeof val === 'object') {
-        walk(val, depth + 1);
+        walk(val);
       }
     }
   };
 
-  walk(root, 0);
-  if ((elementName === 'birthDate' || elementName === 'homeEmail') && !found) {
-    console.log(`[findElementTypeInRootSchema] NOT FOUND ${elementName}`);
-  }
+  walk(root);
   return found;
+}
+
+function findElementTypeInRootSchema(root: any, elementName: string): string | null {
+  const elementDef = findElementDefinitionInRootSchema(root, elementName);
+  if (!elementDef || typeof elementDef !== 'object') return null;
+  const attrs = elementDef['@attributes'] || elementDef;
+  const elemType = attrs?.type || attrs?.['@type'];
+  return typeof elemType === 'string' ? elemType : null;
+}
+
+function readWidgetValue(candidate: any): string | null {
+  if (typeof candidate === 'string') {
+    const trimmed = candidate.trim();
+    return trimmed ? trimmed : null;
+  }
+  if (!candidate || typeof candidate !== 'object') return null;
+
+  const attrs = candidate['@attributes'] && typeof candidate['@attributes'] === 'object'
+    ? candidate['@attributes']
+    : candidate;
+
+  const direct = attrs['ui:widget']
+    || attrs['x-ui:widget']
+    || attrs.widget
+    || attrs['@ui:widget']
+    || attrs['@widget'];
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+
+  const typeAttr = attrs.type || attrs['@type'];
+  if (typeof typeAttr === 'string' && typeAttr.trim()) return typeAttr.trim();
+
+  const text = candidate._text || candidate['#text'];
+  if (typeof text === 'string' && text.trim()) return text.trim();
+
+  return null;
+}
+
+function findElementWidgetInRootSchema(root: any, elementName: string): string | null {
+  const elementDef = findElementDefinitionInRootSchema(root, elementName);
+  if (!elementDef || typeof elementDef !== 'object') return null;
+
+  const attrs = elementDef['@attributes'] || elementDef;
+  const directWidget = readWidgetValue({
+    'ui:widget': attrs?.['ui:widget'],
+    'x-ui:widget': attrs?.['x-ui:widget'],
+    widget: attrs?.widget,
+  });
+  if (directWidget) return directWidget;
+
+  const annotations = toArray(elementDef['xs:annotation'] || elementDef.annotation);
+  for (const annotation of annotations) {
+    const appInfos = toArray(annotation?.['xs:appinfo'] || annotation?.appinfo);
+    for (const appInfo of appInfos) {
+      if (!appInfo || typeof appInfo !== 'object') continue;
+
+      const explicitWidget = readWidgetValue(appInfo['ui:widget'] || appInfo['x-ui:widget'] || appInfo.widget);
+      if (explicitWidget) return explicitWidget;
+
+      for (const [key, value] of Object.entries(appInfo)) {
+        if (key === 'ui:widget' || key === 'x-ui:widget' || key === 'widget' || key.endsWith(':widget')) {
+          const namedWidget = readWidgetValue(value);
+          if (namedWidget) return namedWidget;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function findComplexTypeDefinitionInRootSchema(root: any, typeName: string): any | null {
+  if (!root || typeof root !== 'object' || !typeName) return null;
+  const targetType = normalizeXmlName(typeName);
+  let found: any | null = null;
+
+  const walk = (node: any) => {
+    if (!node || typeof node !== 'object' || found) return;
+    for (const key of Object.keys(node)) {
+      if (found) return;
+      const val = node[key];
+      if (!val) continue;
+
+      if (key === 'xs:complexType' || key === 'complexType') {
+        const candidates = toArray(val);
+        for (const candidate of candidates) {
+          if (!candidate || typeof candidate !== 'object') continue;
+          const attrs = candidate['@attributes'] || candidate;
+          const name = normalizeXmlName(attrs?.name || attrs?.['@name']);
+          if (name && name === targetType) {
+            found = candidate;
+            return;
+          }
+        }
+      }
+
+      if (Array.isArray(val)) {
+        for (const item of val) {
+          walk(item);
+          if (found) return;
+        }
+      } else if (typeof val === 'object') {
+        walk(val);
+      }
+    }
+  };
+
+  walk(root);
+  return found;
+}
+
+function getAttributeDeclarations(node: any): any[] {
+  if (!node || typeof node !== 'object') return [];
+  const direct = toArray(node['xs:attribute'] || node.attribute);
+  const extensions = toArray(node['xs:extension'] || node.extension);
+  const restrictions = toArray(node['xs:restriction'] || node.restriction);
+  const simpleContent = toArray(node['xs:simpleContent'] || node.simpleContent);
+  const complexContent = toArray(node['xs:complexContent'] || node.complexContent);
+
+  return [
+    ...direct,
+    ...extensions.flatMap(getAttributeDeclarations),
+    ...restrictions.flatMap(getAttributeDeclarations),
+    ...simpleContent.flatMap(getAttributeDeclarations),
+    ...complexContent.flatMap(getAttributeDeclarations),
+  ];
+}
+
+function extractWidgetFromAnnotatedNode(node: any): string | null {
+  if (!node || typeof node !== 'object') return null;
+  const attrs = node['@attributes'] || node;
+
+  const directWidget = readWidgetValue({
+    'ui:widget': attrs?.['ui:widget'],
+    'x-ui:widget': attrs?.['x-ui:widget'],
+    widget: attrs?.widget,
+  });
+  if (directWidget) return directWidget;
+
+  const annotations = toArray(node['xs:annotation'] || node.annotation);
+  for (const annotation of annotations) {
+    const appInfos = toArray(annotation?.['xs:appinfo'] || annotation?.appinfo);
+    for (const appInfo of appInfos) {
+      if (!appInfo || typeof appInfo !== 'object') continue;
+      const explicitWidget = readWidgetValue(appInfo['ui:widget'] || appInfo['x-ui:widget'] || appInfo.widget);
+      if (explicitWidget) return explicitWidget;
+
+      for (const [key, value] of Object.entries(appInfo)) {
+        if (key === 'ui:widget' || key === 'x-ui:widget' || key === 'widget' || key.endsWith(':widget')) {
+          const namedWidget = readWidgetValue(value);
+          if (namedWidget) return namedWidget;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function findAttributeWidgetInRootSchema(root: any, elementName: string, attributeName: string): string | null {
+  if (!root || typeof root !== 'object') return null;
+  const targetAttr = normalizeXmlName(attributeName);
+  if (!targetAttr) return null;
+
+  const elementDef = findElementDefinitionInRootSchema(root, elementName);
+  const elementAttrs = elementDef && typeof elementDef === 'object' ? (elementDef['@attributes'] || elementDef) : null;
+  const typeName = normalizeXmlName(elementAttrs?.type || elementAttrs?.['@type']);
+
+  const declarationCandidates: any[] = [];
+  if (elementDef) {
+    declarationCandidates.push(...getAttributeDeclarations(elementDef));
+    const inlineComplexType = toArray(elementDef['xs:complexType'] || elementDef.complexType);
+    inlineComplexType.forEach((ct) => {
+      declarationCandidates.push(...getAttributeDeclarations(ct));
+    });
+  }
+
+  if (typeName) {
+    const complexTypeDef = findComplexTypeDefinitionInRootSchema(root, typeName);
+    declarationCandidates.push(...getAttributeDeclarations(complexTypeDef));
+  }
+
+  declarationCandidates.push(...toArray((root && typeof root === 'object') ? (root['xs:attribute'] || root.attribute) : undefined));
+  const schemaRoot = getSchemaRootNode(root);
+  declarationCandidates.push(...toArray((schemaRoot && typeof schemaRoot === 'object') ? (schemaRoot['xs:attribute'] || schemaRoot.attribute) : undefined));
+
+  for (const decl of declarationCandidates) {
+    if (!decl || typeof decl !== 'object') continue;
+    const declAttrs = decl['@attributes'] || decl;
+    const declName = normalizeXmlName(declAttrs?.name || declAttrs?.['@name'] || declAttrs?.ref || declAttrs?.['@ref']);
+    if (!declName || declName !== targetAttr) continue;
+    const widget = extractWidgetFromAnnotatedNode(decl);
+    if (widget) return widget;
+  }
+
+  if (targetAttr === 'xml:lang' || targetAttr === 'lang') {
+    return 'lang';
+  }
+
+  return null;
+}
+
+function normalizeColorInputValue(value: string): string {
+  const trimmed = String(value || '').trim();
+  const shortHexMatch = /^#([0-9a-fA-F]{3})$/.exec(trimmed);
+  if (shortHexMatch) {
+    const [r, g, b] = shortHexMatch[1].split('');
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  const fullHexMatch = /^#([0-9a-fA-F]{6})$/.exec(trimmed);
+  if (fullHexMatch) return `#${fullHexMatch[1]}`.toLowerCase();
+  return '#000000';
+}
+
+const COUNTRY_CODES = [
+  'US',
+  'GB',
+  'CA',
+  'AU',
+  'NZ',
+  'IE',
+  'FR',
+  'DE',
+  'ES',
+  'IT',
+  'NL',
+  'BE',
+  'CH',
+  'AT',
+  'SE',
+  'NO',
+  'DK',
+  'FI',
+  'PT',
+  'PL',
+  'CZ',
+  'HU',
+  'GR',
+  'TR',
+  'JP',
+  'KR',
+  'CN',
+  'IN',
+  'SG',
+  'MY',
+  'TH',
+  'VN',
+  'PH',
+  'ID',
+  'BR',
+  'MX',
+  'AR',
+  'CL',
+  'CO',
+  'PE',
+  'ZA',
+  'NG',
+  'EG',
+  'KE',
+  'MA',
+] as const;
+
+const LANGUAGE_TAGS = [
+  'en',
+  'en-US',
+  'en-GB',
+  'fr',
+  'fr-CA',
+  'de',
+  'es',
+  'es-MX',
+  'it',
+  'pt',
+  'pt-BR',
+  'nl',
+  'sv',
+  'no',
+  'da',
+  'fi',
+  'pl',
+  'cs',
+  'hu',
+  'el',
+  'tr',
+  'ru',
+  'uk',
+  'ja',
+  'ko',
+  'zh',
+  'zh-CN',
+  'zh-TW',
+  'ar',
+  'hi',
+] as const;
+
+function getCountryOptions() {
+  const locale = readPreferredLocale();
+  const displayNames = typeof Intl.DisplayNames === 'function'
+    ? new Intl.DisplayNames([locale], { type: 'region' })
+    : null;
+
+  return COUNTRY_CODES.map((code) => ({
+    code,
+    label: displayNames?.of(code) || code,
+  }));
+}
+
+function getLanguageTagOptions() {
+  const locale = readPreferredLocale();
+  const displayNames = typeof Intl.DisplayNames === 'function'
+    ? new Intl.DisplayNames([locale], { type: 'language' })
+    : null;
+
+  return LANGUAGE_TAGS.map((tag) => ({
+    tag,
+    label: displayNames?.of(tag) || tag,
+  }));
+}
+
+function renderCountryInput(
+  textValue: string,
+  onValueChange: (nextValue: string) => void,
+  testId?: string,
+) {
+  const listId = testId ? `${testId}-country-list` : 'country-list';
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, maxWidth: 320 }}>
+      <input
+        data-testid={testId}
+        type="text"
+        list={listId}
+        value={textValue}
+        onChange={(e) => onValueChange(e.target.value)}
+        placeholder="Select or type a country"
+        style={{
+          flex: 1,
+          maxWidth: 320,
+          padding: '6px 8px',
+          border: '1px solid #ddd',
+          borderRadius: 3,
+          fontSize: 12,
+        }}
+      />
+      <datalist id={listId}>
+        {getCountryOptions().map((country) => (
+          <option key={country.code} value={country.label} />
+        ))}
+      </datalist>
+    </div>
+  );
+}
+
+function renderLanguageInput(
+  textValue: string,
+  onValueChange: (nextValue: string) => void,
+  testId?: string,
+) {
+  const listId = testId ? `${testId}-language-list` : 'language-list';
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, maxWidth: 320 }}>
+      <input
+        data-testid={testId}
+        type="text"
+        list={listId}
+        value={textValue}
+        onChange={(e) => onValueChange(e.target.value)}
+        placeholder="Select or type a language tag"
+        style={{
+          flex: 1,
+          maxWidth: 320,
+          padding: '6px 8px',
+          border: '1px solid #ddd',
+          borderRadius: 3,
+          fontSize: 12,
+        }}
+      />
+      <datalist id={listId}>
+        {getLanguageTagOptions().map((language) => (
+          <option key={language.tag} value={language.tag} label={language.label} />
+        ))}
+      </datalist>
+    </div>
+  );
 }
 
 function mapXsdTypeToHtmlInput(xsdType: string | null) {
@@ -313,6 +671,67 @@ function mapXsdTypeToHtmlInput(xsdType: string | null) {
   if (t.includes('anyuri') || t.includes('uri') || t.includes('url')) return 'url';
   if (t.includes('email')) return 'email';
   return 'text';
+}
+
+function renderSimpleValueInput(
+  widgetHint: string | null,
+  htmlInputType: string,
+  textValue: string,
+  onValueChange: (nextValue: string) => void,
+  testId?: string,
+) {
+  if (widgetHint === 'lang') {
+    return renderLanguageInput(textValue, onValueChange, testId);
+  }
+
+  if (widgetHint === 'country') {
+    return renderCountryInput(textValue, onValueChange, testId);
+  }
+
+  if (htmlInputType !== 'color') {
+    return (
+      <input
+        data-testid={testId}
+        type={htmlInputType as any}
+        value={textValue}
+        onChange={(e) => onValueChange(e.target.value)}
+        style={{
+          flex: 1,
+          maxWidth: 200,
+          padding: '6px 8px',
+          border: '1px solid #ddd',
+          borderRadius: 3,
+          fontSize: 12,
+        }}
+      />
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, maxWidth: 320 }}>
+      <input
+        data-testid={testId}
+        type="color"
+        value={normalizeColorInputValue(textValue)}
+        onChange={(e) => onValueChange(e.target.value)}
+        style={{ width: 40, height: 30, padding: 0, border: '1px solid #ddd', borderRadius: 3, cursor: 'pointer' }}
+      />
+      <input
+        type="text"
+        value={textValue}
+        onChange={(e) => onValueChange(e.target.value)}
+        placeholder="#rrggbb"
+        style={{
+          flex: 1,
+          minWidth: 90,
+          padding: '6px 8px',
+          border: '1px solid #ddd',
+          borderRadius: 3,
+          fontSize: 12,
+        }}
+      />
+    </div>
+  );
 }
 
 
@@ -1173,6 +1592,7 @@ function XmlElementNode({
       if ('xmlName' in patch) setAttr(updated, 'name', patch.xmlName);
       if ('xmlElementType' in patch) setAttr(updated, 'type', patch.xmlElementType);
       if ('xmlAttributeType' in patch) setAttr(updated, 'type', patch.xmlAttributeType);
+      if ('xmlWidget' in patch) setAttr(updated, 'ui:widget', patch.xmlWidget);
       if ('xmlAttributeUse' in patch) setAttr(updated, 'use', patch.xmlAttributeUse);
       if ('xmlMinOccurs' in patch) setAttr(updated, 'minOccurs', patch.xmlMinOccurs);
       if ('xmlMaxOccurs' in patch) setAttr(updated, 'maxOccurs', patch.xmlMaxOccurs);
@@ -1492,6 +1912,7 @@ function XmlElementNode({
                   xmlMyElementNames: [],
                   xmlElementType: inferredSchemaKind === 'element' ? getNodeAttr('type') : undefined,
                   xmlAttributeType: inferredSchemaKind === 'attribute' ? getNodeAttr('type') : undefined,
+                  xmlWidget: getNodeAttr('ui:widget') || getNodeAttr('x-ui:widget') || getNodeAttr('widget') || undefined,
                   xmlAttributeUse: inferredSchemaKind === 'attribute' ? (getNodeAttr('use') || 'optional') : undefined,
                   xmlAttributeDefault: inferredSchemaKind === 'attribute' ? getNodeAttr('default') : undefined,
                   xmlDefault: inferredSchemaKind === 'element' ? getNodeAttr('default') : undefined,
@@ -1718,7 +2139,16 @@ function XmlElementNode({
                                 };
 
                                 const xsdMapped = mapAttrType(attrType || null);
-                                const inputType = xsdMapped || detectAttributeInputType(attr.name, attr.value);
+                                const widgetHint = rootSchema
+                                  ? findAttributeWidgetInRootSchema(rootSchema, elementTagName, attr.name)
+                                  : null;
+                                const inputType = widgetHint === 'color'
+                                  ? 'color'
+                                  : widgetHint === 'email'
+                                    ? 'email'
+                                    : widgetHint === 'lang' || widgetHint === 'country'
+                                      ? 'text'
+                                      : (xsdMapped || detectAttributeInputType(attr.name, attr.value));
                                 const validationAttrs = facetsToInputAttrs(facets);
                                 const validationHint = facetsToHint(facets);
                                 const subtleControlStyle = {
@@ -1763,6 +2193,59 @@ function XmlElementNode({
                                       checked={checked}
                                       onChange={(e) => handleAttributeChange(attr.name, e.target.checked ? 'true' : 'false')}
                                     />
+                                  );
+                                }
+
+                                if (inputType === 'color') {
+                                  return (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: 180, maxWidth: 180 }}>
+                                        <input
+                                          id={`xml-attr-input-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
+                                          data-testid={`xml-attr-${sanitize(element.tagName)}-${sanitize(attr.name)}`}
+                                          className={styles.input}
+                                          type="color"
+                                          value={normalizeColorInputValue(String(attr.value ?? ''))}
+                                          onChange={(e) => handleAttributeChange(attr.name, e.target.value)}
+                                          style={{ width: 40, height: 30, padding: 0, border: '1px solid #d1d5db', borderRadius: 3, cursor: 'pointer' }}
+                                        />
+                                        <input
+                                          className={styles.input}
+                                          type="text"
+                                          value={String(attr.value ?? '')}
+                                          onChange={(e) => handleAttributeChange(attr.name, e.target.value)}
+                                          placeholder="#rrggbb"
+                                          style={{ flex: 1, minWidth: 90, ...subtleControlStyle }}
+                                        />
+                                      </div>
+                                      {validationHint && (
+                                        <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{validationHint}</div>
+                                      )}
+                                    </div>
+                                  );
+                                }
+
+                                if (widgetHint === 'country') {
+                                  return (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                      {renderCountryInput(
+                                        String(attr.value ?? ''),
+                                        (nextValue) => handleAttributeChange(attr.name, nextValue),
+                                        `xml-attr-${sanitize(element.tagName)}-${sanitize(attr.name)}`
+                                      )}
+                                    </div>
+                                  );
+                                }
+
+                                if (widgetHint === 'lang') {
+                                  return (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                      {renderLanguageInput(
+                                        String(attr.value ?? ''),
+                                        (nextValue) => handleAttributeChange(attr.name, nextValue),
+                                        `xml-attr-${sanitize(element.tagName)}-${sanitize(attr.name)}`
+                                      )}
+                                    </div>
                                   );
                                 }
 
@@ -2164,7 +2647,14 @@ function XmlElementNode({
                     // Render simple text elements as inline inputs
                     // Use the data value, not the parsed element
                     const elementType = rootSchema ? findElementTypeInRootSchema(rootSchema, childElementName) : null;
-                    const htmlInputType = (elementType ? mapXsdTypeToHtmlInput(elementType) : null) || 'text';
+                    const widgetHint = rootSchema ? findElementWidgetInRootSchema(rootSchema, childElementName) : null;
+                    const htmlInputType = widgetHint === 'color'
+                      ? 'color'
+                      : widgetHint === 'email'
+                        ? 'email'
+                        : widgetHint === 'lang' || widgetHint === 'country'
+                          ? 'text'
+                          : ((elementType ? mapXsdTypeToHtmlInput(elementType) : null) || 'text');
                     
                     // Get the text value from data (which is what gets updated)
                     // Support both _text (internal format) and #text (from parseMarkup)
@@ -2258,28 +2748,21 @@ function XmlElementNode({
                           </select>
                           
                           {/* Input Field */}
-                          <input
-                            type={htmlInputType as any}
-                            value={textValue}
-                            onChange={(e) => {
+                          {renderSimpleValueInput(
+                            null,
+                            htmlInputType,
+                            textValue,
+                            (nextValue) => {
                               onUpdateValue([...path, childElementName], (current) => {
                                 if (current && typeof current === 'object' && !Array.isArray(current)) {
-                                  const next = { ...current, _text: e.target.value };
+                                  const next = { ...current, _text: nextValue };
                                   if ('#text' in next) delete next['#text'];
                                   return next;
                                 }
-                                return { _text: e.target.value };
+                                return { _text: nextValue };
                               });
-                            }}
-                            style={{
-                              flex: 1,
-                              maxWidth: 200,
-                              padding: '6px 8px',
-                              border: '1px solid #ddd',
-                              borderRadius: 3,
-                              fontSize: 12,
-                            }}
-                          />
+                            }
+                          )}
                           {showChoiceRemove && (
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -2304,28 +2787,22 @@ function XmlElementNode({
                         <label style={{ minWidth: 100, fontSize: 14, fontWeight: 500, color: '#a78bfa' }}>
                           {childElementName}:
                         </label>
-                        <input
-                          type={htmlInputType as any}
-                          value={textValue}
-                          onChange={(e) => {
+                        {renderSimpleValueInput(
+                          null,
+                          htmlInputType,
+                          textValue,
+                          (nextValue) => {
                             onUpdateValue([...path, childElementName], (current) => {
                               if (current && typeof current === 'object' && !Array.isArray(current)) {
-                                const next = { ...current, _text: e.target.value };
+                                const next = { ...current, _text: nextValue };
                                 if ('#text' in next) delete next['#text'];
                                 return next;
                               }
-                              return { _text: e.target.value };
+                              return { _text: nextValue };
                             });
-                          }}
-                          style={{
-                            flex: 1,
-                            maxWidth: 200,
-                            padding: '6px 8px',
-                            border: '1px solid #ddd',
-                            borderRadius: 3,
-                            fontSize: 12,
-                          }}
-                        />
+                          },
+                          `xml-element-${sanitize(childElementName)}-input`
+                        )}
                         {canRemoveChildOccurrence(childElementName, childSchemaNode) && (
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -2497,7 +2974,12 @@ function XmlElementNode({
                 if (isSimpleChild) {
                   // Infer the element type from the schema
                   const elementType = rootSchema ? findElementTypeInRootSchema(rootSchema, child.tagName) : null;
-                  const htmlInputType = (elementType ? mapXsdTypeToHtmlInput(elementType) : null) || 'text';
+                  const widgetHint = rootSchema ? findElementWidgetInRootSchema(rootSchema, child.tagName) : null;
+                  const htmlInputType = widgetHint === 'color'
+                    ? 'color'
+                    : widgetHint === 'email'
+                      ? 'email'
+                      : ((elementType ? mapXsdTypeToHtmlInput(elementType) : null) || 'text');
                   
                   // Render simple text elements as inline inputs, like attributes
                   return (
@@ -2505,28 +2987,21 @@ function XmlElementNode({
                       <label style={{ minWidth: 100, fontSize: 14, fontWeight: 500, color: '#a78bfa' }}>
                         {child.tagName}:
                       </label>
-                      <input
-                        type={htmlInputType as any}
-                        value={child.text || ''}
-                        onChange={(e) => {
+                      {renderSimpleValueInput(
+                        widgetHint,
+                        htmlInputType,
+                        child.text || '',
+                        (nextValue) => {
                           onUpdateValue([...path, String(rawIndex)], (current) => {
                             if (current && typeof current === 'object' && !Array.isArray(current)) {
-                              const next = { ...current, _text: e.target.value };
+                              const next = { ...current, _text: nextValue };
                               if ('#text' in next) delete next['#text'];
                               return next;
                             }
-                            return { _text: e.target.value };
+                            return { _text: nextValue };
                           });
-                        }}
-                        style={{
-                          flex: 1,
-                          maxWidth: 200,
-                          padding: '6px 8px',
-                          border: '1px solid #ddd',
-                          borderRadius: 3,
-                          fontSize: 12,
-                        }}
-                      />
+                        }
+                      )}
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <button

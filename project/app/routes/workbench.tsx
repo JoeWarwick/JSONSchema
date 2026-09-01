@@ -30,6 +30,7 @@ import type { ErdModel } from "~/types/erd";
 import { parseDbContextFiles } from "~/utils/csharp-dbcontext-parser";
 import { generateDbContextCSharp } from "~/utils/csharp-dbcontext-generator";
 import { generateErdSql } from "~/utils/sql-schema-generator";
+import { erdModelToGraph } from "~/utils/erd-graph";
 import { DRAFT_PROGRESSION, detectDraftFromBackend, detectDraftFromSchema, type SchemaDraft } from "~/utils/draft-utils";
 
 export function meta() {
@@ -1465,7 +1466,12 @@ export default function Workbench() {
         name: file.name,
         content: await file.text(),
       })));
-      setErdModel(parseDbContextFiles(sourceFiles));
+      const parsedModel = parseDbContextFiles(sourceFiles);
+      const graph = erdModelToGraph(parsedModel);
+      setErdModel({
+        ...parsedModel,
+        nodePositions: Object.fromEntries(graph.nodes.map((node) => [node.id, node.position])),
+      });
       setActiveTab('erd');
       setError(null);
     } catch (err) {
