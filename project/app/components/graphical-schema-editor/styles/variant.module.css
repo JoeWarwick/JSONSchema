@@ -1,0 +1,103 @@
+/* Variant node (oneOf/anyOf/allOf) styling */
+
+.variantNode {
+  background: var(--graph-node-bg);
+  border: 1.5px solid var(--color-accent-6, #6d28d9);
+  border-radius: 8px;
+  width: fit-content;
+  min-width: 0;
+  position: relative;
+  /* extra right padding so the edge toggle button doesn't overlap text */
+  padding-right: 14px;
+}
+
+/* Primitive variants have no toggle button — no need for the extra right padding */
+.variantNodePrimitive {
+  padding-right: 0;
+}
+
+.variantNodeHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: color-mix(in srgb, var(--color-accent-7) 18%, var(--graph-node-bg));
+  padding: 5px 8px;
+  border-radius: 6px 6px 0 0;
+}
+
+/* old toggle (removed from header, kept for compat) */
+.variantToggle { display: none; }
+
+/* Permanently visible expand/collapse button on the right edge */
+.variantEdgeToggle {
+  position: absolute;
+  right: -11px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-accent-7, #7c3aed);
+  border: 2px solid var(--color-accent-5, #a78bfa);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  z-index: 10;
+  box-shadow: var(--graph-node-shadow);
+  transition: background 0.12s, transform 0.12s;
+}
+
+.variantEdgeToggle:hover {
+  background: var(--color-accent-5, #a78bfa);
+  transform: translateY(-50%) scale(1.15);
+}
+
+.variantToggle:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.variantNodeTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--graph-node-text);
+  font-weight: 700;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.variantRefBadge {
+  display: inline-block;
+  background: color-mix(in srgb, var(--color-accent-7) 16%, var(--graph-node-bg));
+  color: var(--color-accent-10);
+  border: 1px solid var(--color-accent-6);
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 9px;
+  font-weight: 700;
+  height: 16px;
+  line-height: 16px;
+  flex-shrink: 0;
+}
+
+.variantDeleteButton {
+  background: none;
+  border: none;
+  color: var(--color-error-10);
+  cursor: pointer;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.variantDeleteButton:hover {
+  color: var(--color-error-11);
+}

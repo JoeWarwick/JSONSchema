@@ -196,7 +196,7 @@ export function XmlElementEditor({ node, onChange, readOnlySource, renderAttribu
         hasInlineComplexType={Boolean(data.xmlHasInlineComplexType)}
         hasComplexContentExtension={hasComplexContentExtension}
       />
-      {data.xmlHasInlineComplexType ? (
+      {!data.xmlHasInlineComplexType ? (
         !isRef ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12, color: '#666', background: '#fff7ed', border: '1px solid #f5c2b7', borderRadius: 6, padding: 8 }}>
             <div>

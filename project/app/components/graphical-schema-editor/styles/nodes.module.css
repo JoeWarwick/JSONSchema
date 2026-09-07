@@ -1,0 +1,142 @@
+/* Node hover/selected states and general node styling */
+
+/* Node hover/selected states — overrides React Flow's stock (unstyled-for-custom-nodes)
+   defaults. Scoped to this editor's wrapper so it doesn't leak into the ERD editor's
+   own React Flow instance.
+   React Flow's own stylesheet sets cursor on .react-flow__pane (grab) and swaps to
+   .react-flow__node.dragging (not :active) while dragging, and each custom node
+   component sets its own inline `background`/`color`, so those need !important here
+   to actually take effect. */
+.flowWrapper :global(.react-flow__pane) {
+  cursor: pointer !important;
+}
+
+.flowWrapper :global(.react-flow__pane.dragging) {
+  cursor: grabbing !important;
+}
+
+.flowWrapper :global(.react-flow__node) {
+  transition: box-shadow 120ms ease, outline-color 120ms ease, background-color 120ms ease, color 120ms ease;
+  cursor: grab;
+}
+
+.flowWrapper :global(.react-flow__node.dragging) {
+  cursor: grabbing !important;
+}
+
+.flowWrapper :global(.react-flow__node:hover),
+.flowWrapper :global(.react-flow__node:hover > *) {
+  z-index: 10;
+  box-shadow: var(--graph-node-shadow-strong);
+  background: color-mix(in srgb, var(--color-accent-7) 12%, var(--graph-node-bg)) !important;
+  color: var(--color-accent-11) !important;
+}
+
+.flowWrapper :global(.react-flow__node.selected),
+.flowWrapper :global(.react-flow__node.selected > *) {
+  z-index: 10;
+  box-shadow: var(--graph-node-shadow-strong);
+  background: color-mix(in srgb, var(--color-accent-7) 18%, var(--graph-node-bg)) !important;
+  color: var(--color-accent-11) !important;
+}
+
+.patternNode {
+  background: linear-gradient(180deg, var(--graph-node-bg-subtle) 0%, var(--graph-node-bg) 100%);
+  border: 2px solid var(--graph-node-border-accent);
+}
+
+.patternBadge {
+  display: inline-block;
+  background: color-mix(in srgb, var(--color-accent-7) 18%, var(--graph-node-bg));
+  color: var(--color-accent-11);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-weight: 700;
+  font-size: 12px;
+  margin-right: 8px;
+}
+
+.patternKeyError {
+  color: var(--color-error-11);
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.patternKeyHelper {
+  color: var(--graph-muted);
+  font-size: 12px;
+  margin-top: 4px;
+  font-style: italic;
+}
+
+/* Node header layout to keep pattern/title and icons from overlapping */
+.nodeHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  color: var(--graph-node-text);
+}
+
+.nodeHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0; /* allow children to shrink for ellipsis */
+  flex: 1 1 auto; /* allow left group to shrink and give space to icons */
+}
+
+.nodeLabel {
+  font-weight: 800;
+  font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto; /* label takes remaining space but can shrink */
+}
+
+/* Icons rendered inside nodes for description and $comment - flow layout (not absolute) */
+.nodeIcons {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start; /* align icons above the title baseline */
+  margin-left: auto; /* push to the right */
+  transform: translateY(-11px); /* nudge icons up so they sit above the title line */
+  padding-right: 2px;
+  z-index: 1; /* ensure icons stay clickable */
+}
+
+.nodeIcon {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--graph-node-muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.nodeIcon:hover {
+  background: color-mix(in srgb, var(--color-accent-7) 14%, transparent);
+  border-radius: 4px;
+}
+
+/* Cardinality label (minOccurs/maxOccurs) rendered on an edge near its target node */
+.cardinalityLabel {
+  position: absolute;
+  background: var(--graph-node-bg);
+  border: 1px solid var(--graph-node-border);
+  color: var(--graph-node-muted);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
+  white-space: nowrap;
+}

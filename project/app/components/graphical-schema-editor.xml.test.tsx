@@ -6,7 +6,7 @@ import '@testing-library/jest-dom';
 import { waitFor } from '@testing-library/react';
 import { parseMarkup } from '../utils/markup';
 import { GraphicalSchemaEditor } from './graphical-schema-editor';
-import { expandAllGraphNodes } from './test-fixtures/expand-all-nodes';
+import { expandAllGraphNodes, expandNodeByDataId } from './test-fixtures/expand-all-nodes';
 
 describe('GraphicalSchemaEditor - XML RHS Editing', () => {
   beforeEach(() => {
@@ -170,6 +170,357 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
     });
 
     expect(await screen.findByLabelText('Enable AnyAttribute')).toBeInTheDocument();
+  });
+
+  it('preserves collapsed XML branches when an equivalent RHS update reorders object keys', async () => {
+    const initialSchema = {
+      'xs:schema': {
+        'xs:complexType': [
+          {
+            '@attributes': { name: 'PersonType' },
+            'xs:sequence': {
+              '@attributes': { minOccurs: '1', maxOccurs: '1' },
+              'xs:element': [
+                { '@attributes': { name: 'firstName', type: 'xs:string' } },
+                { '@attributes': { name: 'lastName', type: 'xs:string' } },
+              ],
+            },
+          },
+        ],
+      },
+    } as any;
+
+    function StatefulXmlEditor() {
+      const [currentSchema, updateSchema] = React.useState<any>(initialSchema);
+
+      const applyEquivalentSchemaUpdate = React.useCallback(() => {
+        updateSchema({
+          'xs:schema': {
+            'xs:complexType': [
+              {
+                'xs:sequence': {
+                  '@attributes': { maxOccurs: '1', minOccurs: '1' },
+                  'xs:element': [
+                    { '@attributes': { name: 'firstName', type: 'xs:string' } },
+                    { '@attributes': { name: 'lastName', type: 'xs:string' } },
+                  ],
+                },
+                '@attributes': { name: 'PersonType' },
+              },
+            ],
+          },
+        });
+      }, []);
+
+      return (
+        <>
+          <button type="button" onClick={applyEquivalentSchemaUpdate} aria-label="Apply equivalent schema update">
+            Apply equivalent schema update
+          </button>
+          <GraphicalSchemaEditor
+            schema={currentSchema}
+            schemaLanguage="xml"
+            onChange={(next) => updateSchema(next as any)}
+          />
+        </>
+      );
+    }
+
+    render(<StatefulXmlEditor />);
+
+    await expandNodeByDataId('1.complexType_0');
+
+    const sequenceNode = await waitFor(() => document.querySelector('.react-flow__node[data-id="1.complexType_0.sequence"]')) as HTMLElement;
+    const sequenceToggle = Array.from(sequenceNode.querySelectorAll('button')).find(
+      (button) => button.getAttribute('title') === 'Expand children' || button.getAttribute('title') === 'Collapse children'
+    ) as HTMLButtonElement | undefined;
+    expect(sequenceToggle).toBeTruthy();
+    if (sequenceToggle && sequenceToggle.getAttribute('title') !== 'Collapse children') {
+      fireEvent.click(sequenceToggle);
+    }
+
+    await waitFor(() => {
+      const firstNameNode = document.querySelector('.react-flow__node[data-id="1.complexType_0.sequence.element_0"]') as HTMLElement | null;
+      expect(firstNameNode).not.toBeNull();
+      expect(firstNameNode?.style.visibility).toBe('hidden');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply equivalent schema update' }));
+
+    await waitFor(() => {
+      const firstNameNode = document.querySelector('.react-flow__node[data-id="1.complexType_0.sequence.element_0"]') as HTMLElement | null;
+      expect(firstNameNode).not.toBeNull();
+      expect(firstNameNode?.style.visibility).toBe('hidden');
+    });
+  });
+
+  it('keeps unrelated nested XML branches collapsed when adding an element to a sequence', async () => {
+    const initialSchema = {
+      'xs:schema': {
+        'xs:complexType': [
+          {
+            '@attributes': { name: 'PersonType' },
+            'xs:sequence': {
+              '@attributes': { minOccurs: '1', maxOccurs: '1' },
+              'xs:element': [
+                { '@attributes': { name: 'firstName', type: 'xs:string' } },
+                { '@attributes': { name: 'lastName', type: 'xs:string' } },
+                { '@attributes': { name: 'birthDate', type: 'xs:date', minOccurs: '0' } },
+                {
+                  'xs:choice': {
+                    '@attributes': { minOccurs: '0', maxOccurs: '1' },
+                    'xs:element': [
+                      { '@attributes': { name: 'homeEmail', type: 'xs:string' } },
+                      { '@attributes': { name: 'workEmail', type: 'xs:string' } },
+                    ],
+                  },
+                },
+                { '@attributes': { name: 'address', type: 'xs:string' } },
+              ],
+            },
+          },
+        ],
+      },
+    } as any;
+
+    let latestSchema = initialSchema;
+
+    function StatefulXmlEditor() {
+      const [currentSchema, setCurrentSchema] = React.useState<any>(initialSchema);
+      return (
+        <GraphicalSchemaEditor
+          schema={currentSchema}
+          schemaLanguage="xml"
+          onChange={(next) => {
+            latestSchema = next as any;
+            setCurrentSchema(next as any);
+          }}
+        />
+      );
+    }
+
+    render(<StatefulXmlEditor />);
+
+    await expandNodeByDataId('1.complexType_0');
+    const sequenceNode = await waitFor(() => {
+      const el = document.querySelector('.react-flow__node[data-id="1.complexType_0.sequence"]');
+      if (!el) throw new Error('sequence node not found');
+      return el;
+    });
+    fireEvent.contextMenu(sequenceNode as Element);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add element' }));
+
+    await waitFor(() => {
+      const sequence = latestSchema?.['xs:schema']?.['xs:complexType']?.[0]?.['xs:sequence'];
+      expect(sequence?.['xs:element']).toBeTruthy();
+    });
+
+    expect(screen.queryByText('homeEmail')).toBeNull();
+    expect(screen.queryByText('workEmail')).toBeNull();
+    expect(document.querySelector('.react-flow__node[data-id="1.complexType_0.sequence.element_5"]')).not.toBeNull();
+  });
+
+  it('adds an element to NoteType sequence and then to PersonType sequence without corrupting the graph', async () => {
+    const initialSchema = {
+      'xs:schema': {
+        'xs:complexType': [
+          {
+            '@attributes': { name: 'NoteType' },
+            'xs:simpleContent': {
+              'xs:extension': {
+                '@attributes': { base: 'xs:string' },
+                'xs:attribute': [{ '@attributes': { name: 'lang', type: 'xs:language' } }],
+              },
+            },
+          },
+          {
+            '@attributes': { name: 'PersonType' },
+            'xs:sequence': {
+              '@attributes': { minOccurs: '1', maxOccurs: '1' },
+              'xs:element': [{ '@attributes': { name: 'firstName', type: 'xs:string' } }],
+            },
+          },
+        ],
+      },
+    } as any;
+
+    let latestSchema = initialSchema;
+
+    function StatefulXmlEditor() {
+      const [currentSchema, setCurrentSchema] = React.useState<any>(initialSchema);
+      return (
+        <GraphicalSchemaEditor
+          schema={currentSchema}
+          schemaLanguage="xml"
+          onChange={(next) => {
+            latestSchema = next as any;
+            setCurrentSchema(next as any);
+          }}
+        />
+      );
+    }
+
+    render(<StatefulXmlEditor />);
+
+    fireEvent.contextMenu(await screen.findByText('NoteType'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add sequence' }));
+
+    await waitFor(() => {
+      const noteSequence = latestSchema?.['xs:schema']?.['xs:complexType']?.[0]?.['xs:complexContent']?.['xs:extension']?.['xs:sequence'];
+      expect(noteSequence).toBeTruthy();
+      expect(noteSequence?.['@attributes']?.minOccurs).toBe('1');
+    });
+
+    expect(document.querySelector('.react-flow__node[data-id="1.complexType_0.sequence"]')).not.toBeNull();
+
+    const noteSequenceNode = await waitFor(() => {
+      const el = document.querySelector('.react-flow__node[data-id="1.complexType_0.sequence"]');
+      if (!el) throw new Error('NoteType sequence node not found');
+      return el;
+    });
+    fireEvent.contextMenu(noteSequenceNode as Element);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add element' }));
+
+    await waitFor(() => {
+      const noteSequence = latestSchema?.['xs:schema']?.['xs:complexType']?.[0]?.['xs:complexContent']?.['xs:extension']?.['xs:sequence'];
+      const elements = Array.isArray(noteSequence?.['xs:element']) ? noteSequence['xs:element'] : [noteSequence?.['xs:element']].filter(Boolean);
+      expect(elements[0]?.['@attributes']?.name).toBe('element1');
+    });
+
+    fireEvent.contextMenu(await screen.findByText('PersonType'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add element' }));
+
+    await waitFor(() => {
+      const personSequence = latestSchema?.['xs:schema']?.['xs:complexType']?.[1]?.['xs:sequence'];
+      const elements = Array.isArray(personSequence?.['xs:element']) ? personSequence['xs:element'] : [personSequence?.['xs:element']].filter(Boolean);
+      expect(elements.at(-1)?.['@attributes']?.name).toBe('element2');
+    });
+
+    expect(document.querySelector('.react-flow__node[data-id="1.complexType_0.sequence"]')).not.toBeNull();
+  });
+
+  it('directly adds and renders a NoteType sequence when adding an element to a simpleContent-backed complexType', async () => {
+    const initialSchema = {
+      'xs:schema': {
+        'xs:complexType': [
+          {
+            '@attributes': { name: 'NoteType' },
+            'xs:simpleContent': {
+              'xs:extension': {
+                '@attributes': { base: 'xs:string' },
+                'xs:attribute': [{ '@attributes': { name: 'lang', type: 'xs:language' } }],
+              },
+            },
+          },
+        ],
+      },
+    } as any;
+
+    let latestSchema = initialSchema;
+
+    function StatefulXmlEditor() {
+      const [currentSchema, setCurrentSchema] = React.useState<any>(initialSchema);
+      return (
+        <GraphicalSchemaEditor
+          schema={currentSchema}
+          schemaLanguage="xml"
+          onChange={(next) => {
+            latestSchema = next as any;
+            setCurrentSchema(next as any);
+          }}
+        />
+      );
+    }
+
+    render(<StatefulXmlEditor />);
+
+    fireEvent.contextMenu(await screen.findByText('NoteType'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add element' }));
+
+    await waitFor(() => {
+      const noteSequence = latestSchema?.['xs:schema']?.['xs:complexType']?.[0]?.['xs:complexContent']?.['xs:extension']?.['xs:sequence'];
+      expect(noteSequence).toBeTruthy();
+      const elements = Array.isArray(noteSequence?.['xs:element']) ? noteSequence['xs:element'] : [noteSequence?.['xs:element']].filter(Boolean);
+      expect(elements[0]?.['@attributes']?.name).toBe('element1');
+    });
+
+    await waitFor(() => {
+      expect(document.querySelector('.react-flow__node[data-id="1.complexType_0.sequence"]')).not.toBeNull();
+      expect(document.querySelector('.react-flow__node[data-id="1.complexType_0.sequence.element_0"]')).not.toBeNull();
+    });
+  });
+
+  it('keeps unrelated nested XML branches collapsed when deleting an element from a sequence', async () => {
+    const initialSchema = {
+      'xs:schema': {
+        'xs:complexType': [
+          {
+            '@attributes': { name: 'PersonType' },
+            'xs:sequence': {
+              '@attributes': { minOccurs: '1', maxOccurs: '1' },
+              'xs:element': [
+                { '@attributes': { name: 'firstName', type: 'xs:string' } },
+                { '@attributes': { name: 'lastName', type: 'xs:string' } },
+                { '@attributes': { name: 'birthDate', type: 'xs:date', minOccurs: '0' } },
+                {
+                  'xs:choice': {
+                    '@attributes': { minOccurs: '0', maxOccurs: '1' },
+                    'xs:element': [
+                      { '@attributes': { name: 'homeEmail', type: 'xs:string' } },
+                      { '@attributes': { name: 'workEmail', type: 'xs:string' } },
+                    ],
+                  },
+                },
+                { '@attributes': { name: 'address', type: 'xs:string' } },
+              ],
+            },
+          },
+        ],
+      },
+    } as any;
+
+    let latestSchema = initialSchema;
+    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+
+    function StatefulXmlEditor() {
+      const [currentSchema, setCurrentSchema] = React.useState<any>(initialSchema);
+      return (
+        <GraphicalSchemaEditor
+          schema={currentSchema}
+          schemaLanguage="xml"
+          onChange={(next) => {
+            latestSchema = next as any;
+            setCurrentSchema(next as any);
+          }}
+        />
+      );
+    }
+
+    render(<StatefulXmlEditor />);
+
+    await expandNodeByDataId('1.complexType_0');
+    await expandNodeByDataId('1.complexType_0.sequence');
+
+    const firstNameNode = await waitFor(() => {
+      const el = document.querySelector('.react-flow__node[data-id="1.complexType_0.sequence.element_0"]');
+      if (!el) throw new Error('firstName node not found');
+      return el;
+    });
+    fireEvent.contextMenu(firstNameNode as Element);
+    fireEvent.click(await screen.findByRole('button', { name: /Delete Element/i }));
+
+    await waitFor(() => {
+      const sequence = latestSchema?.['xs:schema']?.['xs:complexType']?.[0]?.['xs:sequence'];
+      expect(sequence?.['xs:element']).toBeTruthy();
+      expect(sequence?.['xs:element']?.[0]?.['@attributes']?.name).toBe('lastName');
+    });
+
+    expect(screen.queryByText('homeEmail')).toBeNull();
+    expect(screen.queryByText('workEmail')).toBeNull();
+    expect(document.querySelector('.react-flow__node[data-id="1.complexType_0.sequence.element_0"]')).not.toBeNull();
+
+    confirmSpy.mockRestore();
   });
 
   it('adds sequence from complexType context menu and edits min/max in XML RHS', async () => {
@@ -575,6 +926,12 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
 
     // Find and right-click the compositor node (label shown as an icon with a tooltip)
     const compositorNode = await screen.findByLabelText('sequence compositor');
+    const readNodeY = (node: Element) => {
+      const transform = (node as HTMLElement).style.transform || '';
+      const match = transform.match(/translate\([^,]+,\s*([-0-9.]+)px\)/);
+      return match ? Number(match[1]) : 0;
+    };
+    const beforeY = readNodeY(compositorNode);
     fireEvent.contextMenu(compositorNode);
 
     // Click "Add element"
@@ -588,6 +945,13 @@ describe('GraphicalSchemaEditor - XML RHS Editing', () => {
       expect(Array.isArray(sequence)).toBe(true);
       expect(sequence?.length).toBe(2);
       expect(sequence?.[1]?.['@attributes']?.name).toMatch(/element\d+/);
+    });
+
+    await waitFor(() => {
+      const updatedCompositorNode = document.querySelector('.react-flow__node[data-id="1.complexType_0.sequence"]');
+      expect(updatedCompositorNode).not.toBeNull();
+      const afterY = readNodeY(updatedCompositorNode as Element);
+      expect(Math.abs(afterY - beforeY)).toBeLessThan(100);
     });
   });
 

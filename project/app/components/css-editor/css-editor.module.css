@@ -5,26 +5,24 @@
   width: 100%;
 }
 
-.editorArea {
-  position: relative;
+.main {
   display: flex;
   flex-direction: column;
+  gap: var(--space-3);
+}
+
+.editorSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
 .textarea {
   font-family: var(--font-mono, monospace);
   font-size: 13px;
   line-height: 1.5;
-  min-height: 120px;
+  min-height: 150px;
   resize: vertical;
-}
-
-.textareaInvalid {
-  border-color: var(--color-error-7) !important;
-}
-
-.textareaInvalid:focus-visible {
-  box-shadow: 0 0 0 1px var(--color-error-8) !important;
 }
 
 .toolbar {
@@ -88,12 +86,6 @@
   border-color: var(--color-accent-7);
 }
 
-.error {
-  font-size: 11px;
-  color: var(--color-error-11);
-  margin-top: 4px;
-}
-
 .trigger {
   display: inline-flex;
   align-items: center;
@@ -105,4 +97,27 @@
   font-size: 11px;
   border: 1px solid var(--color-neutral-6);
   cursor: pointer;
+}
+
+.previewSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.previewLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-neutral-10);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.previewFrame {
+  width: 100%;
+  height: 200px;
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-2);
+  background: white;
 }

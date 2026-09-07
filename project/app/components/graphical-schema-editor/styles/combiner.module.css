@@ -1,0 +1,219 @@
+/* Combiner node (sequence/choice/all) styling */
+
+.combinerNode {
+  background: var(--graph-node-bg);
+  border: 1.5px solid var(--color-accent-7, #7c3aed);
+  border-radius: 8px;
+  min-width: 0;
+  width: fit-content;
+  padding: 0;
+  position: relative;
+  box-shadow: var(--graph-node-shadow);
+}
+
+.combinerBody {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 6px;
+}
+
+.combinerForkIcon {
+  color: var(--color-accent-5, #a78bfa);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  cursor: help;
+}
+
+.combinerContent {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.combinerTypeLabel {
+  color: var(--color-accent-4, #c4b5fd);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+.combinerTypePicker {
+  display: flex;
+  gap: 2px;
+}
+
+.combinerTypeButton {
+  background: transparent;
+  border: 1px solid var(--color-accent-8, #4c1d95);
+  color: var(--color-accent-5, #a78bfa);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 1px 5px;
+  line-height: 1.4;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.combinerTypeButton:hover {
+  background: var(--color-accent-8, #4c1d95);
+  color: #fff;
+}
+
+.combinerTypeButtonActive {
+  background: var(--color-accent-7, #7c3aed) !important;
+  color: #fff !important;
+  border-color: var(--color-accent-7, #7c3aed) !important;
+}
+
+.combinerCountBadge {
+  background: var(--color-accent-7, #7c3aed);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
+/* Permanently visible expand/collapse toggle on the combiner's right edge */
+.combinerEdgeToggle {
+  position: absolute;
+  right: -11px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-accent-7, #7c3aed);
+  border: 2px solid var(--color-accent-5, #a78bfa);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  z-index: 10;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  transition: background 0.12s, transform 0.12s;
+}
+
+.combinerEdgeToggle:hover {
+  background: var(--color-accent-5, #a78bfa);
+  transform: translateY(-50%) scale(1.15);
+}
+
+/* Legacy/unused — kept for backwards compat */
+.combinerHeader { display: none; }
+.combinerLabel { display: none; }
+.combinerForkIcon { display: none; }
+.combinerContent { display: none; }
+.combinerTypeLabel { display: none; }
+.combinerTypePicker { display: none; }
+.combinerTypeButton { display: none; }
+.combinerTypeButtonActive { display: none; }
+
+/* ── SVG type dropdown ──────────────────────────────────────────────── */
+.combinerTypeDropdown {
+  position: relative;
+}
+
+.combinerTypeDropdownTrigger {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--graph-node-bg);
+  border: 1px solid var(--color-accent-7, #7c3aed);
+  border-radius: 6px;
+  padding: 3px 5px;
+  cursor: pointer;
+  color: var(--color-accent-11, #93c5fd);
+  transition: background 0.12s;
+}
+
+.combinerTypeDropdownTrigger:hover {
+  background: var(--graph-node-bg-subtle);
+}
+
+.combinerDropdownIcon {
+  display: flex;
+  align-items: center;
+  color: var(--color-accent-11, #93c5fd);
+}
+
+.combinerDropdownChevron {
+  font-size: 9px;
+  color: var(--color-accent-10, #60a5fa);
+  line-height: 1;
+}
+
+.combinerTypeDropdownMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--graph-flow-bg);
+  border: 1px solid var(--color-accent-7, #7c3aed);
+  border-radius: 8px;
+  box-shadow: var(--graph-node-shadow-strong);
+  z-index: var(--z-index-dropdown);
+  min-width: 110px;
+  overflow: hidden;
+  padding: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.combinerTypeDropdownItem {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 4px 7px;
+  cursor: pointer;
+  color: var(--color-accent-4, #c4b5fd);
+  width: 100%;
+  text-align: left;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.combinerTypeDropdownItem:hover {
+  background: color-mix(in srgb, var(--color-accent-7) 22%, transparent);
+  border-color: var(--color-accent-7, #7c3aed);
+}
+
+.combinerTypeDropdownItemActive {
+  background: color-mix(in srgb, var(--color-accent-7) 30%, transparent) !important;
+  border-color: var(--color-accent-5, #a78bfa) !important;
+  color: #fff !important;
+}
+
+.combinerDropdownItemIcon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: inherit;
+}
+
+.combinerDropdownItemLabel {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  color: inherit;
+}

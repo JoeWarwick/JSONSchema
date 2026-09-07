@@ -97,12 +97,22 @@ const COMBINER_TITLES: Record<string, string> = {
 import { Handle, Position, BaseEdge, EdgeLabelRenderer, getBezierPath } from "reactflow";
 import type { Edge, EdgeProps, Node } from "reactflow"
 import type { SchemaNodeData } from "./schema-behaviors";
-import styles from "./graphical-schema-editor.module.css";
+import badgeStyles from "./graphical-schema-editor/styles/badges.module.css";
+import combinerStyles from "./graphical-schema-editor/styles/combiner.module.css";
+import nodeStyles from "./graphical-schema-editor/styles/nodes.module.css";
+import variantStyles from "./graphical-schema-editor/styles/variant.module.css";
 import { renderTooltipContentChildren } from './tooltip-utils';
 import { buildBadges, BADGE_DEFS } from './graphical-schema-badges';
 import type { SchemaNodeType } from './types';
 
 import { renderBadges } from './graphical-schema-badges';
+
+const styles = {
+  ...badgeStyles,
+  ...combinerStyles,
+  ...nodeStyles,
+  ...variantStyles,
+};
 
 const canToggleXmlNodeChildren = (data: any) =>
   Boolean(data.hasChildren) && (

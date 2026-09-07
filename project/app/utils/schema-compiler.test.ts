@@ -470,3 +470,142 @@ describe('CompiledSchema - Integration', () => {
     expect(resolvedAddressType?.elements.length).toBe(3);
   });
 });
+
+describe('Schema Compiler - Inline Types', () => {
+  test('should create synthetic type for schema element with inline complexType', () => {
+    // Simulate xs:schema element with inline complexType (like XMLSchema.xsd)
+    const testSchemaWithInline: any = {
+      'xs:schema': {
+        '@attributes': {
+          xmlns: 'http://www.w3.org/2001/XMLSchema',
+          'xmlns:xs': 'http://www.w3.org/2001/XMLSchema',
+        },
+        'xs:element': {
+          '@attributes': {
+            name: 'schema'
+            // Note: NO type attribute
+          },
+          'xs:complexType': {
+            'xs:sequence': {
+              'xs:element': {
+                '@attributes': {
+                  name: 'element',
+                  type: 'xs:string'
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+
+    const compiled = compileSchema(testSchemaWithInline['xs:schema']);
+    
+    // Check that the synthetic type was created for schema element
+    const syntheticType = compiled.resolveType('schema__type');
+    expect(syntheticType).toBeDefined();
+    
+    // Check that children were extracted
+    expect(syntheticType?.elements.length).toBeGreaterThan(0);
+    expect(syntheticType?.elements[0].name).toBe('element');
+  });
+
+  test('should handle schema element with complexContent/extension and group refs', () => {
+    // Simulate xs:schema structure from XMLSchema.xsd
+    const testSchemaWithExtension: any = {
+      'xs:schema': {
+        '@attributes': {
+          xmlns: 'http://www.w3.org/2001/XMLSchema',
+          'xmlns:xs': 'http://www.w3.org/2001/XMLSchema',
+        },
+        'xs:group': {
+          '@attributes': { name: 'testGroup' },
+          'xs:choice': {
+            'xs:element': [
+              { '@attributes': { name: 'elem1', type: 'xs:string' } },
+              { '@attributes': { name: 'elem2', type: 'xs:int' } }
+            ]
+          }
+        },
+        'xs:element': {
+          '@attributes': {
+            name: 'schema'
+            // NO type attribute - has inline complexType
+          },
+          'xs:complexType': {
+            'xs:complexContent': {
+              'xs:extension': {
+                '@attributes': { base: 'xs:openAttrs' },
+                'xs:sequence': {
+                  'xs:group': {
+                    '@attributes': { ref: 'xs:testGroup' }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+
+    const compiled = compileSchema(testSchemaWithExtension['xs:schema']);
+    
+    // Check that synthetic type was created for schema element
+    const syntheticType = compiled.resolveType('schema__type');
+    expect(syntheticType).toBeDefined();
+    expect(syntheticType?.baseType).toBe('xs:openAttrs');
+    
+    // The group ref should have been resolved and children extracted
+    expect(syntheticType?.elements).toBeDefined();
+  });
+
+  test('should not create synthetic type for non-schema elements with inline complexTypes', () => {
+    const testSchemaNoSynthetic: any = {
+      'xs:schema': {
+        '@attributes': {},
+        'xs:element': {
+          '@attributes': {
+            name: 'myElement'
+            // Has inline complexType but NOT named "schema"
+          },
+          'xs:complexType': {
+            'xs:sequence': {
+              'xs:element': {
+                '@attributes': {
+                  name: 'child',
+                  type: 'xs:string'
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+
+    const compiled = compileSchema(testSchemaNoSynthetic['xs:schema']);
+    
+    // Should NOT create synthetic type for non-schema elements
+    const syntheticType = compiled.resolveType('myElement__type');
+    expect(syntheticType).toBeUndefined();
+  });
+
+  test('should not create synthetic type if element already has type attribute', () => {
+    const testSchemaWithType: any = {
+      'xs:schema': {
+        '@attributes': {},
+        'xs:element': {
+          '@attributes': {
+            name: 'schema',
+            type: 'myType'  // Has type attribute
+          }
+        }
+      }
+    };
+
+    const compiled = compileSchema(testSchemaWithType['xs:schema']);
+    
+    // Should NOT create synthetic type when type attribute exists
+    const syntheticType = compiled.resolveType('schema__type');
+    expect(syntheticType).toBeUndefined();
+  });
+});

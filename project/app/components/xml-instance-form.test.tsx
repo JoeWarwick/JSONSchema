@@ -1,5 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import '@testing-library/jest-dom';
 import { TooltipProvider } from './ui/tooltip/tooltip';
 import { XmlInstanceForm } from './xml-instance-form';
 import { parseMarkup } from '../utils/markup';
@@ -11,6 +12,260 @@ function renderForm(ui: React.ReactElement) {
 describe('XmlInstanceForm trigger-row behavior', () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  test('derives schema form root add buttons from the XSD walk', async () => {
+    const onChange = jest.fn();
+    const xmlSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:group name="schemaTop">
+          <xs:choice>
+            <xs:element ref="xs:element"/>
+            <xs:element ref="xs:attribute"/>
+            <xs:element ref="xs:notation"/>
+          </xs:choice>
+        </xs:group>
+        <xs:group name="redefinable">
+          <xs:choice>
+            <xs:element ref="xs:simpleType"/>
+            <xs:element ref="xs:complexType"/>
+            <xs:element ref="xs:attributeGroup"/>
+          </xs:choice>
+        </xs:group>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xmlSchema}
+        rootSchema={xmlSchema}
+        value={xmlSchema}
+        onChange={onChange}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-expanded"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Add Element/i })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: /Add ComplexType/i })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: /Add SimpleType/i })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: /Add Group/i })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: /Add Notation/i })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: /Add AttributeGroup/i })).toHaveLength(1);
+    });
+  });
+
+  test('infers child add triggers at nested schema depth, not just the root', async () => {
+    const onChange = jest.fn();
+    const xmlSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="person" type="PersonType"/>
+        <xs:complexType name="PersonType">
+          <xs:sequence>
+            <xs:element name="firstName" type="xs:string"/>
+            <xs:element name="lastName" type="xs:string"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xmlSchema}
+        rootSchema={xmlSchema}
+        value={{ person: {} }}
+        onChange={onChange}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-nested-trigger"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Add firstName/i })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: /Add lastName/i })).toHaveLength(1);
+    });
+  });
+
+  test('keeps nested xs:choice options visible when choice is inside xs:sequence', async () => {
+    const onChange = jest.fn();
+    const xmlSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="person" type="PersonType"/>
+        <xs:complexType name="PersonType">
+          <xs:sequence>
+            <xs:element name="firstName" type="xs:string"/>
+            <xs:element name="lastName" type="xs:string"/>
+            <xs:choice minOccurs="0">
+              <xs:element name="homeEmail" type="xs:string"/>
+              <xs:element name="workEmail" type="xs:string"/>
+            </xs:choice>
+            <xs:element name="address" type="xs:string"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xmlSchema}
+        rootSchema={xmlSchema}
+        value={{ person: {} }}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Add homeEmail/i })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: /Add workEmail/i })).toHaveLength(1);
+    });
+  });
+
+  test('infers an xs:element add trigger on xs:sequence compositor nodes', async () => {
+    const onChange = jest.fn();
+    const xmlSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="person" type="PersonType"/>
+        <xs:complexType name="PersonType">
+          <xs:sequence>
+            <xs:element name="firstName" type="xs:string"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xmlSchema}
+        rootSchema={xmlSchema}
+        value={xmlSchema}
+        onChange={onChange}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-expanded"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Add xs:element/i })).toHaveLength(1);
+    });
+  });
+
+  test('infers an xs:attribute add trigger for xs:complexType when allowed by the walked schema', async () => {
+    const onChange = jest.fn();
+    const xmlSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:complexType name="complexType">
+          <xs:sequence>
+            <xs:element ref="xs:attribute" minOccurs="0" maxOccurs="unbounded"/>
+          </xs:sequence>
+        </xs:complexType>
+        <xs:element name="holder" type="complexType"/>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xmlSchema}
+        rootSchema={xmlSchema}
+        value={{ holder: {} }}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Add xs:attribute/i })).toHaveLength(1);
+    });
+  });
+
+  test('infers complexType model branch triggers from mixed choice/sequence grammar', async () => {
+    const onChange = jest.fn();
+    const xmlSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:group name="typeDefParticle">
+          <xs:choice>
+            <xs:element ref="xs:all"/>
+            <xs:element ref="xs:choice"/>
+            <xs:element ref="xs:sequence"/>
+          </xs:choice>
+        </xs:group>
+        <xs:group name="attrDecls">
+          <xs:sequence>
+            <xs:choice>
+              <xs:element ref="xs:attribute"/>
+              <xs:element ref="xs:attributeGroup"/>
+            </xs:choice>
+          </xs:sequence>
+        </xs:group>
+        <xs:group name="complexTypeModel">
+          <xs:choice>
+            <xs:element ref="xs:simpleContent"/>
+            <xs:element ref="xs:complexContent"/>
+            <xs:sequence>
+              <xs:group ref="xs:typeDefParticle" minOccurs="0"/>
+              <xs:group ref="xs:attrDecls"/>
+            </xs:sequence>
+          </xs:choice>
+        </xs:group>
+        <xs:complexType name="localComplexType">
+          <xs:sequence>
+            <xs:group ref="xs:complexTypeModel"/>
+          </xs:sequence>
+        </xs:complexType>
+        <xs:element name="holder" type="localComplexType"/>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xmlSchema}
+        rootSchema={xmlSchema}
+        value={{ holder: {} }}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Add xs:simpleContent/i })).toHaveLength(1);
+      expect(screen.getByRole('option', { name: /xs:complexContent/i })).toBeTruthy();
+      expect(screen.getByRole('option', { name: /xs:attribute\s*:/i })).toBeTruthy();
+      expect(screen.getByRole('option', { name: /xs:all/i })).toBeTruthy();
+      expect(screen.getByRole('option', { name: /xs:choice/i })).toBeTruthy();
+      expect(screen.getByRole('option', { name: /xs:sequence/i })).toBeTruthy();
+    });
+  });
+
+  test('infers xs:enumeration add triggers and remove controls for restriction facets', async () => {
+    const onChange = jest.fn();
+    const xmlSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:simpleType name="ColorType">
+          <xs:restriction base="xs:string">
+            <xs:enumeration value="red"/>
+            <xs:enumeration value="green"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xmlSchema}
+        rootSchema={xmlSchema}
+        value={xmlSchema}
+        onChange={onChange}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-expanded"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Add xs:enumeration/i })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: /Remove value/i })).toHaveLength(2);
+      expect(screen.getAllByRole('button', { name: /Remove base/i })).toHaveLength(1);
+    });
   });
 
   test('renders a color picker when xs:element declares ui:widget color', async () => {
@@ -328,7 +583,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
       />,
     );
 
-    const nicknameAdd = screen.getByRole('button', { name: /^\+\s*nickname$/i });
+    const nicknameAdd = screen.getByRole('button', { name: /Add nickname/i });
     expect(nicknameAdd).toBeTruthy();
     expect(nicknameAdd.hasAttribute('disabled')).toBe(false);
 
@@ -351,7 +606,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
       />,
     );
 
-    const nicknameAddAtMax = screen.getByRole('button', { name: /^\+\s*nickname$/i });
+    const nicknameAddAtMax = screen.getByRole('button', { name: /Add nickname/i });
     expect(nicknameAddAtMax.hasAttribute('disabled')).toBe(true);
   });
 
@@ -367,11 +622,9 @@ describe('XmlInstanceForm trigger-row behavior', () => {
       />,
     );
 
-    // Element trigger row should not include per-element remove chips.
-    expect(screen.queryByTitle('Remove nickname')).toBeNull();
-
-    // Optional element instances still get rhs remove control.
-    expect(screen.queryByTitle('Remove element')).toBeTruthy();
+    // Optional element instances still get rhs remove control with specific node labeling.
+    expect(screen.queryByTitle('Remove nickname')).toBeTruthy();
+    expect(screen.queryByTitle('Remove element')).toBeNull();
   });
 
   test('hides trigger for required singleton elements', () => {
@@ -406,8 +659,91 @@ describe('XmlInstanceForm trigger-row behavior', () => {
       />,
     );
 
-    const idTrigger = screen.queryByRole('button', { name: /^\+\s*id\s*!$/i });
+    const idTrigger = screen.queryByRole('button', { name: /Add id/i });
     expect(idTrigger).toBeTruthy();
+    expect(idTrigger?.textContent || '').toContain('!');
+  });
+
+  test('infers bounded repeat add/remove behavior from minOccurs/maxOccurs', () => {
+    const onChange = jest.fn();
+    const boundedSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="person" type="PersonType"/>
+        <xs:complexType name="PersonType">
+          <xs:sequence>
+            <xs:element name="alias" type="xs:string" minOccurs="2" maxOccurs="3"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:schema>
+    `, 'xml') as any;
+
+    const { rerender } = renderForm(
+      <XmlInstanceForm
+        schema={boundedSchema}
+        rootSchema={boundedSchema}
+        value={{ person: { alias: [{ _text: 'a' }, { _text: 'b' }] } }}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+
+    const addAliasAtMin = screen.getByRole('button', { name: /Add alias/i });
+    expect(addAliasAtMin.hasAttribute('disabled')).toBe(false);
+    expect(screen.queryByTitle('Remove alias 1')).toBeNull();
+    expect(screen.queryByTitle('Remove alias 2')).toBeNull();
+
+    fireEvent.click(addAliasAtMin);
+    const afterAdd = onChange.mock.calls[0][0];
+    expect(Array.isArray(afterAdd.person.alias)).toBe(true);
+    expect(afterAdd.person.alias).toHaveLength(3);
+
+    rerender(
+      <TooltipProvider delayDuration={0}>
+        <XmlInstanceForm
+          schema={boundedSchema}
+          rootSchema={boundedSchema}
+          value={{ person: { alias: [{ _text: 'a' }, { _text: 'b' }, { _text: 'c' }] } }}
+          onChange={onChange}
+          autoExpandAll
+        />
+      </TooltipProvider>,
+    );
+
+    const addAliasAtMax = screen.getByRole('button', { name: /Add alias/i });
+    expect(addAliasAtMax.hasAttribute('disabled')).toBe(true);
+    expect(screen.queryByTitle('Remove alias 1')).toBeTruthy();
+  });
+
+  test('removes repeating children only when count is above minOccurs', () => {
+    const onChange = jest.fn();
+    const boundedSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="person" type="PersonType"/>
+        <xs:complexType name="PersonType">
+          <xs:sequence>
+            <xs:element name="alias" type="xs:string" minOccurs="2" maxOccurs="3"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={boundedSchema}
+        rootSchema={boundedSchema}
+        value={{ person: { alias: [{ _text: 'a' }, { _text: 'b' }, { _text: 'c' }] } }}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+
+    const removeFirstAlias = screen.getByTitle('Remove alias 1');
+    expect(removeFirstAlias).toBeTruthy();
+    fireEvent.click(removeFirstAlias as HTMLElement);
+
+    const afterRemove = onChange.mock.calls[0][0];
+    expect(Array.isArray(afterRemove.person.alias)).toBe(true);
+    expect(afterRemove.person.alias).toHaveLength(2);
   });
 
   test('choice sibling trigger is hidden once another choice option is present', () => {
@@ -458,6 +794,203 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     expect(homeEmailAdd).toBeNull();
   });
 
+  test('repeatable choice keeps sibling options visible instead of forcing a single selected dropdown branch', () => {
+    const onChange = jest.fn();
+    const repeatableChoiceSchema = {
+      'xs:schema': {
+        'xs:element': {
+          '@attributes': {
+            name: 'root',
+            type: 'RootType',
+          },
+        },
+        'xs:complexType': {
+          '@attributes': {
+            name: 'RootType',
+          },
+          'xs:choice': {
+            '@attributes': {
+              minOccurs: '0',
+              maxOccurs: 'unbounded',
+            },
+            'xs:element': [
+              {
+                '@attributes': {
+                  name: 'import',
+                  type: 'xs:string',
+                },
+              },
+              {
+                '@attributes': {
+                  name: 'annotation',
+                  type: 'xs:string',
+                },
+              },
+            ],
+          },
+        },
+      },
+    } as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={repeatableChoiceSchema}
+        rootSchema={repeatableChoiceSchema}
+        value={{ root: { import: { _text: 'i1' }, annotation: { _text: 'a1' } } }}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /Add import/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Add annotation/i })).toBeTruthy();
+    expect(screen.queryByRole('combobox')).toBeNull();
+  });
+
+  test('schema form does not synthesize missing required choice rows from walking schema', async () => {
+    const onChange = jest.fn();
+    const schemaGrammar = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="holder" type="HolderType"/>
+        <xs:complexType name="HolderType">
+          <xs:choice>
+            <xs:element name="xs:import" type="xs:string"/>
+            <xs:element name="xs:annotation" type="xs:string"/>
+          </xs:choice>
+        </xs:complexType>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={schemaGrammar}
+        rootSchema={schemaGrammar}
+        value={{ holder: {} }}
+        onChange={onChange}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-expanded"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Add xs:import/i })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /Add xs:annotation/i })).toBeTruthy();
+    });
+
+    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(screen.queryByTestId('xml-tag-xs_import')).toBeNull();
+    expect(screen.queryByTestId('xml-tag-xs_annotation')).toBeNull();
+  });
+
+  test('schema form preserves existing sibling choice nodes without collapsing to a selected dropdown', async () => {
+    const onChange = jest.fn();
+    const schemaGrammar = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="holder" type="HolderType"/>
+        <xs:complexType name="HolderType">
+          <xs:choice>
+            <xs:element name="xs:import" type="xs:string"/>
+            <xs:element name="xs:annotation" type="xs:string"/>
+          </xs:choice>
+        </xs:complexType>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={schemaGrammar}
+        rootSchema={schemaGrammar}
+        value={{ holder: { 'xs:import': { _text: 'i1' }, 'xs:annotation': { _text: 'a1' } } }}
+        onChange={onChange}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-expanded"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('xml-element-xs_import-input')).toBeTruthy();
+      expect(screen.getByTestId('xml-element-xs_annotation-input')).toBeTruthy();
+    });
+
+    expect(screen.queryByRole('combobox')).toBeNull();
+  });
+
+  test('schema form inline complexType repeatable choice keeps sibling nodes visible', async () => {
+    const onChange = jest.fn();
+    const schemaGrammar = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="holder">
+          <xs:complexType>
+            <xs:choice minOccurs="0" maxOccurs="unbounded">
+              <xs:element name="xs:import" type="xs:string"/>
+              <xs:element name="xs:annotation" type="xs:string"/>
+            </xs:choice>
+          </xs:complexType>
+        </xs:element>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={schemaGrammar}
+        rootSchema={schemaGrammar}
+        value={{ holder: { 'xs:import': { _text: 'i1' }, 'xs:annotation': { _text: 'a1' } } }}
+        onChange={onChange}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-expanded"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('xml-element-xs_import-input')).toBeTruthy();
+      expect(screen.getByTestId('xml-element-xs_annotation-input')).toBeTruthy();
+    });
+
+    expect(screen.queryByRole('combobox')).toBeNull();
+  });
+
+  test('schema form root does not duplicate top-level add triggers with prefixed child triggers', async () => {
+    const onChange = jest.fn();
+    const xmlSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="holder" type="SchemaType"/>
+        <xs:complexType name="SchemaType">
+          <xs:sequence>
+            <xs:group ref="xs:schemaTop" minOccurs="0" maxOccurs="unbounded"/>
+          </xs:sequence>
+        </xs:complexType>
+        <xs:group name="schemaTop">
+          <xs:choice>
+            <xs:element ref="xs:element"/>
+            <xs:element ref="xs:attribute"/>
+            <xs:element ref="xs:complexType"/>
+          </xs:choice>
+        </xs:group>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xmlSchema}
+        rootSchema={xmlSchema}
+        value={{ holder: {} }}
+        onChange={onChange}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-expanded"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Add Element/i })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: /Add ComplexType/i })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: /Add Group/i })).toHaveLength(1);
+    });
+
+    expect(screen.queryByRole('button', { name: /Add xs:element/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Add xs:complexType/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Add xs:group/i })).toBeNull();
+  });
+
   test('optional choice shows rhs trash near dropdown and removes selected branch', () => {
     const onChange = jest.fn();
     const optionalChoiceSchema = {
@@ -506,7 +1039,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
       />,
     );
 
-    const removeChoice = screen.queryByTitle('Remove selected choice element');
+    const removeChoice = screen.queryByTitle('Remove selected workEmail option');
     expect(removeChoice).toBeTruthy();
     fireEvent.click(removeChoice as HTMLElement);
 
@@ -563,7 +1096,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     );
 
     const input = screen.getByDisplayValue('a@corp.test');
-    const removeChoice = screen.getByTitle('Remove selected choice element');
+    const removeChoice = screen.getByTitle('Remove selected workEmail option');
 
     expect(input.nextElementSibling).toBe(removeChoice);
   });
@@ -682,7 +1215,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
 
     expect(screen.getByRole('button', { name: /^\+\s*name$/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /^\+\s*namespace$/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /^\+\s*PostScript$/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Add PostScript/i })).toBeTruthy();
   });
 
   test('removes attributes declared in an inline complexContent extension on the model element', async () => {

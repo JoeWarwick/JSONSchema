@@ -1,6 +1,10 @@
 import React from 'react';
 import { Printer } from 'lucide-react';
-import styles from './graphical-schema-editor.module.css';
+import sidebarStyles from './graphical-schema-editor/styles/sidebar.module.css';
+
+const styles = {
+  ...sidebarStyles,
+};
 
 export type XmlSchemaDetails = {
   targetNamespace?: string | null;

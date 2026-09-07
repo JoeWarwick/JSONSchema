@@ -117,6 +117,15 @@ export class CompiledSchema {
     
     // Phase 2: Load imported schemas (if resolver available)
     this.loadImports(this.rootSchema);
+    
+    // Debug logging for xs:schema
+    if (this.elementMap.size > 0 && (this.elementMap.has('schema') || this.elementMap.has('xs:schema'))) {
+      console.log('[SchemaCompiler.compile] After indexing, elementMap keys:', Array.from(this.elementMap.keys()).slice(0, 20));
+    }
+    
+    // Phase 3: Clear the root schema from memory after compilation is complete
+    // This frees memory for large meta-schemas like XMLSchema.xsd
+    this.rootSchema = null;
   }
 
   /**
@@ -124,6 +133,21 @@ export class CompiledSchema {
    */
   private indexTypes(schema: any, namespace?: string): void {
     if (!schema || typeof schema !== 'object') return;
+
+    const elementKey = `${this.nsPrefix}:element`;
+    const hasDirectElements = !!schema[elementKey] || !!schema['element'];
+    
+    if (!namespace && hasDirectElements) {
+      console.log('[SchemaCompiler.indexTypes] Found elements in root schema:', {
+        nsPrefix: this.nsPrefix,
+        elementKey,
+        has_prefixed: !!schema[elementKey],
+        has_unprefixed: !!schema['element'],
+        elementCount: Array.isArray(schema[elementKey] || schema['element']) 
+          ? (schema[elementKey] || schema['element']).length 
+          : 1,
+      });
+    }
 
     // Index simpleTypes
     const simpleTypes = schema[`${this.nsPrefix}:simpleType`] || schema['simpleType'];
@@ -152,6 +176,62 @@ export class CompiledSchema {
         const key = attrs.name;
         if (key) {
           this.elementMap.set(key, elem);
+          if (key === 'schema' || key === 'xs:schema') {
+            console.log('[SchemaCompiler.indexTypes] Indexed element:', key, 'with attrs:', attrs);
+          }
+          
+          // ONLY create synthetic type for the root "schema" element (special handling for XMLSchema.xsd)
+          // Other elements with inline types are handled dynamically by the walker
+          if (!attrs.type && key === 'schema') {
+            const inlineComplexType = elem[`${this.nsPrefix}:complexType`] || elem['complexType'];
+            if (inlineComplexType) {
+              console.log(`[SchemaCompiler] Found inlineComplexType for schema element, keys:`, Object.keys(inlineComplexType));
+              const syntheticName = `${key}__type`; // e.g., "schema__type"
+              if (!this.typeMap.has(syntheticName)) {
+                const inlineCompiled: CompiledType = {
+                  name: syntheticName,
+                  namespace,
+                  kind: 'complexType',
+                  elements: [],
+                  attributes: [],
+                  schemaObj: inlineComplexType,
+                };
+
+                // Handle xs:complexContent/xs:extension
+                const complexContent = inlineComplexType[`${this.nsPrefix}:complexContent`] || inlineComplexType['complexContent'];
+                if (complexContent) {
+                  const extension = complexContent[`${this.nsPrefix}:extension`] || complexContent['extension'];
+                  if (extension) {
+                    const extAttrs = getXmlAttrs(extension);
+                    if (extAttrs.base) {
+                      inlineCompiled.baseType = extAttrs.base;
+                    }
+                    this.extractElementsAndAttributes(extension, inlineCompiled);
+                  }
+                }
+
+                // Handle direct sequence/choice/all
+                if (syntheticName === 'schema__type') {
+                  console.log(`[SchemaCompiler] About to extract from schema__type inlineComplexType, keys:`, Object.keys(inlineComplexType));
+                }
+                this.extractElementsAndAttributes(inlineComplexType, inlineCompiled);
+                
+                const elementDetails = inlineCompiled.elements.map(e => ({
+                  name: e.name,
+                  compositorType: e.compositorType,
+                  maxOccurs: e.maxOccurs,
+                  minOccurs: e.minOccurs,
+                }));
+                console.log(`[SchemaCompiler] Created ${syntheticName}:`, {
+                  totalElements: inlineCompiled.elements.length,
+                  elements: elementDetails,
+                  typeCompositorType: inlineCompiled.compositorType,
+                });
+
+                this.typeMap.set(syntheticName, inlineCompiled);
+              }
+            }
+          }
         }
       }
     }
@@ -318,10 +398,15 @@ export class CompiledSchema {
       'all',
     ]) {
       const compositor = container[compositorKey];
+      if (compiled.name === 'schema__type') {
+        console.log(`[SchemaCompiler.extractElementsAndAttributes] Checking ${compositorKey} - found:`, !!compositor);
+      }
       if (!compositor) continue;
 
       const compositorAttrs = getXmlAttrs(compositor);
       const compositorMinOccurs = parseInt(compositorAttrs.minOccurs ?? '1', 10);
+      const compositorMaxOccursRaw = compositorAttrs.maxOccurs ?? '1';
+      const compositorMaxOccurs = compositorMaxOccursRaw === 'unbounded' ? 'unbounded' : parseInt(String(compositorMaxOccursRaw), 10);
 
       const compositorType = compositorKey.replace(/^.*:/, '') as 'sequence' | 'choice' | 'all';
       if (!compiled.compositorType) {
@@ -332,8 +417,19 @@ export class CompiledSchema {
       const elements = compositor[`${this.nsPrefix}:element`] || compositor['element'];
       if (elements) {
         const elemArray = Array.isArray(elements) ? elements : [elements];
+        if (compiled.name === 'schema__type' && compositorType === 'choice') {
+          console.log(`[SchemaCompiler] Found ${compositorType} in schema__type with ${elemArray.length} elements`);
+          console.log(`[SchemaCompiler] Element refs in choice:`, elemArray.map((e: any) => {
+            const attrs = getXmlAttrs(e);
+            return { name: attrs.name, ref: attrs.ref };
+          }));
+          // Log all keys in the compositor to see if there are other child types
+          console.log(`[SchemaCompiler] All keys in choice compositor:`, Object.keys(compositor));
+        }
         for (const elem of elemArray) {
           const attrs = getXmlAttrs(elem);
+          const resolvedName = attrs.name || attrs.ref || '';
+          if (!resolvedName) continue;
           let inferredType = attrs.type;
           const inlineComplexType = elem[`${this.nsPrefix}:complexType`] || elem['complexType'];
           if (!inferredType && inlineComplexType && attrs.name) {
@@ -341,11 +437,16 @@ export class CompiledSchema {
           }
           const declaredMinOccurs = parseInt(attrs.minOccurs ?? '1', 10);
           const effectiveMinOccurs = compositorMinOccurs === 0 ? 0 : declaredMinOccurs;
+          const declaredMaxOccursRaw = attrs.maxOccurs ?? '1';
+          const declaredMaxOccurs = declaredMaxOccursRaw === 'unbounded' ? 'unbounded' : parseInt(String(declaredMaxOccursRaw), 10);
+          const effectiveMaxOccurs = compositorMaxOccurs === 'unbounded' || declaredMaxOccurs === 'unbounded'
+            ? 'unbounded'
+            : declaredMaxOccurs;
           compiled.elements.push({
-            name: attrs.name || '',
+            name: resolvedName,
             type: inferredType,
             minOccurs: effectiveMinOccurs,
-            maxOccurs: attrs.maxOccurs ?? '1',
+            maxOccurs: effectiveMaxOccurs,
             compositorType,
           });
         }
@@ -354,6 +455,29 @@ export class CompiledSchema {
       // Handle nested compositors (choice within sequence, etc.)
       // This allows proper handling of complex schema structures
       this.extractNestedCompositorElements(compositor, compositorType, compiled);
+
+      // Handle group refs within this compositor
+      const groupNodes = compositor[`${this.nsPrefix}:group`] || compositor['group'];
+      if (groupNodes) {
+        const groupArray = Array.isArray(groupNodes) ? groupNodes : [groupNodes];
+        for (const groupNode of groupArray) {
+          const groupAttrs = getXmlAttrs(groupNode);
+          const groupRef = groupAttrs.ref;
+          if (groupRef) {
+            // Resolve the named group and extract its elements
+            const namedGroup = this.findNamedGroup(groupRef);
+            if (compiled.name === 'schema__type') {
+              console.log(`[SchemaCompiler] Found group ref: ${groupRef}, resolved:`, !!namedGroup);
+            }
+            if (namedGroup) {
+              if (compiled.name === 'schema__type') {
+                console.log(`[SchemaCompiler] Group ${groupRef} keys:`, Object.keys(namedGroup));
+              }
+              this.extractElementsAndAttributesFromGroup(namedGroup, compositorMinOccurs, compositorMaxOccurs, compositorType, compiled, new Set<string>());
+            }
+          }
+        }
+      }
     }
 
     // Extract attributes
@@ -394,6 +518,8 @@ export class CompiledSchema {
 
       const nestedCompositorAttrs = getXmlAttrs(nestedCompositor);
       const nestedCompositorMinOccurs = parseInt(nestedCompositorAttrs.minOccurs ?? '1', 10);
+      const nestedCompositorMaxOccursRaw = nestedCompositorAttrs.maxOccurs ?? '1';
+      const nestedCompositorMaxOccurs = nestedCompositorMaxOccursRaw === 'unbounded' ? 'unbounded' : parseInt(String(nestedCompositorMaxOccursRaw), 10);
 
       const nestedCompositorType = nestedCompositorKey.replace(/^.*:/, '') as 'sequence' | 'choice' | 'all';
       
@@ -403,13 +529,20 @@ export class CompiledSchema {
         const elemArray = Array.isArray(elements) ? elements : [elements];
         for (const elem of elemArray) {
           const attrs = getXmlAttrs(elem);
+          const resolvedName = attrs.name || attrs.ref || '';
+          if (!resolvedName) continue;
           const declaredMinOccurs = parseInt(attrs.minOccurs ?? '1', 10);
           const effectiveMinOccurs = nestedCompositorMinOccurs === 0 ? 0 : declaredMinOccurs;
+          const declaredMaxOccursRaw = attrs.maxOccurs ?? '1';
+          const declaredMaxOccurs = declaredMaxOccursRaw === 'unbounded' ? 'unbounded' : parseInt(String(declaredMaxOccursRaw), 10);
+          const effectiveMaxOccurs = nestedCompositorMaxOccurs === 'unbounded' || declaredMaxOccurs === 'unbounded'
+            ? 'unbounded'
+            : declaredMaxOccurs;
           compiled.elements.push({
-            name: attrs.name || '',
+            name: resolvedName,
             type: attrs.type,
             minOccurs: effectiveMinOccurs,
-            maxOccurs: attrs.maxOccurs ?? '1',
+            maxOccurs: effectiveMaxOccurs,
             compositorType: nestedCompositorType, // Mark with the nested compositor type
           });
         }
@@ -417,6 +550,231 @@ export class CompiledSchema {
 
       // Recursively handle deeper nesting
       this.extractNestedCompositorElements(nestedCompositor, nestedCompositorType, compiled);
+
+      // Handle group refs within nested compositor
+      const groupNodes = nestedCompositor[`${this.nsPrefix}:group`] || nestedCompositor['group'];
+      if (groupNodes) {
+        const groupArray = Array.isArray(groupNodes) ? groupNodes : [groupNodes];
+        for (const groupNode of groupArray) {
+          const groupAttrs = getXmlAttrs(groupNode);
+          const groupRef = groupAttrs.ref;
+          if (groupRef) {
+            // Resolve the named group and extract its elements
+            const namedGroup = this.findNamedGroup(groupRef);
+            if (namedGroup) {
+              this.extractElementsAndAttributesFromGroup(namedGroup, nestedCompositorMinOccurs, nestedCompositorMaxOccurs, nestedCompositorType, compiled);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Load imported schemas (xs:import, xs:include).
+   * Note: This requires an external resolver function for URL loading.
+   */
+  private findNamedGroup(groupRef: string): any {
+    if (!groupRef || typeof groupRef !== 'string') return null;
+    const normalized = groupRef.replace(/^.*:/, ''); // Strip namespace prefix
+    const groups = this.rootSchema[`${this.nsPrefix}:group`] || this.rootSchema['group'];
+    if (!groups) return null;
+    const groupArray = Array.isArray(groups) ? groups : [groups];
+    for (const group of groupArray) {
+      const attrs = getXmlAttrs(group);
+      if (attrs.name === normalized) return group;
+    }
+    return null;
+  }
+
+  /**
+   * Extract elements and attributes from a named group (used when resolving xs:group refs).
+   */
+  private extractElementsAndAttributesFromGroup(
+    groupNode: any,
+    parentMinOccurs: number,
+    parentMaxOccurs: string | number,
+    parentCompositorType: 'sequence' | 'choice' | 'all',
+    compiled: CompiledType,
+    seen: Set<string> = new Set()
+  ): void {
+    if (!groupNode || typeof groupNode !== 'object') return;
+
+    // Extract elements from the group's compositor
+    for (const compositorKey of [
+      `${this.nsPrefix}:choice`,
+      `${this.nsPrefix}:sequence`,
+      `${this.nsPrefix}:all`,
+      'choice',
+      'sequence',
+      'all',
+    ]) {
+      const compositor = groupNode[compositorKey];
+      if (!compositor) continue;
+
+      const compositorAttrs = getXmlAttrs(compositor);
+      const compositorMinOccurs = parseInt(compositorAttrs.minOccurs ?? '1', 10);
+      const compositorMaxOccursRaw = compositorAttrs.maxOccurs ?? '1';
+      const compositorMaxOccurs = compositorMaxOccursRaw === 'unbounded' ? 'unbounded' : parseInt(String(compositorMaxOccursRaw), 10);
+
+      const compositorType = compositorKey.replace(/^.*:/, '') as 'sequence' | 'choice' | 'all';
+
+      // Set the compositor type on the compiled type (only if not already set)
+      if (!compiled.compositorType) {
+        compiled.compositorType = compositorType;
+      }
+
+      // Get elements from compositor
+      const elements = compositor[`${this.nsPrefix}:element`] || compositor['element'];
+      if (elements) {
+        const elemArray = Array.isArray(elements) ? elements : [elements];
+        if (compiled.name === 'schema__type') {
+          console.log(`[SchemaCompiler.extractElementsAndAttributesFromGroup] Found ${elemArray.length} elements in ${compositorType}:`, 
+            elemArray.map((e: any) => {
+              const attrs = getXmlAttrs(e);
+              return { name: attrs.name, ref: attrs.ref };
+            }));
+        }
+        for (const elem of elemArray) {
+          const attrs = getXmlAttrs(elem);
+          const resolvedName = attrs.name || attrs.ref || '';
+          if (!resolvedName) continue;
+          let inferredType = attrs.type;
+          const inlineComplexType = elem[`${this.nsPrefix}:complexType`] || elem['complexType'];
+          if (!inferredType && inlineComplexType && attrs.name) {
+            inferredType = this.getOrCreateInlineComplexType(compiled.name, attrs.name, inlineComplexType, compiled.namespace);
+          }
+          const declaredMinOccurs = parseInt(attrs.minOccurs ?? '1', 10);
+          const effectiveMinOccurs = parentMinOccurs === 0 ? 0 : (compositorMinOccurs === 0 ? 0 : declaredMinOccurs);
+          const declaredMaxOccursRaw = attrs.maxOccurs ?? '1';
+          const declaredMaxOccurs = declaredMaxOccursRaw === 'unbounded' ? 'unbounded' : parseInt(String(declaredMaxOccursRaw), 10);
+          const effectiveMaxOccurs = 
+            (parentMaxOccurs === 'unbounded' || compositorMaxOccurs === 'unbounded' || declaredMaxOccurs === 'unbounded')
+              ? 'unbounded'
+              : declaredMaxOccurs;
+          compiled.elements.push({
+            name: resolvedName,
+            type: inferredType,
+            minOccurs: effectiveMinOccurs,
+            maxOccurs: effectiveMaxOccurs,
+            compositorType,
+          });
+        }
+      }
+
+      // Handle group refs in this SAME compositor (not nested)
+      const groupNodes = compositor[`${this.nsPrefix}:group`] || compositor['group'];
+      if (groupNodes) {
+        const groupArray = Array.isArray(groupNodes) ? groupNodes : [groupNodes];
+        for (const groupNode of groupArray) {
+          const groupAttrs = getXmlAttrs(groupNode);
+          const groupRef = groupAttrs.ref;
+          if (groupRef && !seen.has(groupRef)) {
+            seen.add(groupRef);
+            // Resolve the named group and extract its elements
+            const namedGroup = this.findNamedGroup(groupRef);
+            if (namedGroup) {
+              this.extractElementsAndAttributesFromGroup(namedGroup, parentMinOccurs, parentMaxOccurs, compositorType, compiled, seen);
+            }
+          }
+        }
+      }
+
+      // Recursively handle nested compositors and group refs
+      this.extractNestedCompositorElementsWithGroupTracking(compositor, compositorType, compiled, seen);
+    }
+  }
+
+  /**
+   * Extract nested compositor elements with group ref cycle detection.
+   */
+  private extractNestedCompositorElementsWithGroupTracking(
+    compositor: any,
+    parentCompositorType: 'sequence' | 'choice' | 'all',
+    compiled: CompiledType,
+    seen: Set<string>
+  ): void {
+    if (!compositor || typeof compositor !== 'object') return;
+
+    // Look for nested choice, sequence, or all within this compositor
+    for (const nestedCompositorKey of [
+      `${this.nsPrefix}:choice`,
+      `${this.nsPrefix}:sequence`,
+      `${this.nsPrefix}:all`,
+      'choice',
+      'sequence',
+      'all',
+    ]) {
+      const nestedCompositor = compositor[nestedCompositorKey];
+      if (!nestedCompositor) continue;
+
+      const nestedCompositorAttrs = getXmlAttrs(nestedCompositor);
+      const nestedCompositorMinOccurs = parseInt(nestedCompositorAttrs.minOccurs ?? '1', 10);
+      const nestedCompositorMaxOccursRaw = nestedCompositorAttrs.maxOccurs ?? '1';
+      const nestedCompositorMaxOccurs = nestedCompositorMaxOccursRaw === 'unbounded' ? 'unbounded' : parseInt(String(nestedCompositorMaxOccursRaw), 10);
+
+      const nestedCompositorType = nestedCompositorKey.replace(/^.*:/, '') as 'sequence' | 'choice' | 'all';
+      
+      // Extract elements from the nested compositor
+      const elements = nestedCompositor[`${this.nsPrefix}:element`] || nestedCompositor['element'];
+      if (elements) {
+        const elemArray = Array.isArray(elements) ? elements : [elements];
+        for (const elem of elemArray) {
+          const attrs = getXmlAttrs(elem);
+          const resolvedName = attrs.name || attrs.ref || '';
+          if (!resolvedName) continue;
+          const declaredMinOccurs = parseInt(attrs.minOccurs ?? '1', 10);
+          const effectiveMinOccurs = nestedCompositorMinOccurs === 0 ? 0 : declaredMinOccurs;
+          const declaredMaxOccursRaw = attrs.maxOccurs ?? '1';
+          const declaredMaxOccurs = declaredMaxOccursRaw === 'unbounded' ? 'unbounded' : parseInt(String(declaredMaxOccursRaw), 10);
+          const effectiveMaxOccurs = nestedCompositorMaxOccurs === 'unbounded' || declaredMaxOccurs === 'unbounded'
+            ? 'unbounded'
+            : declaredMaxOccurs;
+          compiled.elements.push({
+            name: resolvedName,
+            type: attrs.type,
+            minOccurs: effectiveMinOccurs,
+            maxOccurs: effectiveMaxOccurs,
+            compositorType: nestedCompositorType, // Mark with the nested compositor type
+          });
+        }
+      }
+
+      // Handle group refs within nested compositor (with cycle detection)
+      const groupNodes = nestedCompositor[`${this.nsPrefix}:group`] || nestedCompositor['group'];
+      if (compiled.name === 'schema__type') {
+        console.log(`[SchemaCompiler] Looking for group refs in nested ${nestedCompositorType}, found:`, !!groupNodes, groupNodes ? 'count=' + (Array.isArray(groupNodes) ? groupNodes.length : 1) : 'N/A');
+      }
+      if (groupNodes) {
+        const groupArray = Array.isArray(groupNodes) ? groupNodes : [groupNodes];
+        for (const groupNode of groupArray) {
+          const groupAttrs = getXmlAttrs(groupNode);
+          const groupRef = groupAttrs.ref;
+          if (compiled.name === 'schema__type') {
+            console.log(`[SchemaCompiler] Group ref: ${groupRef}, already seen:`, seen.has(groupRef));
+          }
+          if (groupRef && !seen.has(groupRef)) {
+            seen.add(groupRef);
+            // Resolve the named group and extract its elements
+            const namedGroup = this.findNamedGroup(groupRef);
+            if (compiled.name === 'schema__type') {
+              console.log(`[SchemaCompiler] After findNamedGroup for ${groupRef}:`, !!namedGroup);
+            }
+            if (namedGroup) {
+              if (compiled.name === 'schema__type') {
+                console.log(`[SchemaCompiler] Before recursive extract for ${groupRef}, current elements:`, compiled.elements.length);
+              }
+              this.extractElementsAndAttributesFromGroup(namedGroup, nestedCompositorMinOccurs, nestedCompositorMaxOccurs, nestedCompositorType, compiled, seen);
+              if (compiled.name === 'schema__type') {
+                console.log(`[SchemaCompiler] After recursive extract for ${groupRef}, new elements:`, compiled.elements.length);
+              }
+            }
+          }
+        }
+      }
+
+      // Recursively handle deeper nesting
+      this.extractNestedCompositorElementsWithGroupTracking(nestedCompositor, nestedCompositorType, compiled, seen);
     }
   }
 
@@ -536,6 +894,27 @@ export class CompiledSchema {
   }
 
   /**
+   * Get a global element definition by name.
+   * Handles namespace prefixes automatically.
+   */
+  public getElement(elementName: string): any {
+    if (!elementName) return undefined;
+
+    console.log('[CompiledSchema.getElement] called with:', elementName, 'elementMap size:', this.elementMap.size);
+
+    // Try direct lookup
+    let elem = this.elementMap.get(elementName);
+    if (elem) return elem;
+
+    // Try stripping namespace prefix
+    const normalized = elementName.replace(/^.*:/, '');
+    elem = this.elementMap.get(normalized);
+    if (elem) return elem;
+
+    return undefined;
+  }
+
+  /**
    * Resolve a type, following the inheritance chain (extension/restriction/union).
    * Returns flattened type info with all inherited elements and attributes.
    */
@@ -618,10 +997,6 @@ export class CompiledSchema {
   /**
    * Get a global element by name.
    */
-  public getElement(elementName: string): any {
-    return this.elementMap.get(elementName);
-  }
-
   /**
    * Check if a type exists.
    */
@@ -666,10 +1041,17 @@ export class CompiledSchema {
     value: any,
     isRootLevel: boolean
   ): any {
-    // Try normal lookup first
-    const result = value?.[childElementName];
-    if (result !== undefined) {
-      return result;
+    const candidateNames = new Set<string>();
+    const normalizedBase = String(childElementName || '').replace(/^.*:/, '');
+
+    if (childElementName) candidateNames.add(childElementName);
+    if (normalizedBase && normalizedBase !== childElementName) candidateNames.add(normalizedBase);
+    if (normalizedBase) candidateNames.add(`xs:${normalizedBase}`);
+    if (normalizedBase) candidateNames.add(`xsd:${normalizedBase}`);
+
+    for (const key of candidateNames) {
+      const result = value?.[key];
+      if (result !== undefined) return result;
     }
 
     // If at root level and value might be wrapped, try unwrapping
@@ -679,7 +1061,10 @@ export class CompiledSchema {
       if (nonAttrKeys.length === 1 && nonAttrKeys[0] === rootElementName) {
         const unwrappedValue = value[rootElementName];
         if (typeof unwrappedValue === 'object' && unwrappedValue !== null) {
-          return unwrappedValue[childElementName];
+          for (const key of candidateNames) {
+            const result = unwrappedValue[key];
+            if (result !== undefined) return result;
+          }
         }
       }
     }

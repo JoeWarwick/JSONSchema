@@ -11,7 +11,6 @@ import {
   getTypeAttributes,
   getAttributeEnumerations,
   getAttributeFacets,
-  findElementInSchema,
   getAllTypeNames,
 } from '../utils/schema-walker';
 import type { CompiledSchema, ValidationFacets } from '../utils/schema-compiler';
@@ -991,6 +990,8 @@ function parseXmlElement(node: any, tagNameHint?: string): XmlElement | null {
   };
 }
 
+type TopLevelXsdKind = 'element' | 'attribute' | 'complexType' | 'simpleType' | 'group' | 'attributeGroup' | 'notation';
+
 // Recursively render an XML element with expansion state
 function XmlElementNode({
   element,
@@ -1007,6 +1008,10 @@ function XmlElementNode({
   initialAutoExpandPathsRef,
   autoExpandCaptureActiveRef,
   isSchemaForm = false,
+  rootXsdAddButtons,
+  onAddTopLevelXsdDefinition,
+  suppressElementLabel = false,
+  suppressExpander = false,
 }: {
   element: XmlElement;
   path: string[];
@@ -1022,10 +1027,11 @@ function XmlElementNode({
   initialAutoExpandPathsRef?: React.MutableRefObject<Set<string>>;
   autoExpandCaptureActiveRef?: React.MutableRefObject<boolean>;
   isSchemaForm?: boolean;
+  rootXsdAddButtons?: Array<{ kind: TopLevelXsdKind; label: string }>;
+  onAddTopLevelXsdDefinition?: (kind: TopLevelXsdKind) => void;
+  suppressElementLabel?: boolean;
+  suppressExpander?: boolean;
 }) {
-  // State for tracking which choice option is selected
-  const [selectedChoices, setSelectedChoices] = useState<Record<string, string>>({});
-  
   const pathKey = path.join('.');
   if (autoExpandAll && autoExpandCaptureActiveRef?.current) {
     initialAutoExpandPathsRef?.current.add(pathKey);
@@ -1039,9 +1045,10 @@ function XmlElementNode({
   const elementTagName = typeof element.tagName === 'string' ? element.tagName : '';
   const localTagName = elementTagName.replace(/^.*:/, '');
   
-  // Log schemaNode for root element
-  if (path.length === 0) {
-    console.log(`[XmlElementNode ROOT] element.tagName=${element.tagName}, schemaNode exists=${!!schemaNode}, schemaNode.children=${schemaNode?.children?.length || 0}`);
+  // DEBUG: Always log for first few renders to verify component is running
+  console.log(`[XmlElementNode START] element="${elementTagName}" path.len=${path.length}`);
+  if (element.tagName === 'xs:schema' || localTagName === 'schema') {
+    console.log(`[XmlElementNode] *** SCHEMA ELEMENT *** tagName="${elementTagName}" localTagName="${localTagName}" schemaNode.children=${schemaNode?.children?.length}`);
   }
   const inferredSchemaKind = rootSchema ? ({
     schema: 'schema',
@@ -1109,6 +1116,18 @@ function XmlElementNode({
     }> = [];
     let currentGroup: Array<{ name: string; node: SchemaNode }> | null = null;
     
+    const childrenWithCompositorInfo = schemaNode.children.map(c => ({
+      name: c.label || c.tagName || '',
+      compositorType: c.compositorType,
+      minOccurs: c.minOccurs,
+      maxOccurs: c.maxOccurs,
+    }));
+    
+    if (element?.tagName === 'xs:schema') {
+      console.log(`[ChoiceGroups] xs:schema has ${schemaNode.children.length} children:`, childrenWithCompositorInfo);
+      console.log(`[ChoiceGroups] schemaNode.children raw:`, schemaNode.children);
+    }
+    
     for (const child of schemaNode.children) {
       if (child.compositorType === 'choice') {
         // This is a choice element
@@ -1139,40 +1158,59 @@ function XmlElementNode({
       });
     }
     
+    if (element?.tagName === 'xs:schema') {
+      console.log(`[ChoiceGroups] Found ${groups.length} choice groups for xs:schema with ${groups.reduce((sum, g) => sum + g.options.length, 0)} total options`);
+    }
+    
     return groups;
-  }, [schemaNode?.children]);
+  }, [schemaNode?.children, element?.tagName]);
   
   // For each choice group, determine the selected option
   const choiceInfo = useMemo(() => {
     return choiceGroups.map(group => {
       const choiceKey = `choice_${pathKey}_${group.groupIndex}`;
+      
+      const optionStates = group.options.map((opt) => {
+        const optionData = compiledSchema
+          ? compiledSchema.resolveChildData(
+              opt.name,
+              element?.tagName,
+              value,
+              path.length === 0
+            )
+          : value?.[opt.name];
+        return {
+          name: opt.name,
+          node: opt.node,
+          hasValue: optionData !== undefined && optionData !== null,
+        };
+      });
+
       let selectedOption: string | null = null;
+      const hasRepeatableOption = group.options.some((opt) => {
+        const maxRaw = opt.node.maxOccurs;
+        if (maxRaw === 'unbounded') return true;
+        const max = Number(maxRaw);
+        return Number.isFinite(max) && max > 1;
+      });
+      const presentOptionCount = optionStates.filter((state) => state.hasValue).length;
+      const isExclusive = !hasRepeatableOption && presentOptionCount <= 1;
       const isChoiceGroupRequired = group.options.some((opt) => {
         const min = Number(opt.node.minOccurs ?? 0);
         return Number.isFinite(min) && min > 0;
       });
       
-      // Check if user has manually selected a choice
-      if (selectedChoices[choiceKey]) {
-        selectedOption = selectedChoices[choiceKey];
-      } else {
-        // Otherwise, check if any choice element has a value
-        for (const option of group.options) {
-          const optionData = compiledSchema
-            ? compiledSchema.resolveChildData(
-                option.name,
-                element?.tagName,
-                value,
-                path.length === 0
-              )
-            : value?.[option.name];
-          if (optionData !== undefined && optionData !== null) {
+      // Determine selected option by checking which element has a value in the data
+      if (isExclusive) {
+        // For exclusive choices, find which option exists in the data
+        for (const option of optionStates) {
+          if (option.hasValue) {
             selectedOption = option.name;
             break;
           }
         }
-        // If no value found, only default when the choice is required by schema.
-        if (!selectedOption && isChoiceGroupRequired && group.options.length > 0) {
+        // If no value found, only default when the choice is required by schema
+        if (!selectedOption && !isSchemaForm && isChoiceGroupRequired && group.options.length > 0) {
           selectedOption = group.options[0].name;
         }
       }
@@ -1183,9 +1221,10 @@ function XmlElementNode({
         selectedOption,
         isRequired: isChoiceGroupRequired,
         choiceKey,
+        isExclusive,
       };
     });
-  }, [choiceGroups, pathKey, selectedChoices, value, compiledSchema, element?.tagName, path.length]);
+  }, [choiceGroups, pathKey, value, compiledSchema, element?.tagName, path.length, isSchemaForm]);
 
   const shouldHideChildInInferredView = (child: XmlElement | string): boolean => {
     if (typeof child === 'string') return false;
@@ -1202,6 +1241,15 @@ function XmlElementNode({
 
   const elementChildren = Array.isArray(element.children) ? element.children : [];
   const elementAttributes = Array.isArray(element.attributes) ? element.attributes : [];
+  
+  // Debug: Show element.attributes for schema elements
+  if (isSchemaForm) {
+    const attrDetails = elementAttributes.map(a => {
+      const valStr = typeof a.value === 'string' ? a.value.substring(0, 40) : String(a.value).substring(0, 40);
+      return `${a.name}="${valStr}${(String(a.value).length || 0) > 40 ? '...' : ''}"`;
+    }).join(', ');
+    console.log('[ELEMENT ATTRS]', element?.tagName, '- count:', elementAttributes.length, 'details:', attrDetails);
+  }
   const elementText = typeof element.text === 'string' ? element.text : '';
 
   const visibleChildren = elementChildren
@@ -1212,14 +1260,51 @@ function XmlElementNode({
   const hasAttributes = elementAttributes.length > 0;
   const hasSchemaChildren = (schemaNode?.children?.length || 0) > 0;
   const hasSchemaAttributes = (schemaNode?.attributes?.length || 0) > 0;
-  const hasExpandableContent = hasChildren || hasAttributes || hasSchemaChildren || hasSchemaAttributes;
+  const isSchemaCompositorTag = (tagName: string) => ['xs:sequence', 'sequence', 'xs:choice', 'choice', 'xs:all', 'all'].includes(tagName);
+  const isSchemaRestrictionTag = (tagName: string) => ['xs:restriction', 'restriction'].includes(tagName);
+  const compactAddLabel = (label: string): string => label.replace(/^Add\s+/i, '').trim();
+  const currentNodeCompositorAddOptions = isSchemaForm && isSchemaCompositorTag(elementTagName)
+    ? [{ name: 'xs:element', label: 'Add xs:element', maxOccurs: Number.POSITIVE_INFINITY, minOccurs: 0 }]
+    : [];
+  const currentNodeRestrictionFacetAddOptions = isSchemaForm && isSchemaRestrictionTag(elementTagName)
+    ? [
+        { name: 'xs:enumeration', label: 'Add xs:enumeration', maxOccurs: Number.POSITIVE_INFINITY, minOccurs: 0 },
+        { name: 'xs:length', label: 'Add xs:length', maxOccurs: 1, minOccurs: 0 },
+        { name: 'xs:minLength', label: 'Add xs:minLength', maxOccurs: 1, minOccurs: 0 },
+        { name: 'xs:maxLength', label: 'Add xs:maxLength', maxOccurs: 1, minOccurs: 0 },
+        { name: 'xs:pattern', label: 'Add xs:pattern', maxOccurs: 1, minOccurs: 0 },
+      ]
+    : [];
+  const hasExpandableContent = hasChildren || hasAttributes || hasSchemaChildren || hasSchemaAttributes || currentNodeCompositorAddOptions.length > 0 || currentNodeRestrictionFacetAddOptions.length > 0;
   const hasText = elementText.length > 0;
   const isCompositor = !!element.isCompositor;
-  const nodeNameAttribute = elementAttributes.find((a) => a.name === 'name')?.value;
-  const collapsedSchemaNodeName = !expanded && isSchemaForm && typeof nodeNameAttribute === 'string' && nodeNameAttribute.trim().length > 0
+  const nodeNameAttribute = elementAttributes.find((a) => a.name === 'name')?.value 
+    || schemaNode?.attributes?.find((a) => a.name === 'name')?.default;
+  
+  // Debug: Log @name attribute discovery for schema elements
+  if (isSchemaForm) {
+    console.log('[NAME BADGE DEBUG]', element?.tagName, ':', {
+      nodeNameAttribute,
+      elementAttributesCount: elementAttributes.length,
+      elementAttributeNames: elementAttributes.map(a => a.name),
+      schemaNodeAttributesCount: schemaNode?.attributes?.length || 0,
+      schemaNodeAttributeNames: schemaNode?.attributes?.map(a => a.name) || [],
+    });
+  }
+  
+  const rootTopLevelKinds = new Set(
+    (rootXsdAddButtons || []).map(({ kind }) => String(kind || '').toLowerCase())
+  );
+  // Show @name attribute in schema form only (instance form uses element tag name as identifier)
+  const schemaNodeName = isSchemaForm && typeof nodeNameAttribute === 'string' && nodeNameAttribute.trim().length > 0
     ? nodeNameAttribute.trim()
     : null;
-
+  
+  // Debug: Log when @name badge should render
+  if (isSchemaForm) {
+    console.log('[NAME BADGE RENDER]', element?.tagName, '- schemaNodeName:', schemaNodeName, 'isSchemaForm:', isSchemaForm, 'nodeNameAttribute:', nodeNameAttribute);
+  }
+  
   const asMutableElementObject = (entry: any): Record<string, any> => {
     if (entry && typeof entry === 'object' && !Array.isArray(entry)) return { ...entry };
     return {};
@@ -1389,12 +1474,14 @@ function XmlElementNode({
     onChange(updated);
   };
 
-  const getChildMinOccurs = (child: SchemaNode): number => {
+  const getChildMinOccurs = (child: SchemaNode | null): number => {
+    if (!child) return 1; // Default for instance-driven children without schema
     const min = Number(child.minOccurs);
     return Number.isFinite(min) && min >= 0 ? min : 1;
   };
 
-  const getChildMaxOccurs = (child: SchemaNode): number => {
+  const getChildMaxOccurs = (child: SchemaNode | null): number => {
+    if (!child) return 1; // Default for instance-driven children without schema
     if (child.maxOccurs === 'unbounded') return Number.POSITIVE_INFINITY;
     const max = Number(child.maxOccurs);
     return Number.isFinite(max) && max >= 0 ? max : 1;
@@ -1418,18 +1505,12 @@ function XmlElementNode({
   const addChildOccurrence = (childName: string, childSchema: SchemaNode) => {
     const choiceGroupInfo = getChoiceGroupForChild(childName);
     const choiceGroupData = choiceGroupInfo ? choiceInfo[choiceGroupInfo.groupIndex] : null;
-    if (choiceGroupData) {
-      setSelectedChoices((prev) => ({
-        ...prev,
-        [choiceGroupData.choiceKey]: childName,
-      }));
-    }
 
     onUpdateValue(path, (current) => {
       const updated = asMutableElementObject(current);
 
       // Enforce choice semantics by clearing sibling options when selecting a different branch.
-      if (choiceGroupData) {
+      if (choiceGroupData?.isExclusive) {
         for (const option of choiceGroupData.options) {
           if (option.name !== childName) {
             delete updated[option.name];
@@ -1511,15 +1592,9 @@ function XmlElementNode({
 
       return updated;
     });
-
-    setSelectedChoices((prev) => {
-      const next = { ...prev };
-      delete next[choiceGroupData.choiceKey];
-      return next;
-    });
   };
 
-  const canRemoveChildOccurrence = (childName: string, childSchema: SchemaNode): boolean => {
+  const canRemoveChildOccurrence = (childName: string, childSchema: SchemaNode | null): boolean => {
     const count = getChildOccurrenceCount(value, childName);
     return count > getChildMinOccurs(childSchema);
   };
@@ -1778,7 +1853,7 @@ function XmlElementNode({
 
       {/* Element header with toggle */}
       <div className={styles.propertyHeader} style={{ marginBottom: hasChildren || hasAttributes ? 8 : 0 }}>
-        {hasExpandableContent ? (
+        {hasExpandableContent && !suppressExpander ? (
           <button
             onClick={() => onToggleExpand(path)}
             style={{
@@ -1800,12 +1875,17 @@ function XmlElementNode({
           <div style={{ width: 16 }} />
         )}
         {/* Render as a label (no angle-bracket markup) to match JSON Instance Form style */}
+        {!suppressElementLabel && (
         <div className={styles.propertyName} data-testid={`xml-tag-${sanitize(element.tagName)}`}>
           <span>{element.tagName}</span>
-          {collapsedSchemaNodeName && (
+          {/* Compositor badge for XSD-specific nodes */}
+          {isCompositor && (
+            <span className={styles.badge}>Compositor</span>
+          )}
+          {/* Always show @name attribute in schema form, inline with the label */}
+          {schemaNodeName && (
             <span
               style={{
-                marginLeft: 8,
                 color: '#155e75',
                 backgroundColor: '#ecfeff',
                 border: '1px solid #a5f3fc',
@@ -1816,14 +1896,11 @@ function XmlElementNode({
                 lineHeight: 1.6,
               }}
             >
-              {collapsedSchemaNodeName}
+              {schemaNodeName}
             </span>
           )}
-          {/* Compositor badge for XSD-specific nodes */}
-          {isCompositor && (
-            <span className={styles.badge}>Compositor</span>
-          )}
         </div>
+        )}
         {hasText && !expanded && (
           <span style={{ fontSize: 12, color: '#666', fontStyle: 'italic' }}>
             {`"${element.text.substring(0, 50)}${element.text.length > 50 ? '...' : ''}"`}
@@ -2345,13 +2422,93 @@ function XmlElementNode({
           )}
 
           {/* Children section */}
-          {(hasChildren || hasSchemaChildren) && (
+          {(() => {
+            const cond1 = hasChildren;
+            const cond2 = hasSchemaChildren;
+            const cond3 = path.length === 0 && isSchemaForm && rootXsdAddButtons && rootXsdAddButtons.length > 0;
+            const cond4 = isSchemaForm && (currentNodeCompositorAddOptions.length > 0 || currentNodeRestrictionFacetAddOptions.length > 0);
+            const shouldRender = cond1 || cond2 || cond3 || cond4;
+            const isSchema = element?.tagName === 'xs:schema' || element?.tagName?.endsWith(':schema');
+            if (isSchema || path.length === 0) {
+              console.log(`[ChildrenSection] ${element?.tagName} (path.len=${path.length}): hasChildren=${cond1}, hasSchemaChildren=${cond2}, rootXsd=${cond3}, compositorOrFacet=${cond4}, overall=${shouldRender}`);
+            }
+            return shouldRender;
+          })() && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                {!hasInferredEditor && schemaNode?.children && schemaNode.children.length > 0 ? (
+                {isSchemaForm || !hasInferredEditor ? (
                   <div className={styles.elementTriggerRow} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                    {schemaNode.children.map((childSchemaNode, triggerIndex) => {
+                    {path.length === 0 && isSchemaForm && rootXsdAddButtons && rootXsdAddButtons.length > 0 && rootXsdAddButtons.map(({ kind, label }) => (
+                      <button
+                        key={kind}
+                        type="button"
+                        onClick={() => onAddTopLevelXsdDefinition?.(kind)}
+                        title={label}
+                        aria-label={label}
+                        style={{
+                          padding: '3px 8px',
+                          borderRadius: 12,
+                          border: '1px solid #ddd',
+                          backgroundColor: '#f9f9f9',
+                          cursor: 'pointer',
+                          fontSize: 11,
+                          fontWeight: 500,
+                          color: '#666',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        <span>+</span>
+                        <span>{compactAddLabel(label)}</span>
+                      </button>
+                    ))}
+                    {currentNodeCompositorAddOptions.concat(currentNodeRestrictionFacetAddOptions).map((trigger) => (
+                      <button
+                        key={`${elementTagName}-${trigger.name}`}
+                        type="button"
+                        onClick={() => addChildOccurrence(trigger.name, {
+                          tagName: trigger.name,
+                          label: trigger.name,
+                          nodeType: 'element',
+                          minOccurs: trigger.minOccurs,
+                          maxOccurs: trigger.maxOccurs,
+                          children: [],
+                          attributes: [],
+                          isRequired: false,
+                        })}
+                        title={trigger.label}
+                        aria-label={trigger.label}
+                        style={{
+                          padding: '3px 8px',
+                          borderRadius: 12,
+                          border: '1px solid #ddd',
+                          backgroundColor: '#f9f9f9',
+                          cursor: 'pointer',
+                          fontSize: 11,
+                          fontWeight: 500,
+                          color: '#666',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        <span>+</span>
+                        <span>{compactAddLabel(trigger.label)}</span>
+                      </button>
+                    ))}
+                    {schemaNode?.children && schemaNode.children.length > 0 ? schemaNode.children.map((childSchemaNode, triggerIndex) => {
                       const childElementName = childSchemaNode.label || childSchemaNode.tagName || `child-${triggerIndex}`;
+                      const normalizedChildLocal = String(childElementName).replace(/^.*:/, '').toLowerCase();
+                      const shouldSkipDuplicateRootTrigger =
+                        isSchemaForm &&
+                        path.length === 0 &&
+                        rootTopLevelKinds.size > 0 &&
+                        rootTopLevelKinds.has(normalizedChildLocal);
+                      if (shouldSkipDuplicateRootTrigger) return null;
+
                       const count = getChildOccurrenceCount(value, childElementName);
                       const maxOccurs = getChildMaxOccurs(childSchemaNode);
                       const minOccurs = getChildMinOccurs(childSchemaNode);
@@ -2367,6 +2524,7 @@ function XmlElementNode({
                       const addTitle = isBlockedByChoice
                         ? `Choice already satisfied by ${selectedChoiceName}`
                         : (canAdd ? `Add ${childElementName} (${count}/${maxLabel})` : `${childElementName} reached maxOccurs (${maxLabel})`);
+                      const addTriggerLabel = `Add ${childElementName}`;
 
                       return (
                         <div key={`trigger-${childElementName}-${triggerIndex}`} style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
@@ -2375,6 +2533,7 @@ function XmlElementNode({
                             onClick={() => addChildOccurrence(childElementName, childSchemaNode)}
                             disabled={!canAdd}
                             title={addTitle}
+                            aria-label={addTriggerLabel}
                             style={{
                               padding: '3px 8px',
                               borderRadius: 12,
@@ -2392,83 +2551,197 @@ function XmlElementNode({
                             }}
                           >
                             <span>+</span>
-                            <span>{childElementName}</span>
+                            <span>{compactAddLabel(addTriggerLabel)}</span>
                             {isBelowMinimum && <span title="Required until minimum occurrences are met">!</span>}
                           </button>
                         </div>
                       );
-                    })}
+                    }) : null}
                   </div>
                 ) : null}
               </div>
               {/* Walk the compiled schema structure, use instance data for values */}
               {(() => {
+                console.log(`[XmlElementNode] DEBUG: Rendering children section, schemaNode=${!!schemaNode}, schemaNode.children=${schemaNode?.children?.length}`);
                 const keys = value ? Object.keys(value).filter(k => !k.startsWith('@')) : [];
                 const actualValue = value ? JSON.stringify(value).substring(0, 100) : 'null';
                 const firstKey = keys.length > 0 ? keys[0] : 'none';
                 const elementChildrenCount = element?.children?.length || 0;
                 console.log(`[XmlElementNode] schemaNode for ${element?.tagName}: firstKey=${firstKey}, elementChildren=${elementChildrenCount}, allKeys=[${keys.join(', ')}], valuePreview=${actualValue}`);
+                if (element?.tagName === 'xs:schema') {
+                  console.log(`[XmlElementNode] xs:schema children condition check: schemaNode=${!!schemaNode}, schemaNode.children=${schemaNode?.children?.length}, choiceGroups=${choiceGroups.length}, choiceInfo=${choiceInfo.length}`);
+                }
                 return null;
               })()}
               
 
               
               {schemaNode?.children && schemaNode.children.length > 0 ? (
-                schemaNode.children
-                  .map((childSchemaNode, index) => ({ childSchemaNode, index }))
-                  // Filter based on choice selections
-                  .filter(({ childSchemaNode }) => {
-                    // If this is a choice element, only show if it's the selected option in its group
-                    if (childSchemaNode.compositorType === 'choice') {
-                      // Find which choice group this element belongs to
-                      for (const choice of choiceInfo) {
-                        const matchingOption = choice.options.find(opt => opt.name === (childSchemaNode.label || childSchemaNode.tagName));
-                        if (matchingOption) {
-                          // This element is in this choice group, only show if selected
-                          return choice.selectedOption === (childSchemaNode.label || childSchemaNode.tagName);
+                (() => {
+                  // Safeguard: ensure schemaNode and children exist
+                  if (!schemaNode || !schemaNode.children || schemaNode.children.length === 0) {
+                    return [];
+                  }
+                  
+                  // Check if we have a repeating choice specifically for xs:schema with XMLSchema.xsd
+                  // Only apply instance-driven rendering for xs:schema elements, not general elements
+                  const isXmlSchemaElement = element?.tagName === 'xs:schema';
+                  // IMPORTANT: For xs:schema (meta-schema elements), ALWAYS use schema-driven rendering
+                  // to show the schema structure defined by XMLSchema.xsd, not instance data.
+                  // Instance-driven rendering is only for regular element types with repeating choices.
+                  const hasRepeatableChoice = false; // Disabled for xs:schema - always use schema-driven rendering
+                  
+                  if (hasRepeatableChoice && value) {
+                    // Repeating choice: render instance data as rows (xs:schema only)
+                    // First unwrap xs:schema if needed (when value is wrapped with xs:schema key)
+                    let schemaData = value;
+                    if (element?.tagName === 'xs:schema' && value['xs:schema']) {
+                      schemaData = value['xs:schema'];
+                    }
+                    
+                    // Build array of instance children from value object
+                    const instanceChildren: any[] = [];
+                    for (const [key, val] of Object.entries(schemaData)) {
+                      // Skip metadata/internal keys and empty values
+                      if (!key.startsWith('@') && 
+                          !key.startsWith('_') && 
+                          key !== '#text' && 
+                          val !== undefined && 
+                          val !== null) {
+                        if (Array.isArray(val)) {
+                          for (const item of val) {
+                            instanceChildren.push({
+                              tagName: key,
+                              data: item,
+                            });
+                          }
+                        } else {
+                          instanceChildren.push({
+                            tagName: key,
+                            data: val,
+                          });
                         }
                       }
                     }
-                    // Not a choice element or not in any choice group, show it
-                    return true;
-                  })
-                  .map(({ childSchemaNode, index }) => {
-                  // Get the element name from schema
-                  const childElementName = childSchemaNode.label || childSchemaNode.tagName || '';
+                    
+                    return instanceChildren
+                      .map((instanceChild: any, index: number) => ({
+                        childElement: instanceChild.data,
+                        childSchemaNode: null,
+                        index,
+                        instanceDriven: true,
+                        childElementName: instanceChild.tagName,
+                      }));
+                  } else {
+                    // Schema-driven rendering (default for all non-repeating-choice elements)
+                    const filtered = schemaNode.children
+                      .map((childSchemaNode, index) => ({ childSchemaNode, index, instanceDriven: false }))
+                      .filter(({ childSchemaNode }) => {
+                        // For xs:schema: prefer direct (non-choice) elements over choice duplicates
+                        const childElementName = childSchemaNode.label || childSchemaNode.tagName;
+                        
+                        // Skip choice elements if there's a non-choice version of the same element
+                        if (childSchemaNode.compositorType === 'choice' && isXmlSchemaElement) {
+                          const hasNonChoiceVersion = schemaNode.children.some(
+                            child => child.compositorType !== 'choice' && 
+                                     (child.label || child.tagName) === childElementName
+                          );
+                          if (hasNonChoiceVersion) {
+                            return false; // Skip this choice element, use the non-choice version instead
+                          }
+                          
+                          // For choice elements without a non-choice duplicate: only show if they have data or are required
+                          const count = getChildOccurrenceCount(value, childElementName);
+                          const minOccurs = getChildMinOccurs(childSchemaNode);
+                          return count > 0 || minOccurs > 0;
+                        }
+                        
+                        // For non-choice elements in xs:schema: always show them (they're preferred over choice duplicates)
+                        if (isXmlSchemaElement && childSchemaNode.compositorType !== 'choice') {
+                          return true;
+                        }
+                        
+                        // Standard filtering for non-repeating choice or non-choice children
+                        if (childSchemaNode.compositorType === 'choice') {
+                          for (const choice of choiceInfo) {
+                            const matchingOption = choice.options.find(opt => opt.name === childElementName);
+                            if (matchingOption) {
+                              if (!choice.isExclusive) {
+                                return true;
+                              }
+                              return choice.selectedOption === childElementName;
+                            }
+                          }
+                        }
+                        return true;
+                      });
+                    
+                    return filtered;
+                  }
+                })()
+                
+                  .map(({ childElement, childSchemaNode, index, instanceDriven, childElementName: providedName }: any) => {
+                  // Get the element name
+                  let childElementName = '';
+                  let childInstanceData: any = null;
                   
-                  // Check if this child is the first in a choice group
+                  if (instanceDriven && childElement) {
+                    // Instance-driven (repeating choice): use provided name and instance child
+                    childElementName = providedName || '';
+                    childInstanceData = childElement;
+                  } else if (childSchemaNode) {
+                    // Schema-driven: use schema node
+                    childElementName = childSchemaNode.label || childSchemaNode.tagName || '';
+                    // Resolve instance data from schema node name
+                    if (compiledSchema) {
+                      childInstanceData = compiledSchema.resolveChildData(
+                        childElementName,
+                        element?.tagName,
+                        value,
+                        path.length === 0
+                      );
+                    } else {
+                      childInstanceData = value?.[childElementName];
+                    }
+                  }
+                  
+                  if (!childElementName) return null;
+                  
+                  // Debug: Log all choice lookups in non-schema forms
+                  if (!isSchemaForm && choiceGroups.length > 0) {
+                    console.log('[CHOICE DEBUG] Element:', element?.tagName, 'child:', childElementName, 'choiceGroups.length:', choiceGroups.length);
+                  }
+                  
+                  // Find the actual child element from DOM for instance-driven rendering
+                  const childElement_: any = instanceDriven 
+                    ? childElement
+                    : element?.children?.find(child => 
+                        typeof child !== 'string' && 
+                        (child.tagName === childElementName || 
+                         child.tagName?.replace(/^.*:/, '') === childElementName)
+                      );
+                  
                   const choiceGroupInfo = getChoiceGroupForChild(childElementName);
                   const choiceGroupIndex = choiceGroupInfo?.groupIndex ?? -1;
                   
-                  // Find the choice group data for rendering the dropdown
-                  // Get choiceGroupData for ANY child in a choice group, not just the first one
-                  // This allows us to show the dropdown for whichever element is currently selected
+                  // Debug: Log choice group lookup in non-schema forms
+                  if (!isSchemaForm && choiceGroupIndex >= 0) {
+                    console.log('[CHOICE DEBUG] Element:', element?.tagName, '- child:', childElementName, 'in choice group:', choiceGroupIndex);
+                  }
+                  
                   let choiceGroupData = null;
                   if (choiceGroupIndex >= 0) {
                     choiceGroupData = choiceInfo[choiceGroupIndex];
-                  }
-                  
-                  // Find the element structure from the DOM tree
-                  // The element structure is consistent regardless of value wrapping
-                  // Find the child element in the DOM tree
-                  const childElement: any = element?.children?.find(child => 
-                    typeof child !== 'string' && 
-                    (child.tagName === childElementName || 
-                     child.tagName?.replace(/^.*:/, '') === childElementName)
-                  );
-                  
-                  // Use compiled schema helper to resolve the data value, handling wrapped values at root level
-                  let childInstanceData: any;
-                  if (compiledSchema) {
-                    childInstanceData = compiledSchema.resolveChildData(
-                      childElementName,
-                      element?.tagName,
-                      value,
-                      path.length === 0
-                    );
-                  } else {
-                    // Fallback if no compiled schema available
-                    childInstanceData = value?.[childElementName];
+                    
+                    // Debug: Log final choice group data in non-schema forms
+                    if (!isSchemaForm) {
+                      console.log('[CHOICE DEBUG] choiceGroupData:', {
+                        childElementName,
+                        selectedOption: choiceGroupData?.selectedOption,
+                        options: choiceGroupData?.options?.map(o => o.name),
+                        isExclusive: choiceGroupData?.isExclusive,
+                      });
+                    }
                   }
                   
                   const isSelectedChoiceOption = Boolean(
@@ -2480,21 +2753,23 @@ function XmlElementNode({
                   const effectiveChildInstanceData =
                     childInstanceData !== undefined && childInstanceData !== null
                       ? childInstanceData
-                      : (isSelectedChoiceOption && selectedChoiceIsRequired ? { _text: '' } : childInstanceData);
+                      : (isSelectedChoiceOption && selectedChoiceIsRequired && !isSchemaForm ? { _text: '' } : childInstanceData);
 
                   // Use element structure if available; use data as fallback
-                  const elementToRender = childElement || effectiveChildInstanceData;
-                  
-                  console.log(`[XmlElementNode] Child schema element ${index}: name="${childElementName}", element=${!!childElement}, data type=${typeof effectiveChildInstanceData}, found=${!!elementToRender}`);
+                  // For schema form choice children without data, create synthetic element
+                  let elementToRender = childElement_ || effectiveChildInstanceData;
+                  if (!elementToRender && isSchemaForm && choiceGroupData && !choiceGroupData.isExclusive) {
+                    elementToRender = { '@attributes': {} }; // Synthetic element for schema form choice
+                  }
                   
                   // Treat schema-leaf elements as simple when either parsed element shape is simple
                   // or the instance value is scalar/text-only data.
-                  const schemaSaysSimple = (childSchemaNode.children?.length || 0) === 0;
-                  const schemaHasNoAttrs = (childSchemaNode.attributes?.length || 0) === 0;
+                  const schemaSaysSimple = (childSchemaNode?.children?.length || 0) === 0;
+                  const schemaHasNoAttrs = (childSchemaNode?.attributes?.length || 0) === 0;
                   const parsedElementIsSimple = Boolean(
-                    childElement &&
-                    childElement.children?.length === 0 &&
-                    childElement.attributes?.length === 0
+                    childElement_ &&
+                    childElement_.children?.length === 0 &&
+                    childElement_.attributes?.length === 0
                   );
                   const instanceValueIsTextOnly = Boolean(
                     effectiveChildInstanceData !== undefined &&
@@ -2512,13 +2787,131 @@ function XmlElementNode({
                   );
                   const isSimpleChild = schemaSaysSimple && schemaHasNoAttrs && (parsedElementIsSimple || instanceValueIsTextOnly);
                   
+                  // Debug: Log what we're about to render for schema form
+                  if (isSchemaForm) {
+                    console.log('[CHILD RENDER]', childElementName, '- isArray:', Array.isArray(effectiveChildInstanceData), 'isSimple:', isSimpleChild, 'hasElementToRender:', !!elementToRender);
+                  }
+                  
+                  // For choice group elements, log and continue to normal rendering
+                  // We want all choice members to render as individual expandable nodes
+                  // Only render with choice dropdown if this element is actually marked as choice type
+                  if (choiceGroupData && !choiceGroupData.isExclusive && childSchemaNode?.compositorType === 'choice') {
+                    console.log('[REPEATING CHOICE SCHEMA]', childElementName, '- choiceKey:', choiceGroupData.choiceKey);
+                    
+                    // For non-array choice children, render as single choice item
+                    if (!Array.isArray(effectiveChildInstanceData) && elementToRender) {
+                      console.log('[NON-ARRAY CHOICE]', childElementName, '- rendering as choice item');
+                      const rowPath = [...path, childElementName];
+                      const rowPathKey = rowPath.join('.');
+                      const rowCollapsedKey = `__collapsed__:${rowPathKey}`;
+                      const isRowExpanded = expandedPaths.has(rowPathKey);
+                      const isRowCollapsed = expandedPaths.has(rowCollapsedKey);
+                      const shouldShowChildren = !isRowCollapsed && (isRowExpanded || !isSchemaForm);
+                      
+                      // Extract @name attribute for display from element's attributes
+                      const elementNameAttr = elementToRender?.['@attributes']?.name;
+                      const displayName = typeof elementNameAttr === 'string' && elementNameAttr.trim().length > 0
+                        ? elementNameAttr.trim()
+                        : null;
+                      
+                      return (
+                        <div key={`choice-non-array-${childElementName}-${index}`}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                            <button
+                              type="button"
+                              onClick={() => onToggleExpand(rowPath)}
+                              style={{
+                                padding: '2px 6px',
+                                background: 'transparent',
+                                border: 'none',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                minWidth: '20px',
+                                fontSize: 12,
+                                color: '#666',
+                              }}
+                              title={shouldShowChildren ? 'Collapse' : 'Expand'}
+                              aria-label={shouldShowChildren ? 'Collapse' : 'Expand'}
+                            >
+                              {shouldShowChildren ? '▼' : '▶'}
+                            </button>
+                            <select
+                              value={childElementName || ''}
+                              onChange={(e) => {
+                                const newElementType = e.target.value;
+                                if (newElementType === childElementName) return;
+                              }}
+                              style={{
+                                padding: '6px 8px',
+                                border: '1px solid #ddd',
+                                borderRadius: 3,
+                                fontSize: 12,
+                                cursor: 'pointer',
+                                fontWeight: 500,
+                                minWidth: 120,
+                                color: '#a78bfa',
+                              }}
+                            >
+                              {choiceGroupData.options.map(opt => (
+                                <option key={opt.name} value={opt.name}>
+                                  {opt.name}
+                                </option>
+                              ))}
+                            </select>
+                            {displayName && (
+                              <span
+                                style={{
+                                  color: '#155e75',
+                                  backgroundColor: '#ecfeff',
+                                  border: '1px solid #a5f3fc',
+                                  borderRadius: 999,
+                                  padding: '1px 8px',
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  lineHeight: 1.6,
+                                }}
+                              >
+                                {displayName}
+                              </span>
+                            )}
+                          </div>
+                          {shouldShowChildren && (
+                            <div style={{ marginLeft: '20px' }}>
+                              <XmlElementNode
+                                element={elementToRender}
+                                path={rowPath}
+                                expandedPaths={expandedPaths}
+                                onToggleExpand={onToggleExpand}
+                                value={effectiveChildInstanceData}
+                                onChange={onChange}
+                                onUpdateValue={onUpdateValue}
+                                rootSchema={rootSchema}
+                                autoExpandAll={true}
+                                schemaNode={childSchemaNode}
+                                compiledSchema={compiledSchema}
+                                isSchemaForm={isSchemaForm}
+                                suppressElementLabel={true}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+                    // Don't return early - continue to normal rendering below for arrays
+                  }
+                  
                   // Handle both single and multiple occurrences
                   if (Array.isArray(effectiveChildInstanceData)) {
                     const childMinOccurs = getChildMinOccurs(childSchemaNode);
+                    if (isSchemaForm) {
+                      console.log('[ARRAY BRANCH]', childElementName, '- arrayLength:', effectiveChildInstanceData.length, 'childMinOccurs:', childMinOccurs);
+                    }
                     // Render each array element
                     // For choice groups, show the dropdown before the first element
                     const arrayItems = effectiveChildInstanceData.map((child, arrayIndex) => (
-                      <div key={`${index}-${arrayIndex}`} style={{ position: 'relative' }}>
+                      <div key={`${childElementName}-${arrayIndex}`} style={{ position: 'relative' }}>
                         <XmlElementNode
                           element={child}
                           path={[...path, childElementName, String(arrayIndex)]}
@@ -2553,31 +2946,65 @@ function XmlElementNode({
                                 }}
                                 className={styles.removeButton}
                                 style={{ position: 'absolute', right: 0, top: 8 }}
+                                title={`Remove ${childElementName} ${arrayIndex + 1}`}
+                                aria-label={`Remove ${childElementName} ${arrayIndex + 1}`}
                               >
                                 <Trash2 size={14} />
                               </button>
                             </TooltipTrigger>
-                            <TooltipContent>Remove element</TooltipContent>
+                            <TooltipContent>{`Remove ${childElementName} ${arrayIndex + 1}`}</TooltipContent>
                           </Tooltip>
                         )}
                       </div>
                     ));
                     
                     // If this element is the currently selected option in a choice group, wrap array items with choice dropdown
-                    if (choiceGroupData && choiceGroupData.selectedOption === childElementName) {
+                    // For exclusive choices: show one dropdown for all occurrences
+                    // For repeatable choices: show dropdown for each occurrence
+                    if (isSchemaForm) {
+                      console.log('[ARRAY CHOICE CHECK]', childElementName, '- choiceGroupData:', !!choiceGroupData, 'isExclusive:', choiceGroupData?.isExclusive, 'selectedOption:', choiceGroupData?.selectedOption);
+                    }
+                    if (choiceGroupData?.isExclusive && choiceGroupData.selectedOption === childElementName && childSchemaNode?.compositorType === 'choice') {
                       const showChoiceRemove = canRemoveChoiceSelection(choiceGroupData);
+                      
+                      // Setup expansion tracking for exclusive choice array
+                      const choiceArrayPath = [...path, childElementName];
+                      const choiceArrayPathKey = choiceArrayPath.join('.');
+                      const choiceArrayCollapsedKey = `__collapsed__:${choiceArrayPathKey}`;
+                      const isChoiceArrayExpanded = expandedPaths.has(choiceArrayPathKey);
+                      const isChoiceArrayCollapsed = expandedPaths.has(choiceArrayCollapsedKey);
+                      const shouldShowChoiceArrayChildren = !isChoiceArrayCollapsed && (isChoiceArrayExpanded || !isSchemaForm);
+                      
                       return (
-                        <div key={`choice-${index}`}>
+                        <div key={`choice-exclusive-array-${childElementName}-${index}`}>
                           {/* Choice Selector Dropdown */}
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                            {/* Expander */}
+                            <button
+                              type="button"
+                              onClick={() => onToggleExpand(choiceArrayPath)}
+                              style={{
+                                padding: '2px 6px',
+                                background: 'transparent',
+                                border: 'none',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                minWidth: '20px',
+                                fontSize: 12,
+                                color: '#666',
+                              }}
+                              title={shouldShowChoiceArrayChildren ? 'Collapse' : 'Expand'}
+                              aria-label={shouldShowChoiceArrayChildren ? 'Collapse' : 'Expand'}
+                            >
+                              {shouldShowChoiceArrayChildren ? '▼' : '▶'}
+                            </button>
+                            
                             <select
                               value={choiceGroupData.selectedOption || ''}
                               onChange={(e) => {
                                 const newSelectedOption = e.target.value;
-                                setSelectedChoices(prev => ({
-                                  ...prev,
-                                  [choiceGroupData.choiceKey]: newSelectedOption,
-                                }));
                                 
                                 // Save old choice option data and restore/initialize new one
                                 onUpdateValue(path, (current) => {
@@ -2626,23 +3053,247 @@ function XmlElementNode({
                                     type="button"
                                     onClick={() => removeChoiceSelection(choiceGroupData)}
                                     className={styles.removeButton}
-                                    title="Remove selected choice element"
+                                    title={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
+                                    aria-label={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
                                   >
                                     <Trash2 size={14} />
                                   </button>
                                 </TooltipTrigger>
-                                <TooltipContent>Remove selected choice element</TooltipContent>
+                                <TooltipContent>{`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}</TooltipContent>
                               </Tooltip>
                             )}
                           </div>
                           
                           {/* Array items */}
-                          {arrayItems}
+                          {shouldShowChoiceArrayChildren && arrayItems}
+                        </div>
+                      );
+                    } else if (!choiceGroupData?.isExclusive && choiceGroupData && childSchemaNode?.compositorType === 'choice') {
+                      // For repeatable choices, render each occurrence with its own choice dropdown
+                      return (
+                        <div key={`repeatable-choice-array-${childElementName}-${index}`}>
+                          {effectiveChildInstanceData.map((child, itemIndex) => {
+                            const rowPath = [...path, childElementName, String(itemIndex)];
+                            const rowPathKey = rowPath.join('.');
+                            const rowCollapsedKey = `__collapsed__:${rowPathKey}`;
+                            const isRowExpanded = expandedPaths.has(rowPathKey);
+                            const isRowCollapsed = expandedPaths.has(rowCollapsedKey);
+                            const shouldShowChildren = !isRowCollapsed && (isRowExpanded || !isSchemaForm);
+                            
+                            // Create a synthetic element structure for each repeating choice item
+                            const childElement = {
+                              tagName: childElementName,
+                              text: typeof child === 'string' ? child : '',
+                              children: typeof child === 'object' && child !== null && !Array.isArray(child) 
+                                ? Object.entries(child)
+                                    .filter(([key]) => !key.startsWith('@') && !key.startsWith('_') && key !== '__childrenInOrder')
+                                    .map(([key, val]) => ({
+                                      tagName: key,
+                                      text: typeof val === 'string' ? val : '',
+                                      children: [],
+                                      attributes: [],
+                                    }))
+                                : [],
+                              attributes: (child?.['@attributes'] && typeof child['@attributes'] === 'object')
+                                ? Object.entries(child['@attributes']).map(([name, value]) => ({
+                                    name,
+                                    value: String(value || ''),
+                                  }))
+                                : [],
+                            };
+                            
+                            return (
+                              <div key={`repeatable-choice-${childElementName}-${itemIndex}`}>
+                                {/* Choice Row with Expander and Type Selector */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                  {/* Expander */}
+                                  <button
+                                    type="button"
+                                    onClick={() => onToggleExpand(rowPath)}
+                                    style={{
+                                      padding: '2px 6px',
+                                      background: 'transparent',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      minWidth: '20px',
+                                      fontSize: 12,
+                                      color: '#666',
+                                    }}
+                                    title={shouldShowChildren ? 'Collapse' : 'Expand'}
+                                    aria-label={shouldShowChildren ? 'Collapse' : 'Expand'}
+                                  >
+                                    {shouldShowChildren ? '▼' : '▶'}
+                                  </button>
+                                  
+                                  {/* Choice Type Selector Dropdown (serves as label) */}
+                                  <select
+                                    value={childElementName || ''}
+                                    onChange={(e) => {
+                                      const newElementType = e.target.value;
+                                      if (newElementType === childElementName) return;
+                                      
+                                      // Change element type for this occurrence
+                                      onUpdateValue(path, (current) => {
+                                        const updated = { ...current };
+                                        
+                                        // Get the current value for this occurrence
+                                        const oldData = Array.isArray(updated[childElementName])
+                                          ? updated[childElementName][itemIndex]
+                                          : updated[childElementName];
+                                        
+                                        // Remove from old element type
+                                        if (Array.isArray(updated[childElementName])) {
+                                          updated[childElementName].splice(itemIndex, 1);
+                                          if (updated[childElementName].length === 0) {
+                                            delete updated[childElementName];
+                                          } else if (updated[childElementName].length === 1) {
+                                            updated[childElementName] = updated[childElementName][0];
+                                          }
+                                        } else {
+                                          delete updated[childElementName];
+                                        }
+                                        
+                                        // Add to new element type
+                                        if (!updated[newElementType]) {
+                                          updated[newElementType] = oldData;
+                                        } else if (Array.isArray(updated[newElementType])) {
+                                          updated[newElementType].push(oldData);
+                                        } else {
+                                          updated[newElementType] = [updated[newElementType], oldData];
+                                        }
+                                        
+                                        return updated;
+                                      });
+                                    }}
+                                    style={{
+                                      padding: '6px 8px',
+                                      border: '1px solid #ddd',
+                                      borderRadius: 3,
+                                      fontSize: 12,
+                                      cursor: 'pointer',
+                                      fontWeight: 500,
+                                      minWidth: 120,
+                                      color: '#a78bfa',
+                                    }}
+                                  >
+                                    {choiceGroupData.options.map(opt => (
+                                      <option key={opt.name} value={opt.name}>
+                                        {opt.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  
+                                  {/* Show @name attribute from instance data for repeatable choice rows */}
+                                  {(() => {
+                                    const instanceNameAttr = child?.['@attributes']?.name;
+                                    const displayName = typeof instanceNameAttr === 'string' && instanceNameAttr.trim().length > 0
+                                      ? instanceNameAttr.trim()
+                                      : null;
+                                    return displayName ? (
+                                        <span
+                                          style={{
+                                            marginLeft: 4,
+                                            color: '#155e75',
+                                            backgroundColor: '#ecfeff',
+                                            border: '1px solid #a5f3fc',
+                                            borderRadius: 999,
+                                            padding: '1px 8px',
+                                            fontSize: 11,
+                                            fontWeight: 600,
+                                            lineHeight: 1.6,
+                                          }}
+                                        >
+                                          {displayName}
+                                        </span>
+                                      ) : null;
+                                    })()
+                                  }
+                                  
+                                  {/* Remove button for repeatable choice items */}
+                                  {(() => {
+                                    const canRemove = canRemoveChildOccurrence(childElementName, childSchemaNode);
+                                    const arrayLength = Array.isArray(effectiveChildInstanceData) ? effectiveChildInstanceData.length : 0;
+                                    const minOccurs = getChildMinOccurs(childSchemaNode);
+                                    const canRemoveThisOne = canRemove && (arrayLength > minOccurs);
+                                    
+                                    return (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <button
+                                            onClick={() => {
+                                              if (!canRemoveThisOne) return;
+                                              onUpdateValue(path, (current) => {
+                                                const updated = { ...current };
+                                                if (Array.isArray(updated[childElementName])) {
+                                                  updated[childElementName].splice(itemIndex, 1);
+                                                  if (updated[childElementName].length === 0) {
+                                                    delete updated[childElementName];
+                                                  } else if (updated[childElementName].length === 1) {
+                                                    updated[childElementName] = updated[childElementName][0];
+                                                  }
+                                                }
+                                                return updated;
+                                              });
+                                            }}
+                                            className={styles.removeButton}
+                                            style={{
+                                              marginLeft: 4,
+                                              opacity: canRemoveThisOne ? 1 : 0.5,
+                                              color: canRemoveThisOne ? '#ef4444' : '#999',
+                                              cursor: canRemoveThisOne ? 'pointer' : 'not-allowed',
+                                            }}
+                                            disabled={!canRemoveThisOne}
+                                            title={canRemoveThisOne ? `Remove ${childElementName}` : `Cannot remove - schema constraint`}
+                                            aria-label={`Remove ${childElementName}`}
+                                          >
+                                            <Trash2 size={14} />
+                                          </button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          {canRemoveThisOne 
+                                            ? `Remove ${childElementName}` 
+                                            : `Cannot remove - schema constraint (minOccurs=${minOccurs})`}
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    );
+                                  })()}
+                                </div>
+                                
+                                {/* Render children only if expanded */}
+                                {shouldShowChildren && (
+                                  <div style={{ marginLeft: '20px' }}>
+                                    <XmlElementNode
+                                      element={childElement}
+                                      path={rowPath}
+                                      expandedPaths={expandedPaths}
+                                      onToggleExpand={onToggleExpand}
+                                      value={child}
+                                      onChange={onChange}
+                                      onUpdateValue={onUpdateValue}
+                                      rootSchema={rootSchema}
+                                      autoExpandAll={true}
+                                      schemaNode={childSchemaNode}
+                                      compiledSchema={compiledSchema}
+                                      isSchemaForm={isSchemaForm}
+                                      suppressElementLabel={true}
+                                      suppressExpander={true}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       );
                     }
                     
-                    return arrayItems;
+                    if (isSchemaForm) {
+                      console.log('[RETURN ARRAY ITEMS]', childElementName, '- arrayItems count:', arrayItems.length);
+                    }
+                    return <div key={`array-${childElementName}-${index}`}>{arrayItems}</div>;
                   } else if (isSimpleChild && effectiveChildInstanceData !== undefined && effectiveChildInstanceData !== null) {
                     // Render simple text elements as inline inputs
                     // Use the data value, not the parsed element
@@ -2666,19 +3317,47 @@ function XmlElementNode({
                     
                     // Render choice dropdown if this element is the currently selected option in a choice group
                     // Show dropdown for whichever element is selected, not just the first in schema order
-                    if (choiceGroupData && choiceGroupData.selectedOption === childElementName) {
+                    // Only render with choice dropdown if this element is actually marked as choice type
+                    if (choiceGroupData?.isExclusive && choiceGroupData.selectedOption === childElementName && childSchemaNode?.compositorType === 'choice') {
                       const showChoiceRemove = canRemoveChoiceSelection(choiceGroupData);
+                      
+                      // Setup expansion tracking for exclusive choice non-array
+                      const choicePath = [...path, childElementName];
+                      const choicePathKey = choicePath.join('.');
+                      const choiceCollapsedKey = `__collapsed__:${choicePathKey}`;
+                      const isChoiceExpanded = expandedPaths.has(choicePathKey);
+                      const isChoiceCollapsed = expandedPaths.has(choiceCollapsedKey);
+                      const shouldShowChoiceChildren = !isChoiceCollapsed && (isChoiceExpanded || !isSchemaForm);
+                      
                       return (
-                        <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div key={`choice-exclusive-${childElementName}-${index}`} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                          {/* Expander */}
+                          <button
+                            type="button"
+                            onClick={() => onToggleExpand(choicePath)}
+                            style={{
+                              padding: '2px 6px',
+                              background: 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              minWidth: '20px',
+                              fontSize: 12,
+                              color: '#666',
+                            }}
+                            title={shouldShowChoiceChildren ? 'Collapse' : 'Expand'}
+                            aria-label={shouldShowChoiceChildren ? 'Collapse' : 'Expand'}
+                          >
+                            {shouldShowChoiceChildren ? '▼' : '▶'}
+                          </button>
+                          
                           {/* Choice Selector Dropdown as Label */}
                           <select
                             value={choiceGroupData.selectedOption || ''}
                             onChange={(e) => {
                               const newSelectedOption = e.target.value;
-                              setSelectedChoices(prev => ({
-                                ...prev,
-                                [choiceGroupData.choiceKey]: newSelectedOption,
-                              }));
                               
                               // Save old choice option data and restore/initialize new one
                               onUpdateValue(path, (current) => {
@@ -2770,12 +3449,13 @@ function XmlElementNode({
                                   type="button"
                                   onClick={() => removeChoiceSelection(choiceGroupData)}
                                   className={styles.removeButton}
-                                  title="Remove selected choice element"
+                                  title={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
+                                  aria-label={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
                                 >
                                   <Trash2 size={14} />
                                 </button>
                               </TooltipTrigger>
-                              <TooltipContent>Remove selected choice element</TooltipContent>
+                              <TooltipContent>{`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}</TooltipContent>
                             </Tooltip>
                           )}
                         </div>
@@ -2783,7 +3463,7 @@ function XmlElementNode({
                     }
                     
                     return (
-                      <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div key={`simple-${childElementName}-${index}`} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <label style={{ minWidth: 100, fontSize: 14, fontWeight: 500, color: '#a78bfa' }}>
                           {childElementName}:
                         </label>
@@ -2809,34 +3489,65 @@ function XmlElementNode({
                               <button
                                 onClick={() => removeChildOccurrence(childElementName, childSchemaNode)}
                                 className={styles.removeButton}
-                                title="Remove element"
+                                title={`Remove ${childElementName}`}
+                                aria-label={`Remove ${childElementName}`}
                               >
                                 <Trash2 size={14} />
                               </button>
                             </TooltipTrigger>
-                            <TooltipContent>Remove element</TooltipContent>
+                            <TooltipContent>{`Remove ${childElementName}`}</TooltipContent>
                           </Tooltip>
                         )}
                       </div>
                     );
                   } else if (elementToRender) {
                     // Render complex child elements as expandable nodes
+                    if (isSchemaForm) {
+                      console.log('[ABOUT TO RENDER XmlElementNode]', childElementName, '- key:', index);
+                    }
                     
                     // Render choice dropdown if this element is the currently selected option in a choice group
                     if (choiceGroupData && choiceGroupData.selectedOption === childElementName) {
                       const showChoiceRemove = canRemoveChoiceSelection(choiceGroupData);
+                      
+                      // Setup expansion tracking for complex choice element
+                      const complexChoicePath = [...path, childElementName];
+                      const complexChoicePathKey = complexChoicePath.join('.');
+                      const complexChoiceCollapsedKey = `__collapsed__:${complexChoicePathKey}`;
+                      const isComplexChoiceExpanded = expandedPaths.has(complexChoicePathKey);
+                      const isComplexChoiceCollapsed = expandedPaths.has(complexChoiceCollapsedKey);
+                      const shouldShowComplexChoiceChildren = !isComplexChoiceCollapsed && (isComplexChoiceExpanded || !isSchemaForm);
+                      
                       return (
-                        <div key={index}>
+                        <div key={`choice-${childElementName}-${index}`}>
                           {/* Choice selector as a dropdown label above the element */}
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                            {/* Expander */}
+                            <button
+                              type="button"
+                              onClick={() => onToggleExpand(complexChoicePath)}
+                              style={{
+                                padding: '2px 6px',
+                                background: 'transparent',
+                                border: 'none',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                minWidth: '20px',
+                                fontSize: 12,
+                                color: '#666',
+                              }}
+                              title={shouldShowComplexChoiceChildren ? 'Collapse' : 'Expand'}
+                              aria-label={shouldShowComplexChoiceChildren ? 'Collapse' : 'Expand'}
+                            >
+                              {shouldShowComplexChoiceChildren ? '▼' : '▶'}
+                            </button>
+                            
                             <select
                               value={choiceGroupData.selectedOption || ''}
                               onChange={(e) => {
                                 const newSelectedOption = e.target.value;
-                                setSelectedChoices(prev => ({
-                                  ...prev,
-                                  [choiceGroupData.choiceKey]: newSelectedOption,
-                                }));
                                 
                                 // Save old choice option data and restore/initialize new one
                                 onUpdateValue(path, (current) => {
@@ -2885,41 +3596,44 @@ function XmlElementNode({
                                     type="button"
                                     onClick={() => removeChoiceSelection(choiceGroupData)}
                                     className={styles.removeButton}
-                                    title="Remove selected choice element"
+                                    title={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
+                                    aria-label={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
                                   >
                                     <Trash2 size={14} />
                                   </button>
                                 </TooltipTrigger>
-                                <TooltipContent>Remove selected choice element</TooltipContent>
+                                <TooltipContent>{`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}</TooltipContent>
                               </Tooltip>
                             )}
                           </div>
                           
                           {/* Element Node */}
-                          <div style={{ position: 'relative', marginLeft: 8 }}>
-                            <XmlElementNode
-                              element={elementToRender}
-                              path={[...path, childElementName]}
-                              expandedPaths={expandedPaths}
-                              onToggleExpand={onToggleExpand}
-                              value={effectiveChildInstanceData}
-                              onChange={onChange}
-                              onUpdateValue={onUpdateValue}
-                              rootSchema={rootSchema}
-                              autoExpandAll={autoExpandAll}
-                              schemaNode={childSchemaNode}
-                              compiledSchema={compiledSchema}
-                              initialAutoExpandPathsRef={initialAutoExpandPathsRef}
-                              autoExpandCaptureActiveRef={autoExpandCaptureActiveRef}
-                              isSchemaForm={isSchemaForm}
-                            />
-                          </div>
+                          {shouldShowComplexChoiceChildren && (
+                            <div style={{ position: 'relative', marginLeft: 8 }}>
+                              <XmlElementNode
+                                element={elementToRender}
+                                path={[...path, childElementName]}
+                                expandedPaths={expandedPaths}
+                                onToggleExpand={onToggleExpand}
+                                value={effectiveChildInstanceData}
+                                onChange={onChange}
+                                onUpdateValue={onUpdateValue}
+                                rootSchema={rootSchema}
+                                autoExpandAll={true}
+                                schemaNode={childSchemaNode}
+                                compiledSchema={compiledSchema}
+                                initialAutoExpandPathsRef={initialAutoExpandPathsRef}
+                                autoExpandCaptureActiveRef={autoExpandCaptureActiveRef}
+                                isSchemaForm={isSchemaForm}
+                              />
+                            </div>
+                          )}
                         </div>
                       );
                     }
                     
                     return (
-                      <div key={index} style={{ position: 'relative' }}>
+                      <div key={`element-${childElementName}-${index}`} style={{ position: 'relative' }}>
                         <XmlElementNode
                           element={elementToRender}
                           path={[...path, childElementName]}
@@ -2943,18 +3657,22 @@ function XmlElementNode({
                                 onClick={() => removeChildOccurrence(childElementName, childSchemaNode)}
                                 className={styles.removeButton}
                                 style={{ position: 'absolute', right: 0, top: 8 }}
-                                title="Remove element"
+                                title={`Remove ${childElementName}`}
+                                aria-label={`Remove ${childElementName}`}
                               >
                                 <Trash2 size={14} />
                               </button>
                             </TooltipTrigger>
-                            <TooltipContent>Remove element</TooltipContent>
+                            <TooltipContent>{`Remove ${childElementName}`}</TooltipContent>
                           </Tooltip>
                         )}
                       </div>
                     );
                   }
                   
+                  if (isSchemaForm) {
+                    console.log('[NO RENDER PATH]', childElementName, '- isArray:', Array.isArray(effectiveChildInstanceData), 'isSimple:', isSimpleChild, 'hasElementToRender:', !!elementToRender);
+                  }
                   return null;
                 })
               ) : (
@@ -3033,11 +3751,13 @@ function XmlElementNode({
                               padding: 0,
                               color: '#999',
                             }}
+                            title={`Remove ${child.tagName}`}
+                            aria-label={`Remove ${child.tagName}`}
                           >
                             <Trash2 size={14} />
                           </button>
                         </TooltipTrigger>
-                        <TooltipContent>Remove element</TooltipContent>
+                        <TooltipContent>{`Remove ${child.tagName}`}</TooltipContent>
                       </Tooltip>
                     </div>
                   );
@@ -3087,11 +3807,13 @@ function XmlElementNode({
                           }}
                           className={styles.removeButton}
                           style={{ position: 'absolute', right: 0, top: 8 }}
+                          title={`Remove ${child.tagName}`}
+                          aria-label={`Remove ${child.tagName}`}
                         >
                           <Trash2 size={14} />
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent>Remove element</TooltipContent>
+                      <TooltipContent>{`Remove ${child.tagName}`}</TooltipContent>
                     </Tooltip>
                   </div>
                 );
@@ -3295,59 +4017,215 @@ export function XmlInstanceForm({
     return parsed;
   }, [schema, value]);
 
+  const xsdRootButtonOrder: TopLevelXsdKind[] = ['element', 'attribute', 'complexType', 'simpleType', 'group', 'attributeGroup', 'notation'];
+
+  const getTopLevelXsdDefinitionKinds = (schemaObject: any): TopLevelXsdKind[] => {
+    const rootSchema = (schemaObject && schemaObject['xs:schema'] && typeof schemaObject['xs:schema'] === 'object')
+      ? schemaObject['xs:schema']
+      : schemaObject;
+    if (!rootSchema || typeof rootSchema !== 'object') {
+      return ['element', 'attribute', 'complexType', 'simpleType', 'attributeGroup'];
+    }
+
+    const discovered = new Set<TopLevelXsdKind>();
+    const collectKindFromRef = (refValue: unknown) => {
+      if (typeof refValue !== 'string') return;
+      const normalized = refValue.replace(/^xs:/, '').replace(/^xsd:/, '');
+      if (normalized === 'element' || normalized === 'attribute' || normalized === 'complexType' || normalized === 'simpleType' || normalized === 'group' || normalized === 'attributeGroup' || normalized === 'notation') {
+        discovered.add(normalized as TopLevelXsdKind);
+      }
+    };
+
+    const walkXsdNode = (node: any) => {
+      if (!node || typeof node !== 'object') return;
+      const attrs = node['@attributes'] || node;
+      const nameFromAttrs = typeof attrs?.name === 'string' ? attrs.name : undefined;
+      const refFromAttrs = typeof attrs?.ref === 'string' ? attrs.ref : undefined;
+      if (nameFromAttrs) {
+        const normalized = nameFromAttrs.replace(/^xs:/, '').replace(/^xsd:/, '');
+        if (xsdRootButtonOrder.includes(normalized as TopLevelXsdKind)) {
+          discovered.add(normalized as TopLevelXsdKind);
+        }
+      }
+      if (refFromAttrs) collectKindFromRef(refFromAttrs);
+
+      for (const value of Object.values(node)) {
+        if (Array.isArray(value)) {
+          value.forEach((entry) => walkXsdNode(entry));
+        } else if (value && typeof value === 'object') {
+          walkXsdNode(value);
+        }
+      }
+    };
+
+    const groupNodes = Array.isArray(rootSchema['xs:group']) ? rootSchema['xs:group'] : rootSchema['group'] ? [rootSchema['group']] : [];
+    groupNodes.forEach((groupNode) => {
+      const attrs = groupNode?.['@attributes'] || groupNode;
+      const groupName = typeof attrs?.name === 'string' ? attrs.name : '';
+      if (groupName === 'schemaTop' || groupName === 'redefinable') {
+        const choices = [] as any[];
+        if (groupNode['xs:choice']) choices.push(groupNode['xs:choice']);
+        if (groupNode['choice']) choices.push(groupNode['choice']);
+        choices.forEach((choice) => {
+          walkXsdNode(choice);
+        });
+      }
+    });
+
+    for (const key of Object.keys(rootSchema)) {
+      const normalized = key.replace(/^xs:/, '').replace(/^xsd:/, '');
+      if (xsdRootButtonOrder.includes(normalized as TopLevelXsdKind)) {
+        discovered.add(normalized as TopLevelXsdKind);
+      }
+    }
+
+    if (discovered.size === 0) {
+      return ['element', 'attribute', 'complexType', 'simpleType', 'attributeGroup'];
+    }
+
+    return xsdRootButtonOrder.filter((kind) => discovered.has(kind));
+  };
+
+  const addTopLevelXsdDefinition = (kind: TopLevelXsdKind) => {
+    if (!schema || typeof schema !== 'object') return;
+
+    const nextSchema = JSON.parse(JSON.stringify(schema)) as Record<string, any>;
+    const schemaRoot = (nextSchema['xs:schema'] && typeof nextSchema['xs:schema'] === 'object') ? nextSchema['xs:schema'] : nextSchema;
+    const keyMap: Record<TopLevelXsdKind, string> = {
+      element: 'xs:element',
+      attribute: 'xs:attribute',
+      complexType: 'xs:complexType',
+      simpleType: 'xs:simpleType',
+      group: 'xs:group',
+      attributeGroup: 'xs:attributeGroup',
+      notation: 'xs:notation',
+    };
+    const collectionKey = keyMap[kind];
+    if (!Array.isArray(schemaRoot[collectionKey])) {
+      schemaRoot[collectionKey] = [];
+    }
+
+    const index = schemaRoot[collectionKey].length;
+    if (kind === 'element') {
+      schemaRoot[collectionKey].push({ '@attributes': { name: `element${index + 1}`, type: 'xs:string' } });
+    } else if (kind === 'attribute') {
+      schemaRoot[collectionKey].push({ '@attributes': { name: `attribute${index + 1}`, type: 'xs:string' } });
+    } else if (kind === 'complexType') {
+      schemaRoot[collectionKey].push({ '@attributes': { name: `Type${index + 1}` } });
+    } else if (kind === 'simpleType') {
+      schemaRoot[collectionKey].push({ '@attributes': { name: `SimpleType${index + 1}` } });
+    } else if (kind === 'group') {
+      schemaRoot[collectionKey].push({ '@attributes': { name: `Group${index + 1}` } });
+    } else if (kind === 'attributeGroup') {
+      schemaRoot[collectionKey].push({ '@attributes': { name: `AttributeGroup${index + 1}` } });
+    } else {
+      schemaRoot[collectionKey].push({ '@attributes': { name: `Notation${index + 1}` } });
+    }
+
+    onChange(nextSchema['xs:schema'] ? nextSchema : schemaRoot);
+  };
+
+  const topLevelXsdAddKinds = useMemo(() => {
+    if (!schema || typeof schema !== 'object') {
+      return ['element', 'attribute', 'complexType', 'simpleType', 'attributeGroup'];
+    }
+    return getTopLevelXsdDefinitionKinds(schema);
+  }, [schema]);
+
+  const topLevelXsdAddButtons: Array<{ kind: TopLevelXsdKind; label: string }> = (
+    [
+      { kind: 'element' as const, label: 'Add Element' },
+      { kind: 'attribute' as const, label: 'Add Attribute' },
+      { kind: 'complexType' as const, label: 'Add ComplexType' },
+      { kind: 'simpleType' as const, label: 'Add SimpleType' },
+      { kind: 'group' as const, label: 'Add Group' },
+      { kind: 'attributeGroup' as const, label: 'Add AttributeGroup' },
+      { kind: 'notation' as const, label: 'Add Notation' },
+    ] as const
+  ).filter(({ kind }) => topLevelXsdAddKinds.includes(kind));
+
   // Compile the schema for efficient type lookups (replaces fiddly manual searching)
   const compiledSchema = useMemo(() => {
     if (!rootSchema && !schema) return undefined;
     try {
-      const schemaToCompile = rootSchema || schema;
+      // Use schema parameter first (which is XMLSchema.xsd in Schema Form mode),
+      // fall back to rootSchema for backward compatibility with Instance Form mode
+      const schemaToCompile = schema || rootSchema;
       // Unwrap the schema if it's wrapped with xs:schema key
       const unwrappedSchema = schemaToCompile['xs:schema'] || schemaToCompile['schema'] || schemaToCompile;
-      return compileSchemaForWalking(unwrappedSchema);
+      const compiled = compileSchemaForWalking(unwrappedSchema);
+      
+      // Debug for schema element
+      if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
+        const schemaElem = compiled.getElement('schema') || compiled.getElement('xs:schema');
+        console.log('[compiledSchema] For xs:schema element:', {
+          rootSchemaExists: !!rootSchema,
+          schemaExists: !!schema,
+          schemaTargetNamespace: unwrappedSchema?.['@attributes']?.targetNamespace || unwrappedSchema?.targetNamespace,
+          schemaElementDefFound: !!schemaElem,
+          schemaElementType: schemaElem?.['@attributes']?.type || schemaElem?.type,
+        });
+      }
+      
+      return compiled;
     } catch (e) {
       console.warn('[XmlInstanceForm] Schema compilation failed:', e);
       return undefined;
     }
-  }, [schema, rootSchema]);
+  }, [schema, rootSchema, rootElement?.tagName]);
 
   // Compute schema node tree using schema walker
   // This provides structured schema information for rendering
   // Walk the ACTUAL ROOT ELEMENT definition, not xs:schema
   const schemaNode = useMemo(() => {
-    console.log('[SCHEMA_NODE_MEMO] Computing with:', {
-      hasSchema: !!schema,
-      hasRootElement: !!rootElement,
-      hasCompiledSchema: !!compiledSchema,
-      rootElementTag: rootElement?.tagName,
-    });
+    if (!rootElement || !compiledSchema) {
+      if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
+        console.log('[schemaNode] Missing dependencies for xs:schema:', { rootElement: !!rootElement, compiledSchema: !!compiledSchema });
+      }
+      return undefined;
+    }
     
-    if (!schema || !rootElement || !compiledSchema) return undefined;
     try {
-      // Unwrap the schema if it's wrapped with xs:schema key
-      const unwrappedSchema = schema['xs:schema'] || schema['schema'] || schema;
-      
-      // Find the element definition that matches the root element from instance
-      const elementDef = findElementInSchema(unwrappedSchema, rootElement.tagName);
+      // Get the element definition directly from compiled schema
+      const elementDef = compiledSchema.getElement(rootElement.tagName);
+      if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
+        console.log('[schemaNode] Looking for element:', rootElement.tagName, '-> found:', !!elementDef);
+      }
       if (!elementDef) {
-        console.warn('[XmlInstanceForm] Element not found in schema:', rootElement.tagName);
+        if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
+          console.log('[schemaNode] Element not found in compiled schema:', rootElement.tagName);
+        }
         return undefined;
       }
       
       // Extract the type from the element definition
-      const elementAttrs = elementDef['@attributes'] || elementDef;
-      const typeName = elementAttrs.type;
+      const attrs = elementDef['@attributes'] || elementDef;
+      let typeName = attrs?.type;
       
-      console.log('[XmlInstanceForm] schemaNode recompute:', {
-        rootElementTag: rootElement.tagName,
-        elementDefKeys: elementDef ? Object.keys(elementDef) : 'none',
-        elementDefAtAttrs: elementDef?.['@attributes'] || 'none',
-        elementDefType: elementDef?.type,
-        elementAttrsKeys: elementAttrs ? Object.keys(elementAttrs) : 'none',
-        extractedTypeName: typeName,
-      });
+      // If no explicit type, check for synthetic type (e.g., "schema__type" for xs:schema)
+      if (!typeName) {
+        const localName = rootElement.tagName.includes(':') 
+          ? rootElement.tagName.split(':')[1] 
+          : rootElement.tagName;
+        const syntheticTypeName = `${localName}__type`;
+        // Try to get the synthetic type from compiledSchema
+        const syntheticType = compiledSchema.getType?.(syntheticTypeName);
+        if (syntheticType) {
+          typeName = syntheticTypeName;
+        }
+      }
       
-      // Walk the element definition with the correct type name
+      if (!typeName) {
+        if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
+          console.log('[schemaNode] No type found for element:', rootElement.tagName);
+        }
+        return undefined;
+      }
+      
+      // Walk the type to get its schema node structure
+      const unwrappedRootSchema = rootSchema ? (rootSchema['xs:schema'] || rootSchema['schema'] || rootSchema) : null;
       const walked = walkSchema(compiledSchema, {
-        rootSchema: unwrappedSchema,
+        rootSchema: unwrappedRootSchema || schema,
         compiledSchema,
         visitedTypes: new Set(),
         typeName,
@@ -3356,18 +4234,22 @@ export function XmlInstanceForm({
         maxDepth: 50,
         path: [],
       });
-      console.log('[XmlInstanceForm] Schema walked successfully:', {
-        tagName: walked.tagName,
-        label: walked.label,
-        nodeType: walked.nodeType,
-        compositorType: walked.compositorType,
-        elementType: walked.elementType,
-        children: walked.children.length,
-        attributes: walked.attributes.length,
-        minOccurs: walked.minOccurs,
-        maxOccurs: walked.maxOccurs,
-        childNames: walked.children.map(c => c.tagName || c.label),
-      });
+      
+      if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
+        console.log('[schemaNode] Schema walked successfully:', {
+          tagName: walked?.tagName,
+          label: walked?.label,
+          nodeType: walked?.nodeType,
+          compositorType: walked?.compositorType,
+          elementType: walked?.elementType,
+          children: walked?.children?.length,
+          attributes: walked?.attributes?.length,
+          minOccurs: walked?.minOccurs,
+          maxOccurs: walked?.maxOccurs,
+          childNames: walked?.children?.map(c => c.tagName || c.label),
+        });
+      }
+      
       return walked;
     } catch (e) {
       console.warn('[XmlInstanceForm] Schema walk failed:', e);
@@ -3551,6 +4433,8 @@ export function XmlInstanceForm({
         initialAutoExpandPathsRef={initialAutoExpandPathsRef}
         autoExpandCaptureActiveRef={autoExpandCaptureActiveRef}
         isSchemaForm={isSchemaForm}
+        rootXsdAddButtons={isSchemaForm ? topLevelXsdAddButtons : undefined}
+        onAddTopLevelXsdDefinition={addTopLevelXsdDefinition}
       />
     </div>
   );

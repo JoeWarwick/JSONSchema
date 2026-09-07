@@ -45,6 +45,71 @@ describe('GraphicalSchemaEditor - complexType/element "Add …" context-menu act
     });
   });
 
+  it('adds and selects a sequence on a simpleContent-backed complexType node', async () => {
+    let latestSchema: any = {
+      'xs:schema': {
+        'xs:complexType': [
+          {
+            '@attributes': { name: 'NoteType' },
+            'xs:simpleContent': {
+              'xs:extension': {
+                '@attributes': { base: 'xs:string' },
+                'xs:attribute': [{ '@attributes': { name: 'lang', type: 'xs:language' } }],
+              },
+            },
+          },
+        ],
+      },
+    };
+
+    render(<StatefulXmlEditor initialSchema={latestSchema} onLatest={(s) => { latestSchema = s; }} />);
+
+    fireEvent.contextMenu(await screen.findByText('NoteType'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add sequence' }));
+
+    await waitFor(() => {
+      const complexType = latestSchema['xs:schema']['xs:complexType'][0];
+      const sequence = complexType['xs:complexContent']?.['xs:extension']?.['xs:sequence'];
+      expect(sequence?.['@attributes']?.minOccurs).toBe('1');
+      expect(sequence?.['@attributes']?.maxOccurs).toBe('1');
+    });
+
+    await waitFor(() => {
+      expect(document.querySelector('.react-flow__node[data-id="1.complexType_0.sequence"]')).not.toBeNull();
+    });
+
+    fireEvent.click(document.querySelector('.react-flow__node[data-id="1.complexType_0.sequence"]') as Element);
+    expect(await screen.findByText('sequence Editor')).toBeInTheDocument();
+  });
+
+  it('adds an element to a simpleContent-backed NoteType complexType without dragging the tree down', async () => {
+    let latestSchema: any = {
+      'xs:schema': {
+        'xs:complexType': [
+          {
+            '@attributes': { name: 'NoteType' },
+            'xs:simpleContent': {
+              'xs:extension': {
+                '@attributes': { base: 'xs:string' },
+                'xs:attribute': [{ '@attributes': { name: 'lang', type: 'xs:language' } }],
+              },
+            },
+          },
+        ],
+      },
+    };
+
+    render(<StatefulXmlEditor initialSchema={latestSchema} onLatest={(s) => { latestSchema = s; }} />);
+
+    fireEvent.contextMenu(await screen.findByText('NoteType'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add element' }));
+
+    await waitFor(() => {
+      const complexType = latestSchema['xs:schema']['xs:complexType'][0];
+      expect(complexType['xs:complexContent']?.['xs:extension']?.['xs:sequence']?.['xs:element']?.['@attributes']?.name).toBe('element1');
+    });
+  });
+
   it('requires explicit Convert to ComplexType on a simpleType-backed element before add actions are shown', async () => {
     let latestSchema: any = {
       'xs:schema': {
@@ -83,7 +148,7 @@ describe('GraphicalSchemaEditor - complexType/element "Add …" context-menu act
     await waitFor(() => {
       const element = latestSchema['xs:schema']['xs:element'][0];
       expect(element['@attributes'].type).toBeUndefined();
-      const sequence = element['xs:complexType']?.['xs:sequence'];
+      const sequence = element['xs:complexType']?.['xs:complexContent']?.['xs:extension']?.['xs:sequence'];
       expect(sequence?.['xs:element']?.['@attributes']?.name).toBe('element1');
     });
   });

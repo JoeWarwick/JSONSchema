@@ -1,7 +1,7 @@
 import { useRef, useEffect, memo } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { Textarea } from './ui/textarea/textarea';
-import styles from './html-editor.module.css';
+import styles from './html-editor/html-editor.module.css';
 import { Code, Plus, Eye } from 'lucide-react';
 
 interface HtmlEditorProps {

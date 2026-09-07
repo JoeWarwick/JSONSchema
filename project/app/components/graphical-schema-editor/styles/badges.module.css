@@ -1,0 +1,85 @@
+/* Badge styles and variant markers */
+
+/* Generic badge styling */
+.badge {
+  display: inline-block;
+  border-radius: 8px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  margin-right: 4px;
+  margin-bottom: 2px;
+}
+
+/* Variant badge styles */
+.badge_type {
+  background: var(--graph-node-bg-subtle);
+  border: 1px solid var(--graph-node-border);
+  color: var(--graph-node-text);
+}
+
+.badge_enum {
+  background: var(--color-error-3);
+  border: 1px solid var(--color-error-6);
+  color: var(--color-error-11);
+}
+
+.badge_union {
+  background: var(--color-accent-3);
+  border: 1px solid var(--color-accent-6);
+  color: var(--color-accent-11);
+  font-weight: 700;
+}
+
+.badge_constraint {
+  background: var(--graph-node-bg-subtle);
+  border: 1px solid var(--graph-node-border);
+  color: var(--graph-node-text);
+}
+
+.badge_xmlKind {
+  border: 1px solid currentColor;
+  font-weight: 700;
+}
+
+.badge_format {
+  background: var(--color-error-3);
+  border: 1px solid var(--color-error-6);
+  color: var(--color-error-11);
+  font-weight: 700;
+}
+
+.badge_imported {
+  background: var(--color-accent-3);
+  border: 1px solid var(--color-accent-6);
+  color: var(--color-accent-11);
+  font-weight: 700;
+}
+
+/* Required asterisk and imported star markers */
+.requiredAsterisk {
+  display: inline-block;
+  background: transparent;
+  color: var(--color-error-11);
+  border: none;
+  padding: 0;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 0;
+  margin-right: 2px;
+  vertical-align: super;
+  transform: translateY(-2px);
+  cursor: default;
+  line-height: 1;
+  width: auto;
+  flex: 0 0 auto; /* keep asterisk compact */
+}
+
+.importedStar {
+  color: var(--color-error-10);
+  margin-left: 8px;
+  font-size: 14px;
+  vertical-align: middle;
+  flex: 0 0 auto; /* keep imported star from shrinking */
+}

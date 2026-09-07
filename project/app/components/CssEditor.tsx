@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, memo } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { Textarea } from './ui/textarea/textarea';
 import classNames from 'classnames';
-import styles from './css-editor.module.css';
+import styles from './css-editor/css-editor.module.css';
 import { Code, Plus } from 'lucide-react';
 
 interface CssEditorProps {

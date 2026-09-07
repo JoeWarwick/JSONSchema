@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import Workbench from './workbench';
+import { parseMarkup } from '~/utils/markup';
 
 const STORAGE_KEY = 'schema-sculptor-schema';
 
@@ -104,6 +105,46 @@ describe('Workbench integration - load unresolved $defs schema', () => {
       expect(objectBtns.length).toBeGreaterThan(0);
       // The first one should be the root object button
       expect(objectBtns[0]).toHaveStyle('font-weight: 700');
+    });
+  });
+
+  it('shows XML schema root add buttons inferred from the XSD walk', async () => {
+    const xmlSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:group name="schemaTop">
+          <xs:choice>
+            <xs:element ref="xs:element"/>
+            <xs:element ref="xs:attribute"/>
+            <xs:element ref="xs:notation"/>
+          </xs:choice>
+        </xs:group>
+        <xs:group name="redefinable">
+          <xs:choice>
+            <xs:element ref="xs:simpleType"/>
+            <xs:element ref="xs:complexType"/>
+            <xs:element ref="xs:attributeGroup"/>
+          </xs:choice>
+        </xs:group>
+      </xs:schema>
+    `, 'xml') as any;
+
+    localStorage.setItem('schema-sculptor-markup-language', 'xml');
+    localStorage.setItem('schema-sculptor-schema-xml', JSON.stringify(xmlSchema));
+    render(<Workbench />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('radio', { name: /^XML$/i })).toHaveAttribute('aria-checked', 'true');
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: /Schema Form/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Add Element/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Add ComplexType/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Add SimpleType/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Add Group/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Add Notation/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Add AttributeGroup/i })).toBeInTheDocument();
     });
   });
 

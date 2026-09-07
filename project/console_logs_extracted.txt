@@ -1,0 +1,16 @@
+[SchemaCompiler] Created schema__type: {elements: 8, elementNames: Array(8), compositorType: sequence}
+[SchemaCompiler] Created schema__type: {elements: 8, elementNames: Array(8), compositorType: sequence}
+[XmlInstanceForm] Found xs:schema or schema key
+[XmlInstanceForm] Found xs:schema or schema key
+[ChoiceGroups] xs:schema children: [Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object]
+[ChoiceGroups] Found 2 choice groups for xs:schema
+[ChoiceGroups] xs:schema children: [Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object]
+[ChoiceGroups] Found 2 choice groups for xs:schema
+=== [SchemaCompiler] LOGS ===
+[SchemaCompiler] Created schema__type: {elements: 8, elementNames: Array(8), compositorType: sequence}
+[SchemaCompiler] Created schema__type: {elements: 8, elementNames: Array(8), compositorType: sequence}
+=== [ChoiceGroups] LOGS ===
+[ChoiceGroups] xs:schema children: [Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object]
+[ChoiceGroups] Found 2 choice groups for xs:schema
+[ChoiceGroups] xs:schema children: [Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object]
+[ChoiceGroups] Found 2 choice groups for xs:schema

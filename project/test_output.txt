@@ -1,0 +1,47 @@
+
+Running 1 test using 1 worker
+
+Found 0 expander buttons
+
+=== Repeating Choice Logs ===
+[ChoiceGroups] xs:schema has 11 children: [Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object]
+[ChoiceGroups] Found 2 choice groups for xs:schema with 10 total options
+[ChoiceGroups] xs:schema has 11 children: [Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object]
+[ChoiceGroups] Found 2 choice groups for xs:schema with 10 total options
+Found schema form repeating choice logs: false
+Found 0 select elements in schema form
+  ✘  1 [chromium] › e2e\schema-form-repeating-choice-names.spec.ts:6:3 › Schema Form - Repeating Choice Elements with @name Badges › displays @name badges and expansion on repeating xs:schema choice elements (3.9s)
+
+
+  1) [chromium] › e2e\schema-form-repeating-choice-names.spec.ts:6:3 › Schema Form - Repeating Choice Elements with @name Badges › displays @name badges and expansion on repeating xs:schema choice elements 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32mtrue[39m
+    Received: [31mfalse[39m
+
+       95 |     }
+       96 |
+    >  97 |     expect(foundRepeatableChoice).toBe(true);
+          |                                   ^
+       98 |
+       99 |     // Look for @name badges - they should appear as cyan badges next to the dropdowns
+      100 |     const badges = page.locator('span').filter({
+        at C:\Users\JoeNuc\source\repos\JSONSchema-1\project\e2e\schema-form-repeating-choice-names.spec.ts:97:35
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\schema-form-repeating-choi-cecc6-g-xs-schema-choice-elements-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\schema-form-repeating-choi-cecc6-g-xs-schema-choice-elements-chromium\error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\schema-form-repeating-choi-cecc6-g-xs-schema-choice-elements-chromium\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\schema-form-repeating-choi-cecc6-g-xs-schema-choice-elements-chromium\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [chromium] › e2e\schema-form-repeating-choice-names.spec.ts:6:3 › Schema Form - Repeating Choice Elements with @name Badges › displays @name badges and expansion on repeating xs:schema choice elements 

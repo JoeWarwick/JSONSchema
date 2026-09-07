@@ -1,0 +1,131 @@
+/* Editor sidebar and schema details panel */
+
+.editorSidebar {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  background: var(--graph-sidebar-bg);
+  border-left: 1px solid var(--graph-sidebar-border);
+  padding: var(--space-4);
+  font-size: var(--font-size-1);
+  color: var(--graph-text);
+  overflow-y: auto;
+}
+
+.editorSidebarHeader {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-3);
+}
+
+.sidebarHeaderGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.schemaDialectBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--graph-sidebar-border);
+  background: var(--graph-node-bg-subtle);
+  color: var(--graph-muted);
+  font: var(--font-body);
+  font-size: var(--font-size-0);
+  font-weight: 600;
+}
+
+.printButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--graph-sidebar-border);
+  border-radius: var(--radius-3);
+  background: var(--graph-sidebar-bg);
+  color: var(--graph-muted);
+  font: var(--font-body);
+  font-size: var(--font-size-1);
+  cursor: pointer;
+}
+
+.printButton:hover {
+  background: var(--graph-node-bg-subtle);
+}
+
+.schemaDetailsPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--graph-sidebar-border);
+  border-radius: var(--radius-3);
+  background: var(--graph-node-bg-subtle);
+}
+
+.schemaDetailStack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.schemaDetailRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.schemaDetailLabel {
+  color: var(--graph-muted);
+  font-size: var(--font-size-0);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  min-width: 0;
+}
+
+.schemaDetailValue {
+  color: var(--graph-text);
+  font-size: var(--font-size-0);
+  text-align: right;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.removeControl {
+  background: none;
+  border: none;
+  color: var(--color-error-10);
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 14px;
+}
+
+.smallInput {
+  flex: 0 0 120px;
+  width: 120px;
+  margin-top: 2px;
+  padding: 4px;
+  border-radius: 4px;
+  border: 1px solid var(--graph-node-border);
+  background: var(--graph-node-bg);
+  color: var(--graph-node-text);
+}
+
+.numberInput {
+  flex: 0 0 60px;
+  width: 60px;
+  margin-top: 2px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--graph-node-border);
+  background: var(--graph-node-bg);
+  color: var(--graph-node-text);
+}

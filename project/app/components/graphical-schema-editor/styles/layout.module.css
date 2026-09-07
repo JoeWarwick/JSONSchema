@@ -1,0 +1,123 @@
+/* Layout and container styles */
+
+.graphicalEditorContainer {
+  --graph-shell-bg: var(--color-neutral-1);
+  --graph-flow-bg: var(--color-neutral-2);
+  --graph-sidebar-bg: var(--color-neutral-1);
+  --graph-sidebar-border: var(--color-neutral-6);
+  --graph-text: var(--color-neutral-12);
+  --graph-muted: var(--color-neutral-11);
+  --graph-border: var(--color-accent-7);
+  --graph-surface: var(--color-neutral-1);
+  --graph-node-bg: var(--color-neutral-1);
+  --graph-node-bg-subtle: var(--color-neutral-2);
+  --graph-node-border: var(--color-neutral-6);
+  --graph-node-border-accent: var(--color-accent-7);
+  --graph-node-border-selected: var(--color-accent-9);
+  --graph-node-text: var(--color-neutral-12);
+  --graph-node-muted: var(--color-neutral-11);
+  --graph-node-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  --graph-node-shadow-strong: 0 4px 16px rgba(0,0,0,0.16);
+  /* Form styling variables for light mode */
+  --form-surface: #f9f5f0;
+  --form-border: #e5d4c4;
+  --form-text: #5d4a3a;
+  display: flex;
+  flex-direction: row;
+  /* Fill whatever height the flex parent (tabPanel) gives us */
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--graph-shell-bg);
+}
+
+.flowPanel,
+.sidebarPanel {
+  height: 100%;
+  min-width: 0;
+}
+
+.flowPanel {
+  background: var(--graph-flow-bg);
+}
+
+.facetCompactField {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding-top: 8px;
+}
+
+.facetCompactTitle {
+  position: absolute;
+  top: -1px;
+  left: 0;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--graph-muted);
+  background: var(--graph-sidebar-bg);
+  padding: 0 3px;
+  pointer-events: none;
+}
+
+.facetCompactInput {
+  width: 74px;
+  flex-basis: 74px;
+  margin-top: 0;
+  padding-top: 8px;
+}
+
+.facetCompactControl {
+  margin-top: 0;
+  padding-top: 8px;
+}
+
+@media print {
+  :global(body[data-print-mode='graphical']) .graphicalEditorContainer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 9.5in;
+    min-height: 9.5in;
+    overflow: visible;
+    background: #fff;
+    padding: 0.1in;
+    box-sizing: border-box;
+  }
+
+  :global(body[data-print-mode='graphical']) .flowPanel {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    min-height: 9.5in;
+  }
+
+  :global(body[data-print-mode='graphical']) .flowWrapper {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    min-height: 9.5in;
+    margin: 0 auto;
+  }
+
+  :global(body[data-print-mode='graphical']) .sidebarPanel {
+    display: none;
+  }
+
+  :global(body[data-print-mode='graphical']) .flowPanel :global(.react-flow__controls),
+  :global(body[data-print-mode='graphical']) .flowPanel :global(.react-flow__panel) {
+    display: none;
+  }
+
+  :global(body[data-print-mode='graphical']) .flowPanel :global(.react-flow__controls-button) {
+    background: var(--graph-sidebar-bg);
+    color: var(--graph-text);
+    border-color: var(--graph-sidebar-border);
+  }
+}

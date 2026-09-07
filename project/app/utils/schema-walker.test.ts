@@ -192,6 +192,127 @@ describe('Schema Walker - Child Elements', () => {
     const children = getChildElementsFromType(null);
     expect(children).toEqual([]);
   });
+
+  test('getChildElementsFromType should resolve xs:group refs used by facet restrictions', () => {
+    const schemaObj = {
+      '@attributes': { xmlns: 'http://www.w3.org/2001/XMLSchema' },
+      'xs:group': {
+        '@attributes': { name: 'facets' },
+        'xs:choice': {
+          'xs:element': [
+            { '@attributes': { ref: 'xs:enumeration' } },
+            { '@attributes': { ref: 'xs:length' } },
+          ],
+        },
+      },
+      'xs:simpleType': {
+        '@attributes': { name: 'ColorType' },
+        'xs:restriction': {
+          '@attributes': { base: 'xs:string' },
+          'xs:group': {
+            '@attributes': { ref: 'xs:facets', minOccurs: '0', maxOccurs: 'unbounded' },
+          },
+        },
+      },
+    };
+
+    const children = getChildElementsFromType(schemaObj['xs:simpleType']['xs:restriction'], schemaObj);
+    expect(children.some((child) => String(child.name).endsWith('enumeration'))).toBe(true);
+    expect(children.some((child) => String(child.name).endsWith('length'))).toBe(true);
+  });
+
+  test('getChildElementsFromType should traverse mixed choice branches for complexTypeModel particles', () => {
+    const schemaObj = {
+      '@attributes': { xmlns: 'http://www.w3.org/2001/XMLSchema' },
+      'xs:group': [
+        {
+          '@attributes': { name: 'typeDefParticle' },
+          'xs:choice': {
+            'xs:element': [
+              { '@attributes': { ref: 'xs:all' } },
+              { '@attributes': { ref: 'xs:choice' } },
+              { '@attributes': { ref: 'xs:sequence' } },
+            ],
+          },
+        },
+        {
+          '@attributes': { name: 'attrDecls' },
+          'xs:sequence': {
+            'xs:choice': {
+              'xs:element': [
+                { '@attributes': { ref: 'xs:attribute' } },
+                { '@attributes': { ref: 'xs:attributeGroup' } },
+              ],
+            },
+          },
+        },
+        {
+          '@attributes': { name: 'complexTypeModel' },
+          'xs:choice': {
+            'xs:element': [
+              { '@attributes': { ref: 'xs:simpleContent' } },
+              { '@attributes': { ref: 'xs:complexContent' } },
+            ],
+            'xs:sequence': {
+              'xs:group': [
+                { '@attributes': { ref: 'xs:typeDefParticle', minOccurs: '0' } },
+                { '@attributes': { ref: 'xs:attrDecls' } },
+              ],
+            },
+          },
+        },
+      ],
+      'xs:complexType': {
+        '@attributes': { name: 'HolderType' },
+        'xs:sequence': {
+          'xs:group': { '@attributes': { ref: 'xs:complexTypeModel' } },
+        },
+      },
+    };
+
+    const holderType = schemaObj['xs:complexType'];
+    const children = getChildElementsFromType(holderType, schemaObj);
+    const names = children.map((child) => String(child.name));
+
+    expect(names).toEqual(expect.arrayContaining([
+      'xs:simpleContent',
+      'xs:complexContent',
+      'xs:all',
+      'xs:choice',
+      'xs:sequence',
+      'xs:attribute',
+    ]));
+  });
+
+  test('getChildElementsFromType should propagate optional minOccurs through group refs', () => {
+    const schemaObj = {
+      '@attributes': { xmlns: 'http://www.w3.org/2001/XMLSchema' },
+      'xs:group': {
+        '@attributes': { name: 'schemaTop' },
+        'xs:choice': {
+          'xs:element': [
+            { '@attributes': { ref: 'xs:attribute' } },
+            { '@attributes': { ref: 'xs:group' } },
+          ],
+        },
+      },
+      'xs:complexType': {
+        '@attributes': { name: 'SchemaType' },
+        'xs:sequence': {
+          'xs:group': { '@attributes': { ref: 'xs:schemaTop', minOccurs: '0', maxOccurs: 'unbounded' } },
+        },
+      },
+    };
+
+    const children = getChildElementsFromType(schemaObj['xs:complexType'], schemaObj);
+    const attrChild = children.find((child) => String(child.name).endsWith('attribute'));
+    const groupChild = children.find((child) => String(child.name).endsWith('group'));
+
+    expect(attrChild).toBeTruthy();
+    expect(groupChild).toBeTruthy();
+    expect(attrChild?.minOccurs).toBe(0);
+    expect(groupChild?.minOccurs).toBe(0);
+  });
 });
 
 describe('Schema Walker - Schema Walking', () => {
@@ -216,6 +337,46 @@ describe('Schema Walker - Schema Walking', () => {
     
     // Should complete without stack overflow
     expect(node).toBeTruthy();
+  });
+
+  test('walkSchema should resolve ref children via global element definition instead of unrelated fallback type', () => {
+    const schema = {
+      'xs:schema': {
+        '@attributes': { xmlns: 'http://www.w3.org/2001/XMLSchema' },
+        'xs:element': [
+          { '@attributes': { name: 'schema', type: 'SchemaType' } },
+          {
+            '@attributes': { name: 'annotation' },
+            'xs:complexType': {
+              'xs:sequence': {
+                'xs:element': { '@attributes': { name: 'documentation', type: 'xs:string' } },
+              },
+            },
+          },
+        ],
+        'xs:complexType': {
+          '@attributes': { name: 'SchemaType' },
+          'xs:sequence': {
+            'xs:element': { '@attributes': { ref: 'xs:annotation', minOccurs: '0', maxOccurs: 'unbounded' } },
+          },
+        },
+      },
+    } as any;
+
+    const compiled = compileSchemaForWalking(schema['xs:schema']);
+    const node = walkSchema(compiled, {
+      rootSchema: schema['xs:schema'],
+      compiledSchema: compiled,
+      visitedTypes: new Set(),
+      typeName: 'SchemaType',
+      depth: 0,
+      maxDepth: 50,
+      path: [],
+    });
+
+    const annotationChild = node.children.find((child) => child.tagName === 'xs:annotation');
+    expect(annotationChild).toBeTruthy();
+    expect(annotationChild?.children.some((grand) => grand.tagName === 'documentation')).toBe(true);
   });
 });
 

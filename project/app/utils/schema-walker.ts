@@ -162,35 +162,189 @@ export function findElementInSchema(schema: any, elementName: string): any {
 /**
  * Get child element definitions from a complexType (via sequence, choice, all).
  */
+function findNamedGroup(rootSchema: any, groupName: string): any {
+  if (!rootSchema || typeof rootSchema !== 'object') return undefined;
+
+  const schemaRoot = rootSchema['xs:schema'] && typeof rootSchema['xs:schema'] === 'object'
+    ? rootSchema['xs:schema']
+    : rootSchema;
+
+  const rawGroups = schemaRoot['xs:group'] || schemaRoot['group'];
+  if (!rawGroups) return undefined;
+
+  const groups = Array.isArray(rawGroups) ? rawGroups : [rawGroups];
+  const normalized = groupName.replace(/^.*:/, '');
+  return groups.find((groupNode: any) => {
+    const attrs = getXmlAttrs(groupNode);
+    return (attrs.name || '').replace(/^.*:/, '') === normalized || (attrs.ref || '').replace(/^.*:/, '') === normalized;
+  });
+}
+
+function parseOccurs(attrs: Record<string, any>): { minOccurs: number; maxOccurs: string } {
+  return {
+    minOccurs: parseInt(attrs.minOccurs ?? '1', 10),
+    maxOccurs: String(attrs.maxOccurs ?? '1'),
+  };
+}
+
+function mergeOccurs(parent: { minOccurs: number; maxOccurs: string }, child: { minOccurs: number; maxOccurs: string }): { minOccurs: number; maxOccurs: string } {
+  const minOccurs = parent.minOccurs === 0 ? 0 : child.minOccurs;
+  const maxOccurs = parent.maxOccurs === 'unbounded' || child.maxOccurs === 'unbounded'
+    ? 'unbounded'
+    : child.maxOccurs;
+  return { minOccurs, maxOccurs };
+}
+
+function gatherGroupChildren(
+  groupNode: any,
+  rootSchema: any,
+  seen = new Set<string>(),
+  inheritedOccurs: { minOccurs: number; maxOccurs: string } = { minOccurs: 1, maxOccurs: '1' }
+): Array<{ name: string; type: string | null; minOccurs: number; maxOccurs: string; definition: any; compositorType?: string }> {
+  const result: Array<{ name: string; type: string | null; minOccurs: number; maxOccurs: string; definition: any; compositorType?: string }> = [];
+  if (!groupNode || typeof groupNode !== 'object') return result;
+
+  const attrs = getXmlAttrs(groupNode);
+  const currentOccurs = mergeOccurs(inheritedOccurs, parseOccurs(attrs));
+  if (typeof attrs.ref === 'string') {
+    const refName = attrs.ref.replace(/^.*:/, '');
+    if (refName && !seen.has(refName)) {
+      seen.add(refName);
+      const resolved = findNamedGroup(rootSchema, refName);
+      if (resolved) {
+        return gatherGroupChildren(resolved, rootSchema, seen, currentOccurs);
+      }
+    }
+  }
+
+  const childContainers: Array<{ kind: 'choice' | 'sequence' | 'all' | 'group'; node: any }> = [
+    { kind: 'choice' as const, node: groupNode['xs:choice'] ?? groupNode['choice'] },
+    { kind: 'sequence' as const, node: groupNode['xs:sequence'] ?? groupNode['sequence'] },
+    { kind: 'all' as const, node: groupNode['xs:all'] ?? groupNode['all'] },
+    { kind: 'group' as const, node: groupNode['xs:group'] ?? groupNode['group'] },
+  ].filter(({ node }) => Boolean(node));
+
+  for (const { kind, node } of childContainers) {
+    const entries = Array.isArray(node) ? node : [node];
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') continue;
+
+      // Resolve nested xs:group refs rather than surfacing group names as pseudo-children.
+      if (kind === 'group') {
+        result.push(...gatherGroupChildren(entry, rootSchema, new Set(seen), currentOccurs));
+        continue;
+      }
+
+      const directElementList = entry['xs:element'] || entry['element'];
+      if (directElementList) {
+        const elementEntries = Array.isArray(directElementList) ? directElementList : [directElementList];
+        for (const elementEntry of elementEntries) {
+          const elementAttrs = getXmlAttrs(elementEntry);
+          const resolvedName = (typeof elementAttrs.ref === 'string' ? elementAttrs.ref : undefined)
+            || (typeof elementAttrs.name === 'string' ? elementAttrs.name : undefined)
+            || '';
+          if (!resolvedName) continue;
+          const mergedElementOccurs = mergeOccurs(currentOccurs, parseOccurs(elementAttrs));
+          result.push({
+            name: resolvedName,
+            type: typeof elementAttrs.type === 'string' ? elementAttrs.type : null,
+            minOccurs: mergedElementOccurs.minOccurs,
+            maxOccurs: mergedElementOccurs.maxOccurs,
+            definition: elementEntry,
+            compositorType: kind,
+          });
+        }
+      }
+
+      // Mixed model groups may contain both xs:element and nested sequence/choice/all/group branches.
+      // Traverse nested branches too so particles from all legal alternatives are inferred.
+      const nestedBranches: Array<{ key: string; node: any }> = [
+        { key: 'xs:choice', node: entry['xs:choice'] },
+        { key: 'choice', node: entry['choice'] },
+        { key: 'xs:sequence', node: entry['xs:sequence'] },
+        { key: 'sequence', node: entry['sequence'] },
+        { key: 'xs:all', node: entry['xs:all'] },
+        { key: 'all', node: entry['all'] },
+        { key: 'xs:group', node: entry['xs:group'] },
+        { key: 'group', node: entry['group'] },
+      ].filter(({ node }) => Boolean(node));
+
+      for (const { key, node: nestedBranch } of nestedBranches) {
+        const nestedEntries = Array.isArray(nestedBranch) ? nestedBranch : [nestedBranch];
+        for (const nestedEntry of nestedEntries) {
+          result.push(...gatherGroupChildren({ [key]: nestedEntry }, rootSchema, new Set(seen), currentOccurs));
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
 export function getChildElementsFromType(
-  typeObj: any
+  typeObj: any,
+  rootSchema?: any
 ): Array<{ name: string; type: string | null; minOccurs: number; maxOccurs: string; definition: any; compositorType?: string }> {
   if (!typeObj || typeof typeObj !== 'object') return [];
   
   const result: Array<{ name: string; type: string | null; minOccurs: number; maxOccurs: string; definition: any; compositorType?: string }> = [];
+  const effectiveRootSchema = rootSchema ?? typeObj;
   
   // Handle xs:sequence, xs:choice, xs:all
   for (const compositorKey of ['xs:sequence', 'xs:choice', 'xs:all', 'sequence', 'choice', 'all']) {
-    const compositor = typeObj[compositorKey];
-    if (!compositor) continue;
+    const compositorNode = typeObj[compositorKey];
+    if (!compositorNode) continue;
+
+    const compositors = Array.isArray(compositorNode) ? compositorNode : [compositorNode];
+    for (const compositor of compositors) {
+      if (!compositor || typeof compositor !== 'object') continue;
     
-    const compositorType = compositorKey.replace(/^xs:/, '');
+      const compositorType = compositorKey.replace(/^xs:/, '');
     
-    // Get elements from compositor
-    const elements = compositor['xs:element'] || compositor['element'];
-    if (!elements) continue;
-    
-    const elemArray = Array.isArray(elements) ? elements : [elements];
-    for (const elem of elemArray) {
-      const attrs = getXmlAttrs(elem);
-      result.push({
-        name: attrs.name || '',
-        type: attrs.type || null,
-        minOccurs: parseInt(attrs.minOccurs ?? '1', 10),
-        maxOccurs: attrs.maxOccurs ?? '1',
-        definition: elem,
-        compositorType,
-      });
+      // Get elements from compositor
+      const elements = compositor['xs:element'] || compositor['element'];
+      const compositorOccurs = mergeOccurs({ minOccurs: 1, maxOccurs: '1' }, parseOccurs(getXmlAttrs(compositor)));
+      if (elements) {
+        const elemArray = Array.isArray(elements) ? elements : [elements];
+        for (const elem of elemArray) {
+          const attrs = getXmlAttrs(elem);
+          const effectiveOccurs = mergeOccurs(compositorOccurs, parseOccurs(attrs));
+          result.push({
+            name: attrs.name || attrs.ref || '',
+            type: attrs.type || null,
+            minOccurs: effectiveOccurs.minOccurs,
+            maxOccurs: effectiveOccurs.maxOccurs,
+            definition: elem,
+            compositorType,
+          });
+        }
+      }
+
+      const groupNodes = compositor['xs:group'] || compositor['group'];
+      if (groupNodes) {
+        const groups = Array.isArray(groupNodes) ? groupNodes : [groupNodes];
+        for (const groupNode of groups) {
+          result.push(...gatherGroupChildren(groupNode, effectiveRootSchema, new Set<string>(), compositorOccurs));
+        }
+      }
+
+      // Nested compositors inside compositors (e.g., choice containing sequence branch)
+      for (const nestedKey of ['xs:choice', 'choice', 'xs:sequence', 'sequence', 'xs:all', 'all']) {
+        const nestedNode = compositor[nestedKey];
+        if (!nestedNode) continue;
+        const nestedEntries = Array.isArray(nestedNode) ? nestedNode : [nestedNode];
+        for (const nestedEntry of nestedEntries) {
+          result.push(...gatherGroupChildren({ [nestedKey]: nestedEntry }, effectiveRootSchema, new Set<string>(), compositorOccurs));
+        }
+      }
+    }
+  }
+
+  const groupNodes = typeObj['xs:group'] || typeObj['group'];
+  if (groupNodes) {
+    const groups = Array.isArray(groupNodes) ? groupNodes : [groupNodes];
+    for (const groupNode of groups) {
+      result.push(...gatherGroupChildren(groupNode, effectiveRootSchema));
     }
   }
   
@@ -200,12 +354,39 @@ export function getChildElementsFromType(
     for (const contentKey of ['xs:extension', 'xs:restriction', 'extension', 'restriction']) {
       const content = complexContent[contentKey];
       if (content) {
-        const nestedElems = getChildElementsFromType(content);
+        const nestedElems = getChildElementsFromType(content, effectiveRootSchema);
         result.push(...nestedElems);
       }
     }
   }
-  
+
+  // If we're walking the XML Schema namespace itself (XMLSchema.xsd), extract facet elements
+  // In XMLSchema.xsd, xs:enumeration, xs:pattern, etc. are actual xs:element definitions
+  // In user schemas, they're just facets (validation metadata), not structural children
+  const restriction = typeObj['xs:restriction'] || typeObj['restriction'];
+  if (restriction) {
+    const facetKeys = ['xs:enumeration', 'enumeration', 'xs:pattern', 'pattern', 'xs:length', 'length',
+                      'xs:minLength', 'minLength', 'xs:maxLength', 'maxLength', 'xs:minInclusive', 'minInclusive',
+                      'xs:maxInclusive', 'maxInclusive', 'xs:minExclusive', 'minExclusive', 'xs:maxExclusive', 'maxExclusive',
+                      'xs:fractionDigits', 'fractionDigits', 'xs:totalDigits', 'totalDigits', 'xs:whiteSpace', 'whiteSpace'];
+    for (const facetKey of facetKeys) {
+      const facets = restriction[facetKey];
+      if (facets) {
+        const facetArray = Array.isArray(facets) ? facets : [facets];
+        for (const facet of facetArray) {
+          const facetName = facetKey.replace(/^xs:/, '');
+          result.push({
+            name: facetName,
+            type: null,
+            minOccurs: 0,
+            maxOccurs: 'unbounded',
+            definition: facet,
+          });
+        }
+      }
+    }
+  }
+
   return result;
 }
 
@@ -658,7 +839,7 @@ function buildInlineTypeNode(typeDef: any, context: SchemaContext): SchemaNode {
     compositorType: elem.compositorType,
   }));
 
-  const directChildren: SchemaNode[] = getChildElementsFromType(typeDef).map((elem): SchemaNode => {
+  const directChildren: SchemaNode[] = getChildElementsFromType(typeDef, context.rootSchema).map((elem): SchemaNode => {
     const parsedMaxOccurs = elem.maxOccurs === 'unbounded'
       ? 'unbounded'
       : Number.isFinite(Number(elem.maxOccurs))
@@ -735,21 +916,6 @@ function buildInlineTypeNode(typeDef: any, context: SchemaContext): SchemaNode {
   return node;
 }
 
-function isSchemaContainer(schema: any): boolean {
-  if (!schema || typeof schema !== 'object') return false;
-
-  return !!(
-    schema['xs:schema'] ||
-    schema['schema'] ||
-    schema['xs:element'] ||
-    schema['element'] ||
-    schema['xs:complexType'] ||
-    schema['complexType'] ||
-    schema['xs:simpleType'] ||
-    schema['simpleType']
-  );
-}
-
 export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContext): SchemaNode {
   if (context.depth > context.maxDepth) {
     return {
@@ -764,40 +930,95 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
     };
   }
 
-  const inlineTypeDefinition = context.inlineTypeDefinition || (
-    context.rootSchema &&
-    !isSchemaContainer(context.rootSchema) && (
-      context.rootSchema['xs:complexType'] ||
-      context.rootSchema['complexType'] ||
-      context.rootSchema['xs:simpleType'] ||
-      context.rootSchema['simpleType']
-    )
-  );
-
   // Only walk the compiled schema, never the raw schema
   let typeName: string | undefined = context.typeName; // Use provided typeName if available
 
+  // If inline type is provided (from child element's inline complexType/simpleType),
+  // check if compiler created a synthetic type (currently only for "schema" element in XMLSchema.xsd)
+  const inlineTypeDefinition = context.inlineTypeDefinition;
   if (!typeName && inlineTypeDefinition) {
-    const directInlineName = getXmlAttrs(context.rootSchema)?.name || 'inlineType';
-    typeName = `inline:${directInlineName}`;
-  }
-  
-  // If no typeName provided, try to get the root type from global elements
-  if (!typeName) {
-    const elementNames = compiledSchema.getAllElementNames();
-    if (elementNames.length > 0) {
-      const firstElem = compiledSchema.getElement(elementNames[0]);
-      if (firstElem) {
-        const elemAttrs = getXmlAttrs(firstElem);
-        if (elemAttrs.type) {
-          typeName = elemAttrs.type;
-        }
+    // Get the current element name from path (for nested elements) or rootSchema (for root)
+    const elementName = context.path.length > 0 
+      ? context.path[context.path.length - 1] 
+      : getXmlAttrs(context.rootSchema)?.name;
+    
+    if (!elementName) {
+      // If we can't determine element name, fall back to inline type
+      typeName = 'inline:unknown';
+    } else if (elementName === 'schema') {
+      // For schema element, check for synthetic type first
+      const syntheticTypeName = `${elementName}__type`;
+      const syntheticType = compiledSchema.resolveType(syntheticTypeName);
+      if (syntheticType && syntheticType.elements && syntheticType.elements.length > 0) {
+        typeName = syntheticTypeName;
+      } else {
+        // Fall back to inline type definition
+        typeName = `inline:${elementName}`;
       }
+    } else {
+      // For other elements with inline types, use inline type directly
+      typeName = `inline:${elementName}`;
     }
   }
   
-  // Fall back to first type name if no global element found and no typeName provided
+  // If no typeName provided, try to get the root type from global elements.
+  // Do this only at the root; nested nodes must not fall back to unrelated globals.
   if (!typeName) {
+    if (context.path.length === 0) {
+      const elementNames = compiledSchema.getAllElementNames();
+      if (elementNames.length > 0) {
+        const firstElemName = elementNames[0];
+        const firstElem = compiledSchema.getElement(firstElemName);
+        if (firstElem) {
+          const elemAttrs = getXmlAttrs(firstElem);
+          if (elemAttrs.type) {
+            typeName = elemAttrs.type;
+            console.log(`[walkSchema] Root element "${firstElemName}" has type="${typeName}"`);
+          } else if (firstElemName === 'schema') {
+            // Check for synthetic type for schema element
+            const syntheticTypeName = `${firstElemName}__type`;
+            const syntheticType = compiledSchema.resolveType(syntheticTypeName);
+            console.log(`[walkSchema] Root element "${firstElemName}" has no type, checking for synthetic "${syntheticTypeName}": ${syntheticType ? `found (${syntheticType.elements.length} elements)` : 'NOT FOUND'}`);
+            if (syntheticType && syntheticType.elements && syntheticType.elements.length > 0) {
+              typeName = syntheticTypeName;
+              console.log(`[walkSchema] Using synthetic type "${syntheticTypeName}"`);
+            }
+          }
+        }
+      }
+    } else {
+      return {
+        tagName: context.path[context.path.length - 1] || 'element',
+        label: context.path[context.path.length - 1] || 'element',
+        nodeType: 'element',
+        minOccurs: 1,
+        maxOccurs: 1,
+        children: [],
+        attributes: [],
+        isRequired: true,
+        schemaObj: context.rootSchema,
+        path: context.path.join('/'),
+      };
+    }
+  }
+  
+  // Fall back to first type name only at root if no global element found and no typeName provided
+  if (!typeName) {
+    if (context.path.length > 0) {
+      return {
+        tagName: context.path[context.path.length - 1] || 'element',
+        label: context.path[context.path.length - 1] || 'element',
+        nodeType: 'element',
+        minOccurs: 1,
+        maxOccurs: 1,
+        children: [],
+        attributes: [],
+        isRequired: true,
+        schemaObj: context.rootSchema,
+        path: context.path.join('/'),
+      };
+    }
+
     const allTypeNames = compiledSchema.getAllTypeNames();
     if (allTypeNames.length === 0) {
       return {
@@ -814,7 +1035,7 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
   }
 
   if ((typeName || '').startsWith('inline:')) {
-    const directType = inlineTypeDefinition || context.inlineTypeDefinition;
+    const directType = context.inlineTypeDefinition;
     if (directType) {
       return buildInlineTypeNode(directType, context);
     }
@@ -857,26 +1078,91 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
       node.compositorType = resolvedType.compositorType;
     }
 
-    // Walk child elements from compiled schema
-    for (const elem of resolvedType.elements) {
-      const childContext = {
-        ...context,
-        depth: context.depth + 1,
-        path: [...context.path, elem.name],
-        typeName: elem.type, // Pass the element's type so walkSchema knows which type to walk
-      };
-      const childNode = walkSchema(compiledSchema, childContext);
-      // Preserve the element name as the label/tagName (overwrite the type name)
-      childNode.tagName = elem.name;
-      childNode.label = elem.name;
-      childNode.minOccurs = elem.minOccurs;
-      childNode.maxOccurs = elem.maxOccurs === 'unbounded' ? 'unbounded' : elem.maxOccurs;
-      // IMPORTANT: Transfer the compositorType from the compiled element to the child node
-      // This marks elements that are part of a choice compositor
-      if (elem.compositorType) {
-        childNode.compositorType = elem.compositorType;
+    if (resolvedType.elements.length > 0) {
+      // Walk all child elements from the resolved type
+      const elementsToWalk = resolvedType.elements;
+      
+      for (const elem of elementsToWalk) {
+        let childTypeName: string | undefined = elem.type;
+        let childInlineTypeDefinition: any = undefined;
+
+        // For ref-based children (for example xs:element ref="xs:annotation"), resolve
+        // the actual global element definition so recursion stays schema-driven.
+        if (!childTypeName && elem.name) {
+          const normalizedChildName = String(elem.name).replace(/^.*:/, '');
+          const globalElementDef =
+            compiledSchema.getElement(normalizedChildName) ||
+            findElementInSchema(context.rootSchema, elem.name);
+
+          if (globalElementDef && typeof globalElementDef === 'object') {
+            const globalAttrs = getXmlAttrs(globalElementDef);
+            if (typeof globalAttrs.type === 'string' && globalAttrs.type.length > 0) {
+              childTypeName = globalAttrs.type;
+            }
+
+            // If the global element has an inline complexType/simpleType, pass it along
+            childInlineTypeDefinition =
+              globalElementDef['xs:complexType'] ||
+              globalElementDef['complexType'] ||
+              globalElementDef['xs:simpleType'] ||
+              globalElementDef['simpleType'];
+          }
+        }
+
+        if (!childTypeName && !childInlineTypeDefinition) {
+          node.children.push({
+            tagName: elem.name,
+            label: elem.name,
+            nodeType: 'element',
+            minOccurs: elem.minOccurs,
+            maxOccurs: elem.maxOccurs === 'unbounded' ? 'unbounded' : elem.maxOccurs,
+            children: [],
+            attributes: [],
+            elementType: undefined,
+            isRequired: elem.minOccurs > 0,
+            compositorType: elem.compositorType,
+          });
+          continue;
+        }
+
+        const childContext = {
+          ...context,
+          depth: context.depth + 1,
+          path: [...context.path, elem.name],
+          typeName: childTypeName, // Pass resolved type so walkSchema knows which type to walk
+          inlineTypeDefinition: childInlineTypeDefinition,
+        };
+        const childNode = walkSchema(compiledSchema, childContext);
+        // Preserve the element name as the label/tagName (overwrite the type name)
+        childNode.tagName = elem.name;
+        childNode.label = elem.name;
+        childNode.minOccurs = elem.minOccurs;
+        childNode.maxOccurs = elem.maxOccurs === 'unbounded' ? 'unbounded' : elem.maxOccurs;
+        // IMPORTANT: Transfer the compositorType from the compiled element to the child node
+        // This marks elements that are part of a choice compositor
+        if (elem.compositorType) {
+          childNode.compositorType = elem.compositorType;
+        }
+        node.children.push(childNode);
       }
-      node.children.push(childNode);
+    } else {
+      // Fallback: If no resolved type and no inline type, try to extract children directly
+      // from the provided schema object (for inline definitions or unresolved schemas).
+      const fallbackChildren = getChildElementsFromType(context.rootSchema, context.rootSchema);
+      if (fallbackChildren.length > 0) {
+        node.children = fallbackChildren.map((elem) => ({
+          tagName: elem.name,
+          label: elem.name,
+          nodeType: 'element',
+          minOccurs: elem.minOccurs,
+          maxOccurs: elem.maxOccurs === 'unbounded' ? 'unbounded' : Number.isFinite(Number(elem.maxOccurs)) ? Number(elem.maxOccurs) : 1,
+          children: [],
+          attributes: [],
+          elementType: elem.type || undefined,
+          isRequired: elem.minOccurs > 0,
+          compositorType: (elem.compositorType as 'sequence' | 'choice' | 'all' | undefined),
+        }));
+      }
     }
 
     // Get enumerations if available

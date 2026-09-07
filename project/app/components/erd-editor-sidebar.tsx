@@ -338,6 +338,7 @@ export function ErdEditorSidebar({
   onPrintGraph,
   onDeleteTable,
   onToggleDiagnostics,
+  onAddEntity,
   onAddColumn,
   onAddRelationship,
   onRenameTable,

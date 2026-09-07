@@ -1,0 +1,96 @@
+
+> e2e
+> npx playwright test schema-form-repeating-choice-names.spec.ts
+
+
+Running 1 test using 1 worker
+
+[XmlElementNode START] element="xs:schema" path.len=0
+[XmlElementNode] *** SCHEMA ELEMENT *** tagName="xs:schema" localTagName="schema" schemaNode.children=4
+[ChoiceGroups] xs:schema has 4 children: [Object, Object, Object, Object]
+[ChoiceGroups] Found 1 choice groups for xs:schema with 3 total options
+[XmlElementNode START] element="xs:schema" path.len=0
+[XmlElementNode] *** SCHEMA ELEMENT *** tagName="xs:schema" localTagName="schema" schemaNode.children=4
+[ChoiceGroups] xs:schema has 4 children: [Object, Object, Object, Object]
+[ChoiceGroups] Found 1 choice groups for xs:schema with 3 total options
+[XmlElementNode START] element="xs:schema" path.len=0
+[XmlElementNode] *** SCHEMA ELEMENT *** tagName="xs:schema" localTagName="schema" schemaNode.children=4
+[XmlElementNode START] element="xs:schema" path.len=0
+[XmlElementNode] *** SCHEMA ELEMENT *** tagName="xs:schema" localTagName="schema" schemaNode.children=4
+[XmlElementNode START] element="xs:schema" path.len=0
+[XmlElementNode] *** SCHEMA ELEMENT *** tagName="xs:schema" localTagName="schema" schemaNode.children=4
+[XmlElementNode START] element="xs:schema" path.len=0
+[XmlElementNode] *** SCHEMA ELEMENT *** tagName="xs:schema" localTagName="schema" schemaNode.children=4
+[XmlElementNode START] element="xs:schema" path.len=0
+[XmlElementNode] *** SCHEMA ELEMENT *** tagName="xs:schema" localTagName="schema" schemaNode.children=4
+[XmlElementNode START] element="xs:schema" path.len=0
+[XmlElementNode] *** SCHEMA ELEMENT *** tagName="xs:schema" localTagName="schema" schemaNode.children=4
+[XmlElementNode START] element="xs:schema" path.len=0
+[XmlElementNode] *** SCHEMA ELEMENT *** tagName="xs:schema" localTagName="schema" schemaNode.children=4
+[XmlElementNode START] element="xs:schema" path.len=0
+[XmlElementNode] *** SCHEMA ELEMENT *** tagName="xs:schema" localTagName="schema" schemaNode.children=4
+[XmlElementNode START] element="xs:schema" path.len=0
+[XmlElementNode] *** SCHEMA ELEMENT *** tagName="xs:schema" localTagName="schema" schemaNode.children=4
+[ChildrenSection] xs:schema (path.len=0): hasChildren=true, hasSchemaChildren=true, rootXsd=true, compositorOrFacet=false, overall=true
+[XmlElementNode] DEBUG: Rendering children section, schemaNode=true, schemaNode.children=4
+[XmlElementNode] schemaNode for xs:schema: firstKey=xs:schema, elementChildren=12, allKeys=[xs:schema], valuePreview={"xs:schema":{"@attributes":{"xmlns:xs":"http://www.w3.org/2001/XMLSchema","xmlns:tns":"http://examp
+[XmlElementNode] xs:schema children condition check: schemaNode=true, schemaNode.children=4, choiceGroups=1, choiceInfo=1
+[XmlElementNode] xs:schema ENTERING children render block, schemaNode=defined
+[XmlElementNode] xs:schema children count=4
+[XmlElementNode] xs:schema child types:
+[XmlElementNode] xs:schema 3/4 children are from choice compositor
+[XmlElementNode] xs:schema allFromChoice=false, hasRepeatableChoice=false
+[XmlElementNode] xs:schema USING SCHEMA-DRIVEN rendering (hasRepeatableChoice=false)
+[XmlElementNode] xs:schema child 1 "xs:import": instanceDriven=false, choiceGroupIndex=0, choiceGroupData=true
+[XmlElementNode] Child schema element 1: name="xs:import", element=true, data type=object, found=true
+[XmlElementNode] xs:schema child 3 "xs:annotation": instanceDriven=false, choiceGroupIndex=-1, choiceGroupData=false
+[XmlElementNode] Child schema element 3: name="xs:annotation", element=true, data type=object, found=true
+[XmlElementNode START] element="xs:schema" path.len=0
+[XmlElementNode] *** SCHEMA ELEMENT *** tagName="xs:schema" localTagName="schema" schemaNode.children=4
+[ChildrenSection] xs:schema (path.len=0): hasChildren=true, hasSchemaChildren=true, rootXsd=true, compositorOrFacet=false, overall=true
+[XmlElementNode] DEBUG: Rendering children section, schemaNode=true, schemaNode.children=4
+[XmlElementNode] schemaNode for xs:schema: firstKey=xs:schema, elementChildren=12, allKeys=[xs:schema], valuePreview={"xs:schema":{"@attributes":{"xmlns:xs":"http://www.w3.org/2001/XMLSchema","xmlns:tns":"http://examp
+[XmlElementNode] xs:schema children condition check: schemaNode=true, schemaNode.children=4, choiceGroups=1, choiceInfo=1
+[XmlElementNode] xs:schema ENTERING children render block, schemaNode=defined
+[XmlElementNode] xs:schema children count=4
+[XmlElementNode] xs:schema child types:
+[XmlElementNode] xs:schema 3/4 children are from choice compositor
+[XmlElementNode] xs:schema allFromChoice=false, hasRepeatableChoice=false
+[XmlElementNode] xs:schema USING SCHEMA-DRIVEN rendering (hasRepeatableChoice=false)
+[XmlElementNode] xs:schema child 1 "xs:import": instanceDriven=false, choiceGroupIndex=0, choiceGroupData=true
+[XmlElementNode] Child schema element 1: name="xs:import", element=true, data type=object, found=true
+[XmlElementNode] xs:schema child 3 "xs:annotation": instanceDriven=false, choiceGroupIndex=-1, choiceGroupData=false
+[XmlElementNode] Child schema element 3: name="xs:annotation", element=true, data type=object, found=true
+[XmlElementNode START] element="xs:import" path.len=1
+[XmlElementNode START] element="xs:import" path.len=1
+[XmlElementNode START] element="xs:annotation" path.len=1
+[XmlElementNode START] element="xs:annotation" path.len=1
+Expanded xs:schema element
+
+=== Collected Console Logs ===
+ChildrenSection logs: 2
+  [ChildrenSection] xs:schema (path.len=0): hasChildren=true, hasSchemaChildren=true, rootXsd=true, compositorOrFacet=false, overall=true
+  [ChildrenSection] xs:schema (path.len=0): hasChildren=true, hasSchemaChildren=true, rootXsd=true, compositorOrFacet=false, overall=true
+
+ChoiceGroups logs: 4
+  [ChoiceGroups] xs:schema has 4 children: [Object, Object, Object, Object]
+  [ChoiceGroups] Found 1 choice groups for xs:schema with 3 total options
+  [ChoiceGroups] xs:schema has 4 children: [Object, Object, Object, Object]
+  [ChoiceGroups] Found 1 choice groups for xs:schema with 3 total options
+
+=== DOM State After Expanding xs:schema ===
+Select elements (choice dropdowns): 1
+Option elements: 3
+Visible select elements: 1
+Page contains ColorType: false
+Page contains PersonType: false
+Page contains EmployeeType: false
+Elements with marginBottom styling: 0
+
+=== Rendered Choice Elements (ALL) ===
+Row 1: value="xs:import" options=3
+
+*** TOTAL RENDERED ROWS: 1 (EXPECTED: 12) ***
+  ✓  1 [chromium] › e2e\schema-form-repeating-choice-names.spec.ts:6:3 › Schema Form - Debug Children Section Rendering › debug why children section is not rendering (3.4s)
+
+  1 passed (5.2s)

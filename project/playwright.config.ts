@@ -1,4 +1,4 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
@@ -21,9 +21,9 @@ export default defineConfig({
       args: ['--start-maximized'], // Add start-maximized argument
     },
     headless: false,
-    viewport: { width: 1280, height: 960 }, // Set a specific, reasonable size
+    viewport: null, // Use the native browser window size
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'chromium', use: { browserName: 'chromium', viewport: null } },
   ],
 });

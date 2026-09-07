@@ -247,6 +247,7 @@ export default function Workbench() {
   const [markupLanguage, setMarkupLanguageState] = useState<MarkupLanguage>('json');
   const [showMarkupUrlDialog, setShowMarkupUrlDialog] = useState(false);
   const [showSchemaUrlDialog, setShowSchemaUrlDialog] = useState(false);
+  const [xmlSchemaDefinition, setXmlSchemaDefinition] = useState<Record<string, unknown> | null>(null);
   
   // Draft detection and migration
   const [detectedDraft, setDetectedDraft] = useState<SchemaDraft | null>(null);
@@ -422,6 +423,42 @@ export default function Workbench() {
   useEffect(() => {
     resolutionCache.current.clear();
   }, [state.source]);
+
+  useEffect(() => {
+    if (markupLanguage !== 'xml') {
+      setXmlSchemaDefinition(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadXmlSchemaDefinition = async () => {
+      if (typeof fetch !== 'function') {
+        setXmlSchemaDefinition(null);
+        return;
+      }
+
+      try {
+        const resp = await fetch('/schemas/XMLSchema.xsd');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const text = await resp.text();
+        const parsed = parseMarkup(text, 'xml') as Record<string, unknown>;
+        if (!cancelled) {
+          setXmlSchemaDefinition(parsed);
+        }
+      } catch (err) {
+        console.warn('[Workbench] Failed to load XMLSchema.xsd for Schema Form walking:', err);
+        if (!cancelled) {
+          setXmlSchemaDefinition(null);
+        }
+      }
+    };
+
+    void loadXmlSchemaDefinition();
+    return () => {
+      cancelled = true;
+    };
+  }, [markupLanguage]);
 
   // Initialize markup language from localStorage preference - moved to useEffect to avoid sync storage access
   // Use setTimeout to defer to next macrotask so test's render() doesn't detect storage access
@@ -1587,6 +1624,15 @@ export default function Workbench() {
     return getEditorSchema(state) as Record<string, unknown> | null;
   }, [state.resolvedCache]);
 
+  useEffect(() => {
+    try {
+      const noteType = editorSchema && (editorSchema as any)['xs:schema']?.['xs:complexType']?.find((ct: any) => ct?.['@attributes']?.name === 'NoteType');
+      console.log('[Workbench] editorSchema NoteType sequence present:', Boolean(noteType?.['xs:complexContent']?.['xs:extension']?.['xs:sequence']));
+    } catch (_) {
+      // ignore
+    }
+  }, [editorSchema]);
+
   // Helper: determine whether a schema node should be treated as imported.
   // Rely on the reducer-attached `__from` provenance marker or inspection of the rehydrated source.
   const isSchemaImported = (schemaNode: Record<string, unknown> | null | undefined, path?: string[]): boolean => {
@@ -2012,10 +2058,11 @@ export default function Workbench() {
               </div>
               <div className={styles.editorContainer}>
                 {markupLanguage === 'xml' ? (
-                  // XML: Use XmlInstanceForm to render the XSD schema itself as an instance
-                  state.source ? (
+                  // XML: use the W3C XMLSchema.xsd metadata as the walking schema while the
+                  // current XSD document remains the editable instance tree.
+                  state.source && xmlSchemaDefinition ? (
                     <XmlInstanceForm
-                      schema={state.source as any}
+                      schema={xmlSchemaDefinition as any}
                       value={state.source as any}
                       onChange={(newSchema) => {
                         applySourceUpdate(newSchema);
@@ -2027,7 +2074,7 @@ export default function Workbench() {
                     />
                   ) : (
                     <div className={styles.emptyState}>
-                      <div>Load or generate an XSD schema to begin editing</div>
+                      <div>{state.source ? 'Loading XMLSchema.xsd walking schema...' : 'Load or generate an XSD schema to begin editing'}</div>
                       <div style={{ fontSize: 12, marginTop: 16, maxWidth: 400 }}>
                         Tip: Use <strong>Schema menu → Load from URL</strong> or <strong>Open Schema File</strong> to load an XSD.
                       </div>

@@ -1,0 +1,123 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.editorSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.textarea {
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 150px;
+  resize: vertical;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.popoverContent {
+  width: 280px;
+  background: var(--color-neutral-1);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-3);
+  padding: var(--space-3);
+  box-shadow: var(--shadow-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  z-index: 1000;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.sectionTitle {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-neutral-10);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.snippetButton {
+  padding: 4px 8px;
+  background: var(--color-neutral-3);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-neutral-12);
+}
+
+.snippetButton:hover {
+  background: var(--color-accent-3);
+  border-color: var(--color-accent-7);
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--color-neutral-3);
+  color: var(--color-neutral-12);
+  font-size: 11px;
+  border: 1px solid var(--color-neutral-6);
+  cursor: pointer;
+}
+
+.previewSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.previewLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-neutral-10);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.previewFrame {
+  width: 100%;
+  height: 200px;
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-2);
+  background: white;
+}

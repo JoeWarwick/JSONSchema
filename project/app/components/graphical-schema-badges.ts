@@ -128,7 +128,11 @@ export const BADGE_DEFS: Record<string, BadgeDef> = {
 
 import React from 'react';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip/tooltip';
-import styles from './graphical-schema-editor.module.css';
+import badgeStyles from './graphical-schema-editor/styles/badges.module.css';
+
+const styles = {
+  ...badgeStyles,
+};
 
 // Colors for the XML schema node-kind badge (element/attribute/simpleType/complexType).
 const XML_KIND_STYLES: Record<string, { bg: string; color: string }> = {

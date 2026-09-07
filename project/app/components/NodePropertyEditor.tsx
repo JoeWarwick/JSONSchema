@@ -1,7 +1,15 @@
 import React from 'react';
 import { validateValueAgainstSchema } from "../utils/validation";
-import styles from "./graphical-schema-editor.module.css";
+import layoutStyles from "./graphical-schema-editor/styles/layout.module.css";
+import sidebarStyles from "./graphical-schema-editor/styles/sidebar.module.css";
+import nodeStyles from "./graphical-schema-editor/styles/nodes.module.css";
 import type { NodeData, NodePropertyEditorProps } from './types';
+
+const styles = {
+  ...layoutStyles,
+  ...sidebarStyles,
+  ...nodeStyles,
+};
 
 export const NodePropertyEditor: React.FC<NodePropertyEditorProps> = (props) => {
   if (!props.node) return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a node to edit its properties.</div>;

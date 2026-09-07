@@ -1,0 +1,42 @@
+/* Animations and theme overrides */
+
+.a1 {
+  color: #b180d7;
+  font-weight: 600;
+}
+
+.a2 {
+  color: #388e3c;
+  font-weight: 600;
+}
+
+/* Spinner animation (mirrors schema-editor-form loadingSpinner) */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.loadingSpinner {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+/* Dark theme overrides */
+@media (prefers-color-scheme: dark) {
+  /* no-op; theme is controlled by html.dark-theme */
+}
+
+:global(html.dark-theme) .graphicalEditorContainer {
+  --graph-shell-bg: var(--color-neutral-1);
+  --graph-flow-bg: var(--color-neutral-2);
+  --graph-sidebar-bg: var(--color-neutral-1);
+  --graph-sidebar-border: var(--color-neutral-6);
+  --graph-text: var(--color-neutral-12);
+  --graph-muted: var(--color-neutral-11);
+  --graph-border: var(--color-accent-7);
+  --graph-surface: var(--color-neutral-1);
+  /* Dark mode form styling */
+  --form-surface: var(--color-neutral-2);
+  --form-border: var(--color-neutral-7);
+  --form-text: var(--color-neutral-11);
+}

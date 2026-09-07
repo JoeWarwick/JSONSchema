@@ -1,9 +1,13 @@
 import React from 'react';
-import styles from './graphical-schema-editor.module.css';
+import sidebarStyles from './graphical-schema-editor/styles/sidebar.module.css';
 import type { NodeData } from './types';
 import type { Node as FlowNode } from 'reactflow';
 import { GraphicalSchemaRhsDetails, type XmlSchemaDetails } from './graphical-schema-rhs-details';
 import { GraphicalSchemaRhsEditor } from './graphical-schema-rhs-editor';
+
+const styles = {
+  ...sidebarStyles,
+};
 
 interface GraphicalSchemaRhsControlProps {
   selectedNode: FlowNode<NodeData> | null;

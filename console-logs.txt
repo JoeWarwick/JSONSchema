@@ -1,0 +1,9 @@
+[DEBUG] [vite] connecting...
+[INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+[DEBUG] [vite] connected.
+[LOG] [Workbench] editorSchema NoteType sequence present: false
+[INFO] [Workbench] Schema passed to editors: {type: object, additionalProperties: true}
+[LOG] [Workbench] editorSchema NoteType sequence present: false
+[INFO] [Workbench] Schema passed to editors: {type: object, additionalProperties: true}
+[LOG] [Workbench] editorSchema NoteType sequence present: false
+[INFO] [Workbench] Schema passed to editors: {type: object, additionalProperties: true}
