@@ -432,21 +432,43 @@ export function mapXsdTypeToHtmlInput(xsdType: string | null): string | null {
 
 /**
  * Extract enumeration values from an xs:restriction element.
+ * Dynamically detects namespace prefix (xs:, xsd:, etc.) and handles unprefixed elements.
  * Returns array of enumeration string values.
  */
 export function getEnumerationsFromRestriction(restriction: any): string[] {
   if (!restriction || typeof restriction !== 'object') return [];
   
-  const enumerations = restriction['xs:enumeration'] || restriction['enumeration'];
+  // Detect namespace prefix from restriction object keys
+  let nsPrefix = 'xs';
+  const keys = Object.keys(restriction);
+  console.log('[getEnumerationsFromRestriction] restriction keys:', keys);
+  
+  for (const key of keys) {
+    const match = key.match(/^(xs|xsd|xml):/);
+    if (match) {
+      nsPrefix = match[1];
+      console.log('[getEnumerationsFromRestriction] detected nsPrefix:', nsPrefix);
+      break;
+    }
+  }
+  
+  // Try both prefixed and unprefixed versions
+  const enumKey = `${nsPrefix}:enumeration`;
+  const enumerations = restriction[enumKey] || restriction['enumeration'];
+  console.log('[getEnumerationsFromRestriction] Looking for', enumKey, '- found:', !!enumerations);
+  
   if (!enumerations) return [];
   
   const enumArray = Array.isArray(enumerations) ? enumerations : [enumerations];
-  return enumArray
+  const result = enumArray
     .map((entry: any) => {
       const attrs = getXmlAttrs(entry);
       return attrs.value;
     })
     .filter((value: any): value is string => typeof value === 'string');
+  
+  console.log('[getEnumerationsFromRestriction] extracted values:', result);
+  return result;
 }
 
 /**
@@ -456,8 +478,19 @@ export function getEnumerationsFromRestriction(restriction: any): string[] {
 export function detectEnumerations(typeObj: any): string[] {
   if (!typeObj || typeof typeObj !== 'object') return [];
   
-  // Check for direct xs:restriction with xs:enumeration
-  const restriction = typeObj['xs:restriction'] || typeObj['restriction'];
+  // Detect namespace prefix from typeObj keys
+  let nsPrefix = 'xs';
+  const keys = Object.keys(typeObj);
+  for (const key of keys) {
+    const match = key.match(/^(xs|xsd|xml):/);
+    if (match) {
+      nsPrefix = match[1];
+      break;
+    }
+  }
+  
+  // Check for direct restriction with enumeration using detected prefix
+  const restriction = typeObj[`${nsPrefix}:restriction`] || typeObj['restriction'];
   if (restriction && typeof restriction === 'object') {
     return getEnumerationsFromRestriction(restriction);
   }
@@ -901,6 +934,25 @@ function buildInlineTypeNode(typeDef: any, context: SchemaContext): SchemaNode {
       node.restriction = String(restrictionAttrs.base);
       node.inputType = inferInputType(node);
     }
+    
+    // Create a child SchemaNode for xs:restriction so it renders as an expandable node
+    // This allows enumerations to be displayed as children in the schema form
+    const restrictionNode: SchemaNode = {
+      tagName: 'xs:restriction',
+      label: 'xs:restriction',
+      nodeType: 'element',
+      minOccurs: 1,
+      maxOccurs: 1,
+      children: [],
+      attributes: [],
+      isRequired: true,
+      enumerations: node.enumerations.length > 0 ? node.enumerations : [], // Pass parent's enumerations to restriction child
+      schemaObj: restriction,
+      path: context.path.join('/') + '/xs:restriction',
+    };
+    
+    // Add restriction node as a child so it appears in the tree
+    node.children.push(restrictionNode);
   }
 
   if (typeDef['xs:choice'] || typeDef['choice'] || typeDef['xs:sequence'] || typeDef['sequence'] || typeDef['xs:all'] || typeDef['all']) {
@@ -1167,8 +1219,41 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
 
     // Get enumerations if available
     const enums = compiledSchema.getEnumerations(typeName);
+    
     if (enums.length > 0) {
       node.enumerations = enums;
+    }
+    
+    // Fallback: If no enumerations from compiledSchema but schemaObj has a restriction with enumerations,
+    // extract them directly from the schemaObj (for inline/unresolved schemas)
+    if (node.enumerations.length === 0 && node.schemaObj) {
+      const directRestriction = node.schemaObj['xs:restriction'] || node.schemaObj['restriction'];
+      if (directRestriction && typeof directRestriction === 'object') {
+        const directEnums = getEnumerationsFromRestriction(directRestriction);
+        if (directEnums.length > 0) {
+          node.enumerations = directEnums;
+        }
+      }
+    }
+    
+    // Create a child SchemaNode for xs:restriction if this is a simple type with a restriction
+    // This allows restriction facets (enumerations, length, pattern, etc.) to be displayed as children
+    if (node.restriction || node.enumerations.length > 0) {
+      const restrictionNode: SchemaNode = {
+        tagName: 'xs:restriction',
+        label: 'xs:restriction',
+        nodeType: 'element',
+        minOccurs: 1,
+        maxOccurs: 1,
+        children: [],
+        attributes: [],
+        isRequired: true,
+        enumerations: node.enumerations.length > 0 ? node.enumerations : [], // Pass parent's enumerations to restriction child
+        path: context.path.join('/') + '/xs:restriction',
+      };
+      
+      // Add restriction node as a child so it appears in the tree
+      node.children.push(restrictionNode);
     }
 
     context.visitedTypes.delete(typeName);

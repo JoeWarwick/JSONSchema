@@ -1050,6 +1050,18 @@ function XmlElementNode({
   if (element.tagName === 'xs:schema' || localTagName === 'schema') {
     console.log(`[XmlElementNode] *** SCHEMA ELEMENT *** tagName="${elementTagName}" localTagName="${localTagName}" schemaNode.children=${schemaNode?.children?.length}`);
   }
+  
+  // Debug: Log schemaNode for simpleType and restriction nodes
+  if (isSchemaForm && (localTagName === 'simpleType' || localTagName === 'restriction')) {
+    console.log(`[XmlElementNode] ${localTagName} - schemaNode:`, {
+      tagName: schemaNode?.tagName,
+      label: schemaNode?.label,
+      hasEnumerations: !!schemaNode?.enumerations,
+      enumerationCount: schemaNode?.enumerations?.length || 0,
+      enumerations: schemaNode?.enumerations,
+      childrenCount: schemaNode?.children?.length || 0,
+    });
+  }
   const inferredSchemaKind = rootSchema ? ({
     schema: 'schema',
     simpleType: 'simpleType',
@@ -2576,10 +2588,10 @@ function XmlElementNode({
               
 
               
-              {schemaNode?.children && schemaNode.children.length > 0 ? (
+              {(schemaNode?.children && schemaNode.children.length > 0) || (schemaNode?.enumerations && schemaNode.enumerations.length > 0) ? (
                 (() => {
                   // Safeguard: ensure schemaNode and children exist
-                  if (!schemaNode || !schemaNode.children || schemaNode.children.length === 0) {
+                  if (!schemaNode || (!schemaNode.children || schemaNode.children.length === 0) && (!schemaNode.enumerations || schemaNode.enumerations.length === 0)) {
                     return [];
                   }
                   
@@ -2634,6 +2646,10 @@ function XmlElementNode({
                       }));
                   } else {
                     // Schema-driven rendering (default for all non-repeating-choice elements)
+                    const localTagName = (schemaNode.tagName || '').replace(/^xs:/, '').toLowerCase();
+                    if (isSchemaForm) {
+                      console.log('[SCHEMA DRIVEN]', localTagName, 'schemaNode.children.length:', schemaNode.children?.length);
+                    }
                     const filtered = schemaNode.children
                       .map((childSchemaNode, index) => ({ childSchemaNode, index, instanceDriven: false }))
                       .filter(({ childSchemaNode }) => {
@@ -2676,7 +2692,64 @@ function XmlElementNode({
                         return true;
                       });
                     
-                    return filtered;
+                    // Add enumeration elements if this node contains a restriction with enumerations
+                    // For simpleType nodes with restrictions, extract enumerations from the restriction element
+                    let enumerationsToAdd: string[] = [];
+                    
+                    // Check if current node has enumerations and needs to pass them to restriction children
+                    // This applies when rendering inline type nodes (simpleType) that have restriction with enumerations
+                    let parentEnumerations: string[] = [];
+                    if (isSchemaForm && schemaNode?.enumerations && schemaNode.enumerations.length > 0) {
+                      console.log('[PARENT ENUM] Found parent with', schemaNode.enumerations.length, 'enumerations');
+                      parentEnumerations = schemaNode.enumerations;
+                      
+                      // Find restriction children and inject enumerations
+                      const restrictionChild = filtered.find(f => {
+                        const childTag = (f.childSchemaNode?.tagName || '').toLowerCase().replace(/^xs:/, '');
+                        return childTag === 'restriction';
+                      });
+                      
+                      if (restrictionChild && !restrictionChild.childSchemaNode.enumerations) {
+                        restrictionChild.childSchemaNode.enumerations = parentEnumerations;
+                        console.log('[PARENT ENUM] Injected', parentEnumerations.length, 'enumerations to restriction child');
+                      }
+                    }
+                    
+                    if (isSchemaForm) {
+                      console.log(`[FILTERED CHILDREN] node=${localTagName}, count=${filtered.length}, children:`, filtered.map(f => f.childSchemaNode.label || f.childSchemaNode.tagName));
+                    }
+                    
+                    // Recursively add enumeration nodes for any child that has enumerations
+                    // This works at any depth for any node type that has enumerations
+                    const finalFiltered: any[] = [];
+                    for (const item of filtered) {
+                      finalFiltered.push(item);
+                      
+                      // If this child has enumerations, add them as synthetic child nodes
+                      if (isSchemaForm && item.childSchemaNode?.enumerations && item.childSchemaNode.enumerations.length > 0) {
+                        console.log(`[ENUM RECURSIVE] Found ${item.childSchemaNode.enumerations.length} enumerations on ${item.childSchemaNode.tagName}`);
+                        for (let i = 0; i < item.childSchemaNode.enumerations.length; i++) {
+                          const enumValue = item.childSchemaNode.enumerations[i];
+                          const enumSchemaNode: SchemaNode = {
+                            tagName: 'xs:enumeration',
+                            label: 'xs:enumeration',
+                            nodeType: 'element',
+                            minOccurs: 0,
+                            maxOccurs: 1,
+                            children: [],
+                            attributes: [{ name: 'value', type: null, use: 'optional', default: enumValue }],
+                            isRequired: false,
+                          };
+                          finalFiltered.push({
+                            childSchemaNode: enumSchemaNode,
+                            index: finalFiltered.length,
+                            instanceDriven: false,
+                          });
+                        }
+                      }
+                    }
+                    
+                    return finalFiltered;
                   }
                 })()
                 
@@ -2761,6 +2834,29 @@ function XmlElementNode({
                   if (!elementToRender && isSchemaForm && choiceGroupData && !choiceGroupData.isExclusive) {
                     elementToRender = { '@attributes': {} }; // Synthetic element for schema form choice
                   }
+                  // For schema form facet and container elements without data, create synthetic element so they render as expandable nodes
+                  const isFacetOrContainer = ['xs:enumeration', 'enumeration', 'xs:length', 'length', 'xs:minLength', 'minLength',
+                    'xs:maxLength', 'maxLength', 'xs:pattern', 'pattern', 'xs:whiteSpace', 'whiteSpace',
+                    'xs:minInclusive', 'minInclusive', 'xs:maxInclusive', 'maxInclusive',
+                    'xs:minExclusive', 'minExclusive', 'xs:maxExclusive', 'maxExclusive',
+                    'xs:fractionDigits', 'fractionDigits', 'xs:totalDigits', 'totalDigits',
+                    'xs:restriction', 'restriction', 'xs:union', 'union', 'xs:list', 'list',
+                    'xs:simpleType', 'simpleType', 'xs:complexType', 'complexType',
+                    'xs:sequence', 'sequence', 'xs:choice', 'choice', 'xs:all', 'all',
+                    'xs:group', 'group', 'xs:attributeGroup', 'attributeGroup'].includes(childElementName);
+                  if (!elementToRender && isSchemaForm && isFacetOrContainer) {
+                    elementToRender = { '@attributes': {} }; // Synthetic element for facet/container elements
+                    
+                    // If this is a restriction element, add enumeration children from parent schemaNode
+                    if (localTagName === 'restriction' && childSchemaNode?.enumerations && childSchemaNode.enumerations.length > 0) {
+                      elementToRender.children = childSchemaNode.enumerations.map((enumValue: string) => ({
+                        tagname: 'xs:enumeration',
+                        attributes: { value: enumValue },
+                        children: [],
+                        text: ''
+                      }));
+                    }
+                  }
                   
                   // Treat schema-leaf elements as simple when either parsed element shape is simple
                   // or the instance value is scalar/text-only data.
@@ -2785,7 +2881,22 @@ function XmlElementNode({
                       )
                     )
                   );
-                  const isSimpleChild = schemaSaysSimple && schemaHasNoAttrs && (parsedElementIsSimple || instanceValueIsTextOnly);
+                  
+                  // Don't treat container or facet elements as simple text inputs
+                  // Containers: restriction, union, list, simpleType, complexType, sequence, choice, all, group, attributeGroup
+                  // Facets: enumeration, length, pattern, etc.
+                  const isContainerElement = ['xs:restriction', 'restriction', 'xs:union', 'union', 'xs:list', 'list',
+                    'xs:simpleType', 'simpleType', 'xs:complexType', 'complexType',
+                    'xs:sequence', 'sequence', 'xs:choice', 'choice', 'xs:all', 'all',
+                    'xs:group', 'group', 'xs:attributeGroup', 'attributeGroup'].includes(childElementName);
+                  
+                  const isFacetElement = ['xs:enumeration', 'enumeration', 'xs:length', 'length', 'xs:minLength', 'minLength', 
+                    'xs:maxLength', 'maxLength', 'xs:pattern', 'pattern', 'xs:whiteSpace', 'whiteSpace',
+                    'xs:minInclusive', 'minInclusive', 'xs:maxInclusive', 'maxInclusive', 
+                    'xs:minExclusive', 'minExclusive', 'xs:maxExclusive', 'maxExclusive',
+                    'xs:fractionDigits', 'fractionDigits', 'xs:totalDigits', 'totalDigits'].includes(childElementName);
+                  
+                  const isSimpleChild = !isContainerElement && !isFacetElement && schemaSaysSimple && schemaHasNoAttrs && (parsedElementIsSimple || instanceValueIsTextOnly);
                   
                   // Debug: Log what we're about to render for schema form
                   if (isSchemaForm) {
@@ -3503,7 +3614,7 @@ function XmlElementNode({
                   } else if (elementToRender) {
                     // Render complex child elements as expandable nodes
                     if (isSchemaForm) {
-                      console.log('[ABOUT TO RENDER XmlElementNode]', childElementName, '- key:', index);
+                      console.log('[ABOUT TO RENDER XmlElementNode]', childElementName, '- key:', index, 'elementToRender:', elementToRender, 'childSchemaNode:', childSchemaNode);
                     }
                     
                     // Render choice dropdown if this element is the currently selected option in a choice group
@@ -3671,7 +3782,7 @@ function XmlElementNode({
                   }
                   
                   if (isSchemaForm) {
-                    console.log('[NO RENDER PATH]', childElementName, '- isArray:', Array.isArray(effectiveChildInstanceData), 'isSimple:', isSimpleChild, 'hasElementToRender:', !!elementToRender);
+                    console.log('[NO RENDER PATH]', childElementName, '- isArray:', Array.isArray(effectiveChildInstanceData), 'isSimple:', isSimpleChild, 'hasElementToRender:', !!elementToRender, 'isFacetOrContainer:', isFacetOrContainer, 'childSchemaNode:', childSchemaNode);
                   }
                   return null;
                 })
@@ -3687,7 +3798,17 @@ function XmlElementNode({
                 }
                 
                 // Check if this child element is simple (no nested elements/attributes, only text)
-                const isSimpleChild = child.children.length === 0 && child.attributes.length === 0;
+                // However, for container elements (restriction, union, list, simpleType, complexType, sequence, choice, etc.),
+                // always render as full nodes, not text inputs
+                const isContainerParent = ['xs:restriction', 'restriction', 'xs:union', 'union', 'xs:list', 'list',
+                  'xs:simpleType', 'simpleType', 'xs:complexType', 'complexType',
+                  'xs:sequence', 'sequence', 'xs:choice', 'choice', 'xs:all', 'all',
+                  'xs:group', 'group', 'xs:attributeGroup', 'attributeGroup'].includes(elementTagName);
+                const isSimpleChild = !isContainerParent && child.children.length === 0 && child.attributes.length === 0;
+                
+                if (isContainerParent && isSchemaForm) {
+                  console.log(`[Container parent child] tagName=${child.tagName}, children=${child.children.length}, attrs=${child.attributes.length}, text="${(child.text || '').substring(0, 30)}"`);
+                }
                 
                 if (isSimpleChild) {
                   // Infer the element type from the schema
@@ -3818,6 +3939,121 @@ function XmlElementNode({
                   </div>
                 );
               }))}
+            </div>
+          )}
+
+          {/* Render enumeration facets directly if this simpleType has a restriction with enumerations */}
+          {isSchemaForm && localTagName === 'simpleType' && (
+            (() => {
+              console.log(`[SIMPLETYPE CHECK] schemaNode.schemaObj:`, schemaNode?.schemaObj);
+              if (!schemaNode?.schemaObj) {
+                console.log('[SIMPLETYPE] No schemaObj found on simpleType node');
+                return null;
+              }
+              const simpleTypeDef = schemaNode.schemaObj;
+              const restriction = simpleTypeDef['xs:restriction'] || simpleTypeDef['restriction'];
+              if (!restriction) {
+                return null;
+              }
+              
+              const enums = restriction['xs:enumeration'] || restriction['enumeration'];
+              if (!enums) {
+                return null;
+              }
+              
+              const enumArray = Array.isArray(enums) ? enums : [enums];
+              const enumerationValues = enumArray.map((e: any) => {
+                const attrs = e['@attributes'] || e;
+                return attrs?.value || (typeof attrs === 'string' ? attrs : '');
+              }).filter((v: string) => v);
+
+              if (enumerationValues.length > 0) {
+                console.log(`[SIMPLETYPE ENUMS] Found ${enumerationValues.length} enumerations:`, enumerationValues);
+                return (
+                  <div style={{ marginTop: 12, paddingLeft: 20, backgroundColor: '#f0f8ff', border: '1px solid #4da6ff', padding: '8px' }}>
+                    <div style={{ fontSize: 12, color: '#0047b2', marginBottom: 8, textTransform: 'uppercase', fontWeight: 'bold' }}>
+                      ✓ Enumeration Values:
+                    </div>
+                    {enumerationValues.map((enumValue: string, idx: number) => {
+                      const enumPath = [...path, 'xs:restriction', `enum-${idx}`];
+                      const enumPathKey = enumPath.join('.');
+                      const isEnumExpanded = expandedPaths.has(enumPathKey);
+                      
+                      return (
+                        <div key={`enum-${idx}`} style={{ marginBottom: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <button
+                              type="button"
+                              onClick={() => onToggleExpand(enumPath)}
+                              style={{
+                                padding: '2px 6px',
+                                background: 'transparent',
+                                border: 'none',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                fontSize: 12,
+                                color: '#666',
+                              }}
+                            >
+                              {isEnumExpanded ? '▼' : '▶'}
+                            </button>
+                            <span style={{ fontSize: 12, fontWeight: 500, color: '#a78bfa', minWidth: 140 }}>
+                              xs:enumeration
+                            </span>
+                            <span style={{ fontSize: 12, color: '#0047b2', fontFamily: 'monospace', backgroundColor: '#e6f2ff', padding: '2px 6px', borderRadius: 3 }}>
+                              value = "{enumValue}"
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+              return null;
+            })()
+          )}
+
+          {/* Render enumeration facets directly if this is a restriction element with enumerations from parent simpleType */}
+          {isSchemaForm && (localTagName === 'restriction' || localTagName === 'xs:restriction') && (
+            <div style={{ marginTop: 12 }}>
+              {(() => {
+                const children = element?.children || [];
+                
+                const enumElements = children.filter(c => 
+                  (c.tagname || '').toLowerCase().includes('enumeration')
+                );
+                
+                // Use enumElements from instance data, OR fallback to schemaNode.enumerations
+                const enumerationsToRender = enumElements.length > 0 ? enumElements : 
+                  (schemaNode?.enumerations || []).map((value: string) => ({
+                    tagname: 'xs:enumeration',
+                    attributes: { value }
+                  }));
+                
+                if (enumerationsToRender.length > 0) {
+                  return (
+                    <div style={{ marginTop: 12 }}>
+                      {enumerationsToRender.map((enumEl: any, idx: number) => {
+                        const enumValue = enumEl.attributes?.value;
+                        return (
+                          <div key={`enum-${idx}`} style={{ 
+                            padding: '8px', 
+                            backgroundColor: '#f0f0f0', 
+                            marginBottom: 8,
+                            borderRadius: 4,
+                            fontSize: 12
+                          }}>
+                            <strong>xs:enumeration</strong>: value = "{enumValue}"
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                }
+                
+                return null;
+              })()}
             </div>
           )}
 

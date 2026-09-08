@@ -257,6 +257,7 @@ export class CompiledSchema {
 
     // Handle xs:restriction (with possible enumerations, base type, or facets)
     const restriction = typeObj[`${this.nsPrefix}:restriction`] || typeObj['restriction'];
+
     if (restriction && typeof restriction === 'object') {
       const restrictAttrs = getXmlAttrs(restriction);
       if (restrictAttrs.base) {
@@ -265,6 +266,7 @@ export class CompiledSchema {
 
       // Extract enumerations
       const enumerations = restriction[`${this.nsPrefix}:enumeration`] || restriction['enumeration'];
+
       if (enumerations) {
         const enumArray = Array.isArray(enumerations) ? enumerations : [enumerations];
         compiled.enumerations = enumArray
