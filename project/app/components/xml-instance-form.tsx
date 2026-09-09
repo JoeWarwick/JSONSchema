@@ -17,6 +17,7 @@ import {
   getAttributeFacets,
   getAllTypeNames,
 } from '../utils/schema-walker';
+import type { SchemaNode } from '../utils/schema-walker';
 import type { ValidationFacets } from '../utils/schema-compiler';
 import type {
   TopLevelXsdKind,
