@@ -47,12 +47,40 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     );
 
     await waitFor(() => {
+      expect(screen.getAllByText('xs:schema', { exact: true })).toHaveLength(1);
       expect(screen.getAllByRole('button', { name: /Add Element/i })).toHaveLength(1);
       expect(screen.getAllByRole('button', { name: /Add ComplexType/i })).toHaveLength(1);
       expect(screen.getAllByRole('button', { name: /Add SimpleType/i })).toHaveLength(1);
       expect(screen.getAllByRole('button', { name: /Add Group/i })).toHaveLength(1);
       expect(screen.getAllByRole('button', { name: /Add Notation/i })).toHaveLength(1);
       expect(screen.getAllByRole('button', { name: /Add AttributeGroup/i })).toHaveLength(1);
+    });
+  });
+
+  test('does not render the xs:schema source wrapper as a nested schema node', async () => {
+    const onChange = jest.fn();
+    const xmlSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:demo">
+        <xs:element name="person" type="xs:string"/>
+      </xs:schema>
+    `, 'xml') as any;
+    const wrappedSource = {
+      'xs:schema': xmlSchema['xs:schema'] || xmlSchema,
+    };
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xmlSchema}
+        rootSchema={wrappedSource}
+        value={wrappedSource}
+        onChange={onChange}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-wrapper-regression"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText('xs:schema', { exact: true })).toHaveLength(1);
     });
   });
 
@@ -1123,7 +1151,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     expect(payload.person.workEmail).toBeUndefined();
   });
 
-  test('choice switch reapplies the selected name chip and optional trash for the active branch', async () => {
+  test('choice switch keeps the instance form free of name chips and retargets optional trash', async () => {
     const onChange = jest.fn();
     const optionalChoiceSchema = {
       'xs:schema': {
@@ -1184,6 +1212,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
 
     const combo = screen.getByRole('combobox');
     expect(combo).toHaveValue('workEmail');
+    expect(screen.queryByTestId('xml-name-chip')).not.toBeInTheDocument();
     expect(screen.getAllByText('workEmail').length).toBeGreaterThan(0);
 
     fireEvent.change(combo, { target: { value: 'homeEmail' } });
@@ -1193,11 +1222,12 @@ describe('XmlInstanceForm trigger-row behavior', () => {
       expect(screen.getByRole('combobox')).toHaveValue('homeEmail');
     });
 
+    expect(screen.queryByTestId('xml-name-chip')).not.toBeInTheDocument();
     expect(screen.getAllByText('homeEmail').length).toBeGreaterThan(0);
     expect(screen.getByTitle('Remove selected homeEmail option')).toBeTruthy();
   });
 
-  test('choice switch writes selected branch @name and retargets optional remove action', async () => {
+  test('choice switch omits schema name metadata and retargets optional remove action', async () => {
     const onChange = jest.fn();
     const optionalChoiceSchema = {
       'xs:schema': {
@@ -1266,7 +1296,9 @@ describe('XmlInstanceForm trigger-row behavior', () => {
 
     const latestPayload = onChange.mock.calls[onChange.mock.calls.length - 1][0];
     expect(latestPayload.person.workEmail).toBeUndefined();
-    expect(latestPayload.person.homeEmail['@attributes'].name).toBe('homeEmail');
+    expect(latestPayload.person.homeEmail).toEqual({ _text: '' });
+    expect(screen.getByTestId('xml-element-homeEmail-input')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Collapse' })).not.toBeInTheDocument();
     expect(screen.getByTitle('Remove selected homeEmail option')).toBeTruthy();
   });
 

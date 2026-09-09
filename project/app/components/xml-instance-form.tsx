@@ -51,20 +51,6 @@ export function XmlInstanceForm(props: XmlInstanceFormProps) {
  * as an instance of the XML format.
  */
 
-/**
- * Clear all stored choice data for a specific path and option.
- * Can be exposed via UI if needed to allow users to reset saved choice branches.
- */
-// function clearChoiceDataFromStorage(instanceXml: any, path: string[], optionName: string): void {
-//   try {
-//     const key = generateChoiceStorageKey(instanceXml, path, optionName);
-//     localStorage.removeItem(key);
-//     console.log(`[ChoiceStorage] Cleared ${optionName} from ${key}`);
-//   } catch (e) {
-//     console.warn('[ChoiceStorage] Failed to clear choice data:', e);
-//   }
-// }
-
 function getSuggestedAttributeNamesForTag(tagName: string): string[] {
   const local = (tagName || '').replace(/^.*:/, '');
   const map: Record<string, string[]> = {
@@ -1038,69 +1024,6 @@ function XmlElementNode({
     });
   };
 
-  const resolveSchemaFormValueAtPath = (rootValue: any, targetPath: string[]): any => {
-    let cursor: any = rootValue;
-
-    if (
-      cursor &&
-      typeof cursor === 'object' &&
-      !Array.isArray(cursor) &&
-      targetPath.length > 0 &&
-      !Object.prototype.hasOwnProperty.call(cursor, targetPath[0])
-    ) {
-      const rootSchemaWrapperKey = Object.prototype.hasOwnProperty.call(cursor, 'xs:schema')
-        ? 'xs:schema'
-        : (Object.prototype.hasOwnProperty.call(cursor, 'schema') ? 'schema' : null);
-      if (rootSchemaWrapperKey) {
-        cursor = cursor[rootSchemaWrapperKey];
-      }
-    }
-
-    for (const segment of targetPath) {
-      if (cursor === undefined || cursor === null) return undefined;
-
-      if (Array.isArray(cursor)) {
-        const index = Number(segment);
-        if (!Number.isInteger(index)) return undefined;
-        cursor = cursor[index];
-        continue;
-      }
-
-      if (typeof cursor !== 'object') return undefined;
-
-      if (Object.prototype.hasOwnProperty.call(cursor, segment)) {
-        cursor = cursor[segment];
-        continue;
-      }
-
-      const numericIndex = Number(segment);
-      if (Number.isInteger(numericIndex) && Array.isArray((cursor as any)['__childrenInOrder'])) {
-        const orderedChildren = (cursor as any)['__childrenInOrder'] as Array<{ tagName?: string; value?: any }>;
-        const orderedEntry = orderedChildren[numericIndex];
-        if (!orderedEntry) return undefined;
-
-        if (orderedEntry.value !== undefined) {
-          cursor = orderedEntry.value;
-          continue;
-        }
-
-        if (orderedEntry.tagName && Object.prototype.hasOwnProperty.call(cursor, orderedEntry.tagName)) {
-          cursor = (cursor as any)[orderedEntry.tagName];
-          continue;
-        }
-      }
-
-      const localSegment = segment.replace(/^.*:/, '');
-      const matchedKey = Object.keys(cursor).find((key) => {
-        if (key === localSegment) return true;
-        return key.replace(/^.*:/, '') === localSegment;
-      });
-      cursor = matchedKey ? cursor[matchedKey] : undefined;
-    }
-
-    return cursor;
-  };
-
   const getGlobalRootElementTriggers = () => {
     if (path.length !== 0 || !rootSchema || typeof rootSchema !== 'object') return [];
 
@@ -1280,10 +1203,23 @@ function XmlElementNode({
 
   const ensureChoiceSelectionLabel = (choiceNode: any, optionName: string) => {
     if (!choiceNode || typeof choiceNode !== 'object' || Array.isArray(choiceNode)) {
-      return { '@attributes': { name: optionName } };
+      return isSchemaForm ? { '@attributes': { name: optionName } } : { _text: '' };
     }
 
     const nextNode = { ...choiceNode };
+    if (!isSchemaForm) {
+      if (nextNode['@attributes'] && typeof nextNode['@attributes'] === 'object') {
+        const nextAttributes = { ...nextNode['@attributes'] };
+        delete nextAttributes.name;
+        if (Object.keys(nextAttributes).length > 0) {
+          nextNode['@attributes'] = nextAttributes;
+        } else {
+          delete nextNode['@attributes'];
+        }
+      }
+      return nextNode;
+    }
+
     const nextAttributes = {
       ...(nextNode['@attributes'] && typeof nextNode['@attributes'] === 'object' && !Array.isArray(nextNode['@attributes'])
         ? nextNode['@attributes']
@@ -1346,6 +1282,7 @@ function XmlElementNode({
     choiceGroupData,
     choicePath,
     children,
+    showExpander = true,
   }: {
     choiceGroupData: {
       selectedOption: string | null;
@@ -1354,6 +1291,7 @@ function XmlElementNode({
     };
     choicePath: string[];
     children?: React.ReactNode;
+    showExpander?: boolean;
   }) => {
     const showChoiceRemove = canRemoveChoiceSelection(choiceGroupData);
     const selectorPathKey = choicePath.join('.');
@@ -1361,13 +1299,13 @@ function XmlElementNode({
     const isExpanded = expandedPaths.has(selectorPathKey);
     const isCollapsed = expandedPaths.has(collapsedKey);
     const shouldShowChildren = !isCollapsed && (isExpanded || !isSchemaForm);
-    const activeChoiceLabel = choiceGroupData.selectedOption
+    const activeChoiceLabel = isSchemaForm && choiceGroupData.selectedOption
       ? (value?.[choiceGroupData.selectedOption]?.['@attributes']?.name || choiceGroupData.selectedOption)
       : null;
 
     return (
       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 8, width: 'auto', maxWidth: '100%' }}>
-        <button
+        {showExpander && <button
           type="button"
           onClick={() => onToggleExpand(choicePath)}
           style={{
@@ -1386,7 +1324,7 @@ function XmlElementNode({
           aria-label={shouldShowChildren ? 'Collapse' : 'Expand'}
         >
           {shouldShowChildren ? '▼' : '▶'}
-        </button>
+        </button>}
 
         <select
           value={choiceGroupData.selectedOption || ''}
@@ -1415,6 +1353,7 @@ function XmlElementNode({
 
         {activeChoiceLabel && (
           <span
+            data-testid="xml-name-chip"
             style={{
               color: '#155e75',
               backgroundColor: '#ecfeff',
@@ -1875,6 +1814,7 @@ function XmlElementNode({
           {/* Always show @name attribute in schema form, inline with the label */}
           {schemaNodeName && (
             <span
+              data-testid="xml-name-chip"
               style={{
                 color: '#155e75',
                 backgroundColor: '#ecfeff',
@@ -2637,6 +2577,14 @@ function XmlElementNode({
                       .filter(({ childSchemaNode }) => {
                         // For xs:schema: prefer direct (non-choice) elements over choice duplicates
                         const childElementName = childSchemaNode.label || childSchemaNode.tagName;
+                        const childLocalName = String(childElementName).replace(/^.*:/, '').toLowerCase();
+
+                        // The XMLSchema meta-schema declares xs:schema recursively. In the
+                        // Schema Form, that declaration is the type definition for the
+                        // document root, not another document node to render.
+                        if (isSchemaForm && isXmlSchemaElement && childLocalName === 'schema') {
+                          return false;
+                        }
                         
                         // Skip choice elements if there's a non-choice version of the same element
                         if (childSchemaNode.compositorType === 'choice' && isXmlSchemaElement) {
@@ -2690,8 +2638,17 @@ function XmlElementNode({
                           .filter((name: unknown): name is string => typeof name === 'string' && name.length > 0)
                       );
 
-                      const instanceChildrenInOrder = Array.isArray((value as any)['__childrenInOrder'])
-                        ? (value as any)['__childrenInOrder'] as Array<{ tagName?: string; value?: any }>
+                      const valueForInstanceChildren =
+                        path.length === 0 &&
+                        Object.prototype.hasOwnProperty.call(value, element?.tagName || '') &&
+                        value[element?.tagName || ''] &&
+                        typeof value[element?.tagName || ''] === 'object' &&
+                        !Array.isArray(value[element?.tagName || ''])
+                          ? value[element?.tagName || '']
+                          : value;
+
+                      const instanceChildrenInOrder = Array.isArray((valueForInstanceChildren as any)['__childrenInOrder'])
+                        ? (valueForInstanceChildren as any)['__childrenInOrder'] as Array<{ tagName?: string; value?: any }>
                         : [];
 
                       const instanceChildEntries = instanceChildrenInOrder.length > 0
@@ -2701,11 +2658,11 @@ function XmlElementNode({
                               if (!tagName) return null;
                               const childValue = (entry as any).value !== undefined
                                 ? (entry as any).value
-                                : (value as any)[tagName];
+                                : (valueForInstanceChildren as any)[tagName];
                               return { tagName, childValue };
                             })
                             .filter((entry): entry is { tagName: string; childValue: any } => Boolean(entry))
-                        : Object.entries(value as Record<string, any>)
+                        : Object.entries(valueForInstanceChildren as Record<string, any>)
                             .filter(([key]) => !key.startsWith('@') && !key.startsWith('_') && key !== '__childrenInOrder')
                             .map(([tagName, childValue]) => ({ tagName, childValue }));
 
@@ -2798,50 +2755,6 @@ function XmlElementNode({
                       }
                     }
 
-                    if (
-                      isSchemaForm &&
-                      (childInstanceData === undefined || childInstanceData === null) &&
-                      rootSchema &&
-                      typeof rootSchema === 'object'
-                    ) {
-                      const parentFromRoot = resolveSchemaFormValueAtPath(rootSchema, path);
-                      if (parentFromRoot && typeof parentFromRoot === 'object' && !Array.isArray(parentFromRoot)) {
-                        const parentObj = parentFromRoot as Record<string, any>;
-                        const localChildName = childElementName.replace(/^.*:/, '');
-                        const matchedKey = Object.keys(parentObj).find((key) => {
-                          if (key === childElementName || key === localChildName) return true;
-                          return key.replace(/^.*:/, '') === localChildName;
-                        });
-                        if (matchedKey) {
-                          childInstanceData = parentObj[matchedKey];
-                        }
-                      }
-                    }
-
-                    const isMetadataElementShape = Boolean(
-                      isSchemaForm &&
-                      childInstanceData &&
-                      typeof childInstanceData === 'object' &&
-                      !Array.isArray(childInstanceData) &&
-                      typeof (childInstanceData as any).tagName === 'string' &&
-                      Array.isArray((childInstanceData as any).children) &&
-                      Array.isArray((childInstanceData as any).attributes)
-                    );
-
-                    if (isMetadataElementShape && rootSchema && typeof rootSchema === 'object') {
-                      const parentFromRoot = resolveSchemaFormValueAtPath(rootSchema, path);
-                      if (parentFromRoot && typeof parentFromRoot === 'object' && !Array.isArray(parentFromRoot)) {
-                        const parentObj = parentFromRoot as Record<string, any>;
-                        const localChildName = childElementName.replace(/^.*:/, '');
-                        const matchedKey = Object.keys(parentObj).find((key) => {
-                          if (key === childElementName || key === localChildName) return true;
-                          return key.replace(/^.*:/, '') === localChildName;
-                        });
-                        if (matchedKey && parentObj[matchedKey] !== undefined && parentObj[matchedKey] !== null) {
-                          childInstanceData = parentObj[matchedKey];
-                        }
-                      }
-                    }
                   }
                   
                   if (!childElementName) return null;
@@ -2945,7 +2858,12 @@ function XmlElementNode({
                       (
                         typeof effectiveChildInstanceData === 'object' &&
                         !Array.isArray(effectiveChildInstanceData) &&
-                        Object.keys(effectiveChildInstanceData).every((k) => k === '_text' || k === '#text')
+                        Object.keys(effectiveChildInstanceData).every((k) => {
+                          if (k === '_text' || k === '#text') return true;
+                          if (k !== '@attributes' || isSchemaForm) return false;
+                          const attributes = (effectiveChildInstanceData as any)['@attributes'];
+                          return attributes && typeof attributes === 'object' && Object.keys(attributes).every((name) => name === 'name');
+                        })
                       )
                     )
                   );
@@ -2989,7 +2907,7 @@ function XmlElementNode({
                       
                       // Extract @name attribute for display from element's attributes
                       const elementNameAttr = elementToRender?.['@attributes']?.name;
-                      const displayName = typeof elementNameAttr === 'string' && elementNameAttr.trim().length > 0
+                      const displayName = isSchemaForm && typeof elementNameAttr === 'string' && elementNameAttr.trim().length > 0
                         ? elementNameAttr.trim()
                         : null;
                       
@@ -3041,6 +2959,7 @@ function XmlElementNode({
                             </select>
                             {displayName && (
                               <span
+                                data-testid="xml-name-chip"
                                 style={{
                                   color: '#155e75',
                                   backgroundColor: '#ecfeff',
@@ -3158,6 +3077,7 @@ function XmlElementNode({
                           {renderExclusiveChoiceSelector({
                             choiceGroupData,
                             choicePath: choiceArrayPath,
+                            showExpander: !isSimpleChild,
                             children: shouldShowChoiceArrayChildren ? arrayItems : null,
                           })}
                         </div>
@@ -3209,11 +3129,12 @@ function XmlElementNode({
 
                                 {(() => {
                                   const instanceNameAttr = child?.['@attributes']?.name;
-                                  const displayName = typeof instanceNameAttr === 'string' && instanceNameAttr.trim().length > 0
+                                  const displayName = isSchemaForm && typeof instanceNameAttr === 'string' && instanceNameAttr.trim().length > 0
                                     ? instanceNameAttr.trim()
                                     : null;
                                   return displayName ? (
                                       <span
+                                        data-testid="xml-name-chip"
                                         style={{
                                           marginLeft: 4,
                                           color: '#155e75',
@@ -3342,6 +3263,7 @@ function XmlElementNode({
                           {renderExclusiveChoiceSelector({
                             choiceGroupData,
                             choicePath,
+                            showExpander: false,
                             children: (
                               <>
                                 {renderSimpleValueInput(
@@ -3357,7 +3279,8 @@ function XmlElementNode({
                                       }
                                       return { _text: nextValue };
                                     });
-                                  }
+                                  },
+                                  `xml-element-${sanitize(childElementName)}-input`
                                 )}
                               </>
                             ),
@@ -3423,6 +3346,7 @@ function XmlElementNode({
                           {renderExclusiveChoiceSelector({
                             choiceGroupData,
                             choicePath: complexChoicePath,
+                            showExpander: true,
                             children: shouldShowComplexChoiceChildren ? (
                               <div style={{ position: 'relative', marginLeft: 8 }}>
                                 <XmlElementNode
@@ -3651,11 +3575,14 @@ function XmlElementNode({
           {isSchemaForm && localTagName === 'simpleType' && (
             (() => {
               console.log(`[SIMPLETYPE CHECK] schemaNode.schemaObj:`, schemaNode?.schemaObj);
-              if (!schemaNode?.schemaObj) {
-                console.log('[SIMPLETYPE] No schemaObj found on simpleType node');
+              const schemaFormValue = value && typeof value === 'object' && !Array.isArray(value)
+                ? value
+                : null;
+              const simpleTypeDef = schemaFormValue;
+              if (!simpleTypeDef || typeof simpleTypeDef !== 'object') {
+                console.log('[SIMPLETYPE] No simpleType value found');
                 return null;
               }
-              const simpleTypeDef = schemaNode.schemaObj;
               const restriction = simpleTypeDef['xs:restriction'] || simpleTypeDef['restriction'];
               if (!restriction) {
                 return null;
@@ -3764,18 +3691,7 @@ function XmlElementNode({
                 const directValueObj = value && typeof value === 'object' && !Array.isArray(value)
                   ? value as Record<string, any>
                   : null;
-                const isMetadataValueShape = Boolean(
-                  directValueObj &&
-                  typeof (directValueObj as any).tagName === 'string' &&
-                  Array.isArray((directValueObj as any).children) &&
-                  Array.isArray((directValueObj as any).attributes)
-                );
-                const resolvedPathValue = ((isSchemaForm && rootSchema) && (!directValueObj || isMetadataValueShape))
-                  ? resolveSchemaFormValueAtPath(rootSchema, path)
-                  : null;
-                const valueObj = resolvedPathValue && typeof resolvedPathValue === 'object' && !Array.isArray(resolvedPathValue)
-                  ? resolvedPathValue as Record<string, any>
-                  : directValueObj;
+                const valueObj = directValueObj;
 
                 if (valueObj) {
                   const valueEnums = valueObj['xs:enumeration'] ?? valueObj['enumeration'];
@@ -3791,59 +3707,6 @@ function XmlElementNode({
                     if (!tagName.includes('enumeration')) continue;
                     const enumValue = extractEnumValue((entry as any).value);
                     if (enumValue) values.add(enumValue);
-                  }
-                }
-
-                if (values.size === 0 && isSchemaForm && rootSchema && typeof rootSchema === 'object' && path.length > 0) {
-                  const parentFromRoot = resolveSchemaFormValueAtPath(rootSchema, path.slice(0, -1));
-                  if (parentFromRoot && typeof parentFromRoot === 'object' && !Array.isArray(parentFromRoot)) {
-                    const parentRestriction = (parentFromRoot as Record<string, any>)['xs:restriction']
-                      ?? (parentFromRoot as Record<string, any>)['restriction'];
-                    if (parentRestriction) {
-                      const parentEnumEntries = parentRestriction['xs:enumeration'] ?? parentRestriction['enumeration'];
-                      const parentEnumArray = Array.isArray(parentEnumEntries) ? parentEnumEntries : (parentEnumEntries ? [parentEnumEntries] : []);
-                      for (const entry of parentEnumArray) {
-                        const enumValue = extractEnumValue(entry);
-                        if (enumValue) values.add(enumValue);
-                      }
-                    }
-                  }
-                }
-
-                if (values.size === 0 && isSchemaForm && rootSchema && typeof rootSchema === 'object') {
-                  const collectRestrictionEnumSets = (node: any, acc: string[][]) => {
-                    if (!node || typeof node !== 'object') return;
-
-                    if (Array.isArray(node)) {
-                      for (const entry of node) collectRestrictionEnumSets(entry, acc);
-                      return;
-                    }
-
-                    const restriction = node['xs:restriction'] ?? node['restriction'];
-                    if (restriction && typeof restriction === 'object') {
-                      const enumEntries = restriction['xs:enumeration'] ?? restriction['enumeration'];
-                      const enumArray = Array.isArray(enumEntries) ? enumEntries : (enumEntries ? [enumEntries] : []);
-                      const foundValues = enumArray
-                        .map((entry: any) => extractEnumValue(entry))
-                        .filter((entry: string | null): entry is string => Boolean(entry));
-                      if (foundValues.length > 0) {
-                        acc.push(foundValues);
-                      }
-                    }
-
-                    for (const child of Object.values(node)) {
-                      collectRestrictionEnumSets(child, acc);
-                    }
-                  };
-
-                  const enumSets: string[][] = [];
-                  collectRestrictionEnumSets(rootSchema, enumSets);
-
-                  if (enumSets.length === 1) {
-                    for (const enumValue of enumSets[0]) {
-                      const normalized = String(enumValue || '').trim();
-                      if (normalized) values.add(normalized);
-                    }
                   }
                 }
 
@@ -4335,23 +4198,24 @@ function XmlInstanceFormContent({
 
   const handleToggleExpand = (pathArray: string[]) => {
     const pathKey = pathArray.join('.');
-    const newExpanded = new Set(expandedPaths);
+    setExpandedPaths((currentExpanded) => {
+      const newExpanded = new Set(currentExpanded);
+      const collapsedKey = `__collapsed__:${pathKey}`;
+      const initiallyExpanded = Boolean(autoExpandAll && initialAutoExpandPathsRef.current.has(pathKey));
+      const explicitlyExpanded = newExpanded.has(pathKey);
+      const explicitlyCollapsed = newExpanded.has(collapsedKey);
+      const isExpanded = explicitlyExpanded || (initiallyExpanded && !explicitlyCollapsed);
 
-    const collapsedKey = `__collapsed__:${pathKey}`;
-    const initiallyExpanded = Boolean(autoExpandAll && initialAutoExpandPathsRef.current.has(pathKey));
-    const explicitlyExpanded = newExpanded.has(pathKey);
-    const explicitlyCollapsed = newExpanded.has(collapsedKey);
-    const isExpanded = explicitlyExpanded || (initiallyExpanded && !explicitlyCollapsed);
+      if (isExpanded) {
+        newExpanded.delete(pathKey);
+        newExpanded.add(collapsedKey);
+      } else {
+        newExpanded.add(pathKey);
+        newExpanded.delete(collapsedKey);
+      }
 
-    if (isExpanded) {
-      newExpanded.delete(pathKey);
-      newExpanded.add(collapsedKey);
-    } else {
-      newExpanded.add(pathKey);
-      newExpanded.delete(collapsedKey);
-    }
-
-    setExpandedPaths(newExpanded);
+      return newExpanded;
+    });
   };
 
   // Update nested value at path

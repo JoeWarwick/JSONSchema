@@ -493,6 +493,20 @@ describe('Workbench integration - load unresolved $defs schema', () => {
         if (clicked === 0) break;
       }
 
+      const colorTypeChip = await screen.findByText('ColorType', { exact: true });
+      const colorTypeHeader = colorTypeChip.parentElement?.parentElement;
+      const colorTypeToggle = colorTypeHeader?.querySelector('button') as HTMLButtonElement | null;
+      if (colorTypeToggle?.querySelector('svg')?.getAttribute('class')?.includes('chevron-right')) {
+        fireEvent.click(colorTypeToggle);
+      }
+
+      const restrictionTag = await screen.findByTestId('xml-tag-xs_restriction');
+      const restrictionHeader = restrictionTag.parentElement?.parentElement;
+      const restrictionToggle = restrictionHeader?.querySelector('button') as HTMLButtonElement | null;
+      if (restrictionToggle?.querySelector('svg')?.getAttribute('class')?.includes('chevron-right')) {
+        fireEvent.click(restrictionToggle);
+      }
+
       await waitFor(() => {
         const text = document.body.textContent || '';
         expect(text).toContain('red');
