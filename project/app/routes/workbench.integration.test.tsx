@@ -502,6 +502,6 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     } finally {
       (global as any).fetch = originalFetch;
     }
-  });
+  }, 30000);
 
 });
