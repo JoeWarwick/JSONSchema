@@ -92,7 +92,17 @@ export interface SchemaContext {
  */
 export function getXmlAttrs(obj: any): Record<string, any> {
   if (!obj || typeof obj !== 'object') return {};
-  return obj['@attributes'] || obj;
+  if (obj['@attributes'] && typeof obj['@attributes'] === 'object') {
+    return obj['@attributes'];
+  }
+
+  const attrs: Record<string, any> = { ...obj };
+  for (const [key, value] of Object.entries(obj)) {
+    if (key.startsWith('@')) {
+      attrs[key.slice(1)] = value;
+    }
+  }
+  return attrs;
 }
 
 /**
@@ -587,7 +597,12 @@ export function getTypeAttributes(schema: CompiledSchema, typeName: string) {
  * @returns Array of enumeration string values, or empty array
  */
 export function getTypeEnumerations(schema: CompiledSchema, typeName: string): string[] {
-  return schema.getEnumerations(typeName);
+  const result = schema.getEnumerations(typeName);
+  console.log(`[getTypeEnumerations] typeName="${typeName}", result=${result ? JSON.stringify(result) : 'null/undefined'}`);
+  if (!result) {
+    return [];
+  }
+  return result;
 }
 
 /**
@@ -798,10 +813,10 @@ export function walkSchemaWithCompiled(
   }
 
   // Handle enumerations using compiled schema
-  if (elementType) {
+  if (elementType && compiled) {
     const typeName = elementType.replace(/^.*:/, '');
     const enums = getTypeEnumerations(compiled, typeName);
-    if (enums.length > 0) {
+    if (enums && enums.length > 0) {
       node.enumerations = enums;
     }
   }
@@ -1135,6 +1150,9 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
       const elementsToWalk = resolvedType.elements;
       
       for (const elem of elementsToWalk) {
+        if (elem.compositorType === 'choice') {
+          console.log(`[schema-walker] Processing element "${elem.name}" with compositorType='choice'`);
+        }
         let childTypeName: string | undefined = elem.type;
         let childInlineTypeDefinition: any = undefined;
 
@@ -1190,10 +1208,13 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
         childNode.label = elem.name;
         childNode.minOccurs = elem.minOccurs;
         childNode.maxOccurs = elem.maxOccurs === 'unbounded' ? 'unbounded' : elem.maxOccurs;
-        // IMPORTANT: Transfer the compositorType from the compiled element to the child node
-        // This marks elements that are part of a choice compositor
+        // The element's position in its parent's compositor (choice/sequence/all) takes precedence
+        // This determines whether the element renders as a choice dropdown, sequence member, etc.
         if (elem.compositorType) {
           childNode.compositorType = elem.compositorType;
+          if (elem.compositorType === 'choice') {
+            console.log(`[schema-walker] Set childNode.compositorType='choice' for "${childNode.label}"`);
+          }
         }
         node.children.push(childNode);
       }
@@ -1226,7 +1247,7 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
     
     // Fallback: If no enumerations from compiledSchema but schemaObj has a restriction with enumerations,
     // extract them directly from the schemaObj (for inline/unresolved schemas)
-    if (node.enumerations.length === 0 && node.schemaObj) {
+    if ((node.enumerations?.length || 0) === 0 && node.schemaObj) {
       const directRestriction = node.schemaObj['xs:restriction'] || node.schemaObj['restriction'];
       if (directRestriction && typeof directRestriction === 'object') {
         const directEnums = getEnumerationsFromRestriction(directRestriction);
@@ -1238,7 +1259,7 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
     
     // Create a child SchemaNode for xs:restriction if this is a simple type with a restriction
     // This allows restriction facets (enumerations, length, pattern, etc.) to be displayed as children
-    if (node.restriction || node.enumerations.length > 0) {
+    if (node.restriction || (node.enumerations?.length || 0) > 0) {
       const restrictionNode: SchemaNode = {
         tagName: 'xs:restriction',
         label: 'xs:restriction',
@@ -1248,7 +1269,7 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
         children: [],
         attributes: [],
         isRequired: true,
-        enumerations: node.enumerations.length > 0 ? node.enumerations : [], // Pass parent's enumerations to restriction child
+        enumerations: (node.enumerations?.length || 0) > 0 ? node.enumerations : [], // Pass parent's enumerations to restriction child
         path: context.path.join('/') + '/xs:restriction',
       };
       

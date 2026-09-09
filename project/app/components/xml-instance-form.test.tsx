@@ -268,6 +268,49 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     });
   });
 
+  test('schema form preserves ColorType enumeration rows when walking schema omits restriction children', async () => {
+    const onChange = jest.fn();
+    const walkingSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:simpleType name="ColorType">
+          <xs:restriction base="xs:string">
+            <xs:element ref="xs:facet"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:schema>
+    `, 'xml') as any;
+
+    const editableSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:simpleType name="ColorType">
+          <xs:restriction base="xs:string">
+            <xs:enumeration value="red"/>
+            <xs:enumeration value="green"/>
+            <xs:enumeration value="blue"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={walkingSchema}
+        rootSchema={editableSchema}
+        value={editableSchema}
+        onChange={onChange}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-expanded"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Remove value/i })).toHaveLength(3);
+      expect(screen.getByDisplayValue('red')).toBeTruthy();
+      expect(screen.getByDisplayValue('green')).toBeTruthy();
+      expect(screen.getByDisplayValue('blue')).toBeTruthy();
+    });
+  });
+
   test('renders a color picker when xs:element declares ui:widget color', async () => {
     const onChange = jest.fn();
     const schemaWithColorWidget = {
@@ -910,6 +953,45 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     expect(screen.queryAllByRole('combobox').length).toBeGreaterThanOrEqual(1);
   });
 
+  test('schema form choice dropdown switches the active selected branch instead of snapping back', async () => {
+    const onChange = jest.fn();
+    const schemaGrammar = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="holder" type="HolderType"/>
+        <xs:complexType name="HolderType">
+          <xs:choice>
+            <xs:element name="xs:import" type="xs:string"/>
+            <xs:element name="xs:annotation" type="xs:string"/>
+          </xs:choice>
+        </xs:complexType>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={schemaGrammar}
+        rootSchema={schemaGrammar}
+        value={{ holder: { 'xs:import': { _text: 'i1' } } }}
+        onChange={onChange}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-expanded"
+      />,
+    );
+
+    const combo = screen.getByRole('combobox');
+    expect(combo).toHaveValue('xs:import');
+
+    fireEvent.change(combo, { target: { value: 'xs:annotation' } });
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalled();
+    });
+
+    const payload = onChange.mock.calls[0][0];
+    expect(payload.holder['xs:annotation']).toBeDefined();
+    expect(payload.holder['xs:import']).toBeUndefined();
+  });
+
   test('schema form inline complexType repeatable choice keeps sibling nodes visible', async () => {
     const onChange = jest.fn();
     const schemaGrammar = parseMarkup(`
@@ -1039,6 +1121,153 @@ describe('XmlInstanceForm trigger-row behavior', () => {
 
     const payload = onChange.mock.calls[0][0];
     expect(payload.person.workEmail).toBeUndefined();
+  });
+
+  test('choice switch reapplies the selected name chip and optional trash for the active branch', async () => {
+    const onChange = jest.fn();
+    const optionalChoiceSchema = {
+      'xs:schema': {
+        'xs:element': {
+          '@attributes': {
+            name: 'person',
+            type: 'PersonType',
+          },
+        },
+        'xs:complexType': {
+          '@attributes': {
+            name: 'PersonType',
+          },
+          'xs:choice': {
+            '@attributes': {
+              minOccurs: '0',
+              maxOccurs: '1',
+            },
+            'xs:element': [
+              {
+                '@attributes': {
+                  name: 'workEmail',
+                  type: 'xs:string',
+                },
+              },
+              {
+                '@attributes': {
+                  name: 'homeEmail',
+                  type: 'xs:string',
+                },
+              },
+            ],
+          },
+        },
+      },
+    } as any;
+
+    function StatefulChoiceHarness() {
+      const [value, setValue] = React.useState({
+        person: { workEmail: { '@attributes': { name: 'workEmail' }, _text: 'a@corp.test' } },
+      });
+
+      return (
+        <XmlInstanceForm
+          schema={optionalChoiceSchema}
+          rootSchema={optionalChoiceSchema}
+          value={value}
+          onChange={(nextValue) => {
+            onChange(nextValue);
+            setValue(nextValue);
+          }}
+          autoExpandAll
+        />
+      );
+    }
+
+    renderForm(<StatefulChoiceHarness />);
+
+    const combo = screen.getByRole('combobox');
+    expect(combo).toHaveValue('workEmail');
+    expect(screen.getAllByText('workEmail').length).toBeGreaterThan(0);
+
+    fireEvent.change(combo, { target: { value: 'homeEmail' } });
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalled();
+      expect(screen.getByRole('combobox')).toHaveValue('homeEmail');
+    });
+
+    expect(screen.getAllByText('homeEmail').length).toBeGreaterThan(0);
+    expect(screen.getByTitle('Remove selected homeEmail option')).toBeTruthy();
+  });
+
+  test('choice switch writes selected branch @name and retargets optional remove action', async () => {
+    const onChange = jest.fn();
+    const optionalChoiceSchema = {
+      'xs:schema': {
+        'xs:element': {
+          '@attributes': {
+            name: 'person',
+            type: 'PersonType',
+          },
+        },
+        'xs:complexType': {
+          '@attributes': {
+            name: 'PersonType',
+          },
+          'xs:choice': {
+            '@attributes': {
+              minOccurs: '0',
+              maxOccurs: '1',
+            },
+            'xs:element': [
+              {
+                '@attributes': {
+                  name: 'workEmail',
+                  type: 'xs:string',
+                },
+              },
+              {
+                '@attributes': {
+                  name: 'homeEmail',
+                  type: 'xs:string',
+                },
+              },
+            ],
+          },
+        },
+      },
+    } as any;
+
+    function StatefulChoiceHarness() {
+      const [value, setValue] = React.useState({
+        person: { workEmail: { _text: 'a@corp.test' } },
+      });
+
+      return (
+        <XmlInstanceForm
+          schema={optionalChoiceSchema}
+          rootSchema={optionalChoiceSchema}
+          value={value}
+          onChange={(nextValue) => {
+            onChange(nextValue);
+            setValue(nextValue);
+          }}
+          autoExpandAll
+        />
+      );
+    }
+
+    renderForm(<StatefulChoiceHarness />);
+
+    const combo = screen.getByRole('combobox');
+    fireEvent.change(combo, { target: { value: 'homeEmail' } });
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox')).toHaveValue('homeEmail');
+      expect(onChange).toHaveBeenCalled();
+    });
+
+    const latestPayload = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    expect(latestPayload.person.workEmail).toBeUndefined();
+    expect(latestPayload.person.homeEmail['@attributes'].name).toBe('homeEmail');
+    expect(screen.getByTitle('Remove selected homeEmail option')).toBeTruthy();
   });
 
   test('simple choice places optional trash button to the rhs of input', () => {

@@ -3,7 +3,7 @@ import type { Node as FlowNode } from 'reactflow';
 
 export type NodeData = Record<string, any>;
 
-export type XmlNodeKind = 'schema' | 'simpleType' | 'complexType' | 'attributeGroup' | 'attribute' | 'element' | 'sequence' | 'choice' | 'all' | 'any';
+export type XmlNodeKind = 'schema' | 'simpleType' | 'complexType' | 'attributeGroup' | 'attribute' | 'element' | 'sequence' | 'choice' | 'all' | 'any' | 'annotation' | 'import';
 
 /**
  * Props for XML node RHS editors and attribute manager.

@@ -1,4 +1,5 @@
 import React from 'react';
+import fs from 'fs';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import Workbench from './workbench';
@@ -109,6 +110,24 @@ describe('Workbench integration - load unresolved $defs schema', () => {
   });
 
   it('shows XML schema root add buttons inferred from the XSD walk', async () => {
+    const xmlSchemaMetadata = fs.readFileSync('public/schemas/XMLSchema.xsd', 'utf-8');
+    const originalFetch = global.fetch;
+    (global as any).fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : String((input as Request).url);
+      if (url === '/schemas/XMLSchema.xsd') {
+        return {
+          ok: true,
+          text: async () => xmlSchemaMetadata,
+        } as Response;
+      }
+      return {
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        text: async () => 'Not Found',
+      } as Response;
+    });
+
     const xmlSchema = parseMarkup(`
       <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
         <xs:group name="schemaTop">
@@ -146,6 +165,8 @@ describe('Workbench integration - load unresolved $defs schema', () => {
       expect(screen.getByRole('button', { name: /Add Notation/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Add AttributeGroup/i })).toBeInTheDocument();
     });
+
+    (global as any).fetch = originalFetch;
   });
 
   it('updates UI when uploading a schema file', async () => {
@@ -277,6 +298,7 @@ describe('Workbench integration - load unresolved $defs schema', () => {
   });
 
   it('XML menu default-instance submenu passes selected rootElementName', async () => {
+    const xmlSchemaMetadata = fs.readFileSync('public/schemas/XMLSchema.xsd', 'utf-8');
     const demoXsd = `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
            xmlns:tns="http://example.com/demo"
@@ -310,6 +332,13 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     const originalFetch = global.fetch;
     const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : String((input as Request).url);
+
+      if (url === '/schemas/XMLSchema.xsd') {
+        return {
+          ok: true,
+          text: async () => xmlSchemaMetadata,
+        } as Response;
+      }
 
       if (url === '/schemas/xml-form-controls-demo.xsd') {
         return {
@@ -377,6 +406,99 @@ describe('Workbench integration - load unresolved $defs schema', () => {
 
       const requestBody = JSON.parse(String((apiCall as any)[1]?.body || '{}'));
       expect(requestBody.rootElementName).toBe('employee');
+    } finally {
+      (global as any).fetch = originalFetch;
+    }
+  });
+
+  it('Schema Form keeps ColorType enumerations visible after loading demo XSD', async () => {
+    const xmlSchemaMetadata = fs.readFileSync('public/schemas/XMLSchema.xsd', 'utf-8');
+    const demoXsd = fs.readFileSync('public/schemas/xml-form-controls-demo.xsd', 'utf-8');
+
+    const originalFetch = global.fetch;
+    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : String((input as Request).url);
+
+      if (url === '/schemas/XMLSchema.xsd') {
+        return {
+          ok: true,
+          text: async () => xmlSchemaMetadata,
+        } as Response;
+      }
+
+      if (url === '/schemas/xml-form-controls-demo.xsd') {
+        return {
+          ok: true,
+          text: async () => demoXsd,
+        } as Response;
+      }
+
+      if (url === '/api/schema/default-instance') {
+        return {
+          ok: false,
+          status: 500,
+          statusText: 'Internal Server Error',
+          json: async () => ({ xml: '', warnings: [] }),
+          text: async () => '',
+        } as Response;
+      }
+
+      return {
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        text: async () => 'Not Found',
+      } as Response;
+    });
+
+    (global as any).fetch = fetchMock;
+
+    try {
+      render(<Workbench />);
+
+      fireEvent.click(screen.getByRole('radio', { name: /^XML$/i }));
+      fireEvent.click(await screen.findByRole('button', { name: /Schema Form/i }));
+
+      const loadButtons = await screen.findAllByRole('button', { name: /Load demo controls XSD/i });
+      fireEvent.click(loadButtons[0]);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith('/schemas/xml-form-controls-demo.xsd');
+      });
+
+      const rootTag = await screen.findByTestId('xml-tag-xs_schema');
+      const rootHeader = rootTag.parentElement?.parentElement;
+      const rootToggle = rootHeader?.querySelector('button') as HTMLButtonElement | null;
+      const rootIconClass = rootToggle?.querySelector('svg')?.getAttribute('class') || '';
+      if (rootToggle && rootIconClass.includes('chevron-right')) {
+        fireEvent.click(rootToggle);
+      }
+
+      const clickChevronRightExpanders = () => {
+        const expandButtons = Array.from(document.querySelectorAll('button')).filter((btn) => {
+          const title = btn.getAttribute('title') || '';
+          const aria = btn.getAttribute('aria-label') || '';
+          const iconClass = btn.querySelector('svg')?.getAttribute('class') || '';
+          const text = (btn.textContent || '').trim();
+          const isTextArrow = text === '▶';
+          const isIconChevronRight = !title && !aria && iconClass.includes('chevron-right');
+          return isTextArrow || isIconChevronRight;
+        }) as HTMLButtonElement[];
+        expandButtons.forEach((btn) => fireEvent.click(btn));
+        return expandButtons.length;
+      };
+
+      for (let pass = 0; pass < 10; pass += 1) {
+        const clicked = clickChevronRightExpanders();
+        if (clicked === 0) break;
+      }
+
+      await waitFor(() => {
+        const text = document.body.textContent || '';
+        expect(text).toContain('red');
+        expect(text).toContain('green');
+        expect(text).toContain('blue');
+      });
     } finally {
       (global as any).fetch = originalFetch;
     }

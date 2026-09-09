@@ -1,0 +1,13 @@
+[debug] [vite] connecting...
+[info] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+[debug] [vite] connected.
+[log] [Workbench] editorSchema NoteType sequence present: false
+[info] [Workbench] Schema passed to editors: {type: object, additionalProperties: true}
+[log] [Workbench] editorSchema NoteType sequence present: false
+[info] [Workbench] Schema passed to editors: {type: object, additionalProperties: true}
+[log] [Workbench] editorSchema NoteType sequence present: false
+[info] [Workbench] Schema passed to editors: {type: object, additionalProperties: true}
+Total textboxes found: 0
+
+=== Form HTML dump ===
+N/A

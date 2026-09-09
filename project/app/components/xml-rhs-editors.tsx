@@ -10,6 +10,90 @@ import { XmlComplexTypeEditor } from './xml-complex-type-editor';
 import { XmlAttributeGroupEditor } from './xml-attribute-group-editor';
 import { XmlAttributesManager } from './xml-attributes-manager';
 
+/**
+ * Editor for xs:import nodes - displays namespace and schemaLocation attributes
+ */
+function XmlImportEditor({ node, onChange }: { node: any; onChange: (patch: any) => void }) {
+  const data = (node.data || {}) as any;
+  const namespace = data.xmlImportNamespace || '';
+  const schemaLocation = data.xmlImportSchemaLocation || '';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <h4 style={{ margin: 0 }}>xs:import</h4>
+      <div>
+        <label style={{ fontSize: 12, display: 'block', marginBottom: 4, fontWeight: 600 }}>
+          namespace
+        </label>
+        <input
+          type="text"
+          value={namespace}
+          onChange={(e) => onChange({ id: node.id, xmlImportNamespace: e.target.value })}
+          placeholder="namespace URI"
+          style={{
+            width: '100%',
+            padding: '6px 8px',
+            border: '1px solid #ddd',
+            borderRadius: 3,
+            fontSize: 12,
+          }}
+        />
+      </div>
+      <div>
+        <label style={{ fontSize: 12, display: 'block', marginBottom: 4, fontWeight: 600 }}>
+          schemaLocation
+        </label>
+        <input
+          type="text"
+          value={schemaLocation}
+          onChange={(e) => onChange({ id: node.id, xmlImportSchemaLocation: e.target.value })}
+          placeholder="path to schema file"
+          style={{
+            width: '100%',
+            padding: '6px 8px',
+            border: '1px solid #ddd',
+            borderRadius: 3,
+            fontSize: 12,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Editor for xs:annotation nodes - displays and edits documentation text
+ */
+function XmlAnnotationEditor({ node, onChange }: { node: any; onChange: (patch: any) => void }) {
+  const data = (node.data || {}) as any;
+  const annotation = data.xmlAnnotationText || '';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <h4 style={{ margin: 0 }}>xs:annotation/xs:documentation</h4>
+      <div>
+        <label style={{ fontSize: 12, display: 'block', marginBottom: 4, fontWeight: 600 }}>
+          Documentation
+        </label>
+        <textarea
+          value={annotation}
+          onChange={(e) => onChange({ id: node.id, xmlAnnotationText: e.target.value })}
+          placeholder="Annotation text"
+          rows={4}
+          style={{
+            width: '100%',
+            padding: '6px 8px',
+            border: '1px solid #ddd',
+            borderRadius: 3,
+            fontSize: 12,
+            resize: 'vertical',
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function XmlNodeRhsEditor({ node, onChange, onToggleShowAnnotations, xmlShowAnnotations, onToggleShowImports, xmlShowImports, getNodeByName }: XmlNodeRhsEditorProps) {
   const t = useT();
 
@@ -28,6 +112,10 @@ export function XmlNodeRhsEditor({ node, onChange, onToggleShowAnnotations, xmlS
     return <XmlCompositorEditor node={node} onChange={onChange} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
   if (kind === 'any') 
     return <XmlAnyEditor node={node} onChange={onChange} getNodeByName={getNodeByName} />;
+  if (kind === 'import')
+    return <XmlImportEditor node={node} onChange={onChange} />;
+  if (kind === 'annotation')
+    return <XmlAnnotationEditor node={node} onChange={onChange} />;
   if (kind === 'complexType') return (
     <XmlComplexTypeEditor
       node={node}

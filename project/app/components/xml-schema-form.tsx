@@ -1,195 +1,19 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import styles from "./json-instance-form.module.css";
-import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip/tooltip";
-import { Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { 
-  generateRefExpansionKey, 
   generateCompositorVariantKey, 
   generateEditorLayoutKey,
   XML_COMPOSITOR_TYPES,
-  ATTRIBUTE_USE_VALUES,
-  XSD_BUILTIN_SIMPLE_TYPES
 } from "../utils/xml-schema-constants";
-import { renderTooltipContentChildren } from './tooltip-utils';
-
-/**
- * Props for XMLSchema Form Component
- * Used for editing XSD (XML Schema Definition) structures
- */
-interface XmlSchemaFormProps {
-  // The XSD schema node to edit (e.g., xs:element, xs:complexType, xs:attribute definition)
-  schema: Record<string, unknown>;
-  
-  // Called when schema structure is modified
-  onChange: (newSchema: Record<string, unknown>) => void;
-  
-  // Full schema document for resolving named types and refs
-  rootSchema?: Record<string, unknown>;
-  
-  // Path to this node within the schema (for storage keys)
-  xmlPath?: string[];
-  
-  // If true, auto-focus the first input when mounted
-  autoFocus?: boolean;
-}
-
-/**
- * Represents an expanded ref - tracks which named types/refs are currently expanded inline
- */
-interface ExpandedRef {
-  name: string;
-  refPath: string[]; // XML path to the actual definition
-  isEditing: boolean; // Whether we're currently editing this expanded ref
-}
-
-/**
- * Helper to extract XML attributes from a node (e.g., @name, @type, @minOccurs)
- */
-const getXmlAttrs = (node: Record<string, unknown> | null | undefined) => {
-  if (!node || typeof node !== 'object') return {};
-  return Object.fromEntries(
-    Object.entries(node).filter(([key]) => key.startsWith('@'))
-  );
-};
-
-const asArray = <T,>(value: T | T[] | null | undefined): T[] => {
-  if (Array.isArray(value)) return value;
-  if (value === null || value === undefined) return [];
-  return [value];
-};
-
-const readAnnotationDocs = (node: Record<string, unknown> | null | undefined): string[] => {
-  if (!node || typeof node !== 'object') return [];
-  const annotations = asArray((node as any)['xs:annotation']);
-  return annotations
-    .map((annotation: any) => {
-      if (!annotation || typeof annotation !== 'object') return '';
-      const documentation = Array.isArray(annotation['xs:documentation'])
-        ? annotation['xs:documentation'][0]
-        : annotation['xs:documentation'];
-      if (typeof documentation === 'string') return documentation;
-      if (documentation && typeof documentation === 'object') {
-        const text = (documentation as any)['#text'];
-        if (typeof text === 'string') return text;
-      }
-      return '';
-    })
-    .filter((text: string) => text.trim().length > 0);
-};
-
-const upsertElementAnnotation = (element: Record<string, unknown>, value: string): Record<string, unknown> => {
-  const trimmed = value.trim();
-  const nextElement: Record<string, unknown> = { ...element };
-
-  if (trimmed.length === 0) {
-    delete (nextElement as any)['xs:annotation'];
-    return nextElement;
-  }
-
-  const existingAnnotations = asArray((nextElement as any)['xs:annotation']);
-  const annotations = existingAnnotations.length > 0
-    ? existingAnnotations.map((annotation: any) => (annotation && typeof annotation === 'object' ? { ...annotation } : annotation))
-    : [{}];
-
-  const first = annotations[0];
-  if (first && typeof first === 'object') {
-    const annotationObj: Record<string, unknown> = { ...(first as Record<string, unknown>) };
-    const existingDoc = annotationObj['xs:documentation'];
-    if (Array.isArray(existingDoc) && existingDoc.length > 0) {
-      const docs = [...existingDoc];
-      const firstDoc = docs[0];
-      if (firstDoc && typeof firstDoc === 'object') {
-        docs[0] = { ...(firstDoc as Record<string, unknown>), '#text': value };
-      } else {
-        docs[0] = value;
-      }
-      annotationObj['xs:documentation'] = docs;
-    } else if (existingDoc && typeof existingDoc === 'object') {
-      annotationObj['xs:documentation'] = { ...(existingDoc as Record<string, unknown>), '#text': value };
-    } else {
-      annotationObj['xs:documentation'] = value;
-    }
-    annotations[0] = annotationObj;
-  } else {
-    annotations[0] = { 'xs:documentation': value };
-  }
-
-  (nextElement as any)['xs:annotation'] = annotations;
-  return nextElement;
-};
-
-/**
- * Navigate to a node at the given XML path within schema
- * @param schema Root schema document
- * @param path Array of XML path segments (e.g., ['xs:schema', 'xs:complexType[0]', 'xs:attribute'])
- * @returns The node at that path, or null if not found
- */
-const getAtXmlPath = (schema: Record<string, unknown>, path: string[]): unknown => {
-  let current: any = schema;
-  for (const segment of path) {
-    if (!current || typeof current !== 'object') return null;
-    
-    // Handle array indices: "xs:attribute[0]" → "xs:attribute" + [0]
-    const match = segment.match(/^([^\[]+)\[(\d+)\]$/);
-    if (match) {
-      const [, key, indexStr] = match;
-      const index = parseInt(indexStr, 10);
-      const arr = current[key];
-      if (!Array.isArray(arr) || index < 0 || index >= arr.length) return null;
-      current = arr[index];
-    } else {
-      current = current[segment];
-    }
-  }
-  return current;
-};
-
-/**
- * Check if a schema node represents a reference to a named type
- * @param schema The node to check
- * @returns { refName: string, refPath: string[] } or null
- */
-const detectNamedTypeRef = (schema: Record<string, unknown>): { refName: string; refPath: string[] } | null => {
-  const type = schema['@type'];
-  if (type && typeof type === 'string') {
-    // For xs:element type="SomeType" or xs:attribute type="SomeType"
-    // We need to resolve this to the actual definition
-    // Named types are typically at xs:schema/xs:complexType[@name] or xs:schema/xs:simpleType[@name]
-    const typeName = type.replace(/^xs:/, ''); // Remove xs: prefix
-    return {
-      refName: typeName,
-      refPath: ['xs:schema', `xs:complexType[@name='${typeName}']`] // Simplified path
-    };
-  }
-  
-  const ref = schema['@ref'];
-  if (ref && typeof ref === 'string') {
-    // For xs:element ref="SomeElement"
-    const refName = ref.replace(/^xs:/, '');
-    return {
-      refName,
-      refPath: ['xs:schema', `xs:element[@name='${refName}']`]
-    };
-  }
-
-  return null;
-};
-
-/**
- * Get schema identity for storage keys (prefer explicit IDs, fall back to hash)
- */
-const getSchemaIdentity = (schema: Record<string, unknown> | undefined): string => {
-  if (!schema) return 'unknown';
-  if (schema.$ref && typeof schema.$ref === 'string') return `$ref:${schema.$ref}`;
-  if (schema.$id && typeof schema.$id === 'string') return `$id:${schema.$id}`;
-  if (schema.name && typeof schema.name === 'string') return `named:${schema.name}`;
-  try {
-    const hash = JSON.stringify(schema).substring(0, 32);
-    return `hash:${hash}`;
-  } catch {
-    return 'unknown';
-  }
-};
+import { XmlSchemaAttributeEditor } from './xml-schema-attribute-editor';
+import { XmlSchemaElementEditor } from './xml-schema-element-editor';
+import type { ExpandedRef, XmlSchemaFormProps } from './xml-schema-form.types';
+import {
+  detectNamedTypeRef,
+  getSchemaIdentity,
+  getXmlAttrs,
+} from './xml-schema-form.utils';
 
 /**
  * Main XML Schema Form Component
@@ -204,9 +28,7 @@ export function XmlSchemaForm({
   onChange, 
   rootSchema,
   xmlPath = [],
-  autoFocus = false
 }: XmlSchemaFormProps) {
-  const rootSchemaRef = rootSchema ?? rawSchema;
   const schemaIdentity = useMemo(() => getSchemaIdentity(rawSchema), [rawSchema]);
   const pathKey = xmlPath.join('.');
 
@@ -378,37 +200,6 @@ export function XmlSchemaForm({
   // Event Handlers - Attributes
   // ============================================================================
 
-  const addAttribute = (name: string, type: string = 'xs:string', use: string = 'optional') => {
-    const attributes = (rawSchema['xs:attribute'] as any[]) || [];
-    const newAttribute = {
-      '@name': name,
-      '@type': type,
-      ...(use !== 'optional' && { '@use': use })
-    };
-    onChange({
-      ...rawSchema,
-      'xs:attribute': [...attributes, newAttribute]
-    });
-  };
-
-  const removeAttribute = (index: number) => {
-    const attributes = (rawSchema['xs:attribute'] as any[]) || [];
-    onChange({
-      ...rawSchema,
-      'xs:attribute': attributes.filter((_, i) => i !== index)
-    });
-  };
-
-  const updateAttribute = (index: number, field: string, value: string) => {
-    const attributes = (rawSchema['xs:attribute'] as any[]) || [];
-    const updated = [...attributes];
-    updated[index] = { ...updated[index], [field]: value };
-    onChange({
-      ...rawSchema,
-      'xs:attribute': updated
-    });
-  };
-
   // ============================================================================
   // Ref Resolution & Recursive Rendering
   // ============================================================================
@@ -437,234 +228,6 @@ export function XmlSchemaForm({
     }
 
     return current || null;
-  };
-
-  const renderElementChildren = () => {
-    const elements = (rawSchema['xs:element'] as any[]) || [];
-    if (elements.length === 0) return null;
-
-    return (
-      <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #eee' }}>
-        <h4 style={{ margin: '0 0 12px 0', fontSize: 13 }}>Element Children</h4>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {elements.map((element, idx) => {
-            const elemName = element['@name'] || `Element ${idx}`;
-            const elemType = element['@type'];
-            const inlineComplexType = (element as Record<string, unknown>)['xs:complexType'];
-            const hasInlineComplexType = Array.isArray(inlineComplexType)
-              ? inlineComplexType.length > 0
-              : Boolean(inlineComplexType && typeof inlineComplexType === 'object');
-            const minOccurs = element['@minOccurs'] || '1';
-            const maxOccurs = element['@maxOccurs'] || '1';
-            const isExpanded = expandedPaths.has(`element-${idx}`);
-            const annotationPath = `element-${idx}-annotation`;
-            const annotationDocs = readAnnotationDocs(element as Record<string, unknown>);
-            const annotationText = annotationDocs.join('\n\n');
-            const annotationCount = annotationDocs.length;
-            const hasAnnotation = annotationDocs.length > 0;
-            const annotationExpanded = expandedPaths.has(annotationPath);
-
-            return (
-              <div
-                key={idx}
-                style={{
-                  border: '1px solid #e0e0e0',
-                  borderRadius: 4,
-                  overflow: 'hidden'
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '10px 12px',
-                    backgroundColor: '#f9f9f9',
-                    cursor: 'pointer',
-                    userSelect: 'none'
-                  }}
-                  onClick={() => togglePathExpansion(`element-${idx}`)}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
-                    <span style={{ fontSize: 14 }}>
-                      {isExpanded ? '▼' : '▶'}
-                    </span>
-                    <div>
-                      <span style={{ fontWeight: 600, fontSize: 12 }}>{elemName}</span>
-                      {elemType && (
-                        <span style={{ fontSize: 11, color: '#666', marginLeft: 8 }}>
-                          {elemType}
-                        </span>
-                      )}
-                    </div>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (!isExpanded) togglePathExpansion(`element-${idx}`);
-                            togglePathExpansion(annotationPath);
-                          }}
-                          style={{
-                            border: hasAnnotation ? '1px solid #c5cae9' : '1px dashed #d6d6d6',
-                            backgroundColor: hasAnnotation ? '#e8eaf6' : '#f5f5f5',
-                            color: hasAnnotation ? '#283593' : '#666',
-                            borderRadius: 10,
-                            padding: '2px 8px',
-                            fontSize: 10,
-                            fontWeight: hasAnnotation ? 700 : 600,
-                            cursor: 'pointer'
-                          }}
-                          aria-label="Toggle annotation"
-                        >
-                          {annotationCount > 1 ? `annotation (${annotationCount})` : 'annotation'}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {hasAnnotation ? renderTooltipContentChildren(annotationText) : 'No annotation. Click to add.'}
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                  <div style={{ fontSize: 11, color: '#999', whiteSpace: 'nowrap' }}>
-                    {minOccurs}..{maxOccurs}
-                  </div>
-                </div>
-
-                {isExpanded && (
-                  <div style={{ padding: '12px', backgroundColor: 'white', borderTop: '1px solid #eee' }}>
-                    {hasInlineComplexType && !elemType ? (
-                      <div style={{ marginBottom: 10 }}>
-                        <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                          Element Type
-                        </label>
-                        <div
-                          style={{
-                            width: '100%',
-                            padding: '6px 8px',
-                            border: '1px solid #ddd',
-                            borderRadius: 3,
-                            fontSize: 12,
-                            backgroundColor: '#f8f9fa',
-                            color: '#495057',
-                            fontWeight: 600
-                          }}
-                        >
-                          inline xs:complexType
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{ marginBottom: 10 }}>
-                        <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                          Element Type
-                        </label>
-                        <input
-                          type="text"
-                          value={elemType || ''}
-                          onChange={(e) => {
-                            const updated = [...elements];
-                            updated[idx] = { ...updated[idx], '@type': e.target.value };
-                            onChange({ ...rawSchema, 'xs:element': updated });
-                          }}
-                          placeholder="e.g., xs:string"
-                          style={{
-                            width: '100%',
-                            padding: '4px 8px',
-                            border: '1px solid #ddd',
-                            borderRadius: 3,
-                            fontSize: 12
-                          }}
-                        />
-                      </div>
-                    )}
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-                      <div>
-                        <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                          minOccurs
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          value={minOccurs}
-                          onChange={(e) => {
-                            const updated = [...elements];
-                            updated[idx] = { ...updated[idx], '@minOccurs': e.target.value };
-                            onChange({ ...rawSchema, 'xs:element': updated });
-                          }}
-                          placeholder="1"
-                          style={{
-                            width: '100%',
-                            padding: '4px 8px',
-                            border: '1px solid #ddd',
-                            borderRadius: 3,
-                            fontSize: 12
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                          maxOccurs
-                        </label>
-                        <input
-                          type="text"
-                          value={maxOccurs}
-                          onChange={(e) => {
-                            const updated = [...elements];
-                            updated[idx] = { ...updated[idx], '@maxOccurs': e.target.value };
-                            onChange({ ...rawSchema, 'xs:element': updated });
-                          }}
-                          placeholder="1 or unbounded"
-                          style={{
-                            width: '100%',
-                            padding: '4px 8px',
-                            border: '1px solid #ddd',
-                            borderRadius: 3,
-                            fontSize: 12
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    {annotationExpanded && (
-                      <div style={{ marginBottom: 10 }}>
-                        <label style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                          xs:annotation/xs:documentation
-                        </label>
-                        <textarea
-                          value={annotationText}
-                          onChange={(e) => {
-                            const updated = [...elements];
-                            updated[idx] = upsertElementAnnotation(updated[idx] as Record<string, unknown>, e.target.value);
-                            onChange({ ...rawSchema, 'xs:element': updated });
-                          }}
-                          placeholder="Add annotation text"
-                          rows={3}
-                          style={{
-                            width: '100%',
-                            padding: '6px 8px',
-                            border: '1px solid #ddd',
-                            borderRadius: 3,
-                            fontSize: 12,
-                            resize: 'vertical'
-                          }}
-                        />
-                      </div>
-                    )}
-
-                    {elemType && elemType.startsWith('xs:') === false && rootSchema && (
-                      <div style={{ fontSize: 11, color: '#666', padding: '8px', backgroundColor: '#f0f0f0', borderRadius: 3 }}>
-                        Custom type "{elemType}" can be edited in its definition
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
   };
 
   // ============================================================================
@@ -792,56 +355,10 @@ export function XmlSchemaForm({
 
       {/* ====== Attributes Section ====== */}
       {hasAttributes && (
-        <div style={{ marginBottom: 12, padding: '12px', backgroundColor: '#f9f9f9', borderRadius: 4 }}>
-          <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 8 }}>
-            Attributes (xs:attribute definitions)
-          </label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {(rawSchema['xs:attribute'] as any[]).map((attr, idx) => (
-              <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 8, backgroundColor: 'white', borderRadius: 3, border: '1px solid #eee' }}>
-                <input
-                  type="text"
-                  value={attr['@name'] || ''}
-                  onChange={(e) => updateAttribute(idx, '@name', e.target.value)}
-                  placeholder="Name"
-                  style={{ flex: 1, padding: '4px 8px', border: '1px solid #ddd', borderRadius: 3 }}
-                />
-                <select
-                  value={attr['@type'] || 'xs:string'}
-                  onChange={(e) => updateAttribute(idx, '@type', e.target.value)}
-                  style={{ flex: 1, padding: '4px 8px', border: '1px solid #ddd', borderRadius: 3 }}
-                >
-                  {XSD_BUILTIN_SIMPLE_TYPES.map(type => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-                <select
-                  value={attr['@use'] || 'optional'}
-                  onChange={(e) => updateAttribute(idx, '@use', e.target.value)}
-                  style={{ flex: 0.7, padding: '4px 8px', border: '1px solid #ddd', borderRadius: 3 }}
-                >
-                  {ATTRIBUTE_USE_VALUES.map(use => (
-                    <option key={use} value={use}>{use}</option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => removeAttribute(idx)}
-                  style={{ padding: 4, backgroundColor: '#ffebee', color: '#c62828', border: 'none', borderRadius: 3, cursor: 'pointer' }}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => addAttribute(`attr${(rawSchema['xs:attribute'] as any[]).length + 1}`)}
-            style={{ marginTop: 8, padding: '6px 12px', backgroundColor: '#e3f2fd', color: '#1565c0', border: 'none', borderRadius: 3, cursor: 'pointer' }}
-          >
-            + Add Attribute
-          </button>
-        </div>
+        <XmlSchemaAttributeEditor
+          attributes={rawSchema['xs:attribute'] as Record<string, unknown>[]}
+          onChange={(attributes) => onChange({ ...rawSchema, 'xs:attribute': attributes })}
+        />
       )}
 
       {/* ====== Ref Expansion Controls ====== */}
@@ -921,7 +438,7 @@ export function XmlSchemaForm({
                           onChange={(updatedDef) => {
                             // When editing an expanded ref, update the actual definition in rootSchema
                             if (isEditing && rootSchema) {
-                              let updated = { ...rootSchema };
+                              const updated = { ...rootSchema };
                               let current: any = updated;
                               const pathToUpdate = namedTypeRef.refPath.slice(0, -1);
                               const lastKey = namedTypeRef.refPath[namedTypeRef.refPath.length - 1];
@@ -976,7 +493,15 @@ export function XmlSchemaForm({
       })()}
 
       {/* ====== Element Children and Cardinality ====== */}
-      {renderElementChildren()}
+      {Array.isArray(rawSchema['xs:element']) && rawSchema['xs:element'].length > 0 && (
+        <XmlSchemaElementEditor
+          elements={rawSchema['xs:element'] as Record<string, unknown>[]}
+          rootSchema={rootSchema}
+          expandedPaths={expandedPaths}
+          togglePathExpansion={togglePathExpansion}
+          onChange={(elements) => onChange({ ...rawSchema, 'xs:element': elements })}
+        />
+      )}
     </div>
   );
 }

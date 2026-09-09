@@ -56,6 +56,13 @@
   font-weight: 600;
   color: #fbbf24;
   flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  flex-wrap: nowrap;
+}
+
+.propertyName > span:first-child {
+  flex-shrink: 0;
 }
 
 .badge {
@@ -66,6 +73,8 @@
   margin-left: 6px;
   background: #111827;
   color: #cbd5e1;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .objectContainer {

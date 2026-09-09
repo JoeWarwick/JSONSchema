@@ -456,7 +456,13 @@ export class CompiledSchema {
 
       // Handle nested compositors (choice within sequence, etc.)
       // This allows proper handling of complex schema structures
+      if (compiled.name === 'PersonType') {
+        console.log(`[SchemaCompiler] PersonType: About to extract nested compositors from ${compositorType}`);
+      }
       this.extractNestedCompositorElements(compositor, compositorType, compiled);
+      if (compiled.name === 'PersonType') {
+        console.log(`[SchemaCompiler] PersonType: After nested extraction, elements count=${compiled.elements.length}`);
+      }
 
       // Handle group refs within this compositor
       const groupNodes = compositor[`${this.nsPrefix}:group`] || compositor['group'];
@@ -505,6 +511,11 @@ export class CompiledSchema {
    */
   private extractNestedCompositorElements(compositor: any, parentCompositorType: 'sequence' | 'choice' | 'all', compiled: CompiledType): void {
     if (!compositor || typeof compositor !== 'object') return;
+
+    if (compiled.name === 'PersonType') {
+      console.log(`[extractNestedCompositorElements] PersonType: Checking for nested compositors in ${parentCompositorType}`);
+      console.log(`[extractNestedCompositorElements] PersonType: Compositor keys:`, Object.keys(compositor));
+    }
 
     // Look for nested choice, sequence, or all within this compositor
     for (const nestedCompositorKey of [

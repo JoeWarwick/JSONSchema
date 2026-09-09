@@ -3,8 +3,12 @@ import styles from "./xml-instance-form.module.css";
 import { Trash2, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip/tooltip";
 import { XmlNodeRhsEditor as XmlInstanceNodeRhsEditor } from './xml-instance-rhs-editors';
-import { readPreferredLocale } from '../i18n/intl';
-import type { SchemaNode } from '../utils/schema-walker';
+import {
+  renderCountryInput,
+  renderLanguageInput,
+  normalizeColorInputValue,
+  renderSimpleValueInput,
+} from './xml-instance-value-input';
 import { 
   walkSchema, 
   compileSchemaForWalking,
@@ -13,7 +17,28 @@ import {
   getAttributeFacets,
   getAllTypeNames,
 } from '../utils/schema-walker';
-import type { CompiledSchema, ValidationFacets } from '../utils/schema-compiler';
+import type { ValidationFacets } from '../utils/schema-compiler';
+import type {
+  TopLevelXsdKind,
+  XmlAttribute,
+  XmlElement,
+  XmlElementNodeProps,
+  XmlInstanceFormProps,
+} from './xml-instance-form.types';
+import {
+  facetsToHint,
+  facetsToInputAttrs,
+  getSchemaRootNode,
+  getXmlInstanceExpansionStorageKey,
+  normalizeXmlName,
+  restoreChoiceDataFromStorage,
+  saveChoiceDataToStorage,
+  toArray,
+} from './xml-instance-form.utils';
+
+export function XmlInstanceForm(props: XmlInstanceFormProps) {
+  return <XmlInstanceFormContent {...props} />;
+}
 
 /**
  * XmlInstanceForm renders an interactive form for XML document instance editing.
@@ -24,52 +49,6 @@ import type { CompiledSchema, ValidationFacets } from '../utils/schema-compiler'
  * used to render and edit XSD schema definitions by treating the schema XML
  * as an instance of the XML format.
  */
-
-/**
- * Generates a unique key for storing choice data in localStorage.
- * Key format: "choice_<instanceHash>_<path>_<optionName>"
- */
-function generateChoiceStorageKey(instanceXml: any, path: string[], optionName: string): string {
-  // Create a simple hash of the instance XML for uniqueness
-  const instanceStr = JSON.stringify(instanceXml).substring(0, 100);
-  const instanceHash = String(instanceStr.split('').reduce((a, b) => {
-    a = ((a << 5) - a) + b.charCodeAt(0);
-    return a & a; // Convert to 32bit integer
-  }, 0));
-  
-  const pathStr = path.join('/');
-  return `choice_${instanceHash}_${pathStr}_${optionName}`;
-}
-
-/**
- * Save a choice option's data to localStorage.
- */
-function saveChoiceDataToStorage(instanceXml: any, path: string[], optionName: string, data: any): void {
-  try {
-    const key = generateChoiceStorageKey(instanceXml, path, optionName);
-    localStorage.setItem(key, JSON.stringify(data));
-    console.log(`[ChoiceStorage] Saved ${optionName} to ${key}`);
-  } catch (e) {
-    console.warn('[ChoiceStorage] Failed to save choice data:', e);
-  }
-}
-
-/**
- * Restore a choice option's data from localStorage.
- */
-function restoreChoiceDataFromStorage(instanceXml: any, path: string[], optionName: string): any {
-  try {
-    const key = generateChoiceStorageKey(instanceXml, path, optionName);
-    const stored = localStorage.getItem(key);
-    if (stored) {
-      console.log(`[ChoiceStorage] Restored ${optionName} from ${key}`);
-      return JSON.parse(stored);
-    }
-  } catch (e) {
-    console.warn('[ChoiceStorage] Failed to restore choice data:', e);
-  }
-  return null;
-}
 
 /**
  * Clear all stored choice data for a specific path and option.
@@ -84,40 +63,6 @@ function restoreChoiceDataFromStorage(instanceXml: any, path: string[], optionNa
 //     console.warn('[ChoiceStorage] Failed to clear choice data:', e);
 //   }
 // }
-
-interface XmlInstanceFormProps {
-  schema: any; // The XML element/schema to render
-  value: any; // Current XML instance value 
-  onChange: (value: any) => void;
-  path?: string[];
-  rootSchema?: any;
-  autoFocus?: boolean;
-  autoExpandAll?: boolean; // If true, automatically expand all nested elements
-  showRootElementTriggers?: boolean;
-  expansionStateKey?: string;
-}
-
-function getXmlInstanceExpansionStorageKey(schema: any, path: string[], expansionStateKey: string) {
-  const payload = JSON.stringify(schema ?? {});
-  let hash = 0;
-  for (let i = 0; i < payload.length; i += 1) {
-    hash = (hash * 31 + payload.charCodeAt(i)) >>> 0;
-  }
-  return `${expansionStateKey}:${path.join('.')}:${hash}`;
-}
-
-interface XmlAttribute {
-  name: string;
-  value: any;
-}
-
-interface XmlElement {
-  tagName: string;
-  attributes: XmlAttribute[];
-  children: (XmlElement | string)[];
-  text: string;
-  isCompositor?: boolean;
-}
 
 function getSuggestedAttributeNamesForTag(tagName: string): string[] {
   const local = (tagName || '').replace(/^.*:/, '');
@@ -169,72 +114,7 @@ function detectAttributeInputType(name: string, value: any) {
  */
 
 
-/**
- * Generate HTML validation attributes from facets.
- * Returns attributes object for input elements (minLength, maxLength, pattern, etc.)
- */
-function facetsToInputAttrs(facets: ValidationFacets | undefined): Record<string, string | number> {
-  const attrs: Record<string, string | number> = {};
-  if (!facets) return attrs;
-
-  if (facets.minLength !== undefined) attrs.minLength = facets.minLength;
-  if (facets.maxLength !== undefined) attrs.maxLength = facets.maxLength;
-  if (facets.length !== undefined) attrs.maxLength = facets.length;
-  if (facets.pattern) attrs.pattern = facets.pattern;
-  if (facets.minInclusive !== undefined) attrs.min = facets.minInclusive;
-  if (facets.maxInclusive !== undefined) attrs.max = facets.maxInclusive;
-
-  return attrs;
-}
-
-/**
- * Generate validation hint text from facets.
- * Returns a human-readable description of constraints.
- */
-function facetsToHint(facets: ValidationFacets | undefined): string | null {
-  if (!facets) return null;
-
-  const hints: string[] = [];
-  if (facets.minLength !== undefined && facets.maxLength !== undefined) {
-    hints.push(`${facets.minLength}-${facets.maxLength} characters`);
-  } else if (facets.minLength !== undefined) {
-    hints.push(`min ${facets.minLength} characters`);
-  } else if (facets.maxLength !== undefined) {
-    hints.push(`max ${facets.maxLength} characters`);
-  }
-
-  if (facets.length !== undefined) {
-    hints.push(`exactly ${facets.length} characters`);
-  }
-
-  if (facets.pattern) {
-    hints.push(`matches: ${facets.pattern}`);
-  }
-
-  if (facets.minInclusive !== undefined && facets.maxInclusive !== undefined) {
-    hints.push(`${facets.minInclusive} to ${facets.maxInclusive}`);
-  } else if (facets.minInclusive !== undefined) {
-    hints.push(`≥ ${facets.minInclusive}`);
-  } else if (facets.maxInclusive !== undefined) {
-    hints.push(`≤ ${facets.maxInclusive}`);
-  }
-
-  if (facets.fractionDigits !== undefined) {
-    hints.push(`${facets.fractionDigits} decimal places`);
-  }
-
-  if (facets.totalDigits !== undefined) {
-    hints.push(`max ${facets.totalDigits} digits`);
-  }
-
-  return hints.length > 0 ? hints.join(', ') : null;
-}
-
 // Try to locate an element declaration in the XSD-like `rootSchema` object and return its type.
-const normalizeXmlName = (name: unknown): string => String(name ?? '').replace(/^.*:/, '');
-
-const toArray = <T,>(value: T | T[] | null | undefined): T[] =>
-  Array.isArray(value) ? value : (value == null ? [] : [value]);
 
 function findElementDefinitionInRootSchema(root: any, elementName: string): any | null {
   if (!root || typeof root !== 'object') return null;
@@ -478,189 +358,6 @@ function findAttributeWidgetInRootSchema(root: any, elementName: string, attribu
   return null;
 }
 
-function normalizeColorInputValue(value: string): string {
-  const trimmed = String(value || '').trim();
-  const shortHexMatch = /^#([0-9a-fA-F]{3})$/.exec(trimmed);
-  if (shortHexMatch) {
-    const [r, g, b] = shortHexMatch[1].split('');
-    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
-  }
-  const fullHexMatch = /^#([0-9a-fA-F]{6})$/.exec(trimmed);
-  if (fullHexMatch) return `#${fullHexMatch[1]}`.toLowerCase();
-  return '#000000';
-}
-
-const COUNTRY_CODES = [
-  'US',
-  'GB',
-  'CA',
-  'AU',
-  'NZ',
-  'IE',
-  'FR',
-  'DE',
-  'ES',
-  'IT',
-  'NL',
-  'BE',
-  'CH',
-  'AT',
-  'SE',
-  'NO',
-  'DK',
-  'FI',
-  'PT',
-  'PL',
-  'CZ',
-  'HU',
-  'GR',
-  'TR',
-  'JP',
-  'KR',
-  'CN',
-  'IN',
-  'SG',
-  'MY',
-  'TH',
-  'VN',
-  'PH',
-  'ID',
-  'BR',
-  'MX',
-  'AR',
-  'CL',
-  'CO',
-  'PE',
-  'ZA',
-  'NG',
-  'EG',
-  'KE',
-  'MA',
-] as const;
-
-const LANGUAGE_TAGS = [
-  'en',
-  'en-US',
-  'en-GB',
-  'fr',
-  'fr-CA',
-  'de',
-  'es',
-  'es-MX',
-  'it',
-  'pt',
-  'pt-BR',
-  'nl',
-  'sv',
-  'no',
-  'da',
-  'fi',
-  'pl',
-  'cs',
-  'hu',
-  'el',
-  'tr',
-  'ru',
-  'uk',
-  'ja',
-  'ko',
-  'zh',
-  'zh-CN',
-  'zh-TW',
-  'ar',
-  'hi',
-] as const;
-
-function getCountryOptions() {
-  const locale = readPreferredLocale();
-  const displayNames = typeof Intl.DisplayNames === 'function'
-    ? new Intl.DisplayNames([locale], { type: 'region' })
-    : null;
-
-  return COUNTRY_CODES.map((code) => ({
-    code,
-    label: displayNames?.of(code) || code,
-  }));
-}
-
-function getLanguageTagOptions() {
-  const locale = readPreferredLocale();
-  const displayNames = typeof Intl.DisplayNames === 'function'
-    ? new Intl.DisplayNames([locale], { type: 'language' })
-    : null;
-
-  return LANGUAGE_TAGS.map((tag) => ({
-    tag,
-    label: displayNames?.of(tag) || tag,
-  }));
-}
-
-function renderCountryInput(
-  textValue: string,
-  onValueChange: (nextValue: string) => void,
-  testId?: string,
-) {
-  const listId = testId ? `${testId}-country-list` : 'country-list';
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, maxWidth: 320 }}>
-      <input
-        data-testid={testId}
-        type="text"
-        list={listId}
-        value={textValue}
-        onChange={(e) => onValueChange(e.target.value)}
-        placeholder="Select or type a country"
-        style={{
-          flex: 1,
-          maxWidth: 320,
-          padding: '6px 8px',
-          border: '1px solid #ddd',
-          borderRadius: 3,
-          fontSize: 12,
-        }}
-      />
-      <datalist id={listId}>
-        {getCountryOptions().map((country) => (
-          <option key={country.code} value={country.label} />
-        ))}
-      </datalist>
-    </div>
-  );
-}
-
-function renderLanguageInput(
-  textValue: string,
-  onValueChange: (nextValue: string) => void,
-  testId?: string,
-) {
-  const listId = testId ? `${testId}-language-list` : 'language-list';
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, maxWidth: 320 }}>
-      <input
-        data-testid={testId}
-        type="text"
-        list={listId}
-        value={textValue}
-        onChange={(e) => onValueChange(e.target.value)}
-        placeholder="Select or type a language tag"
-        style={{
-          flex: 1,
-          maxWidth: 320,
-          padding: '6px 8px',
-          border: '1px solid #ddd',
-          borderRadius: 3,
-          fontSize: 12,
-        }}
-      />
-      <datalist id={listId}>
-        {getLanguageTagOptions().map((language) => (
-          <option key={language.tag} value={language.tag} label={language.label} />
-        ))}
-      </datalist>
-    </div>
-  );
-}
-
 function mapXsdTypeToHtmlInput(xsdType: string | null) {
   if (!xsdType) return null;
   const t = String(xsdType).toLowerCase();
@@ -670,74 +367,6 @@ function mapXsdTypeToHtmlInput(xsdType: string | null) {
   if (t.includes('anyuri') || t.includes('uri') || t.includes('url')) return 'url';
   if (t.includes('email')) return 'email';
   return 'text';
-}
-
-function renderSimpleValueInput(
-  widgetHint: string | null,
-  htmlInputType: string,
-  textValue: string,
-  onValueChange: (nextValue: string) => void,
-  testId?: string,
-) {
-  if (widgetHint === 'lang') {
-    return renderLanguageInput(textValue, onValueChange, testId);
-  }
-
-  if (widgetHint === 'country') {
-    return renderCountryInput(textValue, onValueChange, testId);
-  }
-
-  if (htmlInputType !== 'color') {
-    return (
-      <input
-        data-testid={testId}
-        type={htmlInputType as any}
-        value={textValue}
-        onChange={(e) => onValueChange(e.target.value)}
-        style={{
-          flex: 1,
-          maxWidth: 200,
-          padding: '6px 8px',
-          border: '1px solid #ddd',
-          borderRadius: 3,
-          fontSize: 12,
-        }}
-      />
-    );
-  }
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, maxWidth: 320 }}>
-      <input
-        data-testid={testId}
-        type="color"
-        value={normalizeColorInputValue(textValue)}
-        onChange={(e) => onValueChange(e.target.value)}
-        style={{ width: 40, height: 30, padding: 0, border: '1px solid #ddd', borderRadius: 3, cursor: 'pointer' }}
-      />
-      <input
-        type="text"
-        value={textValue}
-        onChange={(e) => onValueChange(e.target.value)}
-        placeholder="#rrggbb"
-        style={{
-          flex: 1,
-          minWidth: 90,
-          padding: '6px 8px',
-          border: '1px solid #ddd',
-          borderRadius: 3,
-          fontSize: 12,
-        }}
-      />
-    </div>
-  );
-}
-
-
-
-function getSchemaRootNode(root: any): any {
-  if (!root || typeof root !== 'object') return null;
-  return root['xs:schema'] || root['schema'] || root;
 }
 
 function getSchemaImports(root: any): Array<{ namespace: string; schemaLocation: string }> {
@@ -990,8 +619,6 @@ function parseXmlElement(node: any, tagNameHint?: string): XmlElement | null {
   };
 }
 
-type TopLevelXsdKind = 'element' | 'attribute' | 'complexType' | 'simpleType' | 'group' | 'attributeGroup' | 'notation';
-
 // Recursively render an XML element with expansion state
 function XmlElementNode({
   element,
@@ -1012,26 +639,7 @@ function XmlElementNode({
   onAddTopLevelXsdDefinition,
   suppressElementLabel = false,
   suppressExpander = false,
-}: {
-  element: XmlElement;
-  path: string[];
-  expandedPaths: Set<string>;
-  onToggleExpand: (path: string[]) => void;
-  value: any;
-  onChange: (value: any) => void;
-  onUpdateValue: (pathArray: string[], updateFn: (v: any) => any) => void;
-  rootSchema?: any;
-  autoExpandAll?: boolean;
-  schemaNode?: SchemaNode;
-  compiledSchema?: CompiledSchema | null;
-  initialAutoExpandPathsRef?: React.MutableRefObject<Set<string>>;
-  autoExpandCaptureActiveRef?: React.MutableRefObject<boolean>;
-  isSchemaForm?: boolean;
-  rootXsdAddButtons?: Array<{ kind: TopLevelXsdKind; label: string }>;
-  onAddTopLevelXsdDefinition?: (kind: TopLevelXsdKind) => void;
-  suppressElementLabel?: boolean;
-  suppressExpander?: boolean;
-}) {
+}: XmlElementNodeProps) {
   const pathKey = path.join('.');
   if (autoExpandAll && autoExpandCaptureActiveRef?.current) {
     initialAutoExpandPathsRef?.current.add(pathKey);
@@ -1429,6 +1037,69 @@ function XmlElementNode({
     });
   };
 
+  const resolveSchemaFormValueAtPath = (rootValue: any, targetPath: string[]): any => {
+    let cursor: any = rootValue;
+
+    if (
+      cursor &&
+      typeof cursor === 'object' &&
+      !Array.isArray(cursor) &&
+      targetPath.length > 0 &&
+      !Object.prototype.hasOwnProperty.call(cursor, targetPath[0])
+    ) {
+      const rootSchemaWrapperKey = Object.prototype.hasOwnProperty.call(cursor, 'xs:schema')
+        ? 'xs:schema'
+        : (Object.prototype.hasOwnProperty.call(cursor, 'schema') ? 'schema' : null);
+      if (rootSchemaWrapperKey) {
+        cursor = cursor[rootSchemaWrapperKey];
+      }
+    }
+
+    for (const segment of targetPath) {
+      if (cursor === undefined || cursor === null) return undefined;
+
+      if (Array.isArray(cursor)) {
+        const index = Number(segment);
+        if (!Number.isInteger(index)) return undefined;
+        cursor = cursor[index];
+        continue;
+      }
+
+      if (typeof cursor !== 'object') return undefined;
+
+      if (Object.prototype.hasOwnProperty.call(cursor, segment)) {
+        cursor = cursor[segment];
+        continue;
+      }
+
+      const numericIndex = Number(segment);
+      if (Number.isInteger(numericIndex) && Array.isArray((cursor as any)['__childrenInOrder'])) {
+        const orderedChildren = (cursor as any)['__childrenInOrder'] as Array<{ tagName?: string; value?: any }>;
+        const orderedEntry = orderedChildren[numericIndex];
+        if (!orderedEntry) return undefined;
+
+        if (orderedEntry.value !== undefined) {
+          cursor = orderedEntry.value;
+          continue;
+        }
+
+        if (orderedEntry.tagName && Object.prototype.hasOwnProperty.call(cursor, orderedEntry.tagName)) {
+          cursor = (cursor as any)[orderedEntry.tagName];
+          continue;
+        }
+      }
+
+      const localSegment = segment.replace(/^.*:/, '');
+      const matchedKey = Object.keys(cursor).find((key) => {
+        if (key === localSegment) return true;
+        return key.replace(/^.*:/, '') === localSegment;
+      });
+      cursor = matchedKey ? cursor[matchedKey] : undefined;
+    }
+
+    return cursor;
+  };
+
   const getGlobalRootElementTriggers = () => {
     if (path.length !== 0 || !rootSchema || typeof rootSchema !== 'object') return [];
 
@@ -1587,7 +1258,7 @@ function XmlElementNode({
   const removeChoiceSelection = (choiceGroupData: {
     selectedOption: string | null;
     options: Array<{ name: string; node: SchemaNode }>;
-    choiceKey: string;
+    // choiceKey: string;
   }) => {
     const selected = choiceGroupData.selectedOption;
     if (!selected) return;
@@ -1604,6 +1275,291 @@ function XmlElementNode({
 
       return updated;
     });
+  };
+
+  const ensureChoiceSelectionLabel = (choiceNode: any, optionName: string) => {
+    if (!choiceNode || typeof choiceNode !== 'object' || Array.isArray(choiceNode)) {
+      return { '@attributes': { name: optionName } };
+    }
+
+    const nextNode = { ...choiceNode };
+    const nextAttributes = {
+      ...(nextNode['@attributes'] && typeof nextNode['@attributes'] === 'object' && !Array.isArray(nextNode['@attributes'])
+        ? nextNode['@attributes']
+        : {}),
+    };
+
+    if (!nextAttributes.name) {
+      nextAttributes.name = optionName;
+    }
+
+    nextNode['@attributes'] = nextAttributes;
+    return nextNode;
+  };
+
+  const applyExclusiveChoiceSwitch = (
+    current: any,
+    choiceGroupData: { selectedOption: string | null; options: Array<{ name: string; node: SchemaNode }> },
+    newSelectedOption: string,
+  ) => {
+    const updated = { ...(current || {}) };
+    let currentlySelectedOption: string | null = null;
+
+    for (const opt of choiceGroupData.options) {
+      if (updated[opt.name] !== undefined) {
+        currentlySelectedOption = opt.name;
+        break;
+      }
+    }
+
+    for (const opt of choiceGroupData.options) {
+      if (opt.name !== newSelectedOption) {
+        if (updated[opt.name] !== undefined) {
+          saveChoiceDataToStorage(value, path, opt.name, updated[opt.name]);
+        }
+        delete updated[opt.name];
+      }
+    }
+
+    if (!updated[newSelectedOption]) {
+      const restored = restoreChoiceDataFromStorage(value, path, newSelectedOption);
+      updated[newSelectedOption] = ensureChoiceSelectionLabel(restored || { _text: '' }, newSelectedOption);
+    } else {
+      updated[newSelectedOption] = ensureChoiceSelectionLabel(updated[newSelectedOption], newSelectedOption);
+    }
+
+    if (Array.isArray(updated['__childrenInOrder'])) {
+      const childrenOrder = updated['__childrenInOrder'] as any[];
+      updated['__childrenInOrder'] = childrenOrder.map((item: any) => {
+        if (item?.tagName === currentlySelectedOption) {
+          return { ...item, tagName: newSelectedOption };
+        }
+        return item;
+      });
+    }
+
+    return updated;
+  };
+
+  const renderExclusiveChoiceSelector = ({
+    choiceGroupData,
+    choicePath,
+    children,
+  }: {
+    choiceGroupData: {
+      selectedOption: string | null;
+      options: Array<{ name: string; node: SchemaNode }>;
+      isRequired: boolean;
+    };
+    choicePath: string[];
+    children?: React.ReactNode;
+  }) => {
+    const showChoiceRemove = canRemoveChoiceSelection(choiceGroupData);
+    const selectorPathKey = choicePath.join('.');
+    const collapsedKey = `__collapsed__:${selectorPathKey}`;
+    const isExpanded = expandedPaths.has(selectorPathKey);
+    const isCollapsed = expandedPaths.has(collapsedKey);
+    const shouldShowChildren = !isCollapsed && (isExpanded || !isSchemaForm);
+    const activeChoiceLabel = choiceGroupData.selectedOption
+      ? (value?.[choiceGroupData.selectedOption]?.['@attributes']?.name || choiceGroupData.selectedOption)
+      : null;
+
+    return (
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 8, width: 'auto', maxWidth: '100%' }}>
+        <button
+          type="button"
+          onClick={() => onToggleExpand(choicePath)}
+          style={{
+            padding: '2px 6px',
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minWidth: '20px',
+            fontSize: 12,
+            color: '#666',
+          }}
+          title={shouldShowChildren ? 'Collapse' : 'Expand'}
+          aria-label={shouldShowChildren ? 'Collapse' : 'Expand'}
+        >
+          {shouldShowChildren ? '▼' : '▶'}
+        </button>
+
+        <select
+          value={choiceGroupData.selectedOption || ''}
+          onChange={(e) => {
+            const newSelectedOption = e.target.value;
+            if (newSelectedOption === choiceGroupData.selectedOption) return;
+            onUpdateValue(path, (current) => applyExclusiveChoiceSwitch(current, choiceGroupData, newSelectedOption));
+          }}
+          style={{
+            padding: '6px 8px',
+            border: '1px solid #ddd',
+            borderRadius: 3,
+            fontSize: 12,
+            cursor: 'pointer',
+            fontWeight: 500,
+            minWidth: 100,
+            color: '#a78bfa',
+          }}
+        >
+          {choiceGroupData.options.map(opt => (
+            <option key={opt.name} value={opt.name}>
+              {opt.name}:
+            </option>
+          ))}
+        </select>
+
+        {activeChoiceLabel && (
+          <span
+            style={{
+              color: '#155e75',
+              backgroundColor: '#ecfeff',
+              border: '1px solid #a5f3fc',
+              borderRadius: 999,
+              padding: '1px 8px',
+              fontSize: 11,
+              fontWeight: 600,
+              lineHeight: 1.6,
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+              display: 'inline-flex',
+              alignItems: 'center',
+            }}
+          >
+            {activeChoiceLabel}
+          </span>
+        )}
+
+        {children}
+
+        {showChoiceRemove && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => removeChoiceSelection(choiceGroupData)}
+                className={styles.removeButton}
+                title={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
+                aria-label={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
+              >
+                <Trash2 size={14} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+    );
+  };
+
+  const applyRepeatableChoiceSwitch = (
+    current: any,
+    childElementName: string,
+    itemIndex: number,
+    newElementType: string,
+  ) => {
+    const updated = { ...(current || {}) };
+    const oldData = Array.isArray(updated[childElementName])
+      ? updated[childElementName][itemIndex]
+      : updated[childElementName];
+
+    if (Array.isArray(updated[childElementName])) {
+      updated[childElementName].splice(itemIndex, 1);
+      if (updated[childElementName].length === 0) {
+        delete updated[childElementName];
+      } else if (updated[childElementName].length === 1) {
+        updated[childElementName] = updated[childElementName][0];
+      }
+    } else {
+      delete updated[childElementName];
+    }
+
+    if (!updated[newElementType]) {
+      updated[newElementType] = oldData;
+    } else if (Array.isArray(updated[newElementType])) {
+      updated[newElementType].push(oldData);
+    } else {
+      updated[newElementType] = [updated[newElementType], oldData];
+    }
+
+    return updated;
+  };
+
+  const renderRepeatableChoiceSelector = ({
+    choiceGroupData,
+    childElementName,
+    rowPath,
+    itemIndex,
+    onChangeType,
+  }: {
+    choiceGroupData: {
+      options: Array<{ name: string; node: SchemaNode }>;
+    };
+    childElementName: string;
+    rowPath: string[];
+    itemIndex: number;
+    onChangeType: (newElementType: string) => void;
+  }) => {
+    const rowPathKey = rowPath.join('.');
+    const rowCollapsedKey = `__collapsed__:${rowPathKey}`;
+    const isRowExpanded = expandedPaths.has(rowPathKey);
+    const isRowCollapsed = expandedPaths.has(rowCollapsedKey);
+    const shouldShowChildren = !isRowCollapsed && (isRowExpanded || !isSchemaForm);
+
+    return (
+      <div key={`repeatable-choice-${childElementName}-${itemIndex}`} style={{ display: 'inline-flex', width: 'auto', maxWidth: '100%' }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 8, width: 'auto', maxWidth: '100%' }}>
+          <button
+            type="button"
+            onClick={() => onToggleExpand(rowPath)}
+            style={{
+              padding: '2px 6px',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: '20px',
+              fontSize: 12,
+              color: '#666',
+            }}
+            title={shouldShowChildren ? 'Collapse' : 'Expand'}
+            aria-label={shouldShowChildren ? 'Collapse' : 'Expand'}
+          >
+            {shouldShowChildren ? '▼' : '▶'}
+          </button>
+
+          <select
+            value={childElementName || ''}
+            onChange={(e) => {
+              const newElementType = e.target.value;
+              if (newElementType === childElementName) return;
+              onChangeType(newElementType);
+            }}
+            style={{
+              padding: '6px 8px',
+              border: '1px solid #ddd',
+              borderRadius: 3,
+              fontSize: 12,
+              cursor: 'pointer',
+              fontWeight: 500,
+              minWidth: 120,
+              color: '#a78bfa',
+            }}
+          >
+            {choiceGroupData.options.map(opt => (
+              <option key={opt.name} value={opt.name}>
+                {opt.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+    );
   };
 
   const canRemoveChildOccurrence = (childName: string, childSchema: SchemaNode | null): boolean => {
@@ -1864,7 +1820,17 @@ function XmlElementNode({
       })()}
 
       {/* Element header with toggle */}
-      <div className={styles.propertyHeader} style={{ marginBottom: hasChildren || hasAttributes ? 8 : 0 }}>
+      <div
+        className={styles.propertyHeader}
+        style={{
+          marginBottom: hasChildren || hasAttributes ? 8 : 0,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 8,
+          width: 'auto',
+          maxWidth: '100%',
+        }}
+      >
         {hasExpandableContent && !suppressExpander ? (
           <button
             onClick={() => onToggleExpand(path)}
@@ -1888,11 +1854,22 @@ function XmlElementNode({
         )}
         {/* Render as a label (no angle-bracket markup) to match JSON Instance Form style */}
         {!suppressElementLabel && (
-        <div className={styles.propertyName} data-testid={`xml-tag-${sanitize(element.tagName)}`}>
-          <span>{element.tagName}</span>
+        <div
+          className={styles.propertyName}
+          data-testid={`xml-tag-${sanitize(element.tagName)}`}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            minWidth: 0,
+            whiteSpace: 'nowrap',
+            flexWrap: 'nowrap',
+          }}
+        >
+          <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{element.tagName}</span>
           {/* Compositor badge for XSD-specific nodes */}
           {isCompositor && (
-            <span className={styles.badge}>Compositor</span>
+            <span className={styles.badge} style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>Compositor</span>
           )}
           {/* Always show @name attribute in schema form, inline with the label */}
           {schemaNodeName && (
@@ -1906,6 +1883,10 @@ function XmlElementNode({
                 fontSize: 11,
                 fontWeight: 600,
                 lineHeight: 1.6,
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
               }}
             >
               {schemaNodeName}
@@ -2692,63 +2673,83 @@ function XmlElementNode({
                         return true;
                       });
                     
-                    // Add enumeration elements if this node contains a restriction with enumerations
-                    // For simpleType nodes with restrictions, extract enumerations from the restriction element
-                    let enumerationsToAdd: string[] = [];
-                    
-                    // Check if current node has enumerations and needs to pass them to restriction children
-                    // This applies when rendering inline type nodes (simpleType) that have restriction with enumerations
-                    let parentEnumerations: string[] = [];
-                    if (isSchemaForm && schemaNode?.enumerations && schemaNode.enumerations.length > 0) {
-                      console.log('[PARENT ENUM] Found parent with', schemaNode.enumerations.length, 'enumerations');
-                      parentEnumerations = schemaNode.enumerations;
-                      
-                      // Find restriction children and inject enumerations
-                      const restrictionChild = filtered.find(f => {
-                        const childTag = (f.childSchemaNode?.tagName || '').toLowerCase().replace(/^xs:/, '');
-                        return childTag === 'restriction';
-                      });
-                      
-                      if (restrictionChild && !restrictionChild.childSchemaNode.enumerations) {
-                        restrictionChild.childSchemaNode.enumerations = parentEnumerations;
-                        console.log('[PARENT ENUM] Injected', parentEnumerations.length, 'enumerations to restriction child');
-                      }
-                    }
-                    
                     if (isSchemaForm) {
                       console.log(`[FILTERED CHILDREN] node=${localTagName}, count=${filtered.length}, children:`, filtered.map(f => f.childSchemaNode.label || f.childSchemaNode.tagName));
                     }
-                    
-                    // Recursively add enumeration nodes for any child that has enumerations
-                    // This works at any depth for any node type that has enumerations
+
                     const finalFiltered: any[] = [];
                     for (const item of filtered) {
                       finalFiltered.push(item);
-                      
-                      // If this child has enumerations, add them as synthetic child nodes
-                      if (isSchemaForm && item.childSchemaNode?.enumerations && item.childSchemaNode.enumerations.length > 0) {
-                        console.log(`[ENUM RECURSIVE] Found ${item.childSchemaNode.enumerations.length} enumerations on ${item.childSchemaNode.tagName}`);
-                        for (let i = 0; i < item.childSchemaNode.enumerations.length; i++) {
-                          const enumValue = item.childSchemaNode.enumerations[i];
-                          const enumSchemaNode: SchemaNode = {
-                            tagName: 'xs:enumeration',
-                            label: 'xs:enumeration',
-                            nodeType: 'element',
-                            minOccurs: 0,
-                            maxOccurs: 1,
-                            children: [],
-                            attributes: [{ name: 'value', type: null, use: 'optional', default: enumValue }],
-                            isRequired: false,
-                          };
+                    }
+
+                    if (isSchemaForm && value && typeof value === 'object' && !Array.isArray(value)) {
+                      const existingSchemaNames = new Set(
+                        finalFiltered
+                          .map((entry: any) => entry?.childSchemaNode?.label || entry?.childSchemaNode?.tagName)
+                          .filter((name: unknown): name is string => typeof name === 'string' && name.length > 0)
+                      );
+
+                      const instanceChildrenInOrder = Array.isArray((value as any)['__childrenInOrder'])
+                        ? (value as any)['__childrenInOrder'] as Array<{ tagName?: string; value?: any }>
+                        : [];
+
+                      const instanceChildEntries = instanceChildrenInOrder.length > 0
+                        ? instanceChildrenInOrder
+                            .map((entry) => {
+                              const tagName = typeof entry?.tagName === 'string' ? entry.tagName : '';
+                              if (!tagName) return null;
+                              const childValue = (entry as any).value !== undefined
+                                ? (entry as any).value
+                                : (value as any)[tagName];
+                              return { tagName, childValue };
+                            })
+                            .filter((entry): entry is { tagName: string; childValue: any } => Boolean(entry))
+                        : Object.entries(value as Record<string, any>)
+                            .filter(([key]) => !key.startsWith('@') && !key.startsWith('_') && key !== '__childrenInOrder')
+                            .map(([tagName, childValue]) => ({ tagName, childValue }));
+
+                      const hasInstanceEnumerations = instanceChildEntries.some(({ tagName }) =>
+                        tagName.replace(/^.*:/, '').toLowerCase() === 'enumeration'
+                      );
+
+                      if (hasInstanceEnumerations) {
+                        for (let i = finalFiltered.length - 1; i >= 0; i -= 1) {
+                          const schemaTagName = String(finalFiltered[i]?.childSchemaNode?.tagName || '').replace(/^.*:/, '').toLowerCase();
+                          if (schemaTagName === 'enumeration' && !finalFiltered[i]?.instanceDriven) {
+                            finalFiltered.splice(i, 1);
+                          }
+                        }
+                        existingSchemaNames.delete('xs:enumeration');
+                        existingSchemaNames.delete('enumeration');
+                      }
+
+                      for (const { tagName, childValue } of instanceChildEntries) {
+                        const localTagName = tagName.replace(/^.*:/, '').toLowerCase();
+                        const isEnumerationTag = localTagName === 'enumeration';
+                        if (!tagName || (existingSchemaNames.has(tagName) && !isEnumerationTag)) continue;
+
+                        if (Array.isArray(childValue)) {
+                          for (const item of childValue) {
+                            finalFiltered.push({
+                              childElement: item,
+                              childSchemaNode: null,
+                              index: finalFiltered.length,
+                              instanceDriven: true,
+                              childElementName: tagName,
+                            });
+                          }
+                        } else {
                           finalFiltered.push({
-                            childSchemaNode: enumSchemaNode,
+                            childElement: childValue,
+                            childSchemaNode: null,
                             index: finalFiltered.length,
-                            instanceDriven: false,
+                            instanceDriven: true,
+                            childElementName: tagName,
                           });
                         }
                       }
                     }
-                    
+
                     return finalFiltered;
                   }
                 })()
@@ -2775,6 +2776,70 @@ function XmlElementNode({
                       );
                     } else {
                       childInstanceData = value?.[childElementName];
+                    }
+
+                    if (
+                      isSchemaForm &&
+                      (childInstanceData === undefined || childInstanceData === null) &&
+                      value &&
+                      typeof value === 'object' &&
+                      !Array.isArray(value)
+                    ) {
+                      const currentValue = value as Record<string, any>;
+                      const localChildName = childElementName.replace(/^.*:/, '');
+                      const namespaceMatchKey = Object.keys(currentValue).find((key) => {
+                        if (key === childElementName || key === localChildName) return true;
+                        return key.replace(/^.*:/, '') === localChildName;
+                      });
+
+                      if (namespaceMatchKey) {
+                        childInstanceData = currentValue[namespaceMatchKey];
+                      }
+                    }
+
+                    if (
+                      isSchemaForm &&
+                      (childInstanceData === undefined || childInstanceData === null) &&
+                      rootSchema &&
+                      typeof rootSchema === 'object'
+                    ) {
+                      const parentFromRoot = resolveSchemaFormValueAtPath(rootSchema, path);
+                      if (parentFromRoot && typeof parentFromRoot === 'object' && !Array.isArray(parentFromRoot)) {
+                        const parentObj = parentFromRoot as Record<string, any>;
+                        const localChildName = childElementName.replace(/^.*:/, '');
+                        const matchedKey = Object.keys(parentObj).find((key) => {
+                          if (key === childElementName || key === localChildName) return true;
+                          return key.replace(/^.*:/, '') === localChildName;
+                        });
+                        if (matchedKey) {
+                          childInstanceData = parentObj[matchedKey];
+                        }
+                      }
+                    }
+
+                    const isMetadataElementShape = Boolean(
+                      isSchemaForm &&
+                      childInstanceData &&
+                      typeof childInstanceData === 'object' &&
+                      !Array.isArray(childInstanceData) &&
+                      typeof (childInstanceData as any).tagName === 'string' &&
+                      Array.isArray((childInstanceData as any).children) &&
+                      Array.isArray((childInstanceData as any).attributes)
+                    );
+
+                    if (isMetadataElementShape && rootSchema && typeof rootSchema === 'object') {
+                      const parentFromRoot = resolveSchemaFormValueAtPath(rootSchema, path);
+                      if (parentFromRoot && typeof parentFromRoot === 'object' && !Array.isArray(parentFromRoot)) {
+                        const parentObj = parentFromRoot as Record<string, any>;
+                        const localChildName = childElementName.replace(/^.*:/, '');
+                        const matchedKey = Object.keys(parentObj).find((key) => {
+                          if (key === childElementName || key === localChildName) return true;
+                          return key.replace(/^.*:/, '') === localChildName;
+                        });
+                        if (matchedKey && parentObj[matchedKey] !== undefined && parentObj[matchedKey] !== null) {
+                          childInstanceData = parentObj[matchedKey];
+                        }
+                      }
                     }
                   }
                   
@@ -2828,13 +2893,25 @@ function XmlElementNode({
                       ? childInstanceData
                       : (isSelectedChoiceOption && selectedChoiceIsRequired && !isSchemaForm ? { _text: '' } : childInstanceData);
 
-                  // Use element structure if available; use data as fallback
-                  // For schema form choice children without data, create synthetic element
-                  let elementToRender = childElement_ || effectiveChildInstanceData;
+                  // In schema form, prefer editable instance data when present so we do not
+                  // lose real child rows (e.g. restriction/enumeration) to walking-metadata stubs.
+                  // Outside schema form, keep the existing element-first behavior.
+                  let elementToRender = (isSchemaForm && effectiveChildInstanceData !== undefined && effectiveChildInstanceData !== null)
+                    ? effectiveChildInstanceData
+                    : (childElement_ || effectiveChildInstanceData);
+                  if (
+                    isSchemaForm &&
+                    effectiveChildInstanceData &&
+                    typeof effectiveChildInstanceData === 'object' &&
+                    !Array.isArray(effectiveChildInstanceData) &&
+                    typeof (effectiveChildInstanceData as any).tagName !== 'string'
+                  ) {
+                    elementToRender = parseXmlElement(effectiveChildInstanceData, childElementName) || elementToRender;
+                  }
                   if (!elementToRender && isSchemaForm && choiceGroupData && !choiceGroupData.isExclusive) {
                     elementToRender = { '@attributes': {} }; // Synthetic element for schema form choice
                   }
-                  // For schema form facet and container elements without data, create synthetic element so they render as expandable nodes
+                  // For schema form facet and container elements without data, create synthetic element so they render as expandable nodes.
                   const isFacetOrContainer = ['xs:enumeration', 'enumeration', 'xs:length', 'length', 'xs:minLength', 'minLength',
                     'xs:maxLength', 'maxLength', 'xs:pattern', 'pattern', 'xs:whiteSpace', 'whiteSpace',
                     'xs:minInclusive', 'minInclusive', 'xs:maxInclusive', 'maxInclusive',
@@ -2846,16 +2923,6 @@ function XmlElementNode({
                     'xs:group', 'group', 'xs:attributeGroup', 'attributeGroup'].includes(childElementName);
                   if (!elementToRender && isSchemaForm && isFacetOrContainer) {
                     elementToRender = { '@attributes': {} }; // Synthetic element for facet/container elements
-                    
-                    // If this is a restriction element, add enumeration children from parent schemaNode
-                    if (localTagName === 'restriction' && childSchemaNode?.enumerations && childSchemaNode.enumerations.length > 0) {
-                      elementToRender.children = childSchemaNode.enumerations.map((enumValue: string) => ({
-                        tagname: 'xs:enumeration',
-                        attributes: { value: enumValue },
-                        children: [],
-                        text: ''
-                      }));
-                    }
                   }
                   
                   // Treat schema-leaf elements as simple when either parsed element shape is simple
@@ -2926,8 +2993,8 @@ function XmlElementNode({
                         : null;
                       
                       return (
-                        <div key={`choice-non-array-${childElementName}-${index}`}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <div key={`choice-non-array-${childElementName}-${index}`} style={{ display: 'inline-flex', width: 'auto', maxWidth: '100%' }}>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 8, width: 'auto', maxWidth: '100%' }}>
                             <button
                               type="button"
                               onClick={() => onToggleExpand(rowPath)}
@@ -3004,6 +3071,7 @@ function XmlElementNode({
                                 compiledSchema={compiledSchema}
                                 isSchemaForm={isSchemaForm}
                                 suppressElementLabel={true}
+                                suppressExpander={true}
                               />
                             </div>
                           )}
@@ -3076,8 +3144,6 @@ function XmlElementNode({
                       console.log('[ARRAY CHOICE CHECK]', childElementName, '- choiceGroupData:', !!choiceGroupData, 'isExclusive:', choiceGroupData?.isExclusive, 'selectedOption:', choiceGroupData?.selectedOption);
                     }
                     if (choiceGroupData?.isExclusive && choiceGroupData.selectedOption === childElementName && childSchemaNode?.compositorType === 'choice') {
-                      const showChoiceRemove = canRemoveChoiceSelection(choiceGroupData);
-                      
                       // Setup expansion tracking for exclusive choice array
                       const choiceArrayPath = [...path, childElementName];
                       const choiceArrayPathKey = choiceArrayPath.join('.');
@@ -3088,95 +3154,11 @@ function XmlElementNode({
                       
                       return (
                         <div key={`choice-exclusive-array-${childElementName}-${index}`}>
-                          {/* Choice Selector Dropdown */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                            {/* Expander */}
-                            <button
-                              type="button"
-                              onClick={() => onToggleExpand(choiceArrayPath)}
-                              style={{
-                                padding: '2px 6px',
-                                background: 'transparent',
-                                border: 'none',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                minWidth: '20px',
-                                fontSize: 12,
-                                color: '#666',
-                              }}
-                              title={shouldShowChoiceArrayChildren ? 'Collapse' : 'Expand'}
-                              aria-label={shouldShowChoiceArrayChildren ? 'Collapse' : 'Expand'}
-                            >
-                              {shouldShowChoiceArrayChildren ? '▼' : '▶'}
-                            </button>
-                            
-                            <select
-                              value={choiceGroupData.selectedOption || ''}
-                              onChange={(e) => {
-                                const newSelectedOption = e.target.value;
-                                
-                                // Save old choice option data and restore/initialize new one
-                                onUpdateValue(path, (current) => {
-                                  const updated = { ...current };
-                                  
-                                  // Save all other choice options to localStorage before removing them
-                                  for (const opt of choiceGroupData.options) {
-                                    if (opt.name !== newSelectedOption) {
-                                      if (updated[opt.name] !== undefined) {
-                                        saveChoiceDataToStorage(value, path, opt.name, updated[opt.name]);
-                                      }
-                                      delete updated[opt.name];
-                                    }
-                                  }
-                                  
-                                  // For the selected option, try to restore from localStorage first
-                                  if (!updated[newSelectedOption]) {
-                                    const restored = restoreChoiceDataFromStorage(value, path, newSelectedOption);
-                                    updated[newSelectedOption] = restored || { _text: '' };
-                                  }
-                                  
-                                  return updated;
-                                });
-                              }}
-                              style={{
-                                padding: '6px 8px',
-                                border: '1px solid #ddd',
-                                borderRadius: 3,
-                                fontSize: 12,
-                                cursor: 'pointer',
-                                fontWeight: 500,
-                                minWidth: 100,
-                                color: '#a78bfa',
-                              }}
-                            >
-                              {choiceGroupData.options.map(opt => (
-                                <option key={opt.name} value={opt.name}>
-                                  {opt.name}:
-                                </option>
-                              ))}
-                            </select>
-                            {showChoiceRemove && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    onClick={() => removeChoiceSelection(choiceGroupData)}
-                                    className={styles.removeButton}
-                                    title={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
-                                    aria-label={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent>{`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}</TooltipContent>
-                              </Tooltip>
-                            )}
-                          </div>
-                          
-                          {/* Array items */}
-                          {shouldShowChoiceArrayChildren && arrayItems}
+                          {renderExclusiveChoiceSelector({
+                            choiceGroupData,
+                            choicePath: choiceArrayPath,
+                            children: shouldShowChoiceArrayChildren ? arrayItems : null,
+                          })}
                         </div>
                       );
                     } else if (!choiceGroupData?.isExclusive && choiceGroupData && childSchemaNode?.compositorType === 'choice') {
@@ -3190,12 +3172,11 @@ function XmlElementNode({
                             const isRowExpanded = expandedPaths.has(rowPathKey);
                             const isRowCollapsed = expandedPaths.has(rowCollapsedKey);
                             const shouldShowChildren = !isRowCollapsed && (isRowExpanded || !isSchemaForm);
-                            
-                            // Create a synthetic element structure for each repeating choice item
+
                             const childElement = {
                               tagName: childElementName,
                               text: typeof child === 'string' ? child : '',
-                              children: typeof child === 'object' && child !== null && !Array.isArray(child) 
+                              children: typeof child === 'object' && child !== null && !Array.isArray(child)
                                 ? Object.entries(child)
                                     .filter(([key]) => !key.startsWith('@') && !key.startsWith('_') && key !== '__childrenInOrder')
                                     .map(([key, val]) => ({
@@ -3212,168 +3193,91 @@ function XmlElementNode({
                                   }))
                                 : [],
                             };
-                            
+
                             return (
                               <div key={`repeatable-choice-${childElementName}-${itemIndex}`}>
-                                {/* Choice Row with Expander and Type Selector */}
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                                  {/* Expander */}
-                                  <button
-                                    type="button"
-                                    onClick={() => onToggleExpand(rowPath)}
-                                    style={{
-                                      padding: '2px 6px',
-                                      background: 'transparent',
-                                      border: 'none',
-                                      cursor: 'pointer',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      minWidth: '20px',
-                                      fontSize: 12,
-                                      color: '#666',
-                                    }}
-                                    title={shouldShowChildren ? 'Collapse' : 'Expand'}
-                                    aria-label={shouldShowChildren ? 'Collapse' : 'Expand'}
-                                  >
-                                    {shouldShowChildren ? '▼' : '▶'}
-                                  </button>
-                                  
-                                  {/* Choice Type Selector Dropdown (serves as label) */}
-                                  <select
-                                    value={childElementName || ''}
-                                    onChange={(e) => {
-                                      const newElementType = e.target.value;
-                                      if (newElementType === childElementName) return;
-                                      
-                                      // Change element type for this occurrence
-                                      onUpdateValue(path, (current) => {
-                                        const updated = { ...current };
-                                        
-                                        // Get the current value for this occurrence
-                                        const oldData = Array.isArray(updated[childElementName])
-                                          ? updated[childElementName][itemIndex]
-                                          : updated[childElementName];
-                                        
-                                        // Remove from old element type
-                                        if (Array.isArray(updated[childElementName])) {
-                                          updated[childElementName].splice(itemIndex, 1);
-                                          if (updated[childElementName].length === 0) {
-                                            delete updated[childElementName];
-                                          } else if (updated[childElementName].length === 1) {
-                                            updated[childElementName] = updated[childElementName][0];
-                                          }
-                                        } else {
-                                          delete updated[childElementName];
-                                        }
-                                        
-                                        // Add to new element type
-                                        if (!updated[newElementType]) {
-                                          updated[newElementType] = oldData;
-                                        } else if (Array.isArray(updated[newElementType])) {
-                                          updated[newElementType].push(oldData);
-                                        } else {
-                                          updated[newElementType] = [updated[newElementType], oldData];
-                                        }
-                                        
-                                        return updated;
-                                      });
-                                    }}
-                                    style={{
-                                      padding: '6px 8px',
-                                      border: '1px solid #ddd',
-                                      borderRadius: 3,
-                                      fontSize: 12,
-                                      cursor: 'pointer',
-                                      fontWeight: 500,
-                                      minWidth: 120,
-                                      color: '#a78bfa',
-                                    }}
-                                  >
-                                    {choiceGroupData.options.map(opt => (
-                                      <option key={opt.name} value={opt.name}>
-                                        {opt.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  
-                                  {/* Show @name attribute from instance data for repeatable choice rows */}
-                                  {(() => {
-                                    const instanceNameAttr = child?.['@attributes']?.name;
-                                    const displayName = typeof instanceNameAttr === 'string' && instanceNameAttr.trim().length > 0
-                                      ? instanceNameAttr.trim()
-                                      : null;
-                                    return displayName ? (
-                                        <span
+                                {renderRepeatableChoiceSelector({
+                                  choiceGroupData,
+                                  childElementName,
+                                  rowPath,
+                                  itemIndex,
+                                  onChangeType: (newElementType) => {
+                                    onUpdateValue(path, (current) => applyRepeatableChoiceSwitch(current, childElementName, itemIndex, newElementType));
+                                  },
+                                })}
+
+                                {(() => {
+                                  const instanceNameAttr = child?.['@attributes']?.name;
+                                  const displayName = typeof instanceNameAttr === 'string' && instanceNameAttr.trim().length > 0
+                                    ? instanceNameAttr.trim()
+                                    : null;
+                                  return displayName ? (
+                                      <span
+                                        style={{
+                                          marginLeft: 4,
+                                          color: '#155e75',
+                                          backgroundColor: '#ecfeff',
+                                          border: '1px solid #a5f3fc',
+                                          borderRadius: 999,
+                                          padding: '1px 8px',
+                                          fontSize: 11,
+                                          fontWeight: 600,
+                                          lineHeight: 1.6,
+                                        }}
+                                      >
+                                        {displayName}
+                                      </span>
+                                    ) : null;
+                                })()}
+
+                                {(() => {
+                                  const canRemove = canRemoveChildOccurrence(childElementName, childSchemaNode);
+                                  const arrayLength = Array.isArray(effectiveChildInstanceData) ? effectiveChildInstanceData.length : 0;
+                                  const minOccurs = getChildMinOccurs(childSchemaNode);
+                                  const canRemoveThisOne = canRemove && (arrayLength > minOccurs);
+
+                                  return (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          onClick={() => {
+                                            if (!canRemoveThisOne) return;
+                                            onUpdateValue(path, (current) => {
+                                              const updated = { ...current };
+                                              if (Array.isArray(updated[childElementName])) {
+                                                updated[childElementName].splice(itemIndex, 1);
+                                                if (updated[childElementName].length === 0) {
+                                                  delete updated[childElementName];
+                                                } else if (updated[childElementName].length === 1) {
+                                                  updated[childElementName] = updated[childElementName][0];
+                                                }
+                                              }
+                                              return updated;
+                                            });
+                                          }}
+                                          className={styles.removeButton}
                                           style={{
                                             marginLeft: 4,
-                                            color: '#155e75',
-                                            backgroundColor: '#ecfeff',
-                                            border: '1px solid #a5f3fc',
-                                            borderRadius: 999,
-                                            padding: '1px 8px',
-                                            fontSize: 11,
-                                            fontWeight: 600,
-                                            lineHeight: 1.6,
+                                            opacity: canRemoveThisOne ? 1 : 0.5,
+                                            color: canRemoveThisOne ? '#ef4444' : '#999',
+                                            cursor: canRemoveThisOne ? 'pointer' : 'not-allowed',
                                           }}
+                                          disabled={!canRemoveThisOne}
+                                          title={canRemoveThisOne ? `Remove ${childElementName}` : `Cannot remove - schema constraint`}
+                                          aria-label={`Remove ${childElementName}`}
                                         >
-                                          {displayName}
-                                        </span>
-                                      ) : null;
-                                    })()
-                                  }
-                                  
-                                  {/* Remove button for repeatable choice items */}
-                                  {(() => {
-                                    const canRemove = canRemoveChildOccurrence(childElementName, childSchemaNode);
-                                    const arrayLength = Array.isArray(effectiveChildInstanceData) ? effectiveChildInstanceData.length : 0;
-                                    const minOccurs = getChildMinOccurs(childSchemaNode);
-                                    const canRemoveThisOne = canRemove && (arrayLength > minOccurs);
-                                    
-                                    return (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <button
-                                            onClick={() => {
-                                              if (!canRemoveThisOne) return;
-                                              onUpdateValue(path, (current) => {
-                                                const updated = { ...current };
-                                                if (Array.isArray(updated[childElementName])) {
-                                                  updated[childElementName].splice(itemIndex, 1);
-                                                  if (updated[childElementName].length === 0) {
-                                                    delete updated[childElementName];
-                                                  } else if (updated[childElementName].length === 1) {
-                                                    updated[childElementName] = updated[childElementName][0];
-                                                  }
-                                                }
-                                                return updated;
-                                              });
-                                            }}
-                                            className={styles.removeButton}
-                                            style={{
-                                              marginLeft: 4,
-                                              opacity: canRemoveThisOne ? 1 : 0.5,
-                                              color: canRemoveThisOne ? '#ef4444' : '#999',
-                                              cursor: canRemoveThisOne ? 'pointer' : 'not-allowed',
-                                            }}
-                                            disabled={!canRemoveThisOne}
-                                            title={canRemoveThisOne ? `Remove ${childElementName}` : `Cannot remove - schema constraint`}
-                                            aria-label={`Remove ${childElementName}`}
-                                          >
-                                            <Trash2 size={14} />
-                                          </button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                          {canRemoveThisOne 
-                                            ? `Remove ${childElementName}` 
-                                            : `Cannot remove - schema constraint (minOccurs=${minOccurs})`}
-                                        </TooltipContent>
-                                      </Tooltip>
-                                    );
-                                  })()}
-                                </div>
-                                
-                                {/* Render children only if expanded */}
+                                          <Trash2 size={14} />
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        {canRemoveThisOne
+                                          ? `Remove ${childElementName}`
+                                          : `Cannot remove - schema constraint (minOccurs=${minOccurs})`}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  );
+                                })()}
+
                                 {shouldShowChildren && (
                                   <div style={{ marginLeft: '20px' }}>
                                     <XmlElementNode
@@ -3430,145 +3334,33 @@ function XmlElementNode({
                     // Show dropdown for whichever element is selected, not just the first in schema order
                     // Only render with choice dropdown if this element is actually marked as choice type
                     if (choiceGroupData?.isExclusive && choiceGroupData.selectedOption === childElementName && childSchemaNode?.compositorType === 'choice') {
-                      const showChoiceRemove = canRemoveChoiceSelection(choiceGroupData);
-                      
-                      // Setup expansion tracking for exclusive choice non-array
                       const choicePath = [...path, childElementName];
-                      const choicePathKey = choicePath.join('.');
-                      const choiceCollapsedKey = `__collapsed__:${choicePathKey}`;
-                      const isChoiceExpanded = expandedPaths.has(choicePathKey);
-                      const isChoiceCollapsed = expandedPaths.has(choiceCollapsedKey);
-                      const shouldShowChoiceChildren = !isChoiceCollapsed && (isChoiceExpanded || !isSchemaForm);
-                      
+
                       return (
-                        <div key={`choice-exclusive-${childElementName}-${index}`} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                          {/* Expander */}
-                          <button
-                            type="button"
-                            onClick={() => onToggleExpand(choicePath)}
-                            style={{
-                              padding: '2px 6px',
-                              background: 'transparent',
-                              border: 'none',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              minWidth: '20px',
-                              fontSize: 12,
-                              color: '#666',
-                            }}
-                            title={shouldShowChoiceChildren ? 'Collapse' : 'Expand'}
-                            aria-label={shouldShowChoiceChildren ? 'Collapse' : 'Expand'}
-                          >
-                            {shouldShowChoiceChildren ? '▼' : '▶'}
-                          </button>
-                          
-                          {/* Choice Selector Dropdown as Label */}
-                          <select
-                            value={choiceGroupData.selectedOption || ''}
-                            onChange={(e) => {
-                              const newSelectedOption = e.target.value;
-                              
-                              // Save old choice option data and restore/initialize new one
-                              onUpdateValue(path, (current) => {
-                                const updated = { ...current };
-                                
-                                // Find which option is currently selected to know what to replace
-                                let currentlySelectedOption: string | null = null;
-                                for (const opt of choiceGroupData.options) {
-                                  if (updated[opt.name] !== undefined) {
-                                    currentlySelectedOption = opt.name;
-                                    break;
+                        <div key={`choice-exclusive-${childElementName}-${index}`}>
+                          {renderExclusiveChoiceSelector({
+                            choiceGroupData,
+                            choicePath,
+                            children: (
+                              <>
+                                {renderSimpleValueInput(
+                                  null,
+                                  htmlInputType,
+                                  textValue,
+                                  (nextValue) => {
+                                    onUpdateValue([...path, childElementName], (current) => {
+                                      if (current && typeof current === 'object' && !Array.isArray(current)) {
+                                        const next = { ...current, _text: nextValue };
+                                        if ('#text' in next) delete next['#text'];
+                                        return next;
+                                      }
+                                      return { _text: nextValue };
+                                    });
                                   }
-                                }
-                                
-                                // Save all other choice options to localStorage before removing them
-                                for (const opt of choiceGroupData.options) {
-                                  if (opt.name !== newSelectedOption) {
-                                    if (updated[opt.name] !== undefined) {
-                                      saveChoiceDataToStorage(value, path, opt.name, updated[opt.name]);
-                                    }
-                                    delete updated[opt.name];
-                                  }
-                                }
-                                
-                                // For the selected option, try to restore from localStorage first
-                                if (!updated[newSelectedOption]) {
-                                  const restored = restoreChoiceDataFromStorage(value, path, newSelectedOption);
-                                  updated[newSelectedOption] = restored || { _text: '' };
-                                }
-                                
-                                // Update __childrenInOrder to reflect the choice change
-                                // This ensures XML serialization uses the correct element order
-                                if (Array.isArray(updated['__childrenInOrder'])) {
-                                  const childrenOrder = updated['__childrenInOrder'] as any[];
-                                  const updatedOrder = childrenOrder.map((item: any) => {
-                                    // If this order entry is for the old selected option, replace it with the new one
-                                    if (item.tagName === currentlySelectedOption) {
-                                      return {
-                                        ...item,
-                                        tagName: newSelectedOption,
-                                      };
-                                    }
-                                    return item;
-                                  });
-                                  updated['__childrenInOrder'] = updatedOrder;
-                                }
-                                
-                                return updated;
-                              });
-                            }}
-                            style={{
-                              padding: '6px 8px',
-                              border: '1px solid #ddd',
-                              borderRadius: 3,
-                              fontSize: 12,
-                              cursor: 'pointer',
-                              fontWeight: 500,
-                              minWidth: 100,
-                              color: '#a78bfa',
-                            }}
-                          >
-                            {choiceGroupData.options.map(opt => (
-                              <option key={opt.name} value={opt.name}>
-                                {opt.name}:
-                              </option>
-                            ))}
-                          </select>
-                          
-                          {/* Input Field */}
-                          {renderSimpleValueInput(
-                            null,
-                            htmlInputType,
-                            textValue,
-                            (nextValue) => {
-                              onUpdateValue([...path, childElementName], (current) => {
-                                if (current && typeof current === 'object' && !Array.isArray(current)) {
-                                  const next = { ...current, _text: nextValue };
-                                  if ('#text' in next) delete next['#text'];
-                                  return next;
-                                }
-                                return { _text: nextValue };
-                              });
-                            }
-                          )}
-                          {showChoiceRemove && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  onClick={() => removeChoiceSelection(choiceGroupData)}
-                                  className={styles.removeButton}
-                                  title={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
-                                  aria-label={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent>{`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}</TooltipContent>
-                            </Tooltip>
-                          )}
+                                )}
+                              </>
+                            ),
+                          })}
                         </div>
                       );
                     }
@@ -3617,128 +3409,40 @@ function XmlElementNode({
                       console.log('[ABOUT TO RENDER XmlElementNode]', childElementName, '- key:', index, 'elementToRender:', elementToRender, 'childSchemaNode:', childSchemaNode);
                     }
                     
-                    // Render choice dropdown if this element is the currently selected option in a choice group
                     if (choiceGroupData && choiceGroupData.selectedOption === childElementName) {
-                      const showChoiceRemove = canRemoveChoiceSelection(choiceGroupData);
-                      
-                      // Setup expansion tracking for complex choice element
                       const complexChoicePath = [...path, childElementName];
                       const complexChoicePathKey = complexChoicePath.join('.');
                       const complexChoiceCollapsedKey = `__collapsed__:${complexChoicePathKey}`;
                       const isComplexChoiceExpanded = expandedPaths.has(complexChoicePathKey);
                       const isComplexChoiceCollapsed = expandedPaths.has(complexChoiceCollapsedKey);
                       const shouldShowComplexChoiceChildren = !isComplexChoiceCollapsed && (isComplexChoiceExpanded || !isSchemaForm);
-                      
+
                       return (
                         <div key={`choice-${childElementName}-${index}`}>
-                          {/* Choice selector as a dropdown label above the element */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                            {/* Expander */}
-                            <button
-                              type="button"
-                              onClick={() => onToggleExpand(complexChoicePath)}
-                              style={{
-                                padding: '2px 6px',
-                                background: 'transparent',
-                                border: 'none',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                minWidth: '20px',
-                                fontSize: 12,
-                                color: '#666',
-                              }}
-                              title={shouldShowComplexChoiceChildren ? 'Collapse' : 'Expand'}
-                              aria-label={shouldShowComplexChoiceChildren ? 'Collapse' : 'Expand'}
-                            >
-                              {shouldShowComplexChoiceChildren ? '▼' : '▶'}
-                            </button>
-                            
-                            <select
-                              value={choiceGroupData.selectedOption || ''}
-                              onChange={(e) => {
-                                const newSelectedOption = e.target.value;
-                                
-                                // Save old choice option data and restore/initialize new one
-                                onUpdateValue(path, (current) => {
-                                  const updated = { ...current };
-                                  
-                                  // Save all other choice options to localStorage before removing them
-                                  for (const opt of choiceGroupData.options) {
-                                    if (opt.name !== newSelectedOption) {
-                                      if (updated[opt.name] !== undefined) {
-                                        saveChoiceDataToStorage(value, path, opt.name, updated[opt.name]);
-                                      }
-                                      delete updated[opt.name];
-                                    }
-                                  }
-                                  
-                                  // For the selected option, try to restore from localStorage first
-                                  if (!updated[newSelectedOption]) {
-                                    const restored = restoreChoiceDataFromStorage(value, path, newSelectedOption);
-                                    updated[newSelectedOption] = restored || { _text: '' };
-                                  }
-                                  
-                                  return updated;
-                                });
-                              }}
-                              style={{
-                                padding: '6px 8px',
-                                border: '1px solid #ddd',
-                                borderRadius: 3,
-                                fontSize: 12,
-                                cursor: 'pointer',
-                                fontWeight: 500,
-                                minWidth: 100,
-                                color: '#a78bfa',
-                              }}
-                            >
-                              {choiceGroupData.options.map(opt => (
-                                <option key={opt.name} value={opt.name}>
-                                  {opt.name}
-                                </option>
-                              ))}
-                            </select>
-                            {showChoiceRemove && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    onClick={() => removeChoiceSelection(choiceGroupData)}
-                                    className={styles.removeButton}
-                                    title={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
-                                    aria-label={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent>{`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}</TooltipContent>
-                              </Tooltip>
-                            )}
-                          </div>
-                          
-                          {/* Element Node */}
-                          {shouldShowComplexChoiceChildren && (
-                            <div style={{ position: 'relative', marginLeft: 8 }}>
-                              <XmlElementNode
-                                element={elementToRender}
-                                path={[...path, childElementName]}
-                                expandedPaths={expandedPaths}
-                                onToggleExpand={onToggleExpand}
-                                value={effectiveChildInstanceData}
-                                onChange={onChange}
-                                onUpdateValue={onUpdateValue}
-                                rootSchema={rootSchema}
-                                autoExpandAll={true}
-                                schemaNode={childSchemaNode}
-                                compiledSchema={compiledSchema}
-                                initialAutoExpandPathsRef={initialAutoExpandPathsRef}
-                                autoExpandCaptureActiveRef={autoExpandCaptureActiveRef}
-                                isSchemaForm={isSchemaForm}
-                              />
-                            </div>
-                          )}
+                          {renderExclusiveChoiceSelector({
+                            choiceGroupData,
+                            choicePath: complexChoicePath,
+                            children: shouldShowComplexChoiceChildren ? (
+                              <div style={{ position: 'relative', marginLeft: 8 }}>
+                                <XmlElementNode
+                                  element={elementToRender}
+                                  path={[...path, childElementName]}
+                                  expandedPaths={expandedPaths}
+                                  onToggleExpand={onToggleExpand}
+                                  value={effectiveChildInstanceData}
+                                  onChange={onChange}
+                                  onUpdateValue={onUpdateValue}
+                                  rootSchema={rootSchema}
+                                  autoExpandAll={true}
+                                  schemaNode={childSchemaNode}
+                                  compiledSchema={compiledSchema}
+                                  initialAutoExpandPathsRef={initialAutoExpandPathsRef}
+                                  autoExpandCaptureActiveRef={autoExpandCaptureActiveRef}
+                                  isSchemaForm={isSchemaForm}
+                                />
+                              </div>
+                            ) : null,
+                          })}
                         </div>
                       );
                     }
@@ -4018,24 +3722,136 @@ function XmlElementNode({
           {isSchemaForm && (localTagName === 'restriction' || localTagName === 'xs:restriction') && (
             <div style={{ marginTop: 12 }}>
               {(() => {
-                const children = element?.children || [];
-                
-                const enumElements = children.filter(c => 
-                  (c.tagname || '').toLowerCase().includes('enumeration')
+                const values = new Set<string>();
+
+                const extractEnumValue = (entry: any): string | null => {
+                  if (!entry) return null;
+
+                  if (typeof entry === 'string') {
+                    const trimmed = entry.trim();
+                    return trimmed.length > 0 ? trimmed : null;
+                  }
+
+                  const attrsObj = entry?.['@attributes'] && typeof entry['@attributes'] === 'object'
+                    ? entry['@attributes']
+                    : null;
+                  if (attrsObj?.value) return String(attrsObj.value);
+
+                  if (entry?.attributes && Array.isArray(entry.attributes)) {
+                    const valueAttr = entry.attributes.find((attr: any) => attr?.name === 'value');
+                    if (valueAttr?.value !== undefined && valueAttr?.value !== null) {
+                      return String(valueAttr.value);
+                    }
+                  }
+
+                  if (entry?.attributes && typeof entry.attributes === 'object' && entry.attributes.value !== undefined) {
+                    return String(entry.attributes.value);
+                  }
+
+                  if (entry?.value !== undefined && entry?.value !== null) return String(entry.value);
+                  return null;
+                };
+
+                const children = Array.isArray((element as any)?.children) ? (element as any).children : [];
+                for (const child of children) {
+                  const tag = String((child as any)?.tagName || '').toLowerCase();
+                  if (!tag.includes('enumeration')) continue;
+                  const enumValue = extractEnumValue(child);
+                  if (enumValue) values.add(enumValue);
+                }
+
+                const directValueObj = value && typeof value === 'object' && !Array.isArray(value)
+                  ? value as Record<string, any>
+                  : null;
+                const isMetadataValueShape = Boolean(
+                  directValueObj &&
+                  typeof (directValueObj as any).tagName === 'string' &&
+                  Array.isArray((directValueObj as any).children) &&
+                  Array.isArray((directValueObj as any).attributes)
                 );
-                
-                // Use enumElements from instance data, OR fallback to schemaNode.enumerations
-                const enumerationsToRender = enumElements.length > 0 ? enumElements : 
-                  (schemaNode?.enumerations || []).map((value: string) => ({
-                    tagname: 'xs:enumeration',
-                    attributes: { value }
-                  }));
-                
-                if (enumerationsToRender.length > 0) {
+                const resolvedPathValue = ((isSchemaForm && rootSchema) && (!directValueObj || isMetadataValueShape))
+                  ? resolveSchemaFormValueAtPath(rootSchema, path)
+                  : null;
+                const valueObj = resolvedPathValue && typeof resolvedPathValue === 'object' && !Array.isArray(resolvedPathValue)
+                  ? resolvedPathValue as Record<string, any>
+                  : directValueObj;
+
+                if (valueObj) {
+                  const valueEnums = valueObj['xs:enumeration'] ?? valueObj['enumeration'];
+                  const valueEnumArray = Array.isArray(valueEnums) ? valueEnums : (valueEnums ? [valueEnums] : []);
+                  for (const entry of valueEnumArray) {
+                    const enumValue = extractEnumValue(entry);
+                    if (enumValue) values.add(enumValue);
+                  }
+
+                  const ordered = Array.isArray(valueObj['__childrenInOrder']) ? valueObj['__childrenInOrder'] : [];
+                  for (const entry of ordered) {
+                    const tagName = String((entry as any)?.tagName || '').toLowerCase();
+                    if (!tagName.includes('enumeration')) continue;
+                    const enumValue = extractEnumValue((entry as any).value);
+                    if (enumValue) values.add(enumValue);
+                  }
+                }
+
+                if (values.size === 0 && isSchemaForm && rootSchema && typeof rootSchema === 'object' && path.length > 0) {
+                  const parentFromRoot = resolveSchemaFormValueAtPath(rootSchema, path.slice(0, -1));
+                  if (parentFromRoot && typeof parentFromRoot === 'object' && !Array.isArray(parentFromRoot)) {
+                    const parentRestriction = (parentFromRoot as Record<string, any>)['xs:restriction']
+                      ?? (parentFromRoot as Record<string, any>)['restriction'];
+                    if (parentRestriction) {
+                      const parentEnumEntries = parentRestriction['xs:enumeration'] ?? parentRestriction['enumeration'];
+                      const parentEnumArray = Array.isArray(parentEnumEntries) ? parentEnumEntries : (parentEnumEntries ? [parentEnumEntries] : []);
+                      for (const entry of parentEnumArray) {
+                        const enumValue = extractEnumValue(entry);
+                        if (enumValue) values.add(enumValue);
+                      }
+                    }
+                  }
+                }
+
+                if (values.size === 0 && isSchemaForm && rootSchema && typeof rootSchema === 'object') {
+                  const collectRestrictionEnumSets = (node: any, acc: string[][]) => {
+                    if (!node || typeof node !== 'object') return;
+
+                    if (Array.isArray(node)) {
+                      for (const entry of node) collectRestrictionEnumSets(entry, acc);
+                      return;
+                    }
+
+                    const restriction = node['xs:restriction'] ?? node['restriction'];
+                    if (restriction && typeof restriction === 'object') {
+                      const enumEntries = restriction['xs:enumeration'] ?? restriction['enumeration'];
+                      const enumArray = Array.isArray(enumEntries) ? enumEntries : (enumEntries ? [enumEntries] : []);
+                      const foundValues = enumArray
+                        .map((entry: any) => extractEnumValue(entry))
+                        .filter((entry: string | null): entry is string => Boolean(entry));
+                      if (foundValues.length > 0) {
+                        acc.push(foundValues);
+                      }
+                    }
+
+                    for (const child of Object.values(node)) {
+                      collectRestrictionEnumSets(child, acc);
+                    }
+                  };
+
+                  const enumSets: string[][] = [];
+                  collectRestrictionEnumSets(rootSchema, enumSets);
+
+                  if (enumSets.length === 1) {
+                    for (const enumValue of enumSets[0]) {
+                      const normalized = String(enumValue || '').trim();
+                      if (normalized) values.add(normalized);
+                    }
+                  }
+                }
+
+                const enumerationValues = Array.from(values);
+
+                if (enumerationValues.length > 0) {
                   return (
                     <div style={{ marginTop: 12 }}>
-                      {enumerationsToRender.map((enumEl: any, idx: number) => {
-                        const enumValue = enumEl.attributes?.value;
+                      {enumerationValues.map((enumValue: string, idx: number) => {
                         return (
                           <div key={`enum-${idx}`} style={{ 
                             padding: '8px', 
@@ -4085,7 +3901,7 @@ function XmlElementNode({
   );
 }
 
-export function XmlInstanceForm({
+function XmlInstanceFormContent({
   schema,
   value,
   onChange,
@@ -4362,11 +4178,12 @@ export function XmlInstanceForm({
   };
 
   const topLevelXsdAddKinds = useMemo(() => {
-    if (!schema || typeof schema !== 'object') {
+    const xsdForRootDefinitions = rootSchema && typeof rootSchema === 'object' ? rootSchema : schema;
+    if (!xsdForRootDefinitions || typeof xsdForRootDefinitions !== 'object') {
       return ['element', 'attribute', 'complexType', 'simpleType', 'attributeGroup'];
     }
-    return getTopLevelXsdDefinitionKinds(schema);
-  }, [schema]);
+    return getTopLevelXsdDefinitionKinds(xsdForRootDefinitions);
+  }, [rootSchema, schema]);
 
   const topLevelXsdAddButtons: Array<{ kind: TopLevelXsdKind; label: string }> = (
     [

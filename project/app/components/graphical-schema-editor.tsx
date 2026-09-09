@@ -2505,6 +2505,43 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
       }
     }
 
+    // Handle xs:import node updates (individual import node, not schema-level imports array)
+    if (kind === 'import' && target && typeof target === 'object') {
+      const attrs = getOrCreateAttrs(target);
+      if (!attrs) return null;
+
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlImportNamespace')) {
+        const value = (patch as any).xmlImportNamespace;
+        if (value && String(value).trim().length > 0) {
+          attrs.namespace = String(value);
+        } else {
+          delete attrs.namespace;
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlImportSchemaLocation')) {
+        const value = (patch as any).xmlImportSchemaLocation;
+        if (value && String(value).trim().length > 0) {
+          attrs.schemaLocation = String(value);
+        } else {
+          delete attrs.schemaLocation;
+        }
+      }
+    }
+
+    // Handle xs:annotation node updates (individual annotation node)
+    if (kind === 'annotation' && target && typeof target === 'object') {
+      if (Object.prototype.hasOwnProperty.call(patch, 'xmlAnnotationText')) {
+        const value = (patch as any).xmlAnnotationText;
+        if (value && String(value).trim().length > 0) {
+          const docText = String(value);
+          target['xs:documentation'] = { '#text': docText };
+        } else {
+          delete target['xs:documentation'];
+        }
+      }
+    }
+
     // Handle attribute operations on simpleType, complexType, attributeGroup, or element.
     // For element nodes, attributes live on the inline xs:complexType (or its complexContent extension),
     // not on the element itself.
@@ -4573,12 +4610,10 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
       ? xmlSchemaToGraph(schemaForGraph, { visibleOnly: useDefaultCollapseHeuristic, xmlShowAnnotations, xmlShowImports })
       : schemaToGraph(schemaForGraph);
     if (isXmlGraphMode) {
-      const noteTypeNode = rawGraph.nodes.find((node) => String(node.data?.xmlName || node.data?.label) === 'NoteType');
       console.log('[GraphicalSchemaEditor] xml rebuild', {
         visibleOnly: useDefaultCollapseHeuristic,
         nodeCount: rawGraph.nodes.length,
         edgeCount: rawGraph.edges.length,
-        noteTypeId: noteTypeNode?.id,
         hasSequence: rawGraph.nodes.some((node) => String(node.id).includes('sequence')),
       });
     }
@@ -5590,18 +5625,20 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
     const simpleContent = complexTypeLikeTarget['xs:simpleContent'];
     if (!simpleContent || typeof simpleContent !== 'object') return complexTypeLikeTarget;
     const derivationKey = (['xs:extension', 'xs:restriction'] as const).find((key) => (simpleContent as any)[key] !== undefined);
-    const simpleDerivation = derivationKey ? (simpleContent as any)[derivationKey] : undefined;
+    if (!derivationKey) return complexTypeLikeTarget;
+
+    const simpleDerivation = (simpleContent as any)[derivationKey];
     if (!simpleDerivation || typeof simpleDerivation !== 'object') return complexTypeLikeTarget;
 
     const movedChildrenInOrder = Array.isArray((simpleDerivation as any).__childrenInOrder)
       ? [...(simpleDerivation as any).__childrenInOrder]
       : [];
 
-    const complexContent = {
+    const complexContent: any = {
       [derivationKey]: {
         '@attributes': { ...getXmlAttrs(simpleDerivation) },
       },
-    } as any;
+    };
 
     for (const key of ['xs:attribute', 'xs:attributeGroup', 'xs:sequence', 'xs:choice', 'xs:all'] as const) {
       const value = (simpleDerivation as any)[key];
