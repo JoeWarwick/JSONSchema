@@ -126,6 +126,107 @@ test('renders choice dropdown in Instance Form for homeEmail | workEmail', async
   await expect(workEmailInput).toBeVisible();
 });
 
+test('schema form preserves generated @name when switching xs:element to xs:attribute and back', async ({ page }) => {
+  await page.context().addInitScript(() => {
+    try {
+      localStorage.setItem('schema-sculptor-markup-language', 'xml');
+      localStorage.setItem('schema-sculptor-schema-xml', '');
+      localStorage.setItem('schema-sculptor-instance-xml', '');
+    } catch {
+      // ignore
+    }
+  });
+
+  await page.goto(BASE);
+
+  const schemaInputTab = page.getByRole('button', { name: 'Schema Input' });
+  await schemaInputTab.click();
+
+  const schemaTextarea = page.locator('textarea').first();
+  await schemaTextarea.fill(`<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="person" type="xs:string"/>
+</xs:schema>`);
+
+  const schemaFormTab = page.getByRole('button', { name: 'Schema Form' });
+  await schemaFormTab.click();
+  await expect(page.getByText('xs:schema').first()).toBeVisible({ timeout: 15000 });
+
+  const choiceSelect = page
+    .locator('select')
+    .filter({ has: page.locator('option[value="xs:attribute"]') })
+    .first();
+
+  await expect(choiceSelect).toBeVisible({ timeout: 15000 });
+  await expect(choiceSelect).toHaveValue('xs:element');
+
+  await choiceSelect.selectOption('xs:attribute');
+  await expect(choiceSelect).toHaveValue('xs:attribute');
+  await expect(page.locator('[data-testid="xml-name-chip"]').filter({ hasText: 'person' }).first()).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole('button', { name: 'Remove xs:attribute' })).toBeVisible();
+
+  await choiceSelect.selectOption('xs:element');
+  await expect(choiceSelect).toHaveValue('xs:element');
+  await expect(page.locator('[data-testid="xml-name-chip"]').filter({ hasText: 'person' }).first()).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole('button', { name: 'Remove xs:element' })).toBeVisible();
+});
+
+test('demo schema form switches the same repeating choice row back to xs:element', async ({ page }) => {
+  await page.context().addInitScript(() => {
+    localStorage.setItem('schema-sculptor-markup-language', 'xml');
+    localStorage.setItem('schema-sculptor-schema-xml', '');
+    localStorage.setItem('schema-sculptor-instance-xml', '');
+  });
+
+  await page.goto(BASE);
+  await page.getByRole('button', { name: 'Schema Form' }).click();
+  await page.getByRole('button', { name: 'Load demo controls XSD' }).first().click();
+  await expect(page.getByText('xs:schema').first()).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole('button', { name: 'Add xs:annotation' })).toHaveCount(1);
+
+  const choiceSelects = page.locator('select').filter({
+    has: page.locator('option[value="xs:attribute"]'),
+  });
+  await expect(choiceSelects.first()).toBeVisible({ timeout: 15000 });
+
+  const rowIndex = 0;
+  const row = choiceSelects.nth(rowIndex);
+  const initialValue = await row.inputValue();
+  expect(initialValue).toBe('xs:element');
+  const personOrderIndex = await page.evaluate(() => {
+    const raw = localStorage.getItem('schema-sculptor-schema-xml');
+    const source = raw ? JSON.parse(raw) : null;
+    return (source?.['xs:schema']?.__childrenInOrder || []).findIndex(
+      (entry: { tagName?: string; value?: { '@attributes'?: { name?: string } } }) =>
+        entry.value?.['@attributes']?.name === 'person',
+    );
+  });
+  expect(personOrderIndex).toBeGreaterThanOrEqual(0);
+
+  await row.selectOption('xs:attribute');
+  await expect.poll(async () => page.evaluate(() => {
+    const selects = Array.from(document.querySelectorAll('select'))
+      .filter((select) => Array.from(select.options).some((option) => option.value === 'xs:attribute'));
+    return selects.findIndex((select) => (select as HTMLSelectElement).value === 'xs:attribute');
+  })).toBeGreaterThanOrEqual(0);
+  const attributeIndex = await page.evaluate(() => {
+    const selects = Array.from(document.querySelectorAll('select'))
+      .filter((select) => Array.from(select.options).some((option) => option.value === 'xs:attribute'));
+    return selects.findIndex((select) => (select as HTMLSelectElement).value === 'xs:attribute');
+  });
+
+  const switchedRow = choiceSelects.nth(attributeIndex);
+  await expect(switchedRow).toHaveValue('xs:attribute');
+  await switchedRow.selectOption('xs:element');
+  await expect.poll(async () => page.evaluate((index) => {
+    const raw = localStorage.getItem('schema-sculptor-schema-xml');
+    const source = raw ? JSON.parse(raw) : null;
+    return source?.['xs:schema']?.__childrenInOrder?.[index]?.tagName;
+  }, personOrderIndex)).toBe('xs:element');
+  await expect(page.getByRole('button', { name: 'Remove xs:annotation 2', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Remove xs:annotation', exact: true })).toHaveCount(1);
+});
+
 test('auto-renders required missing choice', async ({ page }) => {
   await page.context().addInitScript(() => {
     try {

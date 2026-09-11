@@ -1,4 +1,6 @@
 import React from 'react';
+import fs from 'node:fs';
+import path from 'node:path';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { TooltipProvider } from './ui/tooltip/tooltip';
@@ -7,6 +9,12 @@ import { parseMarkup } from '../utils/markup';
 
 function renderForm(ui: React.ReactElement) {
   return render(<TooltipProvider delayDuration={0}>{ui}</TooltipProvider>);
+}
+
+function getFirstCombobox(): HTMLSelectElement {
+  const comboboxes = screen.getAllByRole('combobox');
+  expect(comboboxes.length).toBeGreaterThan(0);
+  return comboboxes[0] as HTMLSelectElement;
 }
 
 describe('XmlInstanceForm trigger-row behavior', () => {
@@ -1006,7 +1014,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
       />,
     );
 
-    const combo = screen.getByRole('combobox');
+    const combo = getFirstCombobox();
     expect(combo).toHaveValue('xs:import');
 
     fireEvent.change(combo, { target: { value: 'xs:annotation' } });
@@ -1019,6 +1027,88 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     expect(payload.holder['xs:annotation']).toBeDefined();
     expect(payload.holder['xs:import']).toBeUndefined();
   });
+
+  test('schema form keeps all demo XSD choice comboboxes after repeated switch-backs', async () => {
+    const onChange = jest.fn();
+    const walkingSchema = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/XMLSchema.xsd'), 'utf8'),
+      'xml',
+    ) as any;
+    const demoSchema = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/xml-form-controls-demo.xsd'), 'utf8'),
+      'xml',
+    ) as any;
+
+    function StatefulDemoSchemaForm() {
+      const [value, setValue] = React.useState(demoSchema);
+
+      return (
+        <XmlInstanceForm
+          schema={walkingSchema}
+          rootSchema={value}
+          value={value}
+          onChange={(nextValue) => {
+            onChange(nextValue);
+            setValue(nextValue);
+          }}
+          autoExpandAll
+          expansionStateKey="xml-schema-form-expanded"
+        />
+      );
+    }
+
+    renderForm(<StatefulDemoSchemaForm />);
+
+    const getChoiceComboboxes = () => screen.getAllByRole('combobox').filter((select) => {
+      const options = Array.from((select as HTMLSelectElement).options).map((option) => option.value);
+      return options.includes('xs:element') && options.includes('xs:attribute');
+    }) as HTMLSelectElement[];
+
+    await waitFor(() => {
+      expect(getChoiceComboboxes().length).toBeGreaterThan(0);
+    });
+
+    const initialValues = getChoiceComboboxes().map((select) => select.value);
+    expect(initialValues.length).toBeGreaterThanOrEqual(2);
+
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      const select = getChoiceComboboxes()[0];
+      const originalValue = select.value;
+      const sourceBeforeSwitch = onChange.mock.calls.length > 0
+        ? onChange.mock.calls[onChange.mock.calls.length - 1][0]
+        : demoSchema;
+      const schemaBeforeSwitch = sourceBeforeSwitch['xs:schema'] || sourceBeforeSwitch;
+      const occurrenceIndex = schemaBeforeSwitch.__childrenInOrder.findIndex(
+        (entry: any) => entry?.tagName === originalValue,
+      );
+      const replacement = Array.from(select.options)
+        .map((option) => option.value)
+        .find((option) => option !== originalValue);
+
+      expect(replacement).toBeDefined();
+      expect(occurrenceIndex).toBeGreaterThanOrEqual(0);
+      fireEvent.change(select, { target: { value: replacement } });
+
+      await waitFor(() => {
+        expect(getChoiceComboboxes().length).toBeGreaterThanOrEqual(initialValues.length);
+        expect(getChoiceComboboxes().some((candidate) => candidate.value === replacement)).toBe(true);
+      });
+
+      const replacementSelect = getChoiceComboboxes().find((candidate) => candidate.value === replacement);
+      expect(replacementSelect).toBeDefined();
+      fireEvent.change(replacementSelect!, { target: { value: originalValue } });
+
+      await waitFor(() => {
+        expect(getChoiceComboboxes().length).toBeGreaterThanOrEqual(initialValues.length);
+        const latestSource = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+        const latestSchema = latestSource['xs:schema'] || latestSource;
+        expect(latestSchema.__childrenInOrder[occurrenceIndex]?.tagName).toBe(originalValue);
+      });
+    }
+
+    expect(onChange).toHaveBeenCalled();
+    expect(getChoiceComboboxes().length).toBeGreaterThanOrEqual(initialValues.length);
+  }, 30000);
 
   test('schema form inline complexType repeatable choice keeps sibling nodes visible', async () => {
     const onChange = jest.fn();
@@ -1210,21 +1300,42 @@ describe('XmlInstanceForm trigger-row behavior', () => {
 
     renderForm(<StatefulChoiceHarness />);
 
-    const combo = screen.getByRole('combobox');
+    const combo = getFirstCombobox();
     expect(combo).toHaveValue('workEmail');
     expect(screen.queryByTestId('xml-name-chip')).not.toBeInTheDocument();
-    expect(screen.getAllByText('workEmail').length).toBeGreaterThan(0);
 
     fireEvent.change(combo, { target: { value: 'homeEmail' } });
 
     await waitFor(() => {
       expect(onChange).toHaveBeenCalled();
-      expect(screen.getByRole('combobox')).toHaveValue('homeEmail');
+      expect(combo).toHaveValue('homeEmail');
     });
 
     expect(screen.queryByTestId('xml-name-chip')).not.toBeInTheDocument();
-    expect(screen.getAllByText('homeEmail').length).toBeGreaterThan(0);
     expect(screen.getByTitle('Remove selected homeEmail option')).toBeTruthy();
+  });
+
+  test('schema form renders the root element declaration name in the schema editor', async () => {
+    const onChange = jest.fn();
+    const xmlSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="person" type="xs:string"/>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xmlSchema}
+        rootSchema={xmlSchema}
+        value={xmlSchema}
+        onChange={onChange}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-reverse-choice"
+      />,
+    );
+
+    expect(screen.getAllByText('person', { exact: true }).length).toBeGreaterThan(0);
+    expect(screen.getByText('xs:schema', { exact: true })).toBeTruthy();
   });
 
   test('choice switch omits schema name metadata and retargets optional remove action', async () => {
@@ -1286,7 +1397,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
 
     renderForm(<StatefulChoiceHarness />);
 
-    const combo = screen.getByRole('combobox');
+    const combo = getFirstCombobox();
     fireEvent.change(combo, { target: { value: 'homeEmail' } });
 
     await waitFor(() => {

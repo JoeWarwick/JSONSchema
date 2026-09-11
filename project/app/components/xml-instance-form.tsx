@@ -636,7 +636,7 @@ function XmlElementNode({
   const initiallyExpanded = Boolean(autoExpandAll && initialAutoExpandPathsRef?.current.has(pathKey));
   const explicitlyExpanded = expandedPaths.has(pathKey);
   const explicitlyCollapsed = expandedPaths.has(collapsedKey);
-  const expanded = explicitlyExpanded || (initiallyExpanded && !explicitlyCollapsed);
+  const expanded = explicitlyExpanded || (autoExpandAll && isSchemaForm && path.length === 0 && !explicitlyCollapsed) || (initiallyExpanded && !explicitlyCollapsed);
   const elementTagName = typeof element.tagName === 'string' ? element.tagName : '';
   const localTagName = elementTagName.replace(/^.*:/, '');
   
@@ -1183,11 +1183,11 @@ function XmlElementNode({
     selectedOption: string | null;
     options: Array<{ name: string; node: SchemaNode }>;
     // choiceKey: string;
-  }) => {
+  }, choicePath: string[]) => {
     const selected = choiceGroupData.selectedOption;
     if (!selected) return;
 
-    onUpdateValue(path, (current) => {
+    onUpdateValue(choicePath.slice(0, -1), (current) => {
       const updated = { ...(current || {}) };
       delete updated[selected];
 
@@ -1201,9 +1201,51 @@ function XmlElementNode({
     });
   };
 
+  const inferChoiceDisplayName = (choiceNode: any): string | undefined => {
+    if (!choiceNode || typeof choiceNode !== 'object') {
+      return undefined;
+    }
+
+    if (Array.isArray(choiceNode)) {
+      for (const item of choiceNode) {
+        const inferred = inferChoiceDisplayName(item);
+        if (inferred) return inferred;
+      }
+      return undefined;
+    }
+
+    const attributes = choiceNode['@attributes'];
+    if (attributes && typeof attributes === 'object' && !Array.isArray(attributes)) {
+      const attributeName = attributes.name ?? attributes['@name'];
+      if (typeof attributeName === 'string' && attributeName.trim().length > 0) {
+        return attributeName.trim();
+      }
+    }
+
+    if (typeof choiceNode.name === 'string' && choiceNode.name.trim().length > 0) {
+      return choiceNode.name.trim();
+    }
+
+    if (typeof choiceNode['@name'] === 'string' && choiceNode['@name'].trim().length > 0) {
+      return choiceNode['@name'].trim();
+    }
+
+    for (const key of Object.keys(choiceNode)) {
+      if (key.startsWith('@') || key.startsWith('_') || key === 'nodeName') continue;
+      const inferred = inferChoiceDisplayName(choiceNode[key]);
+      if (inferred) return inferred;
+    }
+
+    return undefined;
+  };
+
   const ensureChoiceSelectionLabel = (choiceNode: any, optionName: string) => {
+    const inferredName = inferChoiceDisplayName(choiceNode);
+
     if (!choiceNode || typeof choiceNode !== 'object' || Array.isArray(choiceNode)) {
-      return isSchemaForm ? { '@attributes': { name: optionName } } : { _text: '' };
+      return isSchemaForm
+        ? { '@attributes': { name: inferredName || optionName } }
+        : { _text: '' };
     }
 
     const nextNode = { ...choiceNode };
@@ -1227,7 +1269,7 @@ function XmlElementNode({
     };
 
     if (!nextAttributes.name) {
-      nextAttributes.name = optionName;
+      nextAttributes.name = inferredName || optionName;
     }
 
     nextNode['@attributes'] = nextAttributes;
@@ -1240,14 +1282,14 @@ function XmlElementNode({
     newSelectedOption: string,
   ) => {
     const updated = { ...(current || {}) };
-    let currentlySelectedOption: string | null = null;
-
-    for (const opt of choiceGroupData.options) {
-      if (updated[opt.name] !== undefined) {
-        currentlySelectedOption = opt.name;
-        break;
+    const currentlySelectedOption = choiceGroupData.selectedOption || (() => {
+      for (const opt of choiceGroupData.options) {
+        if (updated[opt.name] !== undefined) {
+          return opt.name;
+        }
       }
-    }
+      return null;
+    })();
 
     for (const opt of choiceGroupData.options) {
       if (opt.name !== newSelectedOption) {
@@ -1260,7 +1302,18 @@ function XmlElementNode({
 
     if (!updated[newSelectedOption]) {
       const restored = restoreChoiceDataFromStorage(value, path, newSelectedOption);
-      updated[newSelectedOption] = ensureChoiceSelectionLabel(restored || { _text: '' }, newSelectedOption);
+      const previousName = currentlySelectedOption
+        ? current?.[currentlySelectedOption]?.['@attributes']?.name
+          ?? current?.[currentlySelectedOption]?.name
+          ?? current?.[currentlySelectedOption]?.['@name']
+        : undefined;
+      const previousSelection = isSchemaForm && previousName
+        ? { '@attributes': { name: previousName } }
+        : undefined;
+      updated[newSelectedOption] = ensureChoiceSelectionLabel(
+        restored || previousSelection || { _text: '' },
+        newSelectedOption,
+      );
     } else {
       updated[newSelectedOption] = ensureChoiceSelectionLabel(updated[newSelectedOption], newSelectedOption);
     }
@@ -1275,6 +1328,59 @@ function XmlElementNode({
       });
     }
 
+    return updated;
+  };
+
+  const applyRepeatingChoiceSwitch = (
+    current: any,
+    currentOption: string,
+    newSelectedOption: string,
+    selectedValue: any,
+  ) => {
+    const updated = { ...(current || {}) };
+    const childrenOrder = Array.isArray(updated['__childrenInOrder'])
+      ? updated['__childrenInOrder'] as any[]
+      : [];
+    const serializedSelectedValue = JSON.stringify(selectedValue);
+    let selectedIndex = childrenOrder.findIndex((item) => (
+      item?.tagName === currentOption
+      && JSON.stringify(item?.value) === serializedSelectedValue
+    ));
+    if (selectedIndex < 0) {
+      selectedIndex = childrenOrder.findIndex((item) => item?.tagName === currentOption);
+    }
+    if (selectedIndex < 0) return updated;
+
+    const replacementValue = ensureChoiceSelectionLabel(selectedValue, newSelectedOption);
+    const nextChildrenOrder = childrenOrder.map((item, index) => (
+      index === selectedIndex
+        ? { ...item, tagName: newSelectedOption, value: replacementValue }
+        : item
+    ));
+
+    const orderedChildNames = new Set(
+      nextChildrenOrder
+        .map((item) => item?.tagName)
+        .filter((tagName): tagName is string => typeof tagName === 'string' && tagName.length > 0),
+    );
+    const choiceChildNames = new Set(
+      choiceGroups.flatMap((group) => group.options.map((option) => option.name)),
+    );
+    for (const childName of new Set([...orderedChildNames, ...choiceChildNames])) {
+      delete updated[childName];
+    }
+    for (const item of nextChildrenOrder) {
+      if (!item?.tagName) continue;
+      const existing = updated[item.tagName];
+      if (existing === undefined) {
+        updated[item.tagName] = item.value;
+      } else if (Array.isArray(existing)) {
+        updated[item.tagName] = [...existing, item.value];
+      } else {
+        updated[item.tagName] = [existing, item.value];
+      }
+    }
+    updated['__childrenInOrder'] = nextChildrenOrder;
     return updated;
   };
 
@@ -1299,8 +1405,14 @@ function XmlElementNode({
     const isExpanded = expandedPaths.has(selectorPathKey);
     const isCollapsed = expandedPaths.has(collapsedKey);
     const shouldShowChildren = !isCollapsed && (isExpanded || !isSchemaForm);
-    const activeChoiceLabel = isSchemaForm && choiceGroupData.selectedOption
-      ? (value?.[choiceGroupData.selectedOption]?.['@attributes']?.name || choiceGroupData.selectedOption)
+    const selectedChoiceData = isSchemaForm && choiceGroupData.selectedOption
+      ? compiledSchema?.resolveChildData(choiceGroupData.selectedOption, element?.tagName, value, path.length === 0)
+      : null;
+    const activeChoiceLabel = selectedChoiceData
+      ? (selectedChoiceData['@attributes']?.name
+        ?? selectedChoiceData.name
+        ?? selectedChoiceData['@name']
+        ?? choiceGroupData.selectedOption)
       : null;
 
     return (
@@ -1330,8 +1442,9 @@ function XmlElementNode({
           value={choiceGroupData.selectedOption || ''}
           onChange={(e) => {
             const newSelectedOption = e.target.value;
+            console.log('[choice-select-change]', { newSelectedOption, currentChoice: choiceGroupData.selectedOption, choicePath });
             if (newSelectedOption === choiceGroupData.selectedOption) return;
-            onUpdateValue(path, (current) => applyExclusiveChoiceSwitch(current, choiceGroupData, newSelectedOption));
+            onUpdateValue(choicePath.slice(0, -1), (current) => applyExclusiveChoiceSwitch(current, choiceGroupData, newSelectedOption));
           }}
           style={{
             padding: '6px 8px',
@@ -1380,7 +1493,7 @@ function XmlElementNode({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={() => removeChoiceSelection(choiceGroupData)}
+                onClick={() => removeChoiceSelection(choiceGroupData, choicePath)}
                 className={styles.removeButton}
                 title={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
                 aria-label={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
@@ -1398,32 +1511,73 @@ function XmlElementNode({
   const applyRepeatableChoiceSwitch = (
     current: any,
     childElementName: string,
-    itemIndex: number,
+    itemIndexOrValue: number | any,
     newElementType: string,
   ) => {
     const updated = { ...(current || {}) };
-    const oldData = Array.isArray(updated[childElementName])
-      ? updated[childElementName][itemIndex]
-      : updated[childElementName];
+    const oldValues = Array.isArray(updated[childElementName])
+      ? [...updated[childElementName]]
+      : updated[childElementName] === undefined
+        ? []
+        : [updated[childElementName]];
+    const itemIndex = typeof itemIndexOrValue === 'number'
+      ? itemIndexOrValue
+      : oldValues.findIndex((value) => JSON.stringify(value) === JSON.stringify(itemIndexOrValue));
+    const oldData = oldValues[itemIndex];
+    if (oldData === undefined) return updated;
 
-    if (Array.isArray(updated[childElementName])) {
-      updated[childElementName].splice(itemIndex, 1);
-      if (updated[childElementName].length === 0) {
-        delete updated[childElementName];
-      } else if (updated[childElementName].length === 1) {
-        updated[childElementName] = updated[childElementName][0];
+    const childrenOrder = Array.isArray(updated['__childrenInOrder'])
+      ? updated['__childrenInOrder'] as any[]
+      : [];
+    const selectedOrderIndexes = childrenOrder
+      .map((item, index) => item?.tagName === childElementName ? index : -1)
+      .filter((index) => index >= 0);
+    const selectedOrderIndex = selectedOrderIndexes[itemIndex];
+
+    if (selectedOrderIndex < 0) return updated;
+
+    const replacementValue = ensureChoiceSelectionLabel(oldData, newElementType);
+    const switchedChildrenOrder = childrenOrder.map((item, index) => (
+      index === selectedOrderIndex
+        ? { ...item, tagName: newElementType, value: replacementValue }
+        : item
+    ));
+    const singletonMetadataNames = new Set(['annotation', 'import', 'include', 'redefine']);
+    const seenMetadata = new Set<string>();
+    const nextChildrenOrder = switchedChildrenOrder.filter((item) => {
+      const localName = String(item?.tagName || '').replace(/^.*:/, '').toLowerCase();
+      if (!singletonMetadataNames.has(localName)) return true;
+      const identity = `${localName}:${JSON.stringify(item?.value)}`;
+      if (seenMetadata.has(identity)) return false;
+      seenMetadata.add(identity);
+      return true;
+    });
+
+    // __childrenInOrder is the canonical occurrence list. Rebuild every
+    // represented bucket from it so stale duplicate arrays cannot survive.
+    const orderedChildNames = new Set(
+      nextChildrenOrder
+        .map((item) => item?.tagName)
+        .filter((tagName): tagName is string => typeof tagName === 'string' && tagName.length > 0),
+    );
+    const choiceChildNames = new Set(
+      choiceGroups.flatMap((group) => group.options.map((option) => option.name)),
+    );
+    for (const childName of new Set([...orderedChildNames, ...choiceChildNames])) {
+      delete updated[childName];
+    }
+    for (const item of nextChildrenOrder) {
+      if (!item?.tagName) continue;
+      const existing = updated[item.tagName];
+      if (existing === undefined) {
+        updated[item.tagName] = item.value;
+      } else if (Array.isArray(existing)) {
+        updated[item.tagName] = [...existing, item.value];
+      } else {
+        updated[item.tagName] = [existing, item.value];
       }
-    } else {
-      delete updated[childElementName];
     }
-
-    if (!updated[newElementType]) {
-      updated[newElementType] = oldData;
-    } else if (Array.isArray(updated[newElementType])) {
-      updated[newElementType].push(oldData);
-    } else {
-      updated[newElementType] = [updated[newElementType], oldData];
-    }
+    updated['__childrenInOrder'] = nextChildrenOrder;
 
     return updated;
   };
@@ -2433,9 +2587,13 @@ function XmlElementNode({
                         <span>{compactAddLabel(trigger.label)}</span>
                       </button>
                     ))}
-                    {schemaNode?.children && schemaNode.children.length > 0 ? schemaNode.children.map((childSchemaNode, triggerIndex) => {
+                    {schemaNode?.children && schemaNode.children.length > 0 ? (() => {
+                      const renderedTriggerNames = new Set<string>();
+                      return schemaNode.children.map((childSchemaNode, triggerIndex) => {
                       const childElementName = childSchemaNode.label || childSchemaNode.tagName || `child-${triggerIndex}`;
                       const normalizedChildLocal = String(childElementName).replace(/^.*:/, '').toLowerCase();
+                      if (renderedTriggerNames.has(normalizedChildLocal)) return null;
+                      renderedTriggerNames.add(normalizedChildLocal);
                       const shouldSkipDuplicateRootTrigger =
                         isSchemaForm &&
                         path.length === 0 &&
@@ -2490,7 +2648,8 @@ function XmlElementNode({
                           </button>
                         </div>
                       );
-                    }) : null}
+                      });
+                    })() : null}
                   </div>
                 ) : null}
               </div>
@@ -2636,6 +2795,7 @@ function XmlElementNode({
                         finalFiltered
                           .map((entry: any) => entry?.childSchemaNode?.label || entry?.childSchemaNode?.tagName)
                           .filter((name: unknown): name is string => typeof name === 'string' && name.length > 0)
+                          .map((name) => name.replace(/^.*:/, '').toLowerCase())
                       );
 
                       const valueForInstanceChildren =
@@ -2684,7 +2844,8 @@ function XmlElementNode({
                       for (const { tagName, childValue } of instanceChildEntries) {
                         const localTagName = tagName.replace(/^.*:/, '').toLowerCase();
                         const isEnumerationTag = localTagName === 'enumeration';
-                        if (!tagName || (existingSchemaNames.has(tagName) && !isEnumerationTag)) continue;
+                        const normalizedTagName = tagName.replace(/^.*:/, '').toLowerCase();
+                        if (!tagName || (existingSchemaNames.has(normalizedTagName) && !isEnumerationTag)) continue;
 
                         if (Array.isArray(childValue)) {
                           for (const item of childValue) {
@@ -2752,6 +2913,22 @@ function XmlElementNode({
 
                       if (namespaceMatchKey) {
                         childInstanceData = currentValue[namespaceMatchKey];
+                      }
+                    }
+
+                    if (isSchemaForm && path.length === 0 && value && typeof value === 'object') {
+                      const rootValue = value[element?.tagName || ''] && typeof value[element?.tagName || ''] === 'object'
+                        ? value[element?.tagName || '']
+                        : value;
+                      const singletonMetadataNames = new Set(['annotation', 'import', 'include', 'redefine']);
+                      const childLocalName = childElementName.replace(/^.*:/, '').toLowerCase();
+                      const orderedEntries = Array.isArray(rootValue?.__childrenInOrder)
+                        ? rootValue.__childrenInOrder.filter((entry: any) => (
+                            String(entry?.tagName || '').replace(/^.*:/, '').toLowerCase() === childLocalName
+                          ))
+                        : [];
+                      if (singletonMetadataNames.has(childLocalName) && orderedEntries.length === 1) {
+                        childInstanceData = orderedEntries[0].value;
                       }
                     }
 
@@ -2906,7 +3083,8 @@ function XmlElementNode({
                       const shouldShowChildren = !isRowCollapsed && (isRowExpanded || !isSchemaForm);
                       
                       // Extract @name attribute for display from element's attributes
-                      const elementNameAttr = elementToRender?.['@attributes']?.name;
+                      const elementNameAttr = elementToRender?.['@attributes']?.name
+                        ?? elementToRender?.attributes?.find((attribute: XmlAttribute) => attribute.name === 'name')?.value;
                       const displayName = isSchemaForm && typeof elementNameAttr === 'string' && elementNameAttr.trim().length > 0
                         ? elementNameAttr.trim()
                         : null;
@@ -2939,6 +3117,9 @@ function XmlElementNode({
                               onChange={(e) => {
                                 const newElementType = e.target.value;
                                 if (newElementType === childElementName) return;
+                                onUpdateValue(path, (current) => choiceGroupData.isExclusive
+                                  ? applyExclusiveChoiceSwitch(current, choiceGroupData, newElementType)
+                                  : applyRepeatingChoiceSwitch(current, childElementName, newElementType, effectiveChildInstanceData));
                               }}
                               style={{
                                 padding: '6px 8px',
@@ -2973,6 +3154,22 @@ function XmlElementNode({
                               >
                                 {displayName}
                               </span>
+                            )}
+                            {canRemoveChildOccurrence(childElementName, childSchemaNode) && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeChildOccurrence(childElementName, childSchemaNode)}
+                                    className={styles.removeButton}
+                                    title={`Remove ${childElementName}`}
+                                    aria-label={`Remove ${childElementName}`}
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent>{`Remove ${childElementName}`}</TooltipContent>
+                              </Tooltip>
                             )}
                           </div>
                           {shouldShowChildren && (
@@ -3863,13 +4060,18 @@ function XmlInstanceFormContent({
     }
   }, [expandedPaths, expansionStorageKey, path]);
 
-  // Detect if value is wrapped (e.g., { person: {...} }) and track the wrapper key.
-  // Only treat as wrapped when there is exactly one top-level non-metadata key.
+  // Detect if value is wrapped (e.g., { person: {...} } or { 'xs:schema': {...} }).
+  // Ignore namespace declarations and other metadata so wrapped XML schema roots
+  // are still recognized even when they contain keys like `xmlns:xs`.
   const wrapperKey = useMemo(() => {
     if (!value || typeof value !== 'object') return null;
-    const dataKeys = Object.keys(value).filter(
-      (k) => !k.startsWith('@') && !k.startsWith('_') && !k.startsWith('__')
-    );
+
+    const dataKeys = Object.keys(value).filter((k) => {
+      if (k.startsWith('@') || k.startsWith('_') || k.startsWith('__')) return false;
+      if (k === 'xmlns' || k.startsWith('xmlns:') || k.startsWith('xml:')) return false;
+      return true;
+    });
+
     if (dataKeys.length !== 1) return null;
 
     const candidateKey = dataKeys[0];
@@ -4224,23 +4426,26 @@ function XmlInstanceFormContent({
     const current = value || schema;
     if (!current || typeof current !== 'object') return;
 
-    console.log('[debug-handleUpdateValue-start]', { pathArray, current });
+    console.log('[debug-handleUpdateValue-start]', { pathArray, current, wrapperKey });
 
-    // Deep clone the current value
+    // Deep clone the current value.
     const updated = JSON.parse(JSON.stringify(current));
 
-    // Adjust path for wrapped values so child element edits always target
-    // the wrapped root object (for example value.person.firstName).
-    let adjustedPath = pathArray;
-    if (wrapperKey) {
-      const startsAtWrapper = adjustedPath.length > 0 && adjustedPath[0] === wrapperKey;
-      adjustedPath = startsAtWrapper ? adjustedPath : [wrapperKey, ...adjustedPath];
-    }
+    // For wrapped roots such as { 'xs:schema': { ... } }, operate on the inner
+    // schema payload directly while preserving the wrapper object structure.
+    const updateTarget = wrapperKey && updated[wrapperKey] && typeof updated[wrapperKey] === 'object'
+      ? updated[wrapperKey]
+      : updated;
 
-    // If path is empty, update root
-    if (adjustedPath.length === 0) {
-      const result = updateFn(updated);
-      onChange(result);
+    // Empty path means update the root payload itself.
+    if (pathArray.length === 0) {
+      const result = updateFn(updateTarget);
+      if (wrapperKey && updated[wrapperKey] && typeof updated[wrapperKey] === 'object') {
+        updated[wrapperKey] = result;
+        onChange(updated);
+      } else {
+        onChange(result);
+      }
       return;
     }
 
@@ -4258,10 +4463,10 @@ function XmlInstanceFormContent({
       return container[orderedKeys[index]];
     };
 
-    let target: any = updated;
-    for (let i = 0; i < adjustedPath.length - 1; i++) {
-      const segment = adjustedPath[i];
-      const nextSegment = adjustedPath[i + 1];
+    let target: any = updateTarget;
+    for (let i = 0; i < pathArray.length - 1; i++) {
+      const segment = pathArray[i];
+      const nextSegment = pathArray[i + 1];
       const currentIsArray = Array.isArray(target);
       const segmentIsIndex = /^\d+$/.test(segment);
       const nextIsIndex = /^\d+$/.test(nextSegment);
@@ -4286,7 +4491,7 @@ function XmlInstanceFormContent({
     }
 
     // Apply the update function at the last path segment.
-    const lastSegment = adjustedPath[adjustedPath.length - 1];
+    const lastSegment = pathArray[pathArray.length - 1];
     const lastIsIndex = /^\d+$/.test(lastSegment);
 
     if (Array.isArray(target)) {

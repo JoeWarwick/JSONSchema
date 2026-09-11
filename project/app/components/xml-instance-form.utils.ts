@@ -1,13 +1,10 @@
 import type { ValidationFacets } from '../utils/schema-compiler';
 
 export function generateChoiceStorageKey(instanceXml: any, path: string[], optionName: string): string {
-  const instanceStr = JSON.stringify(instanceXml).substring(0, 100);
-  const instanceHash = String(instanceStr.split('').reduce((hash, character) => {
-    hash = ((hash << 5) - hash) + character.charCodeAt(0);
-    return hash & hash;
-  }, 0));
+  const normalizedPath = path.length > 0 ? path.join('/') : 'root';
+  const normalizedOptionName = String(optionName || 'unknown');
 
-  return `choice_${instanceHash}_${path.join('/')}_${optionName}`;
+  return `choice_${normalizedPath}_${normalizedOptionName}`;
 }
 
 export function saveChoiceDataToStorage(instanceXml: any, path: string[], optionName: string, data: any): void {

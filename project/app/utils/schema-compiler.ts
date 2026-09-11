@@ -1067,17 +1067,15 @@ export class CompiledSchema {
       if (result !== undefined) return result;
     }
 
-    // If at root level and value might be wrapped, try unwrapping
+    // If at root level and value might be wrapped, try unwrapping.
+    // The wrapper can contain metadata keys like __childrenInOrder, so do not
+    // rely on the number of top-level keys to infer wrapping.
     if (isRootLevel && rootElementName && value && typeof value === 'object' && !Array.isArray(value)) {
-      // Check if value is wrapped: { person: {...} }
-      const nonAttrKeys = Object.keys(value).filter(k => !k.startsWith('@'));
-      if (nonAttrKeys.length === 1 && nonAttrKeys[0] === rootElementName) {
-        const unwrappedValue = value[rootElementName];
-        if (typeof unwrappedValue === 'object' && unwrappedValue !== null) {
-          for (const key of candidateNames) {
-            const result = unwrappedValue[key];
-            if (result !== undefined) return result;
-          }
+      const unwrappedValue = value[rootElementName];
+      if (typeof unwrappedValue === 'object' && unwrappedValue !== null) {
+        for (const key of candidateNames) {
+          const result = unwrappedValue[key];
+          if (result !== undefined) return result;
         }
       }
     }
