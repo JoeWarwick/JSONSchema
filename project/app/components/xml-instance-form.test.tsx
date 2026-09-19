@@ -22,6 +22,41 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     window.localStorage.clear();
   });
 
+  test('schema form renders XSLT top-level imports and annotation', async () => {
+    const onChange = jest.fn();
+    const walkingSchema = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/XMLSchema.xsd'), 'utf8'),
+      'xml',
+    ) as any;
+    const xsltSchema = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/schema-for-xslt20.xsd'), 'utf8'),
+      'xml',
+    ) as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={walkingSchema}
+        rootSchema={xsltSchema}
+        value={xsltSchema}
+        onChange={onChange}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-expanded"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText('xs:import', { exact: true }).filter((node) => node.tagName === 'SPAN')).toHaveLength(2);
+      expect(screen.getAllByText('xs:annotation', { exact: true }).filter((node) => node.tagName === 'SPAN').length).toBeGreaterThan(0);
+      expect(screen.getAllByRole('button', { name: 'Expand xs:documentation' }).length).toBeGreaterThan(0);
+    });
+
+    const expandDocumentation = screen.getAllByRole('button', { name: 'Expand xs:documentation' })[0];
+    fireEvent.click(expandDocumentation);
+    await waitFor(() => {
+      expect(document.querySelectorAll('textarea').length).toBeGreaterThan(0);
+    });
+  });
+
   test('derives schema form root add buttons from the XSD walk', async () => {
     const onChange = jest.fn();
     const xmlSchema = parseMarkup(`

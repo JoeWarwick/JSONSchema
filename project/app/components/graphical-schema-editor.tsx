@@ -914,7 +914,7 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
 
       addNode({
         id: elementId,
-        label: toNodeLabel('element', elemAttrs, (elemAttrs.name as string) || (elemAttrs.ref as string) || `${index + 1}`),
+        label: toNodeLabel('element', elemAttrs, (elemAttrs.name as string) || (elemAttrs.ref as string) || `${Number(index) + 1}`),
         type: 'property',
         parent: parentId,
         xmlNodeKind: 'element',
@@ -1300,7 +1300,31 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
           const elementPath = Array.isArray(elementValue)
             ? [...basePath, 'xs:element', elemIndex]
             : [...basePath, 'xs:element'];
-          addXmlElementNode(elemEntry, parentId, elementPath, elemIndex, ancestors, inheritedFrom, readOnlySource);
+          const elemAttrs = getXmlAttrs(elemEntry);
+          const referencedName = typeof elemAttrs.ref === 'string' ? localTypeName(elemAttrs.ref) : undefined;
+          const referencedElement = referencedName ? elementsByName.get(referencedName) : undefined;
+          const referencedAttrs = referencedElement ? getXmlAttrs(referencedElement.entry) : undefined;
+          const substitutionMembers = referencedName && referencedAttrs?.abstract === 'true'
+            ? substitutionGroupsByName.get(referencedName)
+            : undefined;
+
+          if (substitutionMembers && substitutionMembers.length > 0) {
+            // An abstract element reference is satisfied by its substitution-group members.
+            // Render those concrete declarations as the available particles in the graph.
+            substitutionMembers.forEach((member, memberIndex) => {
+              addXmlElementNode(
+                member.entry,
+                parentId,
+                ['xs:schema', 'xs:element', member.index],
+                elemIndex * substitutionMembers.length + memberIndex,
+                ancestors,
+                inheritedFrom,
+                readOnlySource,
+              );
+            });
+          } else {
+            addXmlElementNode(elemEntry, parentId, elementPath, elemIndex, ancestors, inheritedFrom, readOnlySource);
+          }
         });
       }
 

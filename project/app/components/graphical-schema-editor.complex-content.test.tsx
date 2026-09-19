@@ -8,6 +8,22 @@ import { parseMarkup } from '../utils/markup';
 import { expandNodeByLabel, expandNodeByDataId } from './test-fixtures/expand-all-nodes';
 
 describe('GraphicalSchemaEditor - xs:complexContent/xs:extension', () => {
+  it('expands inherited instruction attributes for xsl:apply-templates', async () => {
+    const xsdPath = path.join(__dirname, '../../public/schemas/schema-for-xslt20.xsd');
+    const xsd = fs.readFileSync(xsdPath, 'utf-8');
+    const parsed = parseMarkup(xsd, 'xml');
+
+    render(<GraphicalSchemaEditor schema={parsed as any} schemaLanguage="xml" />);
+
+    await expandNodeByLabel('apply-templates');
+
+    expect(await screen.findByText('select')).toBeInTheDocument();
+    expect((await screen.findAllByText('version')).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(document.querySelectorAll('.react-flow__node[data-id$=".inheritance-group"]').length).toBeGreaterThan(0);
+    });
+  }, 20000);
+
   it('expands inherited base-type attributes for an element with an inline complexContent extension', async () => {
     const xsdPath = path.join(__dirname, '../../public/schemas/EigerModelType.xsd');
     const xsd = fs.readFileSync(xsdPath, 'utf-8');

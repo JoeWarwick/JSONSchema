@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import styles from "./xml-instance-form.module.css";
-import { Trash2, ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { Trash2, ChevronDown, ChevronRight, Plus, Maximize2, Minimize2 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip/tooltip";
 import { XmlNodeRhsEditor as XmlInstanceNodeRhsEditor } from './xml-instance-rhs-editors';
 import {
@@ -627,6 +627,58 @@ function xmlElementToSchemaObject(element: XmlElement): any {
 }
 
 // Recursively render an XML element with expansion state
+function ExpandableDocumentationInput({
+  value,
+  onChange,
+  testId,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  testId?: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <>
+      {expanded ? (
+        <textarea
+          data-testid={testId}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          rows={5}
+          style={{ flex: 1, minWidth: 200, padding: '6px 8px', border: '1px solid #ddd', borderRadius: 3, fontSize: 12, resize: 'vertical' }}
+        />
+      ) : (
+        <input
+          data-testid={testId}
+          type="text"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          style={{ flex: 1, maxWidth: 200, padding: '6px 8px', border: '1px solid #ddd', borderRadius: 3, fontSize: 12 }}
+        />
+      )}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setExpanded((current) => !current);
+            }}
+            aria-label={expanded ? 'Collapse xs:documentation' : 'Expand xs:documentation'}
+            title={expanded ? 'Collapse xs:documentation' : 'Expand xs:documentation'}
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 4, border: '1px solid #ddd', borderRadius: 3, background: 'transparent', cursor: 'pointer' }}
+          >
+            {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{expanded ? 'Collapse xs:documentation' : 'Expand xs:documentation'}</TooltipContent>
+      </Tooltip>
+    </>
+  );
+}
+
 function XmlElementNode({
   element,
   path,
@@ -690,6 +742,18 @@ function XmlElementNode({
     any: 'any',
   } as Record<string, string>)[localTagName] : undefined;
   const hasInferredEditor = Boolean(inferredSchemaKind);
+  const renderSchemaTextInput = (
+    widgetHint: string | null,
+    htmlInputType: string,
+    textValue: string,
+    onValueChange: (nextValue: string) => void,
+    fieldTagName: string,
+    testId?: string,
+  ) => {
+    const isDocumentation = isSchemaForm && fieldTagName.replace(/^.*:/, '') === 'documentation';
+    if (isDocumentation) return <ExpandableDocumentationInput value={textValue} onChange={onValueChange} testId={testId} />;
+    return renderSimpleValueInput(widgetHint, htmlInputType, textValue, onValueChange, testId);
+  };
   
   // Helper to find which choice group a child element belongs to
   const getChoiceGroupForChild = (childName: string): { groupIndex: number; isFirst: boolean } | null => {
@@ -2828,7 +2892,19 @@ function XmlElementNode({
                         if (isXmlSchemaElement && childSchemaNode.compositorType !== 'choice') {
                           const count = getChildOccurrenceCount(value, childElementName);
                           const minOccurs = getChildMinOccurs(childSchemaNode);
-                          return count > 0 || minOccurs > 0;
+                          const rootValue = value && typeof value === 'object' && value[element?.tagName || ''] && typeof value[element?.tagName || ''] === 'object'
+                            ? value[element?.tagName || '']
+                            : value;
+                          const childLocalName = String(childElementName).replace(/^.*:/, '').toLowerCase();
+                          const hasOrderedOccurrence = Array.isArray(rootValue?.__childrenInOrder)
+                            && rootValue.__childrenInOrder.some((entry: any) => (
+                              String(entry?.tagName || '').replace(/^.*:/, '').toLowerCase() === childLocalName
+                            ));
+                          const hasParsedOccurrence = element.children.some((child) => (
+                            typeof child !== 'string'
+                            && child.tagName.replace(/^.*:/, '').toLowerCase() === childLocalName
+                          ));
+                          return count > 0 || minOccurs > 0 || hasOrderedOccurrence || hasParsedOccurrence;
                         }
                         
                         // Standard filtering for non-repeating choice or non-choice children
@@ -2895,6 +2971,61 @@ function XmlElementNode({
                         tagName.replace(/^.*:/, '').toLowerCase() === 'enumeration'
                       );
 
+                      const orderedMetadataNames = new Set(['annotation', 'import', 'include', 'redefine']);
+                      const metadataSchemaNodes = new Map<string, SchemaNode[]>();
+                      for (const entry of finalFiltered) {
+                        const schemaName = String(entry?.childSchemaNode?.tagName || '')
+                          .replace(/^.*:/, '')
+                          .toLowerCase();
+                        if (orderedMetadataNames.has(schemaName) && entry.childSchemaNode) {
+                          const nodes = metadataSchemaNodes.get(schemaName) || [];
+                          if (!nodes.includes(entry.childSchemaNode)) nodes.push(entry.childSchemaNode);
+                          metadataSchemaNodes.set(schemaName, nodes);
+                        }
+                      }
+                      const orderedMetadataEntries = instanceChildEntries.filter(({ tagName }) =>
+                        orderedMetadataNames.has(tagName.replace(/^.*:/, '').toLowerCase())
+                      );
+                      const presentMetadataNames = new Set(
+                        orderedMetadataEntries.map(({ tagName }) => tagName.replace(/^.*:/, '').toLowerCase())
+                      );
+                      if (presentMetadataNames.size > 0) {
+                        for (let i = finalFiltered.length - 1; i >= 0; i -= 1) {
+                          const schemaTagName = String(finalFiltered[i]?.childSchemaNode?.tagName || '')
+                            .replace(/^.*:/, '')
+                            .toLowerCase();
+                          if (presentMetadataNames.has(schemaTagName)) {
+                            finalFiltered.splice(i, 1);
+                          }
+                        }
+                        for (const name of presentMetadataNames) {
+                          existingSchemaNames.delete(name);
+                        }
+                        for (let i = orderedMetadataEntries.length - 1; i >= 0; i -= 1) {
+                          const { tagName, childValue } = orderedMetadataEntries[i];
+                          const localName = tagName.replace(/^.*:/, '').toLowerCase();
+                          const metadataNodes = metadataSchemaNodes.get(localName) || [];
+                          const annotationOrdinal = orderedMetadataEntries
+                            .slice(0, i)
+                            .filter((entry) => entry.tagName.replace(/^.*:/, '').toLowerCase() === 'annotation')
+                            .length;
+                          const choiceMetadataNode = metadataNodes.find((node) => node.compositorType === 'choice')
+                            || metadataSchemaNodes.get('import')?.find((node) => node.compositorType === 'choice');
+                          const schemaNodeForOccurrence = localName === 'annotation'
+                            ? (annotationOrdinal > 0
+                              ? choiceMetadataNode || metadataNodes[0] || null
+                              : metadataNodes.find((node) => !node.compositorType) || metadataNodes[0] || null)
+                            : metadataNodes[0] || null;
+                          finalFiltered.unshift({
+                            childElement: childValue,
+                            childSchemaNode: schemaNodeForOccurrence,
+                            index: 0,
+                            instanceDriven: true,
+                            childElementName: tagName,
+                          });
+                        }
+                      }
+
                       if (hasInstanceEnumerations) {
                         for (let i = finalFiltered.length - 1; i >= 0; i -= 1) {
                           const schemaTagName = String(finalFiltered[i]?.childSchemaNode?.tagName || '').replace(/^.*:/, '').toLowerCase();
@@ -2910,6 +3041,7 @@ function XmlElementNode({
                         const localTagName = tagName.replace(/^.*:/, '').toLowerCase();
                         const isEnumerationTag = localTagName === 'enumeration';
                         const normalizedTagName = tagName.replace(/^.*:/, '').toLowerCase();
+                        if (orderedMetadataNames.has(localTagName)) continue;
                         if (!tagName || (existingSchemaNames.has(normalizedTagName) && !isEnumerationTag)) continue;
 
                         if (Array.isArray(childValue)) {
@@ -2992,8 +3124,10 @@ function XmlElementNode({
                             String(entry?.tagName || '').replace(/^.*:/, '').toLowerCase() === childLocalName
                           ))
                         : [];
-                      if (singletonMetadataNames.has(childLocalName) && orderedEntries.length === 1) {
-                        childInstanceData = orderedEntries[0].value;
+                      if (singletonMetadataNames.has(childLocalName) && orderedEntries.length > 0) {
+                        childInstanceData = orderedEntries.length === 1
+                          ? orderedEntries[0].value
+                          : orderedEntries.map((entry: any) => entry.value);
                       }
                     }
 
@@ -3155,7 +3289,15 @@ function XmlElementNode({
                         : null;
                       
                       return (
-                        <div key={`choice-non-array-${childElementName}-${index}`} style={{ display: 'inline-flex', width: 'auto', maxWidth: '100%' }}>
+                        <div
+                          key={`choice-non-array-${childElementName}-${index}`}
+                          style={{
+                            display: path.length === 0 ? 'flex' : 'inline-flex',
+                            width: path.length === 0 ? '100%' : 'auto',
+                            flexBasis: path.length === 0 ? '100%' : 'auto',
+                            maxWidth: '100%',
+                          }}
+                        >
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 8, width: 'auto', maxWidth: '100%' }}>
                             <button
                               type="button"
@@ -3528,7 +3670,7 @@ function XmlElementNode({
                             showExpander: false,
                             children: (
                               <>
-                                {renderSimpleValueInput(
+                                {renderSchemaTextInput(
                                   null,
                                   htmlInputType,
                                   textValue,
@@ -3542,7 +3684,8 @@ function XmlElementNode({
                                       return { _text: nextValue };
                                     });
                                   },
-                                  `xml-element-${sanitize(childElementName)}-input`
+                                  childElementName,
+                                  `xml-element-${sanitize(childElementName)}-input`,
                                 )}
                               </>
                             ),
@@ -3556,7 +3699,7 @@ function XmlElementNode({
                         <label style={{ minWidth: 100, fontSize: 14, fontWeight: 500, color: '#a78bfa' }}>
                           {childElementName}:
                         </label>
-                        {renderSimpleValueInput(
+                        {renderSchemaTextInput(
                           null,
                           htmlInputType,
                           textValue,
@@ -3570,7 +3713,8 @@ function XmlElementNode({
                               return { _text: nextValue };
                             });
                           },
-                          `xml-element-${sanitize(childElementName)}-input`
+                          childElementName,
+                          `xml-element-${sanitize(childElementName)}-input`,
                         )}
                         {canRemoveChildOccurrence(childElementName, childSchemaNode) && (
                           <Tooltip>
@@ -3717,7 +3861,7 @@ function XmlElementNode({
                       <label style={{ minWidth: 100, fontSize: 14, fontWeight: 500, color: '#a78bfa' }}>
                         {child.tagName}:
                       </label>
-                      {renderSimpleValueInput(
+                      {renderSchemaTextInput(
                         widgetHint,
                         htmlInputType,
                         child.text || '',
@@ -3730,7 +3874,9 @@ function XmlElementNode({
                             }
                             return { _text: nextValue };
                           });
-                        }
+                        },
+                        child.tagName,
+                        `xml-element-${sanitize(child.tagName)}-input`,
                       )}
                       <Tooltip>
                         <TooltipTrigger asChild>
