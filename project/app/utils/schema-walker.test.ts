@@ -378,6 +378,45 @@ describe('Schema Walker - Schema Walking', () => {
     expect(annotationChild).toBeTruthy();
     expect(annotationChild?.children.some((grand) => grand.tagName === 'documentation')).toBe(true);
   });
+
+  test('walkSchema should not recurse endlessly on repeated element names in the same branch', () => {
+    const schema = {
+      'xs:schema': {
+        '@attributes': { xmlns: 'http://www.w3.org/2001/XMLSchema' },
+        'xs:element': {
+          '@attributes': { name: 'root' },
+          'xs:complexType': {
+            'xs:sequence': {
+              'xs:element': {
+                '@attributes': { name: 'annotation' },
+                'xs:complexType': {
+                  'xs:sequence': {
+                    'xs:element': {
+                      '@attributes': { name: 'annotation' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    } as any;
+
+    const compiled = compileSchemaForWalking(schema['xs:schema']);
+
+    expect(() => {
+      walkSchema(compiled, {
+        rootSchema: schema['xs:schema'],
+        compiledSchema: compiled,
+        visitedTypes: new Set(),
+        depth: 0,
+        maxDepth: 50,
+        path: [],
+        typeName: 'root',
+      });
+    }).not.toThrow();
+  });
 });
 
 describe('Schema Walker - Compiled Schema API', () => {

@@ -605,6 +605,26 @@ function parseXmlElement(node: any, tagNameHint?: string): XmlElement | null {
     isCompositor,
   };
 }
+function xmlElementToSchemaObject(element: XmlElement): any {
+  const result: Record<string, any> = { '@attributes': {} };
+  for (const attribute of element.attributes || []) {
+    result['@attributes'][attribute.name] = attribute.value;
+  }
+
+  for (const child of element.children || []) {
+    if (typeof child === 'string') continue;
+    const childObject = xmlElementToSchemaObject(child);
+    const existing = result[child.tagName];
+    result[child.tagName] = existing === undefined
+      ? childObject
+      : Array.isArray(existing)
+        ? [...existing, childObject]
+        : [existing, childObject];
+  }
+
+  if (element.text) result._text = element.text;
+  return result;
+}
 
 // Recursively render an XML element with expansion state
 function XmlElementNode({
@@ -906,6 +926,9 @@ function XmlElementNode({
   const schemaNodeName = isSchemaForm && typeof nodeNameAttribute === 'string' && nodeNameAttribute.trim().length > 0
     ? nodeNameAttribute.trim()
     : null;
+  const isAnonymousSchemaType = isSchemaForm
+    && (localTagName === 'complexType' || localTagName === 'simpleType')
+    && !schemaNodeName;
   
   // Debug: Log when @name badge should render
   if (isSchemaForm) {
@@ -1987,6 +2010,25 @@ function XmlElementNode({
               {schemaNodeName}
             </span>
           )}
+          {isAnonymousSchemaType && (
+            <span
+              data-testid="xml-anonymous-type"
+              style={{
+                color: '#92400e',
+                backgroundColor: '#fffbeb',
+                border: '1px solid #fcd34d',
+                borderRadius: 999,
+                padding: '1px 8px',
+                fontSize: 11,
+                fontWeight: 600,
+                lineHeight: 1.6,
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
+              Anonymous type
+            </span>
+          )}
         </div>
         )}
         {hasText && !expanded && (
@@ -2732,7 +2774,26 @@ function XmlElementNode({
                       console.log('[SCHEMA DRIVEN]', localTagName, 'schemaNode.children.length:', schemaNode.children?.length);
                     }
                     const filtered = schemaNode.children
-                      .map((childSchemaNode, index) => ({ childSchemaNode, index, instanceDriven: false }))
+                      .map((childSchemaNode, index) => {
+                        if (isSchemaForm && localTagName === 'element' && childSchemaNode.tagName.replace(/^.*:/, '') === 'complexType') {
+                          const inlineComplexType = element.children.find((child): child is XmlElement =>
+                            typeof child !== 'string' && child.tagName.replace(/^.*:/, '') === 'complexType'
+                          );
+                          if (inlineComplexType && compiledSchema) {
+                            const walkedInlineType = walkSchema(compiledSchema, {
+                              rootSchema: rootSchema?.['xs:schema'] || rootSchema,
+                              compiledSchema,
+                              visitedTypes: new Set(),
+                              inlineTypeDefinition: xmlElementToSchemaObject(inlineComplexType),
+                              depth: 0,
+                              maxDepth: 4,
+                              path: [...path, childSchemaNode.label || childSchemaNode.tagName],
+                            });
+                            return { childSchemaNode: walkedInlineType, index, instanceDriven: false };
+                          }
+                        }
+                        return { childSchemaNode, index, instanceDriven: false };
+                      })
                       .filter(({ childSchemaNode }) => {
                         // For xs:schema: prefer direct (non-choice) elements over choice duplicates
                         const childElementName = childSchemaNode.label || childSchemaNode.tagName;
@@ -2761,9 +2822,13 @@ function XmlElementNode({
                           return count > 0 || minOccurs > 0;
                         }
                         
-                        // For non-choice elements in xs:schema: always show them (they're preferred over choice duplicates)
+                        // For non-choice elements in xs:schema, only render children that are
+                        // present in the edited document or required by the meta-schema. Optional
+                        // metadata such as xs:annotation remains available through add triggers.
                         if (isXmlSchemaElement && childSchemaNode.compositorType !== 'choice') {
-                          return true;
+                          const count = getChildOccurrenceCount(value, childElementName);
+                          const minOccurs = getChildMinOccurs(childSchemaNode);
+                          return count > 0 || minOccurs > 0;
                         }
                         
                         // Standard filtering for non-repeating choice or non-choice children
@@ -4320,17 +4385,26 @@ function XmlInstanceFormContent({
       // Extract the type from the element definition
       const attrs = elementDef['@attributes'] || elementDef;
       let typeName = attrs?.type;
+      const localName = rootElement.tagName.includes(':')
+        ? rootElement.tagName.split(':')[1]
+        : rootElement.tagName;
       
       // If no explicit type, check for synthetic type (e.g., "schema__type" for xs:schema)
-      if (!typeName) {
-        const localName = rootElement.tagName.includes(':') 
-          ? rootElement.tagName.split(':')[1] 
-          : rootElement.tagName;
+      if (!typeName && localName === 'schema') {
         const syntheticTypeName = `${localName}__type`;
         // Try to get the synthetic type from compiledSchema
         const syntheticType = compiledSchema.getType?.(syntheticTypeName);
         if (syntheticType) {
           typeName = syntheticTypeName;
+        }
+      }
+
+      // Global elements may declare an anonymous complexType instead of a named type.
+      // Keep the inline definition so the walker can expand its sequence/choice and attributes.
+      if (!typeName) {
+        const inlineTypeDefinition = elementDef['xs:complexType'] || elementDef['complexType'] || elementDef['xs:simpleType'] || elementDef['simpleType'];
+        if (inlineTypeDefinition) {
+          typeName = `inline:${localName}`;
         }
       }
       
@@ -4350,7 +4424,7 @@ function XmlInstanceFormContent({
         typeName,
         inlineTypeDefinition: elementDef['xs:complexType'] || elementDef['complexType'] || elementDef['xs:simpleType'] || elementDef['simpleType'],
         depth: 0,
-        maxDepth: 50,
+        maxDepth: 0,
         path: [],
       });
       

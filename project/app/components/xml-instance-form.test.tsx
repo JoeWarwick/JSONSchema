@@ -65,6 +65,41 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     });
   });
 
+  test('does not render an absent root annotation as an existing Schema Form node', async () => {
+    const onChange = jest.fn();
+    const xmlSchemaDefinition = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/XMLSchema.xsd'), 'utf8'),
+      'xml',
+    ) as any;
+    const eigerSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="UpgradeStep">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="Models"/>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xmlSchemaDefinition}
+        rootSchema={eigerSchema}
+        value={eigerSchema}
+        onChange={onChange}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-expanded"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('xml-tag-xs_annotation')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Add xs:annotation/i })).toBeInTheDocument();
+    });
+  });
+
   test('does not render the xs:schema source wrapper as a nested schema node', async () => {
     const onChange = jest.fn();
     const xmlSchema = parseMarkup(`
@@ -89,6 +124,97 @@ describe('XmlInstanceForm trigger-row behavior', () => {
 
     await waitFor(() => {
       expect(screen.getAllByText('xs:schema', { exact: true })).toHaveLength(1);
+    });
+  });
+
+  test('labels inline anonymous complexTypes instead of making them look like annotation fields', async () => {
+    const onChange = jest.fn();
+    const xmlSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="UpgradeStep">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="Models"/>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xmlSchema}
+        rootSchema={xmlSchema}
+        value={xmlSchema}
+        onChange={onChange}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-expanded"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('xml-anonymous-type')).toHaveLength(1);
+      expect(screen.getByText('Anonymous type')).toBeInTheDocument();
+    });
+  });
+
+  test('walks a root element with an inline complexType such as UpgradeStep', async () => {
+    const onChange = jest.fn();
+    const xmlSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="UpgradeStep">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="Models"/>
+            </xs:sequence>
+            <xs:attribute name="from-version" use="required"/>
+          </xs:complexType>
+        </xs:element>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xmlSchema}
+        rootSchema={xmlSchema}
+        value={{ UpgradeStep: {} }}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Add Models/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /from-version/i })).toBeInTheDocument();
+    });
+  });
+
+  test('renders UpgradeStep inline complexType content in schema form', async () => {
+    const onChange = jest.fn();
+    const xmlSchemaDefinition = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/XMLSchema.xsd'), 'utf8'),
+      'xml',
+    ) as any;
+    const eigerSchema = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/EigerModelType.xsd'), 'utf8'),
+      'xml',
+    ) as any;
+    const upgradeStep = eigerSchema['xs:schema']['xs:element'][0];
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xmlSchemaDefinition}
+        rootSchema={eigerSchema}
+        value={{ 'xs:element': upgradeStep }}
+        onChange={onChange}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-eiger-inline-complex-type"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('xml-tag-xs_complexType').length).toBeGreaterThan(0);
+      expect(screen.getAllByTestId('xml-tag-xs_sequence').length).toBeGreaterThan(0);
     });
   });
 

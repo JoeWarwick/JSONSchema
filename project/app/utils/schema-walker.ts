@@ -1109,6 +1109,7 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
   }
 
   const resolvedType = compiledSchema.resolveType(typeName);
+  const activeTypeKey = typeName.replace(/^.*:/, '');
   
   const node: SchemaNode = {
     tagName: typeName,
@@ -1125,13 +1126,22 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
   };
 
   // If circular reference detected, stop here
-  if (context.visitedTypes.has(typeName)) {
+  if (context.visitedTypes.has(typeName) || context.visitedTypes.has(activeTypeKey)) {
     node.isCircular = true;
     return node;
   }
 
   if (resolvedType) {
-    context.visitedTypes.add(typeName);
+    context.visitedTypes.add(activeTypeKey);
+    const resolvedSchemaObj = resolvedType.schemaObj;
+    const resolvedRestriction = resolvedSchemaObj?.['xs:restriction'] || resolvedSchemaObj?.['restriction'];
+
+    if (resolvedType.baseType) {
+      node.restriction = String(resolvedType.baseType);
+    }
+    if (resolvedRestriction && typeof resolvedRestriction === 'object') {
+      node.schemaObj = resolvedSchemaObj;
+    }
     
     node.attributes = resolvedType.attributes.map(attr => ({
       name: attr.name,
@@ -1155,13 +1165,34 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
         }
         let childTypeName: string | undefined = elem.type;
         let childInlineTypeDefinition: any = undefined;
+        const childLocalName = String(elem.name).replace(/^.*:/, '');
+        const ancestorNames = new Set(context.path.map((segment) => String(segment).replace(/^.*:/, '')));
+
+        // The XMLSchema meta-schema intentionally repeats structural names like
+        // xs:element / xs:annotation along a single branch. Re-entering the same
+        // local name on the current ancestry path does not produce new schema
+        // information, so stop descending rather than recursing forever.
+        if (ancestorNames.has(childLocalName)) {
+          node.children.push({
+            tagName: elem.name,
+            label: elem.name,
+            nodeType: 'element',
+            minOccurs: elem.minOccurs,
+            maxOccurs: elem.maxOccurs === 'unbounded' ? 'unbounded' : elem.maxOccurs,
+            children: [],
+            attributes: [],
+            elementType: childTypeName,
+            isRequired: elem.minOccurs > 0,
+            compositorType: elem.compositorType,
+          });
+          continue;
+        }
 
         // For ref-based children (for example xs:element ref="xs:annotation"), resolve
         // the actual global element definition so recursion stays schema-driven.
         if (!childTypeName && elem.name) {
-          const normalizedChildName = String(elem.name).replace(/^.*:/, '');
           const globalElementDef =
-            compiledSchema.getElement(normalizedChildName) ||
+            compiledSchema.getElement(childLocalName) ||
             findElementInSchema(context.rootSchema, elem.name);
 
           if (globalElementDef && typeof globalElementDef === 'object') {
@@ -1195,28 +1226,45 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
           continue;
         }
 
-        const childContext = {
-          ...context,
-          depth: context.depth + 1,
-          path: [...context.path, elem.name],
-          typeName: childTypeName, // Pass resolved type so walkSchema knows which type to walk
-          inlineTypeDefinition: childInlineTypeDefinition,
-        };
-        const childNode = walkSchema(compiledSchema, childContext);
-        // Preserve the element name as the label/tagName (overwrite the type name)
-        childNode.tagName = elem.name;
-        childNode.label = elem.name;
-        childNode.minOccurs = elem.minOccurs;
-        childNode.maxOccurs = elem.maxOccurs === 'unbounded' ? 'unbounded' : elem.maxOccurs;
-        // The element's position in its parent's compositor (choice/sequence/all) takes precedence
-        // This determines whether the element renders as a choice dropdown, sequence member, etc.
-        if (elem.compositorType) {
-          childNode.compositorType = elem.compositorType;
-          if (elem.compositorType === 'choice') {
-            console.log(`[schema-walker] Set childNode.compositorType='choice' for "${childNode.label}"`);
+        const recursionKey = childTypeName
+          ? String(childTypeName).replace(/^.*:/, '')
+          : `inline:${childLocalName}`;
+        const isTypeRecursion = Boolean(childTypeName) && (
+          context.visitedTypes.has(String(childTypeName)) ||
+          context.visitedTypes.has(recursionKey)
+        );
+        if (isTypeRecursion || (!childTypeName && context.visitedTypes.has(recursionKey))) {
+          continue;
+        }
+
+        if (!childTypeName) {
+          context.visitedTypes.add(recursionKey);
+        }
+        try {
+          const childContext = {
+            ...context,
+            depth: context.depth + 1,
+            path: [...context.path, elem.name],
+            typeName: childTypeName,
+            inlineTypeDefinition: childInlineTypeDefinition,
+          };
+          const childNode = walkSchema(compiledSchema, childContext);
+          childNode.tagName = elem.name;
+          childNode.label = elem.name;
+          childNode.minOccurs = elem.minOccurs;
+          childNode.maxOccurs = elem.maxOccurs === 'unbounded' ? 'unbounded' : elem.maxOccurs;
+          if (elem.compositorType) {
+            childNode.compositorType = elem.compositorType;
+            if (elem.compositorType === 'choice') {
+              console.log(`[schema-walker] Set childNode.compositorType='choice' for "${childNode.label}"`);
+            }
+          }
+          node.children.push(childNode);
+        } finally {
+          if (!childTypeName) {
+            context.visitedTypes.delete(recursionKey);
           }
         }
-        node.children.push(childNode);
       }
     } else {
       // Fallback: If no resolved type and no inline type, try to extract children directly
@@ -1277,7 +1325,7 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
       node.children.push(restrictionNode);
     }
 
-    context.visitedTypes.delete(typeName);
+    context.visitedTypes.delete(activeTypeKey);
   }
 
   node.inputType = inferInputType(node);

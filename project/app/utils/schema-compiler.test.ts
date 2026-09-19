@@ -583,7 +583,7 @@ describe('Schema Compiler - Inline Types', () => {
 
     const compiled = compileSchema(testSchemaNoSynthetic['xs:schema']);
     
-    // Should NOT create synthetic type for non-schema elements
+    // Non-schema inline types are walked directly from their owning element.
     const syntheticType = compiled.resolveType('myElement__type');
     expect(syntheticType).toBeUndefined();
   });

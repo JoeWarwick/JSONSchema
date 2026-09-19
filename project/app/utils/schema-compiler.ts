@@ -232,6 +232,7 @@ export class CompiledSchema {
               }
             }
           }
+
         }
       }
     }
@@ -335,6 +336,15 @@ export class CompiledSchema {
           compiled.baseType = restAttrs.base;
         }
       }
+    }
+
+    const complexRestriction = complexContent?.[`${this.nsPrefix}:restriction`] || complexContent?.['restriction'];
+    if (complexRestriction) {
+      const restAttrs = getXmlAttrs(complexRestriction);
+      if (restAttrs.base) {
+        compiled.baseType = restAttrs.base;
+      }
+      this.extractElementsAndAttributes(complexRestriction, compiled);
     }
 
     // Handle direct sequence/choice/all
@@ -484,6 +494,21 @@ export class CompiledSchema {
               this.extractElementsAndAttributesFromGroup(namedGroup, compositorMinOccurs, compositorMaxOccurs, compositorType, compiled, new Set<string>());
             }
           }
+        }
+      }
+    }
+
+    // XSD complex types may place model groups directly under an extension or
+    // restriction rather than inside a sequence/choice/all compositor.
+    const directGroups = container[`${this.nsPrefix}:group`] || container['group'];
+    if (directGroups) {
+      const groupArray = Array.isArray(directGroups) ? directGroups : [directGroups];
+      for (const groupNode of groupArray) {
+        const groupRef = getXmlAttrs(groupNode).ref;
+        if (!groupRef) continue;
+        const namedGroup = this.findNamedGroup(groupRef);
+        if (namedGroup) {
+          this.extractElementsAndAttributesFromGroup(namedGroup, 1, '1', 'sequence', compiled, new Set<string>());
         }
       }
     }
