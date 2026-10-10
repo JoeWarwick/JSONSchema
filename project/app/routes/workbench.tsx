@@ -2331,6 +2331,7 @@ export default function Workbench() {
                       setInstanceData(newData);
                     }}
                     rootSchema={state.source as any}
+                    showRootElementTriggers={false}
                     expansionStateKey="xml-instance-form-expanded"
                   />
                 </div>
@@ -2435,4 +2436,3 @@ export default function Workbench() {
     </TooltipProvider>
   );
 }
-

@@ -297,7 +297,7 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     });
   });
 
-  it('XML menu default-instance submenu passes selected rootElementName', async () => {
+  it('XML instance form hides root pills and the default-instance menu selects a root', async () => {
     const xmlSchemaMetadata = fs.readFileSync('public/schemas/XMLSchema.xsd', 'utf-8');
     const demoXsd = `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
@@ -386,6 +386,13 @@ describe('Workbench integration - load unresolved $defs schema', () => {
       });
 
       fetchMock.mockClear();
+
+      const instanceFormTab = await screen.findByRole('button', { name: /Instance Form/i });
+      fireEvent.click(instanceFormTab);
+
+      expect(screen.queryByRole('button', { name: /^\+\s*person\b/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^\+\s*employee\b/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^\+\s*note\b/i })).not.toBeInTheDocument();
 
       const xmlMenuTrigger = screen.getByText(/XML Document/i);
       fireEvent.pointerDown(xmlMenuTrigger, { bubbles: true, cancelable: true });
