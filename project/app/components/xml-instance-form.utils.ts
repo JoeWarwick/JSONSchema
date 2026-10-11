@@ -85,6 +85,105 @@ export function facetsToHint(facets: ValidationFacets | undefined): string | nul
 
 export const normalizeXmlName = (name: unknown): string => String(name ?? '').replace(/^.*:/, '');
 
+export function getReferencedElementNames(schema: unknown): Set<string> {
+  const schemaRoot = getSchemaRootNode(schema);
+  const referencedNames = new Set<string>();
+  const visitedNodes = new Set<object>();
+
+  const collectReferences = (node: unknown) => {
+    if (!node || typeof node !== 'object' || visitedNodes.has(node)) return;
+    visitedNodes.add(node);
+
+    if (Array.isArray(node)) {
+      node.forEach(collectReferences);
+      return;
+    }
+
+    const record = node as Record<string, unknown>;
+    for (const key of ['xs:element', 'element']) {
+      for (const declaration of toArray(record[key])) {
+        if (!declaration || typeof declaration !== 'object') continue;
+        const attrs = (declaration as Record<string, any>)['@attributes'] || declaration;
+        const refName = normalizeXmlName(attrs?.ref ?? attrs?.['@ref']).trim();
+        if (refName) referencedNames.add(refName);
+      }
+    }
+
+    Object.values(record).forEach(collectReferences);
+  };
+
+  collectReferences(schemaRoot);
+  return referencedNames;
+}
+
+export function sortElementsByReferenceUsage<T>(
+  elements: T[],
+  getName: (element: T) => string,
+  referencedNames: ReadonlySet<string>,
+): T[] {
+  return [...elements].sort((left, right) => (
+    Number(referencedNames.has(normalizeXmlName(getName(left))))
+    - Number(referencedNames.has(normalizeXmlName(getName(right))))
+  ));
+}
+
+export function findRootWrapperKey(value: any, rootElementName: string | undefined): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !rootElementName) return null;
+
+  const normalizedRoot = normalizeXmlName(rootElementName);
+  const candidateKeys = new Set([
+    rootElementName,
+    normalizedRoot,
+    `xs:${normalizedRoot}`,
+    `xsd:${normalizedRoot}`,
+  ].filter(Boolean));
+
+  const matches = Object.keys(value).filter((key) => (
+    candidateKeys.has(key) || candidateKeys.has(normalizeXmlName(key))
+  ));
+
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export function resolveInstanceChildData(
+  childElementName: string,
+  rootElementName: string | undefined,
+  value: any,
+  isRootLevel: boolean,
+): any {
+  const normalizedBase = normalizeXmlName(childElementName);
+  const candidateNames = new Set([
+    childElementName,
+    normalizedBase,
+    `xs:${normalizedBase}`,
+    `xsd:${normalizedBase}`,
+  ].filter(Boolean));
+
+  for (const key of candidateNames) {
+    const result = value?.[key];
+    if (result !== undefined) return result;
+  }
+
+  if (isRootLevel && rootElementName && value && typeof value === 'object' && !Array.isArray(value)) {
+    const wrapperKey = findRootWrapperKey(value, rootElementName);
+    const unwrappedValue = wrapperKey ? value[wrapperKey] : value[rootElementName];
+    if (typeof unwrappedValue === 'object' && unwrappedValue !== null) {
+      for (const key of candidateNames) {
+        const result = unwrappedValue[key];
+        if (result !== undefined) return result;
+      }
+
+      for (const key of Object.keys(unwrappedValue)) {
+        if (candidateNames.has(key) || candidateNames.has(normalizeXmlName(key))) {
+          return unwrappedValue[key];
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
 export const toArray = <T,>(value: T | T[] | null | undefined): T[] => (
   Array.isArray(value) ? value : (value == null ? [] : [value])
 );

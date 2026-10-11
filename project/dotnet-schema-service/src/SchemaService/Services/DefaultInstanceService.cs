@@ -81,7 +81,7 @@ public sealed class DefaultInstanceService
         using var stringWriter = new StringWriter(builder);
         using (var xmlWriter = XmlWriter.Create(stringWriter, xmlSettings))
         {
-            WriteElement(xmlWriter, rootElement, schema.TargetNamespace, rootElement.IsNillable, schema, new HashSet<string>(StringComparer.Ordinal));
+            WriteElement(xmlWriter, rootElement, schema.TargetNamespace, schema, new HashSet<string>(StringComparer.Ordinal));
         }
 
         return new DefaultInstanceResponse
@@ -93,10 +93,16 @@ public sealed class DefaultInstanceService
 
     private static XmlSchemaElement? FindRootElement(XmlSchema schema, string? preferredRootName)
     {
-        var elements = schema.Elements.Values.OfType<XmlSchemaElement>().ToArray();
+        var elements = schema.Elements.Values
+            .OfType<XmlSchemaElement>()
+            .Where(element => !element.IsAbstract)
+            .ToArray();
         if (elements.Length == 0)
         {
-            elements = schema.Items.OfType<XmlSchemaElement>().ToArray();
+            elements = schema.Items
+                .OfType<XmlSchemaElement>()
+                .Where(element => !element.IsAbstract)
+                .ToArray();
         }
 
         if (elements.Length == 0)
@@ -106,10 +112,35 @@ public sealed class DefaultInstanceService
 
         if (!string.IsNullOrWhiteSpace(preferredRootName))
         {
-            var preferred = elements.FirstOrDefault(element => string.Equals(element.Name, preferredRootName, StringComparison.Ordinal));
-            if (preferred is not null)
+            var preferred = schema.Items
+                .OfType<XmlSchemaElement>()
+                .FirstOrDefault(element => string.Equals(element.Name, preferredRootName, StringComparison.Ordinal));
+            if (preferred is null || preferred.IsAbstract)
             {
-                return preferred;
+                throw new InvalidOperationException(
+                    $"Requested root element '{preferredRootName}' is not a concrete global element in the schema.");
+            }
+
+            return preferred;
+        }
+
+        if (string.Equals(
+                schema.TargetNamespace,
+                "http://www.w3.org/1999/XSL/Transform",
+                StringComparison.Ordinal))
+        {
+            var stylesheetRoot = elements.FirstOrDefault(element =>
+                string.Equals(element.Name, "stylesheet", StringComparison.Ordinal));
+            if (stylesheetRoot is not null)
+            {
+                return stylesheetRoot;
+            }
+
+            var transformRoot = elements.FirstOrDefault(element =>
+                string.Equals(element.Name, "transform", StringComparison.Ordinal));
+            if (transformRoot is not null)
+            {
+                return transformRoot;
             }
         }
 
@@ -120,7 +151,6 @@ public sealed class DefaultInstanceService
         XmlWriter writer,
         XmlSchemaElement element,
         string? defaultNamespace,
-        bool suppressNamespaceDeclaration,
         XmlSchema schema,
         HashSet<string> visitedTypeNames)
     {
@@ -129,14 +159,16 @@ public sealed class DefaultInstanceService
             ? defaultNamespace ?? string.Empty
             : element.QualifiedName.Namespace;
 
-        writer.WriteStartElement(string.Empty, localName ?? "root", namespaceUri);
-        if (!suppressNamespaceDeclaration && !string.IsNullOrWhiteSpace(namespaceUri))
-        {
-            writer.WriteAttributeString("xmlns", namespaceUri);
-        }
+        writer.WriteStartElement(GetNamespacePrefix(schema, namespaceUri), localName ?? "root", namespaceUri);
 
         if (TryResolveComplexType(element, schema) is XmlSchemaComplexType complexType)
         {
+            if (string.Equals(localName, "stylesheet", StringComparison.Ordinal) &&
+                string.Equals(namespaceUri, "http://www.w3.org/1999/XSL/Transform", StringComparison.Ordinal))
+            {
+                writer.WriteAttributeString("version", "2.0");
+            }
+
             WriteComplexType(writer, complexType, schema, visitedTypeNames);
         }
         else
@@ -148,8 +180,32 @@ public sealed class DefaultInstanceService
         writer.WriteEndElement();
     }
 
-    private static XmlSchemaComplexType? TryResolveComplexType(XmlSchemaElement element, XmlSchema schema)
+    private static string GetNamespacePrefix(XmlSchema schema, string namespaceUri)
     {
+        if (string.IsNullOrWhiteSpace(namespaceUri))
+        {
+            return string.Empty;
+        }
+
+        return schema.Namespaces.ToArray()
+            .FirstOrDefault(ns => string.Equals(ns.Namespace, namespaceUri, StringComparison.Ordinal) &&
+                                  !string.IsNullOrWhiteSpace(ns.Name))
+            ?.Name ?? string.Empty;
+    }
+
+    private static XmlSchemaComplexType? TryResolveComplexType(XmlSchemaElement element, XmlSchema schema) =>
+        TryResolveComplexType(element, schema, new HashSet<XmlSchemaElement>());
+
+    private static XmlSchemaComplexType? TryResolveComplexType(
+        XmlSchemaElement element,
+        XmlSchema schema,
+        HashSet<XmlSchemaElement> visitedElements)
+    {
+        if (!visitedElements.Add(element))
+        {
+            return null;
+        }
+
         if (element.SchemaType is XmlSchemaComplexType inlineComplexType)
         {
             return inlineComplexType;
@@ -176,7 +232,44 @@ public sealed class DefaultInstanceService
             return resolved;
         }
 
-        return element.ElementSchemaType as XmlSchemaComplexType;
+        var resolvedElementType = element.ElementSchemaType as XmlSchemaComplexType;
+        if (resolvedElementType is not null)
+        {
+            return resolvedElementType;
+        }
+
+        return TryResolveSubstitutionGroupType(element, schema, visitedElements);
+    }
+
+    private static XmlSchemaComplexType? TryResolveSubstitutionGroupType(
+        XmlSchemaElement element,
+        XmlSchema schema,
+        HashSet<XmlSchemaElement> visitedElements)
+    {
+        if (element.SubstitutionGroup.IsEmpty)
+        {
+            return null;
+        }
+
+        var substitutionGroupName = element.SubstitutionGroup;
+        var head = schema.Items
+            .OfType<XmlSchemaElement>()
+            .FirstOrDefault(candidate =>
+            {
+                if (!string.Equals(candidate.Name, substitutionGroupName.Name, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                var candidateNamespace = candidate.QualifiedName.IsEmpty
+                    ? schema.TargetNamespace ?? string.Empty
+                    : candidate.QualifiedName.Namespace;
+                return string.Equals(candidateNamespace, substitutionGroupName.Namespace, StringComparison.Ordinal);
+            });
+
+        return head is null
+            ? null
+            : TryResolveComplexType(head, schema, visitedElements);
     }
 
     private static void WriteComplexType(
@@ -200,7 +293,11 @@ public sealed class DefaultInstanceService
                 attributeName = attribute.RefName.Name;
             }
 
-            if (string.IsNullOrWhiteSpace(attributeName) || !writtenAttributeNames.Add(attributeName))
+            if (string.IsNullOrWhiteSpace(attributeName) ||
+                (attribute.Use != XmlSchemaUse.Required &&
+                 attribute.DefaultValue is null &&
+                 attribute.FixedValue is null) ||
+                !writtenAttributeNames.Add(attributeName))
             {
                 continue;
             }
@@ -402,16 +499,15 @@ public sealed class DefaultInstanceService
         XmlSchema schema,
         HashSet<string> visitedTypeNames)
     {
+        if (particle.MinOccurs <= 0)
+        {
+            return;
+        }
+
         switch (particle)
         {
             case XmlSchemaElement element:
-                var occurrenceCount = element.MinOccurs > 0 ? 1 : 0;
-                if (occurrenceCount == 0 && element.MaxOccurs > 0)
-                {
-                    occurrenceCount = 1;
-                }
-
-                for (var index = 0; index < occurrenceCount; index++)
+                for (var index = 0; index < (int)element.MinOccurs; index++)
                 {
                     WriteNestedElement(writer, element, schema, visitedTypeNames);
                 }
@@ -420,25 +516,9 @@ public sealed class DefaultInstanceService
             case XmlSchemaSequence sequence:
                 foreach (XmlSchemaObject item in sequence.Items)
                 {
-                    if (item is XmlSchemaElement nestedElement)
+                    if (item is XmlSchemaParticle nestedParticle)
                     {
-                        WriteNestedElement(writer, nestedElement, schema, visitedTypeNames);
-                    }
-                    else if (item is XmlSchemaChoice choice)
-                    {
-                        var firstChoice = choice.Items.OfType<XmlSchemaElement>().FirstOrDefault();
-                        if (firstChoice is not null)
-                        {
-                            WriteNestedElement(writer, firstChoice, schema, visitedTypeNames);
-                        }
-                    }
-                    else if (item is XmlSchemaSequence nestedSequence)
-                    {
-                        WriteParticle(writer, nestedSequence, schema, visitedTypeNames);
-                    }
-                    else if (item is XmlSchemaAny)
-                    {
-                        writer.WriteElementString("any", "");
+                        WriteParticle(writer, nestedParticle, schema, visitedTypeNames);
                     }
                 }
                 break;
@@ -457,7 +537,10 @@ public sealed class DefaultInstanceService
                 var firstElement = choice.Items.OfType<XmlSchemaElement>().FirstOrDefault();
                 if (firstElement is not null)
                 {
-                    WriteNestedElement(writer, firstElement, schema, visitedTypeNames);
+                    for (var index = 0; index < (int)choice.MinOccurs; index++)
+                    {
+                        WriteNestedElement(writer, firstElement, schema, visitedTypeNames);
+                    }
                 }
                 break;
         }
@@ -469,24 +552,86 @@ public sealed class DefaultInstanceService
         XmlSchema schema,
         HashSet<string> visitedTypeNames)
     {
-        var localName = nestedElement.QualifiedName.IsEmpty
-            ? (nestedElement.RefName.IsEmpty ? nestedElement.Name : nestedElement.RefName.Name)
-            : nestedElement.QualifiedName.Name;
-        var namespaceUri = nestedElement.QualifiedName.Namespace ?? string.Empty;
+        var instanceElement = ResolveConcreteElement(nestedElement, schema);
+        var localName = instanceElement.QualifiedName.IsEmpty
+            ? (instanceElement.RefName.IsEmpty ? instanceElement.Name : instanceElement.RefName.Name)
+            : instanceElement.QualifiedName.Name;
+        var namespaceUri = instanceElement.QualifiedName.Namespace ?? string.Empty;
 
-        writer.WriteStartElement(string.Empty, localName ?? "item", namespaceUri);
+        writer.WriteStartElement(GetNamespacePrefix(schema, namespaceUri), localName ?? "item", namespaceUri);
 
-        if (TryResolveComplexType(nestedElement, schema) is XmlSchemaComplexType nestedComplexType)
+        if (TryResolveComplexType(instanceElement, schema) is XmlSchemaComplexType nestedComplexType)
         {
             WriteComplexType(writer, nestedComplexType, schema, visitedTypeNames);
         }
         else
         {
-            var placeholder = nestedElement.DefaultValue ?? nestedElement.FixedValue ?? GetElementPlaceholderValue(nestedElement, schema);
+            var placeholder = instanceElement.DefaultValue ?? instanceElement.FixedValue ?? GetElementPlaceholderValue(instanceElement, schema);
             writer.WriteString(placeholder);
         }
 
         writer.WriteEndElement();
+    }
+
+    private static XmlSchemaElement ResolveConcreteElement(XmlSchemaElement element, XmlSchema schema)
+    {
+        var globalElements = schema.Elements.Values.OfType<XmlSchemaElement>().ToArray();
+        var head = element;
+        if (!element.RefName.IsEmpty &&
+            schema.Elements[element.RefName] is XmlSchemaElement referencedElement)
+        {
+            head = referencedElement;
+        }
+
+        if (!head.IsAbstract)
+        {
+            return head;
+        }
+
+        var headName = head.QualifiedName;
+        if (headName.IsEmpty && !string.IsNullOrWhiteSpace(head.Name))
+        {
+            headName = new XmlQualifiedName(head.Name, schema.TargetNamespace ?? string.Empty);
+        }
+
+        var concreteElement = headName.IsEmpty
+            ? null
+            : FindConcreteSubstitute(headName, globalElements, new HashSet<XmlQualifiedName>());
+        return concreteElement
+            ?? throw new InvalidOperationException($"Could not find a concrete substitution for abstract element '{head.Name}'.");
+    }
+
+    private static XmlSchemaElement? FindConcreteSubstitute(
+        XmlQualifiedName headName,
+        XmlSchemaElement[] globalElements,
+        HashSet<XmlQualifiedName> visited)
+    {
+        if (!visited.Add(headName))
+        {
+            return null;
+        }
+
+        foreach (var candidate in globalElements.Where(element => element.SubstitutionGroup == headName))
+        {
+            if (!candidate.IsAbstract)
+            {
+                return candidate;
+            }
+
+            var candidateName = candidate.QualifiedName;
+            if (candidateName.IsEmpty && !string.IsNullOrWhiteSpace(candidate.Name))
+            {
+                candidateName = new XmlQualifiedName(candidate.Name, headName.Namespace);
+            }
+
+            if (!candidateName.IsEmpty &&
+                FindConcreteSubstitute(candidateName, globalElements, new HashSet<XmlQualifiedName>(visited)) is XmlSchemaElement nested)
+            {
+                return nested;
+            }
+        }
+
+        return null;
     }
 
     private static string GetPlaceholderValue(XmlSchemaType? schemaType)

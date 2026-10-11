@@ -20,6 +20,7 @@ import { useSchemaValidation, useInstanceValidationWithImports } from "~/hooks/u
 import { validateJsonDataAgainstSchema, inferJsonSchema } from "~/utils/schema-validation";
 import { JsonInstanceForm } from "~/components/json-instance-form";
 import { XmlInstanceForm } from "~/components/xml-instance-form";
+import { getReferencedElementNames, sortElementsByReferenceUsage } from "~/components/xml-instance-form.utils";
 import { SchemaEditorForm } from "~/components/schema-editor-form";
 import { GraphicalSchemaEditor } from "~/components/graphical-schema-editor";
 import { SchemaSourceEditor } from "~/components/schema-source-editor";
@@ -205,15 +206,48 @@ function getAvailableXmlRootElementNames(schema: unknown): string[] {
 
   const rawElements = (schemaRoot as Record<string, any>)['xs:element'] || (schemaRoot as Record<string, any>)['element'];
   const elements = Array.isArray(rawElements) ? rawElements : rawElements ? [rawElements] : [];
+  const getAttributes = (entry: any) => entry?.['@attributes'] || entry || {};
+  const getLocalName = (qualifiedName: unknown) => String(qualifiedName || '').trim().replace(/^.*:/, '');
+  const elementsByName = new Map<string, any>();
+  for (const entry of elements) {
+    const attrs = getAttributes(entry);
+    const name = String(attrs?.name || attrs?.['@name'] || entry?.name || entry?.['@name'] || '').trim();
+    if (name) elementsByName.set(name, entry);
+  }
+
+  const elementRefs = getReferencedElementNames(schemaRoot);
+
+  const substitutesForAbstractHead = (entry: any, visited = new Set<string>()): boolean => {
+    const attrs = getAttributes(entry);
+    const substitutionGroup = String(attrs?.substitutionGroup ?? attrs?.['@substitutionGroup'] ?? '').trim();
+    const headName = getLocalName(substitutionGroup);
+    if (!headName || visited.has(headName)) return false;
+    visited.add(headName);
+
+    const head = elementsByName.get(headName);
+    if (!head) return false;
+
+    const headAttrs = getAttributes(head);
+    const abstractValue = String(headAttrs?.abstract ?? headAttrs?.['@abstract'] ?? 'false').toLowerCase();
+    if (abstractValue === 'true' || abstractValue === '1') return elementRefs.has(headName);
+    return substitutesForAbstractHead(head, visited);
+  };
 
   const names = elements
+    .filter((entry: any) => {
+      const attrs = getAttributes(entry);
+      const abstractValue = String(attrs?.abstract ?? attrs?.['@abstract'] ?? 'false').toLowerCase();
+      const isAbstract = abstractValue === 'true' || abstractValue === '1';
+      return !isAbstract && !substitutesForAbstractHead(entry);
+    })
     .map((entry: any) => {
       const attrs = entry?.['@attributes'] || entry || {};
       return String(attrs?.name || attrs?.['@name'] || entry?.name || entry?.['@name'] || '').trim();
     })
     .filter((name: string) => Boolean(name));
 
-  return Array.from(new Set(names));
+  const uniqueNames = Array.from(new Set(names));
+  return sortElementsByReferenceUsage(uniqueNames, (name) => name, elementRefs);
 }
 
 export default function Workbench() {

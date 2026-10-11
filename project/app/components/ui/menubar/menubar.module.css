@@ -57,7 +57,9 @@
 .content {
   z-index: 1;
   min-width: 12rem;
-  overflow: hidden;
+  max-height: min(var(--radix-popper-available-height, 100vh), calc(100vh - 1rem));
+  overflow-x: hidden;
+  overflow-y: auto;
   border-radius: var(--radius-2);
   border: var(--border-size-1) solid var(--color-neutral-6);
   background: var(--color-neutral-3);
@@ -71,7 +73,9 @@
 
 .subContent {
   z-index: 5;
-  overflow: hidden;
+  max-height: min(var(--radix-popper-available-height, 100vh), calc(100vh - 1rem));
+  overflow-x: hidden;
+  overflow-y: auto;
   border-radius: var(--radius-2);
   border: var(--border-size-1) solid var(--color-neutral-6);
   background-color: var(--color-neutral-3);

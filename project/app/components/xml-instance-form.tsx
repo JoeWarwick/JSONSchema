@@ -29,11 +29,15 @@ import type {
 import {
   facetsToHint,
   facetsToInputAttrs,
+  findRootWrapperKey,
   getSchemaRootNode,
+  getReferencedElementNames,
   getXmlInstanceExpansionStorageKey,
   normalizeXmlName,
   restoreChoiceDataFromStorage,
+  resolveInstanceChildData,
   saveChoiceDataToStorage,
+  sortElementsByReferenceUsage,
   toArray,
 } from './xml-instance-form.utils';
 
@@ -688,6 +692,7 @@ function XmlElementNode({
   onChange,
   onUpdateValue,
   rootSchema,
+  referencedElementNames,
   autoExpandAll = false,
   schemaNode,
   compiledSchema,
@@ -862,14 +867,7 @@ function XmlElementNode({
       const choiceKey = `choice_${pathKey}_${group.groupIndex}`;
       
       const optionStates = group.options.map((opt) => {
-        const optionData = compiledSchema
-          ? compiledSchema.resolveChildData(
-              opt.name,
-              element?.tagName,
-              value,
-              path.length === 0
-            )
-          : value?.[opt.name];
+        const optionData = resolveInstanceChildData(opt.name, element?.tagName, value, path.length === 0);
         return {
           name: opt.name,
           node: opt.node,
@@ -1138,7 +1136,7 @@ function XmlElementNode({
 
   const getRootOccurrenceCount = (currentValue: any, childName: string): number => {
     if (!currentValue || typeof currentValue !== 'object' || Array.isArray(currentValue)) return 0;
-    const resolved = currentValue[childName];
+    const resolved = currentValue[childName] ?? resolveInstanceChildData(childName, undefined, currentValue, true);
     if (resolved === undefined || resolved === null) return 0;
     return Array.isArray(resolved) ? resolved.length : 1;
   };
@@ -1151,7 +1149,7 @@ function XmlElementNode({
     if (count >= maxOccurs) return;
 
     const nextValue = {};
-    const updated = { ...current };
+    const updated = { ...(current || {}) };
 
     if (selectedRoot && selectedRoot !== childName) {
       delete updated[selectedRoot];
@@ -1182,9 +1180,7 @@ function XmlElementNode({
   };
 
   const getChildOccurrenceCount = (currentValue: any, childName: string): number => {
-    const resolved = compiledSchema
-      ? compiledSchema.resolveChildData(childName, element?.tagName, currentValue, path.length === 0)
-      : currentValue?.[childName];
+    const resolved = resolveInstanceChildData(childName, element?.tagName, currentValue, path.length === 0);
     if (resolved === undefined || resolved === null) return 0;
     return Array.isArray(resolved) ? resolved.length : 1;
   };
@@ -1197,11 +1193,23 @@ function XmlElementNode({
   };
 
   const addChildOccurrence = (childName: string, childSchema: SchemaNode) => {
+    const childPath = [...path, childName];
+    const childPathKey = childPath.join('.');
+    const childCollapsedKey = `__collapsed__:${childPathKey}`;
+    const childIsInitiallyExpanded = Boolean(autoExpandAll && initialAutoExpandPathsRef?.current.has(childPathKey));
+    const childIsExpanded = expandedPaths.has(childPathKey)
+      || (childIsInitiallyExpanded && !expandedPaths.has(childCollapsedKey));
+    if (!childIsExpanded && getChildOccurrenceCount(value, childName) < getChildMaxOccurs(childSchema)) {
+      onToggleExpand(childPath);
+    }
+
     const choiceGroupInfo = getChoiceGroupForChild(childName);
     const choiceGroupData = choiceGroupInfo ? choiceInfo[choiceGroupInfo.groupIndex] : null;
 
     onUpdateValue(path, (current) => {
-      const updated = asMutableElementObject(current);
+      const wrapperKey = path.length === 0 ? findRootWrapperKey(current, element?.tagName) : null;
+      const rootValue = wrapperKey ? current?.[wrapperKey] : current;
+      const updated = asMutableElementObject(rootValue);
 
       // Enforce choice semantics by clearing sibling options when selecting a different branch.
       if (choiceGroupData?.isExclusive) {
@@ -1214,7 +1222,7 @@ function XmlElementNode({
 
       const count = getChildOccurrenceCount(updated, childName);
       const maxOccurs = getChildMaxOccurs(childSchema);
-      if (count >= maxOccurs) return updated;
+      if (count >= maxOccurs) return current;
 
       const nextValue = createDefaultChildValue(childSchema);
       if (count === 0) {
@@ -1225,21 +1233,27 @@ function XmlElementNode({
         updated[childName] = [updated[childName], nextValue];
       }
 
+      if (wrapperKey) {
+        const nextCurrent = { ...(current || {}) };
+        nextCurrent[wrapperKey] = updated;
+        return nextCurrent;
+      }
+
       return updated;
     });
   };
 
   const removeChildOccurrence = (childName: string, childSchema: SchemaNode) => {
     onUpdateValue(path, (current) => {
-      const updated = { ...(current || {}) };
+      const wrapperKey = path.length === 0 ? findRootWrapperKey(current, element?.tagName) : null;
+      const rootValue = wrapperKey ? current?.[wrapperKey] : current;
+      const updated = { ...(rootValue || {}) };
       const count = getChildOccurrenceCount(updated, childName);
       const minOccurs = getChildMinOccurs(childSchema);
 
-      if (count <= minOccurs) return updated;
+      if (count <= minOccurs) return current;
 
-      const existing = compiledSchema
-        ? compiledSchema.resolveChildData(childName, element?.tagName, updated, path.length === 0)
-        : updated?.[childName];
+      const existing = resolveInstanceChildData(childName, element?.tagName, updated, path.length === 0);
 
       if (Array.isArray(existing)) {
         const trimmed = existing.slice(0, -1);
@@ -1248,6 +1262,12 @@ function XmlElementNode({
         else updated[childName] = trimmed;
       } else {
         delete updated[childName];
+      }
+
+      if (wrapperKey) {
+        const nextCurrent = { ...(current || {}) };
+        nextCurrent[wrapperKey] = updated;
+        return nextCurrent;
       }
 
       return updated;
@@ -1493,7 +1513,7 @@ function XmlElementNode({
     const isCollapsed = expandedPaths.has(collapsedKey);
     const shouldShowChildren = !isCollapsed && (isExpanded || !isSchemaForm);
     const selectedChoiceData = isSchemaForm && choiceGroupData.selectedOption
-      ? compiledSchema?.resolveChildData(choiceGroupData.selectedOption, element?.tagName, value, path.length === 0)
+      ? resolveInstanceChildData(choiceGroupData.selectedOption, element?.tagName, value, path.length === 0)
       : null;
     const activeChoiceLabel = selectedChoiceData
       ? (selectedChoiceData['@attributes']?.name
@@ -2695,7 +2715,12 @@ function XmlElementNode({
                     ))}
                     {schemaNode?.children && schemaNode.children.length > 0 ? (() => {
                       const renderedTriggerNames = new Set<string>();
-                      return schemaNode.children.map((childSchemaNode, triggerIndex) => {
+                      const orderedTriggerNodes = sortElementsByReferenceUsage(
+                        schemaNode.children,
+                        (childSchemaNode) => childSchemaNode.label || childSchemaNode.tagName || '',
+                        referencedElementNames || new Set<string>(),
+                      );
+                      return orderedTriggerNodes.map((childSchemaNode, triggerIndex) => {
                       const childElementName = childSchemaNode.label || childSchemaNode.tagName || `child-${triggerIndex}`;
                       const normalizedChildLocal = String(childElementName).replace(/^.*:/, '').toLowerCase();
                       if (renderedTriggerNames.has(normalizedChildLocal)) return null;
@@ -3083,16 +3108,12 @@ function XmlElementNode({
                     // Schema-driven: use schema node
                     childElementName = childSchemaNode.label || childSchemaNode.tagName || '';
                     // Resolve instance data from schema node name
-                    if (compiledSchema) {
-                      childInstanceData = compiledSchema.resolveChildData(
-                        childElementName,
-                        element?.tagName,
-                        value,
-                        path.length === 0
-                      );
-                    } else {
-                      childInstanceData = value?.[childElementName];
-                    }
+                    childInstanceData = resolveInstanceChildData(
+                      childElementName,
+                      element?.tagName,
+                      value,
+                      path.length === 0,
+                    );
 
                     if (
                       isSchemaForm &&
@@ -3390,6 +3411,7 @@ function XmlElementNode({
                                 onChange={onChange}
                                 onUpdateValue={onUpdateValue}
                                 rootSchema={rootSchema}
+                                referencedElementNames={referencedElementNames}
                                 autoExpandAll={true}
                                 schemaNode={childSchemaNode}
                                 compiledSchema={compiledSchema}
@@ -3424,6 +3446,7 @@ function XmlElementNode({
                           onChange={onChange}
                           onUpdateValue={onUpdateValue}
                           rootSchema={rootSchema}
+                          referencedElementNames={referencedElementNames}
                           autoExpandAll={autoExpandAll}
                           schemaNode={childSchemaNode}
                           compiledSchema={compiledSchema}
@@ -3615,6 +3638,7 @@ function XmlElementNode({
                                       onChange={onChange}
                                       onUpdateValue={onUpdateValue}
                                       rootSchema={rootSchema}
+                                      referencedElementNames={referencedElementNames}
                                       autoExpandAll={true}
                                       schemaNode={childSchemaNode}
                                       compiledSchema={compiledSchema}
@@ -3764,6 +3788,7 @@ function XmlElementNode({
                                   onChange={onChange}
                                   onUpdateValue={onUpdateValue}
                                   rootSchema={rootSchema}
+                                  referencedElementNames={referencedElementNames}
                                   autoExpandAll={true}
                                   schemaNode={childSchemaNode}
                                   compiledSchema={compiledSchema}
@@ -3789,6 +3814,7 @@ function XmlElementNode({
                           onChange={onChange}
                           onUpdateValue={onUpdateValue}
                           rootSchema={rootSchema}
+                          referencedElementNames={referencedElementNames}
                           autoExpandAll={autoExpandAll}
                           schemaNode={childSchemaNode}
                           compiledSchema={compiledSchema}
@@ -3933,6 +3959,7 @@ function XmlElementNode({
                       onChange={onChange}
                       onUpdateValue={onUpdateValue}
                       rootSchema={rootSchema}
+                      referencedElementNames={referencedElementNames}
                       autoExpandAll={autoExpandAll}
                       compiledSchema={compiledSchema}
                       initialAutoExpandPathsRef={initialAutoExpandPathsRef}
@@ -4183,6 +4210,11 @@ function XmlInstanceFormContent({
   showRootElementTriggers = true,
   expansionStateKey = 'xml-instance-form-expanded',
 }: XmlInstanceFormProps) {
+  const referencedElementNames = useMemo(
+    () => getReferencedElementNames(rootSchema),
+    [rootSchema],
+  );
+
   // Debug logging
   useEffect(() => {
     if (rootSchema && Object.keys(rootSchema).length > 0) {
@@ -4534,6 +4566,19 @@ function XmlInstanceFormContent({
       const localName = rootElement.tagName.includes(':')
         ? rootElement.tagName.split(':')[1]
         : rootElement.tagName;
+      const inlineTypeDefinition =
+        elementDef['xs:complexType'] ||
+        elementDef['complexType'] ||
+        elementDef['xs:simpleType'] ||
+        elementDef['simpleType'];
+      const substitutionHead = typeof attrs?.substitutionGroup === 'string'
+        ? compiledSchema.getElement(attrs.substitutionGroup)
+        : undefined;
+      const headInlineTypeDefinition = substitutionHead?.['xs:complexType']
+        || substitutionHead?.complexType
+        || substitutionHead?.['xs:simpleType']
+        || substitutionHead?.simpleType;
+      const effectiveInlineTypeDefinition = inlineTypeDefinition || headInlineTypeDefinition;
       
       // If no explicit type, check for synthetic type (e.g., "schema__type" for xs:schema)
       if (!typeName && localName === 'schema') {
@@ -4548,8 +4593,7 @@ function XmlInstanceFormContent({
       // Global elements may declare an anonymous complexType instead of a named type.
       // Keep the inline definition so the walker can expand its sequence/choice and attributes.
       if (!typeName) {
-        const inlineTypeDefinition = elementDef['xs:complexType'] || elementDef['complexType'] || elementDef['xs:simpleType'] || elementDef['simpleType'];
-        if (inlineTypeDefinition) {
+        if (effectiveInlineTypeDefinition) {
           typeName = `inline:${localName}`;
         }
       }
@@ -4568,9 +4612,9 @@ function XmlInstanceFormContent({
         compiledSchema,
         visitedTypes: new Set(),
         typeName,
-        inlineTypeDefinition: elementDef['xs:complexType'] || elementDef['complexType'] || elementDef['xs:simpleType'] || elementDef['simpleType'],
+        inlineTypeDefinition: effectiveInlineTypeDefinition,
         depth: 0,
-        maxDepth: 0,
+        maxDepth: isSchemaForm ? 0 : 1,
         path: [],
       });
       
@@ -4594,7 +4638,7 @@ function XmlInstanceFormContent({
       console.warn('[XmlInstanceForm] Schema walk failed:', e);
       return undefined;
     }
-  }, [schema, rootSchema, compiledSchema, rootElement]);
+  }, [schema, rootSchema, compiledSchema, rootElement, isSchemaForm]);
 
   if (!rootElement) {
     const debugInfo = (() => {
@@ -4770,6 +4814,7 @@ function XmlInstanceFormContent({
         onChange={onChange}
         onUpdateValue={handleUpdateValue}
         rootSchema={showRootElementTriggers ? rootSchema : undefined}
+        referencedElementNames={referencedElementNames}
         autoExpandAll={autoExpandAll}
         schemaNode={schemaNode}
         compiledSchema={compiledSchema}

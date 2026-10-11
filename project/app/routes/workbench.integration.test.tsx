@@ -324,8 +324,10 @@ describe('Workbench integration - load unresolved $defs schema', () => {
       <xs:extension base="xs:string" />
     </xs:simpleContent>
   </xs:complexType>
+  <xs:element name="abstractRoot" abstract="true" />
   <xs:element name="person" type="tns:PersonType" />
   <xs:element name="employee" type="tns:EmployeeType" />
+  <xs:element name="substitutedPerson" type="tns:PersonType" substitutionGroup="tns:abstractRoot" />
   <xs:element name="note" type="tns:NoteType" />
 </xs:schema>`;
 
@@ -401,6 +403,9 @@ describe('Workbench integration - load unresolved $defs schema', () => {
       fireEvent.pointerMove(generateDefaultItem, { bubbles: true });
       fireEvent.click(generateDefaultItem);
 
+      expect(screen.queryByRole('menuitem', { name: /^abstractRoot$/i })).not.toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: /^substitutedPerson$/i })).toBeInTheDocument();
+
       const employeeMenuItem = await screen.findByRole('menuitem', { name: /^employee$/i });
       fireEvent.click(employeeMenuItem);
 
@@ -413,6 +418,70 @@ describe('Workbench integration - load unresolved $defs schema', () => {
 
       const requestBody = JSON.parse(String((apiCall as any)[1]?.body || '{}'));
       expect(requestBody.rootElementName).toBe('employee');
+    } finally {
+      (global as any).fetch = originalFetch;
+    }
+  });
+
+  it('excludes members of abstract XSLT child groups from roots but keeps other concrete globals', async () => {
+    const xsltSchema = fs.readFileSync('public/schemas/schema-for-xslt20.xsd', 'utf-8');
+    const xmlSchemaMetadata = fs.readFileSync('public/schemas/XMLSchema.xsd', 'utf-8');
+    localStorage.setItem('schema-sculptor-markup-language', 'xml');
+    localStorage.setItem('schema-sculptor-schema-xml', JSON.stringify(parseMarkup(xsltSchema, 'xml')));
+
+    const originalFetch = global.fetch;
+    const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : String((input as Request).url);
+      if (url === '/schemas/XMLSchema.xsd') {
+        return { ok: true, text: async () => xmlSchemaMetadata } as Response;
+      }
+      if (url === '/api/schema/default-instance') {
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({
+            xml: `<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0"/>`,
+            warnings: [],
+          }),
+          text: async () => '',
+        } as Response;
+      }
+      return {
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        text: async () => 'Not Found',
+      } as Response;
+    });
+
+    (global as any).fetch = fetchMock;
+    try {
+      render(<Workbench />);
+
+      await waitFor(() => {
+        const call = fetchMock.mock.calls.find((entry) => entry[0] === '/api/schema/default-instance');
+        expect(call).toBeTruthy();
+        expect(JSON.parse(String((call as any)[1]?.body || '{}')).rootElementName).toBe('stylesheet');
+      });
+
+      const xmlMenuTrigger = screen.getByText(/XML Document/i);
+      fireEvent.pointerDown(xmlMenuTrigger, { bubbles: true, cancelable: true });
+      const generateDefaultItem = await screen.findByRole('menuitem', { name: /Generate Default Instance/i });
+      fireEvent.pointerMove(generateDefaultItem, { bubbles: true });
+
+      expect(await screen.findByRole('menuitem', { name: /^stylesheet$/i })).toBeInTheDocument();
+      expect(screen.getByRole('menuitem', { name: /^transform$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: /^analyze-string$/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('menuitem', { name: /^variable$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: /^declaration$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: /^instruction$/i })).not.toBeInTheDocument();
+
+      const menuItems = screen.getAllByRole('menuitem');
+      const stylesheetIndex = menuItems.findIndex((item) => item.textContent?.trim() === 'stylesheet');
+      const paramIndex = menuItems.findIndex((item) => item.textContent?.trim() === 'param');
+      expect(stylesheetIndex).toBeGreaterThanOrEqual(0);
+      expect(paramIndex).toBeGreaterThan(stylesheetIndex);
     } finally {
       (global as any).fetch = originalFetch;
     }

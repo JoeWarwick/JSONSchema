@@ -105,6 +105,90 @@ export function getXmlAttrs(obj: any): Record<string, any> {
   return attrs;
 }
 
+interface SubstitutionElement {
+  name: string;
+  type?: string | null;
+  minOccurs: number;
+  maxOccurs: number | 'unbounded';
+  compositorType?: 'sequence' | 'choice' | 'all';
+  definition?: any;
+}
+
+function expandSubstitutionGroupElements(
+  elements: SubstitutionElement[],
+  compiledSchema: CompiledSchema,
+): SubstitutionElement[] {
+  const globalElementNames = compiledSchema.getAllElementNames();
+  const localName = (name: unknown) => String(name || '').replace(/^.*:/, '');
+  const qualifyMemberName = (name: string, prefix: string) => (
+    prefix ? `${prefix}:${localName(name)}` : localName(name)
+  );
+
+  const getSubstitutes = (
+    headName: string,
+    inherited: SubstitutionElement,
+    visited: Set<string>,
+  ): SubstitutionElement[] => {
+    const headLocalName = localName(headName);
+    if (visited.has(headLocalName)) return [];
+    const nextVisited = new Set(visited);
+    nextVisited.add(headLocalName);
+    const prefix = headName.includes(':') ? headName.split(':')[0] : '';
+
+    return globalElementNames.flatMap((candidateName) => {
+      const definition = compiledSchema.getElement(candidateName);
+      if (!definition) return [];
+      const attrs = getXmlAttrs(definition);
+      if (localName(attrs.substitutionGroup) !== headLocalName) return [];
+
+      const memberName = qualifyMemberName(String(attrs.name || candidateName), prefix);
+      if (attrs.abstract === 'true' || attrs.abstract === '1') {
+        return getSubstitutes(memberName, inherited, nextVisited);
+      }
+      return [{
+        ...inherited,
+        name: memberName,
+        type: typeof attrs.type === 'string' ? attrs.type : inherited.type,
+        definition,
+      }];
+    });
+  };
+
+  return elements.flatMap((element) => {
+    const definition = compiledSchema.getElement(element.name);
+    if (!definition) return [element];
+    const attrs = getXmlAttrs(definition);
+    const isAbstract = attrs.abstract === 'true' || attrs.abstract === '1';
+    const ownElement = isAbstract
+      ? []
+      : [{
+          ...element,
+          type: typeof attrs.type === 'string' ? attrs.type : element.type,
+          definition,
+        }];
+    return [...ownElement, ...getSubstitutes(element.name, element, new Set())];
+  });
+}
+
+function toSubstitutionElement(elem: {
+  name: string;
+  type: string | null;
+  minOccurs: number;
+  maxOccurs: string;
+  definition?: any;
+  compositorType?: string;
+}): SubstitutionElement {
+  const parsedMaxOccurs = elem.maxOccurs === 'unbounded' ? 'unbounded' : Number(elem.maxOccurs);
+  return {
+    ...elem,
+    type: elem.type || undefined,
+    maxOccurs: parsedMaxOccurs === 'unbounded' || Number.isFinite(parsedMaxOccurs) ? parsedMaxOccurs : 1,
+    compositorType: elem.compositorType === 'choice' || elem.compositorType === 'all'
+      ? elem.compositorType
+      : 'sequence',
+  };
+}
+
 /**
  * Detect namespace prefix used in schema (xs, xsd, etc.)
  */
@@ -282,7 +366,10 @@ function gatherGroupChildren(
       for (const { key, node: nestedBranch } of nestedBranches) {
         const nestedEntries = Array.isArray(nestedBranch) ? nestedBranch : [nestedBranch];
         for (const nestedEntry of nestedEntries) {
-          result.push(...gatherGroupChildren({ [key]: nestedEntry }, rootSchema, new Set(seen), currentOccurs));
+          result.push(...gatherGroupChildren({
+            '@attributes': getXmlAttrs(nestedEntry),
+            [key]: nestedEntry,
+          }, rootSchema, new Set(seen), currentOccurs));
         }
       }
     }
@@ -344,7 +431,10 @@ export function getChildElementsFromType(
         if (!nestedNode) continue;
         const nestedEntries = Array.isArray(nestedNode) ? nestedNode : [nestedNode];
         for (const nestedEntry of nestedEntries) {
-          result.push(...gatherGroupChildren({ [nestedKey]: nestedEntry }, effectiveRootSchema, new Set<string>(), compositorOccurs));
+          result.push(...gatherGroupChildren({
+            '@attributes': getXmlAttrs(nestedEntry),
+            [nestedKey]: nestedEntry,
+          }, effectiveRootSchema, new Set<string>(), compositorOccurs));
         }
       }
     }
@@ -839,16 +929,17 @@ export function walkSchemaWithCompiled(
 function buildInlineTypeNode(typeDef: any, context: SchemaContext): SchemaNode {
   const attrs = getXmlAttrs(typeDef);
   const inlineName = attrs.name || 'inlineType';
+  const complexContent = typeDef['xs:complexContent'] || typeDef['complexContent'];
+  const extension = complexContent?.['xs:extension'] || complexContent?.extension;
+  const restriction = complexContent?.['xs:restriction'] || complexContent?.restriction;
+  const inlineParticleSource = extension || restriction || typeDef;
 
   const baseTypeName = (() => {
-    const complexContent = typeDef['xs:complexContent'] || typeDef['complexContent'];
     if (complexContent) {
-      const ext = complexContent['xs:extension'] || complexContent['extension'];
-      if (ext) {
-        const extAttrs = getXmlAttrs(ext);
+      if (extension) {
+        const extAttrs = getXmlAttrs(extension);
         return typeof extAttrs.base === 'string' ? extAttrs.base : undefined;
       }
-      const restriction = complexContent['xs:restriction'] || complexContent['restriction'];
       if (restriction) {
         const restAttrs = getXmlAttrs(restriction);
         return typeof restAttrs.base === 'string' ? restAttrs.base : undefined;
@@ -882,30 +973,55 @@ function buildInlineTypeNode(typeDef: any, context: SchemaContext): SchemaNode {
     maxOccurs: elem.maxOccurs === 'unbounded' ? 'unbounded' : elem.maxOccurs,
     children: [],
     attributes: [],
-    elementType: elem.type,
+    elementType: elem.type || undefined,
     isRequired: elem.minOccurs > 0,
     compositorType: elem.compositorType,
   }));
 
-  const directChildren: SchemaNode[] = getChildElementsFromType(typeDef, context.rootSchema).map((elem): SchemaNode => {
-    const parsedMaxOccurs = elem.maxOccurs === 'unbounded'
-      ? 'unbounded'
-      : Number.isFinite(Number(elem.maxOccurs))
-        ? Number(elem.maxOccurs)
-        : 1;
+  const directChildren: SchemaNode[] = expandSubstitutionGroupElements(
+    getChildElementsFromType(inlineParticleSource, context.rootSchema).map(toSubstitutionElement),
+    context.compiledSchema,
+  ).map((elem): SchemaNode => {
+    let childTypeName = elem.type || undefined;
+    let childInlineTypeDefinition: any;
+    const childLocalName = elem.name.replace(/^.*:/, '');
+    const globalElementDef = elem.definition ||
+      context.compiledSchema.getElement(childLocalName) ||
+      findElementInSchema(context.rootSchema, elem.name);
 
-    return {
-      tagName: elem.name,
-      label: elem.name,
-      nodeType: 'element',
-      minOccurs: elem.minOccurs,
-      maxOccurs: parsedMaxOccurs,
-      children: [],
-      attributes: [],
-      elementType: elem.type || undefined,
-      isRequired: elem.minOccurs > 0,
-      compositorType: (elem.compositorType as 'sequence' | 'choice' | 'all' | undefined),
-    };
+    if (globalElementDef && typeof globalElementDef === 'object') {
+      const globalAttrs = getXmlAttrs(globalElementDef);
+      childInlineTypeDefinition =
+        globalElementDef['xs:complexType'] ||
+        globalElementDef.complexType ||
+        globalElementDef['xs:simpleType'] ||
+        globalElementDef.simpleType;
+
+      if (childInlineTypeDefinition) {
+        childTypeName = typeof globalAttrs.type === 'string' && globalAttrs.type.length > 0
+          ? globalAttrs.type
+          : undefined;
+      } else if (!childTypeName && typeof globalAttrs.type === 'string' && globalAttrs.type.length > 0) {
+        childTypeName = globalAttrs.type;
+      }
+    }
+
+    const childNode = walkSchema(context.compiledSchema, {
+      ...context,
+      depth: context.depth + 1,
+      path: [...context.path, elem.name],
+      typeName: childTypeName,
+      inlineTypeDefinition: childInlineTypeDefinition,
+    });
+    childNode.tagName = elem.name;
+    childNode.label = elem.name;
+    childNode.minOccurs = elem.minOccurs;
+    childNode.maxOccurs = elem.maxOccurs;
+    childNode.isRequired = elem.minOccurs > 0;
+    if (elem.compositorType) {
+      childNode.compositorType = elem.compositorType as 'sequence' | 'choice' | 'all' | undefined;
+    }
+    return childNode;
   });
 
   const elementMap = new Map<string, SchemaNode>();
@@ -921,7 +1037,7 @@ function buildInlineTypeNode(typeDef: any, context: SchemaContext): SchemaNode {
     default: attr.default,
     fixed: attr.fixed,
   }));
-  const directAttributes = getAttributesFromType(typeDef);
+  const directAttributes = getAttributesFromType(inlineParticleSource);
   const attributeMap = new Map<string, SchemaAttribute>();
   for (const attr of [...inheritedAttributes, ...directAttributes]) {
     if (!attr.name) continue;
@@ -1157,13 +1273,13 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
 
     if (resolvedType.elements.length > 0) {
       // Walk all child elements from the resolved type
-      const elementsToWalk = resolvedType.elements;
+      const elementsToWalk = expandSubstitutionGroupElements(resolvedType.elements, compiledSchema);
       
       for (const elem of elementsToWalk) {
         if (elem.compositorType === 'choice') {
           console.log(`[schema-walker] Processing element "${elem.name}" with compositorType='choice'`);
         }
-        let childTypeName: string | undefined = elem.type;
+        let childTypeName: string | undefined = elem.type || undefined;
         let childInlineTypeDefinition: any = undefined;
         const childLocalName = String(elem.name).replace(/^.*:/, '');
         const ancestorNames = new Set(context.path.map((segment) => String(segment).replace(/^.*:/, '')));
@@ -1188,25 +1304,26 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
           continue;
         }
 
-        // For ref-based children (for example xs:element ref="xs:annotation"), resolve
-        // the actual global element definition so recursion stays schema-driven.
-        if (!childTypeName && elem.name) {
-          const globalElementDef =
-            compiledSchema.getElement(childLocalName) ||
-            findElementInSchema(context.rootSchema, elem.name);
+        // Resolve the concrete declaration for substitution-group members as well as
+        // refs. Its inline type must take precedence over the head element's type.
+        const globalElementDef = elem.definition ||
+          compiledSchema.getElement(childLocalName) ||
+          findElementInSchema(context.rootSchema, elem.name);
 
-          if (globalElementDef && typeof globalElementDef === 'object') {
-            const globalAttrs = getXmlAttrs(globalElementDef);
-            if (typeof globalAttrs.type === 'string' && globalAttrs.type.length > 0) {
-              childTypeName = globalAttrs.type;
-            }
+        if (globalElementDef && typeof globalElementDef === 'object') {
+          const globalAttrs = getXmlAttrs(globalElementDef);
+          childInlineTypeDefinition =
+            globalElementDef['xs:complexType'] ||
+            globalElementDef.complexType ||
+            globalElementDef['xs:simpleType'] ||
+            globalElementDef.simpleType;
 
-            // If the global element has an inline complexType/simpleType, pass it along
-            childInlineTypeDefinition =
-              globalElementDef['xs:complexType'] ||
-              globalElementDef['complexType'] ||
-              globalElementDef['xs:simpleType'] ||
-              globalElementDef['simpleType'];
+          if (childInlineTypeDefinition) {
+            childTypeName = typeof globalAttrs.type === 'string' && globalAttrs.type.length > 0
+              ? globalAttrs.type
+              : undefined;
+          } else if (!childTypeName && typeof globalAttrs.type === 'string' && globalAttrs.type.length > 0) {
+            childTypeName = globalAttrs.type;
           }
         }
 

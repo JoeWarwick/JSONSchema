@@ -22,6 +22,89 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     window.localStorage.clear();
   });
 
+  test('renders concrete element triggers for abstract substitution-group references', async () => {
+    const xsltSchema = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/schema-for-xslt20.xsd'), 'utf8'),
+      'xml',
+    ) as any;
+    const onChange = jest.fn();
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xsltSchema}
+        rootSchema={xsltSchema}
+        value={parseMarkup(
+          '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:template match="/"/></xsl:stylesheet>',
+          'xml',
+        )}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+
+    expect(document.querySelector('button[title^="Add xsl:template"]')).toBeInTheDocument();
+    expect(document.querySelector('button[title^="Add apply-templates"]')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Add (xsl:)?declaration/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Add (xsl:)?instruction/ })).not.toBeInTheDocument();
+  });
+
+  test('renders XSLT default-validation as a dropdown for its enumeration', () => {
+    const xsltSchema = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/schema-for-xslt20.xsd'), 'utf8'),
+      'xml',
+    ) as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xsltSchema}
+        rootSchema={xsltSchema}
+        value={parseMarkup(
+          '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" default-validation="strip"/>',
+          'xml',
+        )}
+        onChange={jest.fn()}
+        autoExpandAll
+      />,
+    );
+
+    const defaultValidation = screen.getByLabelText('default-validation:');
+    expect(defaultValidation.tagName).toBe('SELECT');
+    expect(Array.from((defaultValidation as HTMLSelectElement).options).map((option) => option.value))
+      .toEqual(['', 'preserve', 'strip']);
+    expect(defaultValidation).toHaveValue('strip');
+  });
+
+  test('keeps the stylesheet template trigger available alongside populated top-level declarations', async () => {
+    const xsltSchema = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/schema-for-xslt20.xsd'), 'utf8'),
+      'xml',
+    ) as any;
+    const onChange = jest.fn();
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xsltSchema}
+        rootSchema={xsltSchema}
+        value={parseMarkup(
+          '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:import href=""/><xsl:variable name=""/><xsl:param name=""/></xsl:stylesheet>',
+          'xml',
+        )}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+
+    const templateTrigger = document.querySelector('button[title^="Add xsl:template"]');
+    expect(templateTrigger).toBeInTheDocument();
+    expect(templateTrigger).toBeEnabled();
+    expect(document.querySelector('button[title^="Add xsl:variable"]')).toBeInTheDocument();
+    expect(document.querySelector('button[title^="Add xsl:param"]')).toBeInTheDocument();
+    expect(document.querySelector('button[title^="Add xsl:import"]')).toBeInTheDocument();
+
+    fireEvent.click(templateTrigger!);
+    expect(onChange).toHaveBeenCalled();
+  });
+
   test('schema form renders XSLT top-level imports and annotation', async () => {
     const onChange = jest.fn();
     const walkingSchema = parseMarkup(
@@ -282,6 +365,41 @@ describe('XmlInstanceForm trigger-row behavior', () => {
       expect(screen.getAllByRole('button', { name: /Add firstName/i })).toHaveLength(1);
       expect(screen.getAllByRole('button', { name: /Add lastName/i })).toHaveLength(1);
     });
+  });
+
+  test('sorts recursively rendered element triggers with referenced elements last', async () => {
+    const xmlSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="person" type="PersonType"/>
+        <xs:element name="lastName" type="xs:string"/>
+        <xs:complexType name="PersonType">
+          <xs:sequence>
+            <xs:element ref="lastName"/>
+            <xs:element name="firstName" type="xs:string"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:schema>
+    `, 'xml') as any;
+
+    const { container } = renderForm(
+      <XmlInstanceForm
+        schema={xmlSchema}
+        rootSchema={xmlSchema}
+        value={{ person: {} }}
+        onChange={jest.fn()}
+        autoExpandAll
+        showRootElementTriggers={false}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Add firstName' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Add lastName' })).toBeInTheDocument();
+    });
+
+    const nestedTriggerNames = Array.from(container.querySelectorAll('button[aria-label^="Add "]'))
+      .map((button) => button.getAttribute('aria-label'));
+    expect(nestedTriggerNames.indexOf('Add firstName')).toBeLessThan(nestedTriggerNames.indexOf('Add lastName'));
   });
 
   test('keeps nested xs:choice options visible when choice is inside xs:sequence', async () => {

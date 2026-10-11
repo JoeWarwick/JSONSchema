@@ -38,6 +38,7 @@ export interface XmlElementNodeProps {
   onChange: (value: any) => void;
   onUpdateValue: (pathArray: string[], updateFn: (value: any) => any) => void;
   rootSchema?: any;
+  referencedElementNames?: ReadonlySet<string>;
   autoExpandAll?: boolean;
   schemaNode?: SchemaNode;
   compiledSchema?: CompiledSchema | null;

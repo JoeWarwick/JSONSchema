@@ -1056,57 +1056,6 @@ export class CompiledSchema {
     return Array.from(this.elementMap.keys());
   }
 
-  /**
-   * Resolve child element data, handling wrapped values at the root level.
-   * 
-   * When the form initializes, instance values may be wrapped like { person: {...} }.
-   * This helper checks if value is wrapped and unwraps it if needed before looking up child data.
-   * 
-   * Usage:
-   *   // At root: element.tagName = "person", value = { person: { firstName: "John", ... } }
-   *   const firstNameData = compiledSchema.resolveChildData("firstName", "person", value, true);
-   *   // Returns: "John"
-   * 
-   * @param childElementName - Name of the child element to look up (e.g., "firstName")
-   * @param rootElementName - Name of the root element (e.g., "person") - only used for root level
-   * @param value - The instance data object (may be wrapped or unwrapped)
-   * @param isRootLevel - Whether we're at the root level (path.length === 0)
-   * @returns The child data value, or undefined if not found
-   */
-  public resolveChildData(
-    childElementName: string,
-    rootElementName: string | undefined,
-    value: any,
-    isRootLevel: boolean
-  ): any {
-    const candidateNames = new Set<string>();
-    const normalizedBase = String(childElementName || '').replace(/^.*:/, '');
-
-    if (childElementName) candidateNames.add(childElementName);
-    if (normalizedBase && normalizedBase !== childElementName) candidateNames.add(normalizedBase);
-    if (normalizedBase) candidateNames.add(`xs:${normalizedBase}`);
-    if (normalizedBase) candidateNames.add(`xsd:${normalizedBase}`);
-
-    for (const key of candidateNames) {
-      const result = value?.[key];
-      if (result !== undefined) return result;
-    }
-
-    // If at root level and value might be wrapped, try unwrapping.
-    // The wrapper can contain metadata keys like __childrenInOrder, so do not
-    // rely on the number of top-level keys to infer wrapping.
-    if (isRootLevel && rootElementName && value && typeof value === 'object' && !Array.isArray(value)) {
-      const unwrappedValue = value[rootElementName];
-      if (typeof unwrappedValue === 'object' && unwrappedValue !== null) {
-        for (const key of candidateNames) {
-          const result = unwrappedValue[key];
-          if (result !== undefined) return result;
-        }
-      }
-    }
-
-    return undefined;
-  }
 }
 
 /**
