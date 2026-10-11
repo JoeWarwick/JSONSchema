@@ -12,6 +12,7 @@ import {
 import { 
   walkSchema, 
   compileSchemaForWalking,
+  getXmlAttrs,
   getTypeAttributes,
   getAttributeEnumerations,
   getAttributeFacets,
@@ -694,7 +695,7 @@ function XmlElementNode({
   rootSchema,
   referencedElementNames,
   autoExpandAll = false,
-  schemaNode,
+  schemaNode: providedSchemaNode,
   compiledSchema,
   initialAutoExpandPathsRef,
   autoExpandCaptureActiveRef,
@@ -716,6 +717,58 @@ function XmlElementNode({
   const expanded = explicitlyExpanded || (autoExpandAll && isSchemaForm && path.length === 0 && !explicitlyCollapsed) || (initiallyExpanded && !explicitlyCollapsed);
   const elementTagName = typeof element.tagName === 'string' ? element.tagName : '';
   const localTagName = elementTagName.replace(/^.*:/, '');
+  // Rewalk truncated instance branches lazily so recursive schemas stay bounded.
+  const schemaNode = useMemo(() => {
+    const hasNoExpandedChildren = !providedSchemaNode?.children?.length;
+    const hasTruncatedChild = providedSchemaNode?.children?.some(
+      (child) => child.documentation === 'Maximum recursion depth reached',
+    ) || false;
+    if (
+      isSchemaForm ||
+      !compiledSchema ||
+      !providedSchemaNode ||
+      (
+        !hasNoExpandedChildren &&
+        providedSchemaNode.documentation !== 'Maximum recursion depth reached' &&
+        !hasTruncatedChild
+      )
+    ) {
+      return providedSchemaNode;
+    }
+
+    const declaration = providedSchemaNode.schemaObj || compiledSchema.getElement(elementTagName);
+    const declarationAttrs = declaration?.['@attributes'] || declaration || {};
+    const inlineTypeDefinition =
+      declaration?.['xs:complexType'] ||
+      declaration?.complexType ||
+      declaration?.['xs:simpleType'] ||
+      declaration?.simpleType;
+    const typeName = providedSchemaNode.elementType ||
+      (typeof declarationAttrs.type === 'string' ? declarationAttrs.type : undefined);
+
+    if (!typeName && !inlineTypeDefinition) return providedSchemaNode;
+
+    const walked = walkSchema(compiledSchema, {
+      rootSchema: getSchemaRootNode(rootSchema) || rootSchema,
+      compiledSchema,
+      visitedTypes: new Set(),
+      typeName,
+      inlineTypeDefinition,
+      depth: 0,
+      maxDepth: 2,
+      path: [elementTagName],
+    });
+    return {
+      ...walked,
+      tagName: elementTagName,
+      label: elementTagName,
+      minOccurs: providedSchemaNode.minOccurs,
+      maxOccurs: providedSchemaNode.maxOccurs,
+      isRequired: providedSchemaNode.isRequired,
+      elementType: typeName,
+      schemaObj: declaration,
+    };
+  }, [compiledSchema, elementTagName, isSchemaForm, providedSchemaNode, rootSchema]);
   
   // DEBUG: Always log for first few renders to verify component is running
   console.log(`[XmlElementNode START] element="${elementTagName}" path.len=${path.length}`);
@@ -2716,7 +2769,20 @@ function XmlElementNode({
                     {schemaNode?.children && schemaNode.children.length > 0 ? (() => {
                       const renderedTriggerNames = new Set<string>();
                       const orderedTriggerNodes = sortElementsByReferenceUsage(
-                        schemaNode.children,
+                        schemaNode.children.filter((childSchemaNode) => {
+                          const childName = childSchemaNode.label || childSchemaNode.tagName || '';
+                          const childDeclaration = childSchemaNode.schemaObj;
+                          const childDeclarationAttrs = getXmlAttrs(childDeclaration);
+                          const referencedDeclaration = typeof childDeclarationAttrs.ref === 'string'
+                            ? compiledSchema?.getElement(childDeclarationAttrs.ref)
+                            : undefined;
+                          const declaration = referencedDeclaration ||
+                            childDeclaration ||
+                            compiledSchema?.getElement(childName);
+                          const declarationAttrs = getXmlAttrs(declaration);
+                          const abstract = declarationAttrs.abstract;
+                          return abstract !== true && abstract !== 'true' && abstract !== '1';
+                        }),
                         (childSchemaNode) => childSchemaNode.label || childSchemaNode.tagName || '',
                         referencedElementNames || new Set<string>(),
                       );
@@ -4614,7 +4680,7 @@ function XmlInstanceFormContent({
         typeName,
         inlineTypeDefinition: effectiveInlineTypeDefinition,
         depth: 0,
-        maxDepth: isSchemaForm ? 0 : 1,
+        maxDepth: isSchemaForm ? 0 : 2,
         path: [],
       });
       

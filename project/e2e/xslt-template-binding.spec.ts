@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import path from 'node:path';
 
-test('adding xsl:template binds its schema-driven child controls', async ({ page }) => {
+test('adding xsl:template binds param and choose/when schema-driven controls', async ({ page }) => {
   await page.context().addInitScript(() => {
     localStorage.setItem('schema-sculptor-markup-language', 'xml');
     localStorage.removeItem('schema-sculptor-schema-xml');
@@ -31,8 +31,32 @@ test('adding xsl:template binds its schema-driven child controls', async ({ page
   await addTemplate.click();
 
   await expect(page.getByRole('button', { name: 'Add xsl:apply-templates' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add xsl:instruction' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Add xsl:declaration' })).toHaveCount(0);
   await expect(page.locator('button[title="Add match attribute"]')).toBeVisible();
 
+  await page.getByRole('button', { name: 'Add xsl:analyze-string' }).click();
+  await expect(page.getByRole('button', { name: 'Add xsl:matching-substring' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add xsl:non-matching-substring' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add xsl:apply-templates', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Add xsl:analyze-string', exact: true })).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Add xsl:param' }).last().click();
+  await expect(page.getByRole('button', { name: 'Add xsl:analyze-string', exact: true })).toHaveCount(2);
+  await expect(page.locator('button[title="Add required attribute"]')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add xsl:variable', exact: true }).last()).toBeVisible();
+
+  await page.getByRole('button', { name: 'Add xsl:choose' }).first().click();
+  await expect(page.getByRole('button', { name: 'Add xsl:when' }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add xsl:analyze-string', exact: true })).toHaveCount(2);
+  await page.getByRole('button', { name: 'Add xsl:when' }).first().click();
+  await expect(page.locator('button[title="Add test attribute"]')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add xsl:analyze-string', exact: true })).toHaveCount(3);
+
   await page.getByRole('button', { name: 'XML Input' }).click();
-  await expect(page.locator('textarea')).toHaveValue(/<xsl:template(?:\s|\/?>)/);
+  const serializedXml = page.locator('textarea');
+  await expect(serializedXml).toHaveValue(
+    /<xsl:template(?:\s|\/?>)[\s\S]*<xsl:param[\s\S]*<xsl:choose>[\s\S]*<xsl:when/,
+  );
+  await expect(serializedXml).not.toHaveValue(/<xsl:variable/);
 });

@@ -504,11 +504,21 @@ export class CompiledSchema {
     if (directGroups) {
       const groupArray = Array.isArray(directGroups) ? directGroups : [directGroups];
       for (const groupNode of groupArray) {
-        const groupRef = getXmlAttrs(groupNode).ref;
+        const groupAttrs = getXmlAttrs(groupNode);
+        const groupRef = groupAttrs.ref;
         if (!groupRef) continue;
         const namedGroup = this.findNamedGroup(groupRef);
         if (namedGroup) {
-          this.extractElementsAndAttributesFromGroup(namedGroup, 1, '1', 'sequence', compiled, new Set<string>());
+          const groupMinOccurs = parseInt(groupAttrs.minOccurs ?? '1', 10);
+          const groupMaxOccurs = String(groupAttrs.maxOccurs ?? '1');
+          this.extractElementsAndAttributesFromGroup(
+            namedGroup,
+            groupMinOccurs,
+            groupMaxOccurs,
+            'sequence',
+            compiled,
+            new Set<string>(),
+          );
         }
       }
     }

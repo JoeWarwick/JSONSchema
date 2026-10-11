@@ -558,6 +558,50 @@ describe('Schema Compiler - Inline Types', () => {
     expect(syntheticType?.elements).toBeDefined();
   });
 
+  test('preserves optional occurrence constraints on groups referenced from extensions', () => {
+    const schemaWithOptionalGroup: any = {
+      'xs:schema': {
+        '@attributes': {},
+        'xs:group': {
+          '@attributes': { name: 'optionalContent' },
+          'xs:choice': {
+            'xs:element': [
+              { '@attributes': { name: 'variable', type: 'xs:string' } },
+              { '@attributes': { name: 'instruction', type: 'xs:string' } },
+            ],
+          },
+        },
+        'xs:complexType': {
+          '@attributes': { name: 'ParameterType' },
+          'xs:complexContent': {
+            'xs:extension': {
+              '@attributes': { base: 'xs:anyType' },
+              'xs:group': {
+                '@attributes': {
+                  ref: 'optionalContent',
+                  minOccurs: '0',
+                  maxOccurs: 'unbounded',
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const compiled = compileSchema(schemaWithOptionalGroup['xs:schema']);
+    const parameterType = compiled.resolveType('ParameterType');
+
+    expect(parameterType?.elements.map(({ name, minOccurs, maxOccurs }) => ({
+      name,
+      minOccurs,
+      maxOccurs,
+    }))).toEqual([
+      { name: 'variable', minOccurs: 0, maxOccurs: 'unbounded' },
+      { name: 'instruction', minOccurs: 0, maxOccurs: 'unbounded' },
+    ]);
+  });
+
   test('should not create synthetic type for non-schema elements with inline complexTypes', () => {
     const testSchemaNoSynthetic: any = {
       'xs:schema': {

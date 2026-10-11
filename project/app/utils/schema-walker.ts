@@ -965,44 +965,30 @@ function buildInlineTypeNode(typeDef: any, context: SchemaContext): SchemaNode {
     ? context.compiledSchema.resolveType(baseTypeName.replace(/^.*:/, ''))
     : undefined;
 
-  const inheritedChildren: SchemaNode[] = (inheritedType?.elements || []).map((elem): SchemaNode => ({
-    tagName: elem.name,
-    label: elem.name,
-    nodeType: 'element',
-    minOccurs: elem.minOccurs,
-    maxOccurs: elem.maxOccurs === 'unbounded' ? 'unbounded' : elem.maxOccurs,
-    children: [],
-    attributes: [],
-    elementType: elem.type || undefined,
-    isRequired: elem.minOccurs > 0,
-    compositorType: elem.compositorType,
-  }));
-
-  const directChildren: SchemaNode[] = expandSubstitutionGroupElements(
-    getChildElementsFromType(inlineParticleSource, context.rootSchema).map(toSubstitutionElement),
-    context.compiledSchema,
-  ).map((elem): SchemaNode => {
+  const walkInlineChild = (elem: SubstitutionElement): SchemaNode => {
+    const declarationAttrs = getXmlAttrs(elem.definition);
+    const referencedDefinition = typeof declarationAttrs.ref === 'string'
+      ? context.compiledSchema.getElement(declarationAttrs.ref) ||
+        findElementInSchema(context.rootSchema, declarationAttrs.ref)
+      : undefined;
+    const childDefinition = referencedDefinition ||
+      elem.definition ||
+      context.compiledSchema.getElement(elem.name) ||
+      findElementInSchema(context.rootSchema, elem.name);
     let childTypeName = elem.type || undefined;
     let childInlineTypeDefinition: any;
-    const childLocalName = elem.name.replace(/^.*:/, '');
-    const globalElementDef = elem.definition ||
-      context.compiledSchema.getElement(childLocalName) ||
-      findElementInSchema(context.rootSchema, elem.name);
 
-    if (globalElementDef && typeof globalElementDef === 'object') {
-      const globalAttrs = getXmlAttrs(globalElementDef);
+    if (childDefinition && typeof childDefinition === 'object') {
+      const childAttrs = getXmlAttrs(childDefinition);
       childInlineTypeDefinition =
-        globalElementDef['xs:complexType'] ||
-        globalElementDef.complexType ||
-        globalElementDef['xs:simpleType'] ||
-        globalElementDef.simpleType;
-
+        childDefinition['xs:complexType'] ||
+        childDefinition.complexType ||
+        childDefinition['xs:simpleType'] ||
+        childDefinition.simpleType;
       if (childInlineTypeDefinition) {
-        childTypeName = typeof globalAttrs.type === 'string' && globalAttrs.type.length > 0
-          ? globalAttrs.type
-          : undefined;
-      } else if (!childTypeName && typeof globalAttrs.type === 'string' && globalAttrs.type.length > 0) {
-        childTypeName = globalAttrs.type;
+        childTypeName = typeof childAttrs.type === 'string' ? childAttrs.type : undefined;
+      } else if (!childTypeName && typeof childAttrs.type === 'string') {
+        childTypeName = childAttrs.type;
       }
     }
 
@@ -1018,11 +1004,46 @@ function buildInlineTypeNode(typeDef: any, context: SchemaContext): SchemaNode {
     childNode.minOccurs = elem.minOccurs;
     childNode.maxOccurs = elem.maxOccurs;
     childNode.isRequired = elem.minOccurs > 0;
+    childNode.elementType = childTypeName;
+    childNode.schemaObj = childDefinition;
     if (elem.compositorType) {
-      childNode.compositorType = elem.compositorType as 'sequence' | 'choice' | 'all' | undefined;
+      childNode.compositorType = elem.compositorType;
     }
     return childNode;
+  };
+
+  const inheritedChildren: SchemaNode[] = expandSubstitutionGroupElements(
+    (inheritedType?.elements || []).map((elem) => ({
+      name: elem.name,
+      type: elem.type,
+      minOccurs: elem.minOccurs,
+      maxOccurs: elem.maxOccurs,
+      compositorType: elem.compositorType,
+    })),
+    context.compiledSchema,
+  ).map((elem) => {
+    const definition = context.compiledSchema.getElement(elem.name) ||
+      findElementInSchema(context.rootSchema, elem.name);
+    const attrs = getXmlAttrs(definition);
+    return {
+      tagName: elem.name,
+      label: elem.name,
+      nodeType: 'element',
+      minOccurs: elem.minOccurs,
+      maxOccurs: elem.maxOccurs,
+      children: [],
+      attributes: [],
+      elementType: elem.type || attrs.type,
+      isRequired: elem.minOccurs > 0,
+      compositorType: elem.compositorType,
+      schemaObj: definition,
+    };
   });
+
+  const directChildren: SchemaNode[] = expandSubstitutionGroupElements(
+    getChildElementsFromType(inlineParticleSource, context.rootSchema).map(toSubstitutionElement),
+    context.compiledSchema,
+  ).map(walkInlineChild);
 
   const elementMap = new Map<string, SchemaNode>();
   for (const child of [...inheritedChildren, ...directChildren]) {
@@ -1306,7 +1327,13 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
 
         // Resolve the concrete declaration for substitution-group members as well as
         // refs. Its inline type must take precedence over the head element's type.
-        const globalElementDef = elem.definition ||
+        const declaredAttrs = getXmlAttrs(elem.definition);
+        const referencedElementDef = typeof declaredAttrs.ref === 'string'
+          ? compiledSchema.getElement(declaredAttrs.ref) ||
+            findElementInSchema(context.rootSchema, declaredAttrs.ref)
+          : undefined;
+        const globalElementDef = referencedElementDef ||
+          elem.definition ||
           compiledSchema.getElement(childLocalName) ||
           findElementInSchema(context.rootSchema, elem.name);
 
@@ -1370,6 +1397,8 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
           childNode.label = elem.name;
           childNode.minOccurs = elem.minOccurs;
           childNode.maxOccurs = elem.maxOccurs === 'unbounded' ? 'unbounded' : elem.maxOccurs;
+          childNode.elementType = childTypeName;
+          childNode.schemaObj = globalElementDef;
           if (elem.compositorType) {
             childNode.compositorType = elem.compositorType;
             if (elem.compositorType === 'choice') {
