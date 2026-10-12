@@ -82,9 +82,7 @@ export function XmlInstanceComplexTypeEditor({ node, onChange, readOnlySource, r
         />
         <span style={{ fontSize: 12 }}>Mixed Content</span>
       </label>
-      <div style={{ fontSize: 12, color: '#666' }}>
-        Sequence, choice, and all are represented by child compositor nodes. Edit min/max on the compositor node.
-      </div>
+      
       {!readOnly && renderAttributesManager ? (
         renderAttributesManager(node, onChange, {
           addBadgeLabel: 'xs:attribute',

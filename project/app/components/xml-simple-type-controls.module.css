@@ -1,0 +1,15 @@
+.themeAwareSelect {
+  color: var(--graph-node-text, var(--color-neutral-12));
+  background-color: var(--graph-node-bg, var(--color-neutral-1));
+  color-scheme: light;
+}
+
+.themeAwareSelect option,
+.themeAwareSelect optgroup {
+  color: var(--graph-node-text, var(--color-neutral-12));
+  background-color: var(--graph-node-bg, var(--color-neutral-1));
+}
+
+:global(html.dark-theme) .themeAwareSelect {
+  color-scheme: dark;
+}

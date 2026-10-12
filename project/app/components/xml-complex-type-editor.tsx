@@ -110,8 +110,6 @@ export function XmlComplexTypeEditor({ node, onChange, readOnlySource, renderAtt
         </label>
       )}
       <div style={{ fontSize: 12, color: '#666' }}>
-        Sequence, choice, and all are represented by child compositor nodes. Edit min/max on the compositor node.
-        {' '}Add element writes into the first existing compositor, or creates an xs:sequence when none exists.
         {hasComplexContentExtension ? ' In extension mode, these add actions write into complexContent/extension.' : ''}
       </div>
       <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>

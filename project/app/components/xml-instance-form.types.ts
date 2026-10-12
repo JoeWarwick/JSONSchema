@@ -1,4 +1,4 @@
-import type { MutableRefObject } from 'react';
+import type { MutableRefObject, ReactNode } from 'react';
 import type { CompiledSchema } from '../utils/schema-compiler';
 import type { SchemaNode } from '../utils/schema-walker';
 
@@ -49,4 +49,6 @@ export interface XmlElementNodeProps {
   onAddTopLevelXsdDefinition?: (kind: TopLevelXsdKind) => void;
   suppressElementLabel?: boolean;
   suppressExpander?: boolean;
+  headerLabel?: ReactNode;
+  headerAction?: ReactNode;
 }

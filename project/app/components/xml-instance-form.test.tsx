@@ -105,6 +105,29 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     expect(onChange).toHaveBeenCalled();
   });
 
+  test('does not surface unresolved required child triggers under xsl:otherwise', async () => {
+    const xsltSchema = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/schema-for-xslt20.xsd'), 'utf8'),
+      'xml',
+    ) as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xsltSchema}
+        rootSchema={xsltSchema}
+        value={parseMarkup(
+          '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:template match="/"><xsl:choose><xsl:otherwise><xsl:apply-templates select="//item"/></xsl:otherwise></xsl:choose></xsl:template></xsl:stylesheet>',
+          'xml',
+        )}
+        onChange={jest.fn()}
+        autoExpandAll
+      />,
+    );
+
+    expect(screen.getAllByText('xsl:template', { exact: true }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: /^Add xs:restriction/ })).not.toBeInTheDocument();
+  });
+
   test('schema form renders XSLT top-level imports and annotation', async () => {
     const onChange = jest.fn();
     const walkingSchema = parseMarkup(

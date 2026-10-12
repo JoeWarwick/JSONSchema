@@ -1355,6 +1355,13 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
         }
 
         if (!childTypeName && !childInlineTypeDefinition) {
+          // Skip unresolved refs that have no declaration/type information.
+          // These can appear when a reference points outside the compiled schema
+          // and should not be surfaced as concrete child triggers.
+          if (!globalElementDef || typeof globalElementDef !== 'object') {
+            continue;
+          }
+
           node.children.push({
             tagName: elem.name,
             label: elem.name,
@@ -1366,6 +1373,7 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
             elementType: undefined,
             isRequired: elem.minOccurs > 0,
             compositorType: elem.compositorType,
+            schemaObj: globalElementDef,
           });
           continue;
         }

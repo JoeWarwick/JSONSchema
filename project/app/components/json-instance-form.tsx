@@ -146,6 +146,9 @@ export function JsonInstanceForm({ schema: rawSchema, value, onChange, path = []
   const [stringInputValue, setStringInputValue] = useState<string>(
     typeof value === 'string' ? value : ''
   );
+  const [numberInputValue, setNumberInputValue] = useState<string>(
+    typeof value === 'number' && value !== 0 ? String(value) : ''
+  );
   const [stringPatternTouched, setStringPatternTouched] = useState(false);
   const [newPropKey, setNewPropKey] = useState("");
   const [currentIndexMap, setCurrentIndexMap] = useState<Record<string, number>>({});
@@ -606,10 +609,13 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
   // Sync local string input value when parent value prop changes
   useEffect(() => {
     const targetValue = typeof value === 'string' ? value : '';
-    if (stringInputValue !== targetValue) {
-      setStringInputValue(targetValue);
-    }
-  }, [value, stringInputValue]);
+    setStringInputValue(targetValue);
+  }, [value]);
+
+  useEffect(() => {
+    const targetValue = typeof value === 'number' && value !== 0 ? String(value) : '';
+    setNumberInputValue(targetValue);
+  }, [value]);
 
   // Initialize value from schema defaults if undefined (and parent didn't provide it)
   useEffect(() => {
@@ -1359,7 +1365,11 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
               value={stringInputValue}
               onChange={(v) => {
                 setStringInputValue(v);
-                onChange(v);
+              }}
+              onBlur={() => {
+                if (stringInputValue !== (typeof value === 'string' ? value : '')) {
+                  onChange(stringInputValue);
+                }
               }}
               placeholder={cssPlaceholder}
             />
@@ -1378,7 +1388,11 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
               value={stringInputValue}
               onChange={(v) => {
                 setStringInputValue(v);
-                onChange(v);
+              }}
+              onBlur={() => {
+                if (stringInputValue !== (typeof value === 'string' ? value : '')) {
+                  onChange(stringInputValue);
+                }
               }}
               placeholder={htmlPlaceholder}
             />
@@ -1406,16 +1420,14 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                 setStringInputValue(v);
                 if (patternAttr) {
                   setStringPatternTouched(false);
-                } else {
-                  // Validate and propagate to parent
-                  const err = validateValueAgainstSchema(v, schema);
-                  setInputError(err);
                 }
-                onChange(v);
               }}
               onBlur={() => {
-                if (!patternAttr) return;
-                setStringPatternTouched(true);
+                const currentValue = typeof value === 'string' ? value : '';
+                if (stringInputValue !== currentValue) {
+                  onChange(stringInputValue);
+                }
+                if (patternAttr) setStringPatternTouched(true);
                 setInputError(validateValueAgainstSchema(stringInputValue, schema));
               }}
               placeholder={isExpressionSyntaxField ? "${{ ... }}" : "Enter value..."}
@@ -1484,13 +1496,15 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
             ref={numberInputRef}
             className={styles.input}
             type="number"
-            value={(value as number) || ""}
+            value={numberInputValue}
             onChange={(e) => {
-              const raw = e.target.value;
-              const parsed = raw === '' ? '' : parseFloat(raw);
+              setNumberInputValue(e.target.value);
+            }}
+            onBlur={() => {
+              const parsed = numberInputValue === '' ? 0 : parseFloat(numberInputValue);
               const err = validateValueAgainstSchema(parsed, schema);
               setInputError(err);
-              onChange(parsed === '' ? 0 : parsed);
+              if (parsed !== value) onChange(parsed);
             }}
             placeholder="Enter number..."
             min={min}

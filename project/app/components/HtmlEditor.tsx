@@ -7,6 +7,7 @@ import { Code, Plus, Eye } from 'lucide-react';
 interface HtmlEditorProps {
   value: string;
   onChange: (value: string) => void;
+  onBlur?: () => void;
   placeholder?: string;
 }
 
@@ -46,7 +47,7 @@ const SNIPPETS = [
   }
 ];
 
-export const HtmlEditor = memo(function HtmlEditor({ value, onChange, placeholder }: HtmlEditorProps) {
+export const HtmlEditor = memo(function HtmlEditor({ value, onChange, onBlur, placeholder }: HtmlEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const updateTimerRef = useRef<number | null>(null);
@@ -134,6 +135,7 @@ export const HtmlEditor = memo(function HtmlEditor({ value, onChange, placeholde
             ref={textareaRef}
             value={value || ""}
             onChange={(e) => onChange(e.target.value)}
+            onBlur={onBlur}
             placeholder={placeholder || "<!-- Enter HTML here -->"}
             className={styles.textarea}
           />

@@ -1,6 +1,7 @@
 import React from 'react';
 import type { InlineSimpleTypeData, SimpleTypeFacets, XmlNodeRhsEditorProps } from './types';
 import { XSD_BUILTIN_SIMPLE_TYPES } from '~/utils/xsd-types';
+import styles from './xml-simple-type-controls.module.css';
 
 export function ReferencedEnumerationList({ values, typeName }: { values: string[]; typeName?: string }) {
   return (
@@ -434,7 +435,7 @@ export function XmlTypeSelector({
   }
 
   return (
-    <select aria-label={ariaLabel} value={value} disabled={disabled} onChange={(e) => { if (e.target.value === '__custom__') { setIsCustom(true); setCustomText(''); return; } onChange(e.target.value); }} style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}>
+    <select className={styles.themeAwareSelect} aria-label={ariaLabel} value={value} disabled={disabled} onChange={(e) => { if (e.target.value === '__custom__') { setIsCustom(true); setCustomText(''); return; } onChange(e.target.value); }} style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}>
       <option value="">(none)</option>
       <optgroup label="Simple">
         {XSD_BUILTIN_SIMPLE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}

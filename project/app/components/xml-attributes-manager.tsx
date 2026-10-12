@@ -1,6 +1,7 @@
 import React from 'react';
 import type { XmlNodeRhsEditorProps } from './types';
 import { XSD_BUILTIN_SIMPLE_TYPES } from '~/utils/xsd-types';
+import styles from './xml-simple-type-controls.module.css';
 
 /**
  * Reusable control for managing attributes on XML schema elements.
@@ -95,6 +96,7 @@ export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) 
                     style={isInherited ? inheritedFieldStyle : fieldStyle}
                   />
                   <select
+                    className={styles.themeAwareSelect}
                     value={attr.type || ''}
                     onChange={(e) => !isInherited && handleUpdateAttribute(index, 'type', e.target.value)}
                     disabled={isInherited}
@@ -106,6 +108,7 @@ export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) 
                     ))}
                   </select>
                   <select
+                    className={styles.themeAwareSelect}
                     value={attr.use || 'optional'}
                     onChange={(e) => !isInherited && handleUpdateAttribute(index, 'use', e.target.value)}
                     disabled={isInherited}
@@ -154,6 +157,7 @@ export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) 
             style={fieldStyle}
           />
           <select
+            className={styles.themeAwareSelect}
             value={newAttrType}
             onChange={(e) => setNewAttrType(e.target.value)}
             style={fieldStyle}
@@ -164,6 +168,7 @@ export function XmlAttributesManager({ node, onChange }: XmlNodeRhsEditorProps) 
             ))}
           </select>
           <select
+            className={styles.themeAwareSelect}
             value={newAttrUse}
             onChange={(e) => setNewAttrUse(e.target.value)}
             style={fieldStyle}
