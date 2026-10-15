@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
@@ -17,5 +17,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\SchemaService\SchemaService.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\..\public\schemas\schema-for-xslt20.xsd"
+          Link="schema-for-xslt20.xsd"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

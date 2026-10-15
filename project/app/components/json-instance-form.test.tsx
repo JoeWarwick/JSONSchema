@@ -372,7 +372,7 @@ describe('JsonInstanceForm extras', () => {
     expect(selfBtn.getAttribute('aria-pressed')).toBe('false');
   });
 
-  test('expression syntax string keeps partial dollar input mounted while typing', async () => {
+  test('string input keeps its draft locally until blur', async () => {
     const schema: any = {
       type: 'object',
       properties: {
@@ -384,18 +384,15 @@ describe('JsonInstanceForm extras', () => {
     };
 
     const onChange = jest.fn();
-    const { rerender } = renderForm(<JsonInstanceForm schema={schema} value={{ expr: '' }} onChange={onChange} />);
+    renderForm(<JsonInstanceForm schema={schema} value={{ expr: '' }} onChange={onChange} />);
 
     const input = screen.getByPlaceholderText('${{ ... }}') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '$' } });
 
-    const called = onChange.mock.calls[onChange.mock.calls.length - 1][0] as any;
-    act(() => rerender(<JsonInstanceForm schema={schema} value={called} onChange={onChange} />));
-
-    await waitFor(() => {
-      const renderedInput = screen.getByDisplayValue('$') as HTMLInputElement;
-      expect(renderedInput.value).toBe('$');
-    });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input.value).toBe('$');
+    fireEvent.blur(input);
+    expect(onChange).toHaveBeenCalledWith({ expr: '$' });
   });
 
   test('expression syntax string validates pattern on blur instead of each keystroke', async () => {
@@ -410,12 +407,12 @@ describe('JsonInstanceForm extras', () => {
     };
 
     const onChange = jest.fn();
-    const { rerender } = renderForm(<JsonInstanceForm schema={schema} value={{ expr: '' }} onChange={onChange} />);
+    renderForm(<JsonInstanceForm schema={schema} value={{ expr: '' }} onChange={onChange} />);
 
     const input = screen.getByPlaceholderText('${{ ... }}') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '$' } });
 
-    act(() => rerender(<JsonInstanceForm schema={schema} value={{ expr: '$' }} onChange={onChange} />));
+    expect(onChange).not.toHaveBeenCalled();
     expect(screen.queryByText(/must match pattern/i)).toBeNull();
 
     act(() => {
@@ -425,6 +422,21 @@ describe('JsonInstanceForm extras', () => {
     await waitFor(() => {
       expect(screen.getByText(/✗ must match pattern/i)).toBeTruthy();
     });
+    expect(onChange).toHaveBeenCalledWith({ expr: '$' });
+  });
+
+  test('number input propagates its draft on blur, not on each change', () => {
+    const onChange = jest.fn();
+    renderForm(<JsonInstanceForm schema={{ type: 'number' }} value={2} onChange={onChange} />);
+
+    const input = screen.getByPlaceholderText('Enter number...') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '42' } });
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input.value).toBe('42');
+
+    fireEvent.blur(input);
+    expect(onChange).toHaveBeenCalledWith(42);
   });
 
   test('clicking anyOf chip populates default and shows content', () => {

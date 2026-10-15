@@ -12,6 +12,7 @@ import {
 import { 
   walkSchema, 
   compileSchemaForWalking,
+  getXmlAttrs,
   getTypeAttributes,
   getAttributeEnumerations,
   getAttributeFacets,
@@ -29,11 +30,15 @@ import type {
 import {
   facetsToHint,
   facetsToInputAttrs,
+  findRootWrapperKey,
   getSchemaRootNode,
+  getReferencedElementNames,
   getXmlInstanceExpansionStorageKey,
   normalizeXmlName,
   restoreChoiceDataFromStorage,
+  resolveInstanceChildData,
   saveChoiceDataToStorage,
+  sortElementsByReferenceUsage,
   toArray,
 } from './xml-instance-form.utils';
 
@@ -667,8 +672,9 @@ function XmlElementNode({
   onChange,
   onUpdateValue,
   rootSchema,
+  referencedElementNames,
   autoExpandAll = false,
-  schemaNode,
+  schemaNode: providedSchemaNode,
   compiledSchema,
   initialAutoExpandPathsRef,
   autoExpandCaptureActiveRef,
@@ -677,6 +683,8 @@ function XmlElementNode({
   onAddTopLevelXsdDefinition,
   suppressElementLabel = false,
   suppressExpander = false,
+  headerLabel,
+  headerAction,
 }: XmlElementNodeProps) {
   const pathKey = path.join('.');
   if (autoExpandAll && autoExpandCaptureActiveRef?.current) {
@@ -690,6 +698,58 @@ function XmlElementNode({
   const expanded = explicitlyExpanded || (autoExpandAll && isSchemaForm && path.length === 0 && !explicitlyCollapsed) || (initiallyExpanded && !explicitlyCollapsed);
   const elementTagName = typeof element.tagName === 'string' ? element.tagName : '';
   const localTagName = elementTagName.replace(/^.*:/, '');
+  // Rewalk truncated instance branches lazily so recursive schemas stay bounded.
+  const schemaNode = useMemo(() => {
+    const hasNoExpandedChildren = !providedSchemaNode?.children?.length;
+    const hasTruncatedChild = providedSchemaNode?.children?.some(
+      (child) => child.documentation === 'Maximum recursion depth reached',
+    ) || false;
+    if (
+      isSchemaForm ||
+      !compiledSchema ||
+      !providedSchemaNode ||
+      (
+        !hasNoExpandedChildren &&
+        providedSchemaNode.documentation !== 'Maximum recursion depth reached' &&
+        !hasTruncatedChild
+      )
+    ) {
+      return providedSchemaNode;
+    }
+
+    const declaration = providedSchemaNode.schemaObj || compiledSchema.getElement(elementTagName);
+    const declarationAttrs = declaration?.['@attributes'] || declaration || {};
+    const inlineTypeDefinition =
+      declaration?.['xs:complexType'] ||
+      declaration?.complexType ||
+      declaration?.['xs:simpleType'] ||
+      declaration?.simpleType;
+    const typeName = providedSchemaNode.elementType ||
+      (typeof declarationAttrs.type === 'string' ? declarationAttrs.type : undefined);
+
+    if (!typeName && !inlineTypeDefinition) return providedSchemaNode;
+
+    const walked = walkSchema(compiledSchema, {
+      rootSchema: getSchemaRootNode(rootSchema) || rootSchema,
+      compiledSchema,
+      visitedTypes: new Set(),
+      typeName,
+      inlineTypeDefinition,
+      depth: 0,
+      maxDepth: 2,
+      path: [elementTagName],
+    });
+    return {
+      ...walked,
+      tagName: elementTagName,
+      label: elementTagName,
+      minOccurs: providedSchemaNode.minOccurs,
+      maxOccurs: providedSchemaNode.maxOccurs,
+      isRequired: providedSchemaNode.isRequired,
+      elementType: typeName,
+      schemaObj: declaration,
+    };
+  }, [compiledSchema, elementTagName, isSchemaForm, providedSchemaNode, rootSchema]);
   
   // DEBUG: Always log for first few renders to verify component is running
   console.log(`[XmlElementNode START] element="${elementTagName}" path.len=${path.length}`);
@@ -841,14 +901,7 @@ function XmlElementNode({
       const choiceKey = `choice_${pathKey}_${group.groupIndex}`;
       
       const optionStates = group.options.map((opt) => {
-        const optionData = compiledSchema
-          ? compiledSchema.resolveChildData(
-              opt.name,
-              element?.tagName,
-              value,
-              path.length === 0
-            )
-          : value?.[opt.name];
+        const optionData = resolveInstanceChildData(opt.name, element?.tagName, value, path.length === 0);
         return {
           name: opt.name,
           node: opt.node,
@@ -892,6 +945,7 @@ function XmlElementNode({
         isRequired: isChoiceGroupRequired,
         choiceKey,
         isExclusive,
+        isRepeatable: hasRepeatableOption,
       };
     });
   }, [choiceGroups, pathKey, value, compiledSchema, element?.tagName, path.length, isSchemaForm]);
@@ -1129,7 +1183,7 @@ function XmlElementNode({
 
   const getRootOccurrenceCount = (currentValue: any, childName: string): number => {
     if (!currentValue || typeof currentValue !== 'object' || Array.isArray(currentValue)) return 0;
-    const resolved = currentValue[childName];
+    const resolved = currentValue[childName] ?? resolveInstanceChildData(childName, undefined, currentValue, true);
     if (resolved === undefined || resolved === null) return 0;
     return Array.isArray(resolved) ? resolved.length : 1;
   };
@@ -1142,7 +1196,7 @@ function XmlElementNode({
     if (count >= maxOccurs) return;
 
     const nextValue = {};
-    const updated = { ...current };
+    const updated = { ...(current || {}) };
 
     if (selectedRoot && selectedRoot !== childName) {
       delete updated[selectedRoot];
@@ -1173,9 +1227,7 @@ function XmlElementNode({
   };
 
   const getChildOccurrenceCount = (currentValue: any, childName: string): number => {
-    const resolved = compiledSchema
-      ? compiledSchema.resolveChildData(childName, element?.tagName, currentValue, path.length === 0)
-      : currentValue?.[childName];
+    const resolved = resolveInstanceChildData(childName, element?.tagName, currentValue, path.length === 0);
     if (resolved === undefined || resolved === null) return 0;
     return Array.isArray(resolved) ? resolved.length : 1;
   };
@@ -1188,11 +1240,23 @@ function XmlElementNode({
   };
 
   const addChildOccurrence = (childName: string, childSchema: SchemaNode) => {
+    const childPath = [...path, childName];
+    const childPathKey = childPath.join('.');
+    const childCollapsedKey = `__collapsed__:${childPathKey}`;
+    const childIsInitiallyExpanded = Boolean(autoExpandAll && initialAutoExpandPathsRef?.current.has(childPathKey));
+    const childIsExpanded = expandedPaths.has(childPathKey)
+      || (childIsInitiallyExpanded && !expandedPaths.has(childCollapsedKey));
+    if (!childIsExpanded && getChildOccurrenceCount(value, childName) < getChildMaxOccurs(childSchema)) {
+      onToggleExpand(childPath);
+    }
+
     const choiceGroupInfo = getChoiceGroupForChild(childName);
     const choiceGroupData = choiceGroupInfo ? choiceInfo[choiceGroupInfo.groupIndex] : null;
 
     onUpdateValue(path, (current) => {
-      const updated = asMutableElementObject(current);
+      const wrapperKey = path.length === 0 ? findRootWrapperKey(current, element?.tagName) : null;
+      const rootValue = wrapperKey ? current?.[wrapperKey] : current;
+      const updated = asMutableElementObject(rootValue);
 
       // Enforce choice semantics by clearing sibling options when selecting a different branch.
       if (choiceGroupData?.isExclusive) {
@@ -1205,7 +1269,7 @@ function XmlElementNode({
 
       const count = getChildOccurrenceCount(updated, childName);
       const maxOccurs = getChildMaxOccurs(childSchema);
-      if (count >= maxOccurs) return updated;
+      if (count >= maxOccurs) return current;
 
       const nextValue = createDefaultChildValue(childSchema);
       if (count === 0) {
@@ -1216,21 +1280,27 @@ function XmlElementNode({
         updated[childName] = [updated[childName], nextValue];
       }
 
+      if (wrapperKey) {
+        const nextCurrent = { ...(current || {}) };
+        nextCurrent[wrapperKey] = updated;
+        return nextCurrent;
+      }
+
       return updated;
     });
   };
 
   const removeChildOccurrence = (childName: string, childSchema: SchemaNode) => {
     onUpdateValue(path, (current) => {
-      const updated = { ...(current || {}) };
+      const wrapperKey = path.length === 0 ? findRootWrapperKey(current, element?.tagName) : null;
+      const rootValue = wrapperKey ? current?.[wrapperKey] : current;
+      const updated = { ...(rootValue || {}) };
       const count = getChildOccurrenceCount(updated, childName);
       const minOccurs = getChildMinOccurs(childSchema);
 
-      if (count <= minOccurs) return updated;
+      if (count <= minOccurs) return current;
 
-      const existing = compiledSchema
-        ? compiledSchema.resolveChildData(childName, element?.tagName, updated, path.length === 0)
-        : updated?.[childName];
+      const existing = resolveInstanceChildData(childName, element?.tagName, updated, path.length === 0);
 
       if (Array.isArray(existing)) {
         const trimmed = existing.slice(0, -1);
@@ -1239,6 +1309,12 @@ function XmlElementNode({
         else updated[childName] = trimmed;
       } else {
         delete updated[childName];
+      }
+
+      if (wrapperKey) {
+        const nextCurrent = { ...(current || {}) };
+        nextCurrent[wrapperKey] = updated;
+        return nextCurrent;
       }
 
       return updated;
@@ -1467,6 +1543,7 @@ function XmlElementNode({
     choicePath,
     children,
     showExpander = true,
+    childrenBelow = false,
   }: {
     choiceGroupData: {
       selectedOption: string | null;
@@ -1476,6 +1553,7 @@ function XmlElementNode({
     choicePath: string[];
     children?: React.ReactNode;
     showExpander?: boolean;
+    childrenBelow?: boolean;
   }) => {
     const showChoiceRemove = canRemoveChoiceSelection(choiceGroupData);
     const selectorPathKey = choicePath.join('.');
@@ -1484,7 +1562,7 @@ function XmlElementNode({
     const isCollapsed = expandedPaths.has(collapsedKey);
     const shouldShowChildren = !isCollapsed && (isExpanded || !isSchemaForm);
     const selectedChoiceData = isSchemaForm && choiceGroupData.selectedOption
-      ? compiledSchema?.resolveChildData(choiceGroupData.selectedOption, element?.tagName, value, path.length === 0)
+      ? resolveInstanceChildData(choiceGroupData.selectedOption, element?.tagName, value, path.length === 0)
       : null;
     const activeChoiceLabel = selectedChoiceData
       ? (selectedChoiceData['@attributes']?.name
@@ -1494,94 +1572,116 @@ function XmlElementNode({
       : null;
 
     return (
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 8, width: 'auto', maxWidth: '100%' }}>
-        {showExpander && <button
-          type="button"
-          onClick={() => onToggleExpand(choicePath)}
-          style={{
-            padding: '2px 6px',
-            background: 'transparent',
-            border: 'none',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            minWidth: '20px',
-            fontSize: 12,
-            color: '#666',
-          }}
-          title={shouldShowChildren ? 'Collapse' : 'Expand'}
-          aria-label={shouldShowChildren ? 'Collapse' : 'Expand'}
-        >
-          {shouldShowChildren ? '▼' : '▶'}
-        </button>}
+      <div style={{
+        display: childrenBelow ? 'flex' : 'inline-flex',
+        flexDirection: childrenBelow ? 'column' : undefined,
+        alignItems: childrenBelow ? 'flex-start' : 'center',
+        gap: 8,
+        marginBottom: 8,
+        width: 'auto',
+        maxWidth: '100%',
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: childrenBelow ? 'space-between' : 'flex-start',
+          gap: 8,
+          width: childrenBelow ? '100%' : 'auto',
+          maxWidth: '100%',
+        }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            {showExpander && <button
+              type="button"
+              onClick={() => onToggleExpand(choicePath)}
+              style={{
+                padding: '2px 6px',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minWidth: '20px',
+                fontSize: 12,
+                color: '#666',
+              }}
+              title={shouldShowChildren ? 'Collapse' : 'Expand'}
+              aria-label={shouldShowChildren ? 'Collapse' : 'Expand'}
+            >
+              {shouldShowChildren ? '▼' : '▶'}
+            </button>}
 
-        <select
-          value={choiceGroupData.selectedOption || ''}
-          onChange={(e) => {
-            const newSelectedOption = e.target.value;
-            console.log('[choice-select-change]', { newSelectedOption, currentChoice: choiceGroupData.selectedOption, choicePath });
-            if (newSelectedOption === choiceGroupData.selectedOption) return;
-            onUpdateValue(choicePath.slice(0, -1), (current) => applyExclusiveChoiceSwitch(current, choiceGroupData, newSelectedOption));
-          }}
-          style={{
-            padding: '6px 8px',
-            border: '1px solid #ddd',
-            borderRadius: 3,
-            fontSize: 12,
-            cursor: 'pointer',
-            fontWeight: 500,
-            minWidth: 100,
-            color: '#a78bfa',
-          }}
-        >
-          {choiceGroupData.options.map(opt => (
-            <option key={opt.name} value={opt.name}>
-              {opt.name}:
-            </option>
-          ))}
-        </select>
+            <select
+              value={choiceGroupData.selectedOption || ''}
+              onChange={(e) => {
+                const newSelectedOption = e.target.value;
+                console.log('[choice-select-change]', { newSelectedOption, currentChoice: choiceGroupData.selectedOption, choicePath });
+                if (newSelectedOption === choiceGroupData.selectedOption) return;
+                onUpdateValue(choicePath.slice(0, -1), (current) => applyExclusiveChoiceSwitch(current, choiceGroupData, newSelectedOption));
+              }}
+              style={{
+                padding: '6px 8px',
+                border: '1px solid #ddd',
+                borderRadius: 3,
+                fontSize: 12,
+                cursor: 'pointer',
+                fontWeight: 500,
+                minWidth: 100,
+                color: '#a78bfa',
+              }}
+            >
+              {choiceGroupData.options.map(opt => (
+                <option key={opt.name} value={opt.name}>
+                  {opt.name}:
+                </option>
+              ))}
+            </select>
 
-        {activeChoiceLabel && (
-          <span
-            data-testid="xml-name-chip"
-            style={{
-              color: '#155e75',
-              backgroundColor: '#ecfeff',
-              border: '1px solid #a5f3fc',
-              borderRadius: 999,
-              padding: '1px 8px',
-              fontSize: 11,
-              fontWeight: 600,
-              lineHeight: 1.6,
-              whiteSpace: 'nowrap',
-              flexShrink: 0,
-              display: 'inline-flex',
-              alignItems: 'center',
-            }}
-          >
-            {activeChoiceLabel}
-          </span>
-        )}
-
-        {children}
-
-        {showChoiceRemove && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => removeChoiceSelection(choiceGroupData, choicePath)}
-                className={styles.removeButton}
-                title={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
-                aria-label={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
+            {activeChoiceLabel && (
+              <span
+                data-testid="xml-name-chip"
+                style={{
+                  color: '#155e75',
+                  backgroundColor: '#ecfeff',
+                  border: '1px solid #a5f3fc',
+                  borderRadius: 999,
+                  padding: '1px 8px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  lineHeight: 1.6,
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
               >
-                <Trash2 size={14} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}</TooltipContent>
-          </Tooltip>
-        )}
+                {activeChoiceLabel}
+              </span>
+            )}
+          </div>
+          {showChoiceRemove && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => removeChoiceSelection(choiceGroupData, choicePath)}
+                  className={styles.removeButton}
+                  title={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
+                  aria-label={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}</TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+
+        {children && (childrenBelow ? (
+          <div style={{ marginLeft: 28, width: 'calc(100% - 28px)', minWidth: 0 }}>
+            {children}
+          </div>
+        ) : children)}
       </div>
     );
   };
@@ -1929,6 +2029,192 @@ function XmlElementNode({
     });
   };
 
+  const renderElementTriggers = () => {
+    const renderedTriggerNames = new Set<string>();
+    const repeatableChoiceNames = new Set(
+      choiceInfo
+        .filter((group) => group.isRepeatable)
+        .flatMap((group) => group.options.map((option) => option.name)),
+    );
+    const orderedTriggerNodes = sortElementsByReferenceUsage(
+      (schemaNode?.children || []).filter((childSchemaNode) => {
+        const childName = childSchemaNode.label || childSchemaNode.tagName || '';
+        if (repeatableChoiceNames.has(childName)) return false;
+        const childDeclarationAttrs = getXmlAttrs(childSchemaNode.schemaObj);
+        const referencedDeclaration = typeof childDeclarationAttrs.ref === 'string'
+          ? compiledSchema?.getElement(childDeclarationAttrs.ref)
+          : undefined;
+        const declaration = referencedDeclaration ||
+          childSchemaNode.schemaObj ||
+          compiledSchema?.getElement(childName);
+        const abstract = getXmlAttrs(declaration).abstract;
+        return abstract !== true && abstract !== 'true' && abstract !== '1';
+      }),
+      (childSchemaNode) => childSchemaNode.label || childSchemaNode.tagName || '',
+      referencedElementNames || new Set<string>(),
+    );
+
+    return (
+      <>
+        {path.length === 0 && isSchemaForm && rootXsdAddButtons?.map(({ kind, label }) => (
+          <button
+            key={kind}
+            type="button"
+            onClick={() => onAddTopLevelXsdDefinition?.(kind)}
+            title={label}
+            aria-label={label}
+            style={{
+              padding: '3px 8px',
+              borderRadius: 12,
+              border: '1px solid #ddd',
+              backgroundColor: '#f9f9f9',
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 500,
+              color: '#666',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span>+</span>
+            <span>{compactAddLabel(label)}</span>
+          </button>
+        ))}
+        {currentNodeCompositorAddOptions.concat(currentNodeRestrictionFacetAddOptions).map((trigger) => (
+          <button
+            key={`${elementTagName}-${trigger.name}`}
+            type="button"
+            onClick={() => addChildOccurrence(trigger.name, {
+              tagName: trigger.name,
+              label: trigger.name,
+              nodeType: 'element',
+              minOccurs: trigger.minOccurs,
+              maxOccurs: trigger.maxOccurs,
+              children: [],
+              attributes: [],
+              isRequired: false,
+            })}
+            title={trigger.label}
+            aria-label={trigger.label}
+            style={{
+              padding: '3px 8px',
+              borderRadius: 12,
+              border: '1px solid #ddd',
+              backgroundColor: '#f9f9f9',
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 500,
+              color: '#666',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span>+</span>
+            <span>{compactAddLabel(trigger.label)}</span>
+          </button>
+        ))}
+        {choiceInfo.filter((group) => group.isRepeatable).map((group) => (
+          <select
+            key={`repeatable-choice-${elementTagName}-${group.groupIndex}`}
+            aria-label={`Add child to ${elementTagName} from choice group ${group.groupIndex + 1}`}
+            title="Choose a child element to add"
+            value=""
+            onChange={(event) => {
+              const selectedOption = group.options.find((option) => option.name === event.target.value);
+              if (selectedOption) addChildOccurrence(selectedOption.name, selectedOption.node);
+            }}
+            style={{
+              padding: '4px 8px',
+              borderRadius: 12,
+              border: '1px solid #ddd',
+              backgroundColor: '#f9f9f9',
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 500,
+              color: '#666',
+              maxWidth: '100%',
+            }}
+          >
+            <option value="">Add child element...</option>
+            {group.options.map((option) => (
+              <option
+                key={option.name}
+                value={option.name}
+                disabled={getChildOccurrenceCount(value, option.name) >= getChildMaxOccurs(option.node)}
+              >
+                {option.name}
+              </option>
+            ))}
+          </select>
+        ))}
+        {orderedTriggerNodes.map((childSchemaNode, triggerIndex) => {
+          const childElementName = childSchemaNode.label || childSchemaNode.tagName || `child-${triggerIndex}`;
+          const normalizedChildLocal = childElementName.replace(/^.*:/, '').toLowerCase();
+          if (renderedTriggerNames.has(normalizedChildLocal)) return null;
+          renderedTriggerNames.add(normalizedChildLocal);
+          if (
+            isSchemaForm &&
+            path.length === 0 &&
+            rootTopLevelKinds.size > 0 &&
+            rootTopLevelKinds.has(normalizedChildLocal)
+          ) return null;
+
+          const count = getChildOccurrenceCount(value, childElementName);
+          const maxOccurs = getChildMaxOccurs(childSchemaNode);
+          const minOccurs = getChildMinOccurs(childSchemaNode);
+          const choiceGroupInfo = getChoiceGroupForChild(childElementName);
+          const choiceGroupData = choiceGroupInfo ? choiceInfo[choiceGroupInfo.groupIndex] : null;
+          const selectedChoiceName = choiceGroupData?.selectedOption || null;
+          const isBlockedByChoice = Boolean(selectedChoiceName && selectedChoiceName !== childElementName);
+          const isBelowMinimum = count < minOccurs && !isBlockedByChoice;
+          const isRequiredSingleton = minOccurs > 0 && maxOccurs === 1;
+          if (isRequiredSingleton && !isBelowMinimum) return null;
+          const canAdd = !isBlockedByChoice && count < maxOccurs;
+          const maxLabel = Number.isFinite(maxOccurs) ? String(maxOccurs) : '∞';
+          const addTitle = isBlockedByChoice
+            ? `Choice already satisfied by ${selectedChoiceName}`
+            : (canAdd ? `Add ${childElementName} (${count}/${maxLabel})` : `${childElementName} reached maxOccurs (${maxLabel})`);
+          const addTriggerLabel = `Add ${childElementName}`;
+
+          return (
+            <div key={`trigger-${childElementName}-${triggerIndex}`} style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => addChildOccurrence(childElementName, childSchemaNode)}
+                disabled={!canAdd}
+                title={addTitle}
+                aria-label={addTriggerLabel}
+                style={{
+                  padding: '3px 8px',
+                  borderRadius: 12,
+                  border: isBelowMinimum ? '1px solid #f59e0b' : '1px solid #ddd',
+                  backgroundColor: isBelowMinimum ? '#fffbeb' : (canAdd ? '#f9f9f9' : '#f3f4f6'),
+                  cursor: canAdd ? 'pointer' : 'not-allowed',
+                  fontSize: 11,
+                  fontWeight: 500,
+                  color: isBelowMinimum ? '#92400e' : (canAdd ? '#666' : '#9ca3af'),
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  whiteSpace: 'nowrap',
+                  opacity: canAdd ? 1 : 0.7,
+                }}
+              >
+                <span>+</span>
+                <span>{compactAddLabel(addTriggerLabel)}</span>
+                {isBelowMinimum && <span title="Required until minimum occurrences are met">!</span>}
+              </button>
+            </div>
+          );
+        })}
+      </>
+    );
+  };
+
   return (
     <div style={{ marginLeft: 0, marginBottom: 12 }}>
       {path.length === 0 && (() => {
@@ -1992,6 +2278,7 @@ function XmlElementNode({
       })()}
 
       {/* Element header with toggle */}
+      {!(suppressElementLabel && suppressExpander) && (
       <div
         className={styles.propertyHeader}
         style={{
@@ -2038,51 +2325,55 @@ function XmlElementNode({
             flexWrap: 'nowrap',
           }}
         >
-          <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{element.tagName}</span>
-          {/* Compositor badge for XSD-specific nodes */}
-          {isCompositor && (
-            <span className={styles.badge} style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>Compositor</span>
-          )}
-          {/* Always show @name attribute in schema form, inline with the label */}
-          {schemaNodeName && (
-            <span
-              data-testid="xml-name-chip"
-              style={{
-                color: '#155e75',
-                backgroundColor: '#ecfeff',
-                border: '1px solid #a5f3fc',
-                borderRadius: 999,
-                padding: '1px 8px',
-                fontSize: 11,
-                fontWeight: 600,
-                lineHeight: 1.6,
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
-                display: 'inline-flex',
-                alignItems: 'center',
-              }}
-            >
-              {schemaNodeName}
-            </span>
-          )}
-          {isAnonymousSchemaType && (
-            <span
-              data-testid="xml-anonymous-type"
-              style={{
-                color: '#92400e',
-                backgroundColor: '#fffbeb',
-                border: '1px solid #fcd34d',
-                borderRadius: 999,
-                padding: '1px 8px',
-                fontSize: 11,
-                fontWeight: 600,
-                lineHeight: 1.6,
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
-              }}
-            >
-              Anonymous type
-            </span>
+          {headerLabel ?? (
+            <>
+              <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{element.tagName}</span>
+              {/* Compositor badge for XSD-specific nodes */}
+              {isCompositor && (
+                <span className={styles.badge} style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>Compositor</span>
+              )}
+              {/* Always show @name attribute in schema form, inline with the label */}
+              {schemaNodeName && (
+                <span
+                  data-testid="xml-name-chip"
+                  style={{
+                    color: '#155e75',
+                    backgroundColor: '#ecfeff',
+                    border: '1px solid #a5f3fc',
+                    borderRadius: 999,
+                    padding: '1px 8px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    lineHeight: 1.6,
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  {schemaNodeName}
+                </span>
+              )}
+              {isAnonymousSchemaType && (
+                <span
+                  data-testid="xml-anonymous-type"
+                  style={{
+                    color: '#92400e',
+                    backgroundColor: '#fffbeb',
+                    border: '1px solid #fcd34d',
+                    borderRadius: 999,
+                    padding: '1px 8px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    lineHeight: 1.6,
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                  }}
+                >
+                  Anonymous type
+                </span>
+              )}
+            </>
           )}
         </div>
         )}
@@ -2091,11 +2382,28 @@ function XmlElementNode({
             {`"${element.text.substring(0, 50)}${element.text.length > 50 ? '...' : ''}"`}
           </span>
         )}
+        {headerAction}
       </div>
+      )}
 
       {/* Expanded content: attributes and children */}
       {expanded && hasExpandableContent && (
         <div className={styles.objectContainer}>
+          {hasAttributes && !hasInferredEditor && (
+            <div
+              className={styles.elementTriggerRow}
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 6,
+                alignItems: 'center',
+                maxWidth: '100%',
+                marginBottom: 8,
+              }}
+            >
+              {renderElementTriggers()}
+            </div>
+          )}
           {/* If this appears to be an XSD/schema node and a rootSchema was provided,
               render the RHS-style editor in read-only mode using an adapter node. */}
           {rootSchema && (() => {
@@ -2278,8 +2586,8 @@ function XmlElementNode({
                       schemaAttrs.forEach((sa) => {
                         if (sa?.name) schemaUseByName.set(String(sa.name), sa.use || 'optional');
                       });
-                      return sortedTriggerNames.length > 0 ? (
-                      <div className={styles.attributeTriggerRow} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                      return sortedTriggerNames.length > 0 || hasSchemaChildren ? (
+                      <div className={styles.attributeTriggerRow} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'flex-start', marginBottom: 8 }}>
                         {sortedTriggerNames.map((name) => {
                           const isPresent = editableAttrs.some((a) => a.name === name);
                           const isRequired = schemaUseByName.get(name) === 'required';
@@ -2620,6 +2928,7 @@ function XmlElementNode({
             return shouldRender;
           })() && (
             <div>
+              {(!hasAttributes || hasInferredEditor) && (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 {isSchemaForm || !hasInferredEditor ? (
                   <div className={styles.elementTriggerRow} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
@@ -2686,7 +2995,69 @@ function XmlElementNode({
                     ))}
                     {schemaNode?.children && schemaNode.children.length > 0 ? (() => {
                       const renderedTriggerNames = new Set<string>();
-                      return schemaNode.children.map((childSchemaNode, triggerIndex) => {
+                      const repeatableChoiceNames = new Set(
+                        choiceInfo
+                          .filter((group) => group.isRepeatable)
+                          .flatMap((group) => group.options.map((option) => option.name)),
+                      );
+                      const orderedTriggerNodes = sortElementsByReferenceUsage(
+                        schemaNode.children.filter((childSchemaNode) => {
+                          const childName = childSchemaNode.label || childSchemaNode.tagName || '';
+                          if (repeatableChoiceNames.has(childName)) return false;
+                          const childDeclaration = childSchemaNode.schemaObj;
+                          const childDeclarationAttrs = getXmlAttrs(childDeclaration);
+                          const referencedDeclaration = typeof childDeclarationAttrs.ref === 'string'
+                            ? compiledSchema?.getElement(childDeclarationAttrs.ref)
+                            : undefined;
+                          const declaration = referencedDeclaration ||
+                            childDeclaration ||
+                            compiledSchema?.getElement(childName);
+                          const declarationAttrs = getXmlAttrs(declaration);
+                          const abstract = declarationAttrs.abstract;
+                          return abstract !== true && abstract !== 'true' && abstract !== '1';
+                        }),
+                        (childSchemaNode) => childSchemaNode.label || childSchemaNode.tagName || '',
+                        referencedElementNames || new Set<string>(),
+                      );
+                      return (
+                        <>
+                          {choiceInfo.filter((group) => group.isRepeatable).map((group) => (
+                            <select
+                              key={`repeatable-choice-${elementTagName}-${group.groupIndex}`}
+                              aria-label={`Add child to ${elementTagName} from choice group ${group.groupIndex + 1}`}
+                              title="Choose a child element to add"
+                              value=""
+                              onChange={(event) => {
+                                const selectedOption = group.options.find((option) => option.name === event.target.value);
+                                if (selectedOption) {
+                                  addChildOccurrence(selectedOption.name, selectedOption.node);
+                                }
+                              }}
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: 12,
+                                border: '1px solid #ddd',
+                                backgroundColor: '#f9f9f9',
+                                cursor: 'pointer',
+                                fontSize: 11,
+                                fontWeight: 500,
+                                color: '#666',
+                                maxWidth: '100%',
+                              }}
+                            >
+                              <option value="">Add child element...</option>
+                              {group.options.map((option) => (
+                                <option
+                                  key={option.name}
+                                  value={option.name}
+                                  disabled={getChildOccurrenceCount(value, option.name) >= getChildMaxOccurs(option.node)}
+                                >
+                                  {option.name}
+                                </option>
+                              ))}
+                            </select>
+                          ))}
+                          {orderedTriggerNodes.map((childSchemaNode, triggerIndex) => {
                       const childElementName = childSchemaNode.label || childSchemaNode.tagName || `child-${triggerIndex}`;
                       const normalizedChildLocal = String(childElementName).replace(/^.*:/, '').toLowerCase();
                       if (renderedTriggerNames.has(normalizedChildLocal)) return null;
@@ -2745,11 +3116,14 @@ function XmlElementNode({
                           </button>
                         </div>
                       );
-                      });
+                          })}
+                        </>
+                      );
                     })() : null}
                   </div>
                 ) : null}
               </div>
+              )}
               {/* Walk the compiled schema structure, use instance data for values */}
               {(() => {
                 console.log(`[XmlElementNode] DEBUG: Rendering children section, schemaNode=${!!schemaNode}, schemaNode.children=${schemaNode?.children?.length}`);
@@ -3057,16 +3431,12 @@ function XmlElementNode({
                     // Schema-driven: use schema node
                     childElementName = childSchemaNode.label || childSchemaNode.tagName || '';
                     // Resolve instance data from schema node name
-                    if (compiledSchema) {
-                      childInstanceData = compiledSchema.resolveChildData(
-                        childElementName,
-                        element?.tagName,
-                        value,
-                        path.length === 0
-                      );
-                    } else {
-                      childInstanceData = value?.[childElementName];
-                    }
+                    childInstanceData = resolveInstanceChildData(
+                      childElementName,
+                      element?.tagName,
+                      value,
+                      path.length === 0,
+                    );
 
                     if (
                       isSchemaForm &&
@@ -3271,95 +3641,98 @@ function XmlElementNode({
                         <div
                           key={`choice-non-array-${childElementName}-${index}`}
                           style={{
-                            display: path.length === 0 ? 'flex' : 'inline-flex',
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: 8,
                             width: path.length === 0 ? '100%' : 'auto',
                             flexBasis: path.length === 0 ? '100%' : 'auto',
                             maxWidth: '100%',
                           }}
                         >
-                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 8, width: 'auto', maxWidth: '100%' }}>
-                            <button
-                              type="button"
-                              onClick={() => onToggleExpand(rowPath)}
-                              style={{
-                                padding: '2px 6px',
-                                background: 'transparent',
-                                border: 'none',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                minWidth: '20px',
-                                fontSize: 12,
-                                color: '#666',
-                              }}
-                              title={shouldShowChildren ? 'Collapse' : 'Expand'}
-                              aria-label={shouldShowChildren ? 'Collapse' : 'Expand'}
-                            >
-                              {shouldShowChildren ? '▼' : '▶'}
-                            </button>
-                            <select
-                              value={childElementName || ''}
-                              onChange={(e) => {
-                                const newElementType = e.target.value;
-                                if (newElementType === childElementName) return;
-                                onUpdateValue(path, (current) => choiceGroupData.isExclusive
-                                  ? applyExclusiveChoiceSwitch(current, choiceGroupData, newElementType)
-                                  : applyRepeatingChoiceSwitch(current, childElementName, newElementType, effectiveChildInstanceData));
-                              }}
-                              style={{
-                                padding: '6px 8px',
-                                border: '1px solid #ddd',
-                                borderRadius: 3,
-                                fontSize: 12,
-                                cursor: 'pointer',
-                                fontWeight: 500,
-                                minWidth: 120,
-                                color: '#a78bfa',
-                              }}
-                            >
-                              {choiceGroupData.options.map(opt => (
-                                <option key={opt.name} value={opt.name}>
-                                  {opt.name}
-                                </option>
-                              ))}
-                            </select>
-                            {displayName && (
-                              <span
-                                data-testid="xml-name-chip"
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 0, marginBottom: 0, minWidth: 0, flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <button
+                                type="button"
+                                onClick={() => onToggleExpand(rowPath)}
                                 style={{
-                                  color: '#155e75',
-                                  backgroundColor: '#ecfeff',
-                                  border: '1px solid #a5f3fc',
-                                  borderRadius: 999,
-                                  padding: '1px 8px',
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                  lineHeight: 1.6,
+                                  padding: '2px 6px',
+                                  background: 'transparent',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  minWidth: '20px',
+                                  fontSize: 12,
+                                  color: '#666',
+                                }}
+                                title={shouldShowChildren ? 'Collapse' : 'Expand'}
+                                aria-label={shouldShowChildren ? 'Collapse' : 'Expand'}
+                              >
+                                {shouldShowChildren ? '▼' : '▶'}
+                              </button>
+                              <select
+                                value={childElementName || ''}
+                                onChange={(e) => {
+                                  const newElementType = e.target.value;
+                                  if (newElementType === childElementName) return;
+                                  onUpdateValue(path, (current) => choiceGroupData.isExclusive
+                                    ? applyExclusiveChoiceSwitch(current, choiceGroupData, newElementType)
+                                    : applyRepeatingChoiceSwitch(current, childElementName, newElementType, effectiveChildInstanceData));
+                                }}
+                                style={{
+                                  padding: '6px 8px',
+                                  border: '1px solid #ddd',
+                                  borderRadius: 3,
+                                  fontSize: 12,
+                                  cursor: 'pointer',
+                                  fontWeight: 500,
+                                  minWidth: 120,
+                                  color: '#a78bfa',
                                 }}
                               >
-                                {displayName}
-                              </span>
-                            )}
-                            {canRemoveChildOccurrence(childElementName, childSchemaNode) && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    onClick={() => removeChildOccurrence(childElementName, childSchemaNode)}
-                                    className={styles.removeButton}
-                                    title={`Remove ${childElementName}`}
-                                    aria-label={`Remove ${childElementName}`}
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent>{`Remove ${childElementName}`}</TooltipContent>
-                              </Tooltip>
-                            )}
-                          </div>
+                                {choiceGroupData.options.map(opt => (
+                                  <option key={opt.name} value={opt.name}>
+                                    {opt.name}
+                                  </option>
+                                ))}
+                              </select>
+                              {displayName && (
+                                <span
+                                  data-testid="xml-name-chip"
+                                  style={{
+                                    color: '#155e75',
+                                    backgroundColor: '#ecfeff',
+                                    border: '1px solid #a5f3fc',
+                                    borderRadius: 999,
+                                    padding: '1px 8px',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    lineHeight: 1.6,
+                                  }}
+                                >
+                                  {displayName}
+                                </span>
+                              )}
+                              {canRemoveChildOccurrence(childElementName, childSchemaNode) && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeChildOccurrence(childElementName, childSchemaNode)}
+                                      className={styles.removeButton}
+                                      title={`Remove ${childElementName}`}
+                                      aria-label={`Remove ${childElementName}`}
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>{`Remove ${childElementName}`}</TooltipContent>
+                                </Tooltip>
+                              )}
+                            </div>
                           {shouldShowChildren && (
-                            <div style={{ marginLeft: '20px' }}>
+                            <div style={{ marginLeft: '20px', width: 'calc(100% - 20px)', minWidth: 0 }}>
                               <XmlElementNode
                                 element={elementToRender}
                                 path={rowPath}
@@ -3369,6 +3742,7 @@ function XmlElementNode({
                                 onChange={onChange}
                                 onUpdateValue={onUpdateValue}
                                 rootSchema={rootSchema}
+                                referencedElementNames={referencedElementNames}
                                 autoExpandAll={true}
                                 schemaNode={childSchemaNode}
                                 compiledSchema={compiledSchema}
@@ -3378,6 +3752,7 @@ function XmlElementNode({
                               />
                             </div>
                           )}
+                          </div>
                         </div>
                       );
                     }
@@ -3403,6 +3778,7 @@ function XmlElementNode({
                           onChange={onChange}
                           onUpdateValue={onUpdateValue}
                           rootSchema={rootSchema}
+                          referencedElementNames={referencedElementNames}
                           autoExpandAll={autoExpandAll}
                           schemaNode={childSchemaNode}
                           compiledSchema={compiledSchema}
@@ -3594,6 +3970,7 @@ function XmlElementNode({
                                       onChange={onChange}
                                       onUpdateValue={onUpdateValue}
                                       rootSchema={rootSchema}
+                                      referencedElementNames={referencedElementNames}
                                       autoExpandAll={true}
                                       schemaNode={childSchemaNode}
                                       compiledSchema={compiledSchema}
@@ -3719,46 +4096,106 @@ function XmlElementNode({
                     }
                     
                     if (choiceGroupData && choiceGroupData.selectedOption === childElementName) {
-                      const complexChoicePath = [...path, childElementName];
-                      const complexChoicePathKey = complexChoicePath.join('.');
-                      const complexChoiceCollapsedKey = `__collapsed__:${complexChoicePathKey}`;
-                      const isComplexChoiceExpanded = expandedPaths.has(complexChoicePathKey);
-                      const isComplexChoiceCollapsed = expandedPaths.has(complexChoiceCollapsedKey);
-                      const shouldShowComplexChoiceChildren = !isComplexChoiceCollapsed && (isComplexChoiceExpanded || !isSchemaForm);
+                      const selectedChoiceData = isSchemaForm
+                        ? resolveInstanceChildData(childElementName, element?.tagName, value, path.length === 0)
+                        : null;
+                      const activeChoiceLabel = selectedChoiceData
+                        ? (selectedChoiceData['@attributes']?.name
+                          ?? selectedChoiceData.name
+                          ?? selectedChoiceData['@name']
+                          ?? childElementName)
+                        : null;
 
                       return (
-                        <div key={`choice-${childElementName}-${index}`}>
-                          {renderExclusiveChoiceSelector({
-                            choiceGroupData,
-                            choicePath: complexChoicePath,
-                            showExpander: true,
-                            children: shouldShowComplexChoiceChildren ? (
-                              <div style={{ position: 'relative', marginLeft: 8 }}>
-                                <XmlElementNode
-                                  element={elementToRender}
-                                  path={[...path, childElementName]}
-                                  expandedPaths={expandedPaths}
-                                  onToggleExpand={onToggleExpand}
-                                  value={effectiveChildInstanceData}
-                                  onChange={onChange}
-                                  onUpdateValue={onUpdateValue}
-                                  rootSchema={rootSchema}
-                                  autoExpandAll={true}
-                                  schemaNode={childSchemaNode}
-                                  compiledSchema={compiledSchema}
-                                  initialAutoExpandPathsRef={initialAutoExpandPathsRef}
-                                  autoExpandCaptureActiveRef={autoExpandCaptureActiveRef}
-                                  isSchemaForm={isSchemaForm}
-                                />
-                              </div>
-                            ) : null,
-                          })}
-                        </div>
+                        <XmlElementNode
+                          key={`choice-${childElementName}-${index}`}
+                          element={elementToRender}
+                          path={[...path, childElementName]}
+                          expandedPaths={expandedPaths}
+                          onToggleExpand={onToggleExpand}
+                          value={effectiveChildInstanceData}
+                          onChange={onChange}
+                          onUpdateValue={onUpdateValue}
+                          rootSchema={rootSchema}
+                          referencedElementNames={referencedElementNames}
+                          autoExpandAll={true}
+                          schemaNode={childSchemaNode}
+                          compiledSchema={compiledSchema}
+                          initialAutoExpandPathsRef={initialAutoExpandPathsRef}
+                          autoExpandCaptureActiveRef={autoExpandCaptureActiveRef}
+                          isSchemaForm={isSchemaForm}
+                          headerLabel={(
+                            <>
+                              <select
+                                aria-label={`Select ${elementToRender.tagName} type`}
+                                value={choiceGroupData.selectedOption || ''}
+                                onChange={(event) => {
+                                  const newSelectedOption = event.target.value;
+                                  if (newSelectedOption === choiceGroupData.selectedOption) return;
+                                  onUpdateValue(path, (current) => applyExclusiveChoiceSwitch(current, choiceGroupData, newSelectedOption));
+                                }}
+                                style={{
+                                  padding: '6px 8px',
+                                  border: '1px solid #ddd',
+                                  borderRadius: 3,
+                                  fontSize: 12,
+                                  cursor: 'pointer',
+                                  fontWeight: 500,
+                                  minWidth: 100,
+                                  color: '#a78bfa',
+                                }}
+                              >
+                                {choiceGroupData.options.map((option) => (
+                                  <option key={option.name} value={option.name}>
+                                    {option.name}:
+                                  </option>
+                                ))}
+                              </select>
+                              {activeChoiceLabel && (
+                                <span
+                                  data-testid="xml-name-chip"
+                                  style={{
+                                    color: '#155e75',
+                                    backgroundColor: '#ecfeff',
+                                    border: '1px solid #a5f3fc',
+                                    borderRadius: 999,
+                                    padding: '1px 8px',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    lineHeight: 1.6,
+                                    whiteSpace: 'nowrap',
+                                    flexShrink: 0,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                  }}
+                                >
+                                  {activeChoiceLabel}
+                                </span>
+                              )}
+                            </>
+                          )}
+                          headerAction={canRemoveChoiceSelection(choiceGroupData) ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() => removeChoiceSelection(choiceGroupData, [...path, childElementName])}
+                                  className={styles.removeButton}
+                                  title={`Remove ${childElementName}`}
+                                  aria-label={`Remove ${childElementName}`}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>{`Remove ${childElementName}`}</TooltipContent>
+                            </Tooltip>
+                          ) : null}
+                        />
                       );
                     }
                     
                     return (
-                      <div key={`element-${childElementName}-${index}`} style={{ position: 'relative' }}>
+                      <div key={`element-${childElementName}-${index}`}>
                         <XmlElementNode
                           element={elementToRender}
                           path={[...path, childElementName]}
@@ -3768,29 +4205,30 @@ function XmlElementNode({
                           onChange={onChange}
                           onUpdateValue={onUpdateValue}
                           rootSchema={rootSchema}
+                          referencedElementNames={referencedElementNames}
                           autoExpandAll={autoExpandAll}
                           schemaNode={childSchemaNode}
                           compiledSchema={compiledSchema}
                           initialAutoExpandPathsRef={initialAutoExpandPathsRef}
                           autoExpandCaptureActiveRef={autoExpandCaptureActiveRef}
                           isSchemaForm={isSchemaForm}
+                          headerAction={canRemoveChildOccurrence(childElementName, childSchemaNode) ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() => removeChildOccurrence(childElementName, childSchemaNode)}
+                                  className={styles.removeButton}
+                                  title={`Remove ${childElementName}`}
+                                  aria-label={`Remove ${childElementName}`}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>{`Remove ${childElementName}`}</TooltipContent>
+                            </Tooltip>
+                          ) : null}
                         />
-                        {canRemoveChildOccurrence(childElementName, childSchemaNode) && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                onClick={() => removeChildOccurrence(childElementName, childSchemaNode)}
-                                className={styles.removeButton}
-                                style={{ position: 'absolute', right: 0, top: 8 }}
-                                title={`Remove ${childElementName}`}
-                                aria-label={`Remove ${childElementName}`}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent>{`Remove ${childElementName}`}</TooltipContent>
-                          </Tooltip>
-                        )}
                       </div>
                     );
                   }
@@ -3913,6 +4351,7 @@ function XmlElementNode({
                       onChange={onChange}
                       onUpdateValue={onUpdateValue}
                       rootSchema={rootSchema}
+                      referencedElementNames={referencedElementNames}
                       autoExpandAll={autoExpandAll}
                       compiledSchema={compiledSchema}
                       initialAutoExpandPathsRef={initialAutoExpandPathsRef}
@@ -4163,6 +4602,11 @@ function XmlInstanceFormContent({
   showRootElementTriggers = true,
   expansionStateKey = 'xml-instance-form-expanded',
 }: XmlInstanceFormProps) {
+  const referencedElementNames = useMemo(
+    () => getReferencedElementNames(rootSchema),
+    [rootSchema],
+  );
+
   // Debug logging
   useEffect(() => {
     if (rootSchema && Object.keys(rootSchema).length > 0) {
@@ -4514,6 +4958,19 @@ function XmlInstanceFormContent({
       const localName = rootElement.tagName.includes(':')
         ? rootElement.tagName.split(':')[1]
         : rootElement.tagName;
+      const inlineTypeDefinition =
+        elementDef['xs:complexType'] ||
+        elementDef['complexType'] ||
+        elementDef['xs:simpleType'] ||
+        elementDef['simpleType'];
+      const substitutionHead = typeof attrs?.substitutionGroup === 'string'
+        ? compiledSchema.getElement(attrs.substitutionGroup)
+        : undefined;
+      const headInlineTypeDefinition = substitutionHead?.['xs:complexType']
+        || substitutionHead?.complexType
+        || substitutionHead?.['xs:simpleType']
+        || substitutionHead?.simpleType;
+      const effectiveInlineTypeDefinition = inlineTypeDefinition || headInlineTypeDefinition;
       
       // If no explicit type, check for synthetic type (e.g., "schema__type" for xs:schema)
       if (!typeName && localName === 'schema') {
@@ -4528,8 +4985,7 @@ function XmlInstanceFormContent({
       // Global elements may declare an anonymous complexType instead of a named type.
       // Keep the inline definition so the walker can expand its sequence/choice and attributes.
       if (!typeName) {
-        const inlineTypeDefinition = elementDef['xs:complexType'] || elementDef['complexType'] || elementDef['xs:simpleType'] || elementDef['simpleType'];
-        if (inlineTypeDefinition) {
+        if (effectiveInlineTypeDefinition) {
           typeName = `inline:${localName}`;
         }
       }
@@ -4548,9 +5004,9 @@ function XmlInstanceFormContent({
         compiledSchema,
         visitedTypes: new Set(),
         typeName,
-        inlineTypeDefinition: elementDef['xs:complexType'] || elementDef['complexType'] || elementDef['xs:simpleType'] || elementDef['simpleType'],
+        inlineTypeDefinition: effectiveInlineTypeDefinition,
         depth: 0,
-        maxDepth: 0,
+        maxDepth: isSchemaForm ? 0 : 2,
         path: [],
       });
       
@@ -4574,7 +5030,7 @@ function XmlInstanceFormContent({
       console.warn('[XmlInstanceForm] Schema walk failed:', e);
       return undefined;
     }
-  }, [schema, rootSchema, compiledSchema, rootElement]);
+  }, [schema, rootSchema, compiledSchema, rootElement, isSchemaForm]);
 
   if (!rootElement) {
     const debugInfo = (() => {
@@ -4750,6 +5206,7 @@ function XmlInstanceFormContent({
         onChange={onChange}
         onUpdateValue={handleUpdateValue}
         rootSchema={showRootElementTriggers ? rootSchema : undefined}
+        referencedElementNames={referencedElementNames}
         autoExpandAll={autoExpandAll}
         schemaNode={schemaNode}
         compiledSchema={compiledSchema}

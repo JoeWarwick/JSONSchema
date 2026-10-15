@@ -51,8 +51,15 @@ public sealed class SchemaController : ControllerBase
             return BadRequest("Schema is required.");
         }
 
-        var response = defaultInstanceService.Create(request);
-        return Ok(response);
+        try
+        {
+            var response = defaultInstanceService.Create(request);
+            return Ok(response);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 
     [HttpPost("validate-with-imports")]

@@ -8,6 +8,7 @@ import { Code, Plus } from 'lucide-react';
 interface CssEditorProps {
   value: string;
   onChange: (value: string) => void;
+  onBlur?: () => void;
   placeholder?: string;
 }
 
@@ -38,7 +39,7 @@ const SNIPPETS = [
   }
 ];
 
-export const CssEditor = memo(function CssEditor({ value, onChange, placeholder }: CssEditorProps) {
+export const CssEditor = memo(function CssEditor({ value, onChange, onBlur, placeholder }: CssEditorProps) {
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -114,6 +115,7 @@ export const CssEditor = memo(function CssEditor({ value, onChange, placeholder 
           ref={textareaRef}
           value={value || ""}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
           placeholder={placeholder || "/* Enter CSS here */"}
           className={classNames(styles.textarea, error && styles.textareaInvalid)}
         />
