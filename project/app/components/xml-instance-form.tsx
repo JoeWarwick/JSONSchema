@@ -605,27 +605,6 @@ function parseXmlElement(node: any, tagNameHint?: string): XmlElement | null {
     isCompositor,
   };
 }
-function xmlElementToSchemaObject(element: XmlElement): any {
-  const result: Record<string, any> = { '@attributes': {} };
-  for (const attribute of element.attributes || []) {
-    result['@attributes'][attribute.name] = attribute.value;
-  }
-
-  for (const child of element.children || []) {
-    if (typeof child === 'string') continue;
-    const childObject = xmlElementToSchemaObject(child);
-    const existing = result[child.tagName];
-    result[child.tagName] = existing === undefined
-      ? childObject
-      : Array.isArray(existing)
-        ? [...existing, childObject]
-        : [existing, childObject];
-  }
-
-  if (element.text) result._text = element.text;
-  return result;
-}
-
 // Recursively render an XML element with expansion state
 function ExpandableDocumentationInput({
   value,
@@ -930,8 +909,19 @@ function XmlElementNode({
     return childLocalTag === 'attribute' || childLocalTag === 'anyAttribute';
   };
 
-  const elementChildren = Array.isArray(element.children) ? element.children : [];
-  const elementAttributes = Array.isArray(element.attributes) ? element.attributes : [];
+  const schemaBackedTags = new Set(['complexType', 'complexContent', 'extension', 'restriction']);
+  const schemaBackedElement = isSchemaForm
+    && schemaBackedTags.has(localTagName)
+    && schemaNode?.schemaObj
+    && typeof schemaNode.schemaObj === 'object'
+    ? parseXmlElement(schemaNode.schemaObj, elementTagName)
+    : null;
+  const elementChildren = Array.isArray(element.children) && element.children.length > 0
+    ? element.children
+    : (schemaBackedElement?.children || []);
+  const elementAttributes = Array.isArray(element.attributes) && element.attributes.length > 0
+    ? element.attributes
+    : (schemaBackedElement?.attributes || []);
   
   // Debug: Show element.attributes for schema elements
   if (isSchemaForm) {
@@ -953,6 +943,7 @@ function XmlElementNode({
   const hasSchemaAttributes = (schemaNode?.attributes?.length || 0) > 0;
   const isSchemaCompositorTag = (tagName: string) => ['xs:sequence', 'sequence', 'xs:choice', 'choice', 'xs:all', 'all'].includes(tagName);
   const isSchemaRestrictionTag = (tagName: string) => ['xs:restriction', 'restriction'].includes(tagName);
+  const isSchemaStructureContainer = isSchemaForm && ['complexType', 'complexContent', 'extension', 'restriction'].includes(localTagName);
   const compactAddLabel = (label: string): string => label.replace(/^Add\s+/i, '').trim();
   const currentNodeCompositorAddOptions = isSchemaForm && isSchemaCompositorTag(elementTagName)
     ? [{ name: 'xs:element', label: 'Add xs:element', maxOccurs: Number.POSITIVE_INFINITY, minOccurs: 0 }]
@@ -966,7 +957,7 @@ function XmlElementNode({
         { name: 'xs:pattern', label: 'Add xs:pattern', maxOccurs: 1, minOccurs: 0 },
       ]
     : [];
-  const hasExpandableContent = hasChildren || hasAttributes || hasSchemaChildren || hasSchemaAttributes || currentNodeCompositorAddOptions.length > 0 || currentNodeRestrictionFacetAddOptions.length > 0;
+  const hasExpandableContent = hasChildren || hasAttributes || hasSchemaChildren || hasSchemaAttributes || isSchemaStructureContainer || currentNodeCompositorAddOptions.length > 0 || currentNodeRestrictionFacetAddOptions.length > 0;
   const hasText = elementText.length > 0;
   const isCompositor = !!element.isCompositor;
   const nodeNameAttribute = elementAttributes.find((a) => a.name === 'name')?.value 
@@ -2839,23 +2830,6 @@ function XmlElementNode({
                     }
                     const filtered = schemaNode.children
                       .map((childSchemaNode, index) => {
-                        if (isSchemaForm && localTagName === 'element' && childSchemaNode.tagName.replace(/^.*:/, '') === 'complexType') {
-                          const inlineComplexType = element.children.find((child): child is XmlElement =>
-                            typeof child !== 'string' && child.tagName.replace(/^.*:/, '') === 'complexType'
-                          );
-                          if (inlineComplexType && compiledSchema) {
-                            const walkedInlineType = walkSchema(compiledSchema, {
-                              rootSchema: rootSchema?.['xs:schema'] || rootSchema,
-                              compiledSchema,
-                              visitedTypes: new Set(),
-                              inlineTypeDefinition: xmlElementToSchemaObject(inlineComplexType),
-                              depth: 0,
-                              maxDepth: 4,
-                              path: [...path, childSchemaNode.label || childSchemaNode.tagName],
-                            });
-                            return { childSchemaNode: walkedInlineType, index, instanceDriven: false };
-                          }
-                        }
                         return { childSchemaNode, index, instanceDriven: false };
                       })
                       .filter(({ childSchemaNode }) => {
@@ -3208,11 +3182,15 @@ function XmlElementNode({
                     'xs:minExclusive', 'minExclusive', 'xs:maxExclusive', 'maxExclusive',
                     'xs:fractionDigits', 'fractionDigits', 'xs:totalDigits', 'totalDigits',
                     'xs:restriction', 'restriction', 'xs:union', 'union', 'xs:list', 'list',
+                    'xs:complexContent', 'complexContent', 'xs:extension', 'extension',
                     'xs:simpleType', 'simpleType', 'xs:complexType', 'complexType',
                     'xs:sequence', 'sequence', 'xs:choice', 'choice', 'xs:all', 'all',
                     'xs:group', 'group', 'xs:attributeGroup', 'attributeGroup'].includes(childElementName);
                   if (!elementToRender && isSchemaForm && isFacetOrContainer) {
-                    elementToRender = { '@attributes': {} }; // Synthetic element for facet/container elements
+                    const schemaDefinition = childSchemaNode?.schemaObj;
+                    elementToRender = schemaDefinition && typeof schemaDefinition === 'object'
+                      ? parseXmlElement(schemaDefinition, childElementName) || { '@attributes': {} }
+                      : { '@attributes': {} };
                   }
                   
                   // Treat schema-leaf elements as simple when either parsed element shape is simple
@@ -3248,6 +3226,7 @@ function XmlElementNode({
                   // Containers: restriction, union, list, simpleType, complexType, sequence, choice, all, group, attributeGroup
                   // Facets: enumeration, length, pattern, etc.
                   const isContainerElement = ['xs:restriction', 'restriction', 'xs:union', 'union', 'xs:list', 'list',
+                    'xs:complexContent', 'complexContent', 'xs:extension', 'extension',
                     'xs:simpleType', 'simpleType', 'xs:complexType', 'complexType',
                     'xs:sequence', 'sequence', 'xs:choice', 'choice', 'xs:all', 'all',
                     'xs:group', 'group', 'xs:attributeGroup', 'attributeGroup'].includes(childElementName);
@@ -3836,9 +3815,10 @@ function XmlElementNode({
                 // However, for container elements (restriction, union, list, simpleType, complexType, sequence, choice, etc.),
                 // always render as full nodes, not text inputs
                 const isContainerParent = ['xs:restriction', 'restriction', 'xs:union', 'union', 'xs:list', 'list',
+                  'xs:complexContent', 'complexContent', 'xs:extension', 'extension',
                   'xs:simpleType', 'simpleType', 'xs:complexType', 'complexType',
                   'xs:sequence', 'sequence', 'xs:choice', 'choice', 'xs:all', 'all',
-                  'xs:group', 'group', 'xs:attributeGroup', 'attributeGroup'].includes(elementTagName);
+                  'xs:group', 'group', 'xs:attributeGroup', 'attributeGroup'].includes(child.tagName);
                 const isSimpleChild = !isContainerParent && child.children.length === 0 && child.attributes.length === 0;
                 
                 if (isContainerParent && isSchemaForm) {

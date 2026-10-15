@@ -253,6 +253,53 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     });
   });
 
+  test('walks inline complexContent extension beneath complexType in schema form', async () => {
+    const onChange = jest.fn();
+    const xmlSchemaDefinition = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/XMLSchema.xsd'), 'utf8'),
+      'xml',
+    ) as any;
+    const userSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="Model">
+          <xs:complexType>
+            <xs:complexContent>
+              <xs:extension base="BaseModelType">
+                <xs:sequence>
+                  <xs:element name="PostScript" type="xs:string"/>
+                </xs:sequence>
+              </xs:extension>
+            </xs:complexContent>
+          </xs:complexType>
+        </xs:element>
+        <xs:complexType name="BaseModelType"/>
+      </xs:schema>
+    `, 'xml') as any;
+    const element = userSchema['xs:schema']['xs:element'];
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xmlSchemaDefinition}
+        rootSchema={userSchema}
+        value={{ 'xs:element': element }}
+        onChange={onChange}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-inline-complex-content"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('xml-tag-xs_complexType').length).toBeGreaterThan(0);
+      expect(screen.getAllByTestId('xml-tag-xs_complexContent').length).toBeGreaterThan(0);
+      expect(screen.getAllByTestId('xml-tag-xs_extension').length).toBeGreaterThan(0);
+      expect(screen.getAllByTestId('xml-tag-xs_sequence').length).toBeGreaterThan(0);
+      expect(screen.getAllByTestId('xml-tag-xs_element').length).toBeGreaterThan(0);
+
+      const complexTypeLabel = screen.getAllByTestId('xml-tag-xs_complexType')[0];
+      expect(complexTypeLabel.parentElement?.parentElement?.querySelector('button')).toBeTruthy();
+    });
+  });
+
   test('infers child add triggers at nested schema depth, not just the root', async () => {
     const onChange = jest.fn();
     const xmlSchema = parseMarkup(`
@@ -1084,6 +1131,62 @@ describe('XmlInstanceForm trigger-row behavior', () => {
 
     // Repeating choices render with combobox for each option
     expect(screen.queryAllByRole('combobox').length).toBeGreaterThan(0);
+  });
+
+  test('walks only the schema and two-way binds declared instance values', async () => {
+    const schema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="person" type="PersonType"/>
+        <xs:complexType name="PersonType">
+          <xs:sequence>
+            <xs:element name="declared" type="xs:string"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:schema>
+    `, 'xml') as any;
+    const initialValue = {
+      person: {
+        declared: { _text: 'before' },
+        rogue: { _text: 'must-not-be-walked' },
+      },
+    };
+    const onChange = jest.fn();
+
+    function Harness() {
+      const [value, setValue] = React.useState(initialValue);
+      return (
+        <XmlInstanceForm
+          schema={schema}
+          rootSchema={schema}
+          value={value}
+          onChange={(nextValue) => {
+            onChange(nextValue);
+            setValue(nextValue);
+          }}
+          autoExpandAll
+        />
+      );
+    }
+
+    renderForm(<Harness />);
+
+    fireEvent.click(screen.getByTestId('xml-tag-person').parentElement?.querySelector('button') as HTMLButtonElement);
+    const declaredInput = await screen.findByTestId('xml-element-declared-input');
+    expect(declaredInput).toHaveValue('before');
+    expect(screen.queryByTestId('xml-element-rogue-input')).not.toBeInTheDocument();
+
+    fireEvent.change(declaredInput, { target: { value: 'after' } });
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalled();
+      expect(screen.getByTestId('xml-element-declared-input')).toHaveValue('after');
+    });
+    expect(onChange.mock.calls.at(-1)?.[0]).toEqual({
+      person: {
+        declared: { _text: 'after' },
+        rogue: { _text: 'must-not-be-walked' },
+      },
+    });
   });
 
   test('schema form does not synthesize missing required choice rows from walking schema', async () => {
