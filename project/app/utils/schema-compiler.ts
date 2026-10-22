@@ -121,11 +121,6 @@ export class CompiledSchema {
     // Phase 2: Load imported schemas (if resolver available)
     this.loadImports(this.rootSchema);
     
-    // Debug logging for xs:schema
-    if (this.elementMap.size > 0 && (this.elementMap.has('schema') || this.elementMap.has('xs:schema'))) {
-      console.log('[SchemaCompiler.compile] After indexing, elementMap keys:', Array.from(this.elementMap.keys()).slice(0, 20));
-    }
-    
     // Phase 3: Clear the root schema from memory after compilation is complete
     // This frees memory for large meta-schemas like XMLSchema.xsd
     this.rootSchema = null;
@@ -136,21 +131,6 @@ export class CompiledSchema {
    */
   private indexTypes(schema: any, namespace?: string): void {
     if (!schema || typeof schema !== 'object') return;
-
-    const elementKey = `${this.nsPrefix}:element`;
-    const hasDirectElements = !!schema[elementKey] || !!schema['element'];
-    
-    if (!namespace && hasDirectElements) {
-      console.log('[SchemaCompiler.indexTypes] Found elements in root schema:', {
-        nsPrefix: this.nsPrefix,
-        elementKey,
-        has_prefixed: !!schema[elementKey],
-        has_unprefixed: !!schema['element'],
-        elementCount: Array.isArray(schema[elementKey] || schema['element']) 
-          ? (schema[elementKey] || schema['element']).length 
-          : 1,
-      });
-    }
 
     // Index simpleTypes
     const simpleTypes = schema[`${this.nsPrefix}:simpleType`] || schema['simpleType'];
@@ -179,16 +159,12 @@ export class CompiledSchema {
         const key = attrs.name;
         if (key) {
           this.elementMap.set(key, elem);
-          if (key === 'schema' || key === 'xs:schema') {
-            console.log('[SchemaCompiler.indexTypes] Indexed element:', key, 'with attrs:', attrs);
-          }
           
           // ONLY create synthetic type for the root "schema" element (special handling for XMLSchema.xsd)
           // Other elements with inline types are handled dynamically by the walker
           if (!attrs.type && key === 'schema') {
             const inlineComplexType = elem[`${this.nsPrefix}:complexType`] || elem['complexType'];
             if (inlineComplexType) {
-              console.log(`[SchemaCompiler] Found inlineComplexType for schema element, keys:`, Object.keys(inlineComplexType));
               const syntheticName = `${key}__type`; // e.g., "schema__type"
               if (!this.typeMap.has(syntheticName)) {
                 const inlineCompiled: CompiledType = {
@@ -214,22 +190,7 @@ export class CompiledSchema {
                 }
 
                 // Handle direct sequence/choice/all
-                if (syntheticName === 'schema__type') {
-                  console.log(`[SchemaCompiler] About to extract from schema__type inlineComplexType, keys:`, Object.keys(inlineComplexType));
-                }
                 this.extractElementsAndAttributes(inlineComplexType, inlineCompiled);
-                
-                const elementDetails = inlineCompiled.elements.map(e => ({
-                  name: e.name,
-                  compositorType: e.compositorType,
-                  maxOccurs: e.maxOccurs,
-                  minOccurs: e.minOccurs,
-                }));
-                console.log(`[SchemaCompiler] Created ${syntheticName}:`, {
-                  totalElements: inlineCompiled.elements.length,
-                  elements: elementDetails,
-                  typeCompositorType: inlineCompiled.compositorType,
-                });
 
                 this.typeMap.set(syntheticName, inlineCompiled);
               }
@@ -413,9 +374,6 @@ export class CompiledSchema {
       'all',
     ]) {
       const compositor = container[compositorKey];
-      if (compiled.name === 'schema__type') {
-        console.log(`[SchemaCompiler.extractElementsAndAttributes] Checking ${compositorKey} - found:`, !!compositor);
-      }
       if (!compositor) continue;
 
       const compositorAttrs = getXmlAttrs(compositor);
@@ -432,15 +390,6 @@ export class CompiledSchema {
       const elements = compositor[`${this.nsPrefix}:element`] || compositor['element'];
       if (elements) {
         const elemArray = Array.isArray(elements) ? elements : [elements];
-        if (compiled.name === 'schema__type' && compositorType === 'choice') {
-          console.log(`[SchemaCompiler] Found ${compositorType} in schema__type with ${elemArray.length} elements`);
-          console.log(`[SchemaCompiler] Element refs in choice:`, elemArray.map((e: any) => {
-            const attrs = getXmlAttrs(e);
-            return { name: attrs.name, ref: attrs.ref };
-          }));
-          // Log all keys in the compositor to see if there are other child types
-          console.log(`[SchemaCompiler] All keys in choice compositor:`, Object.keys(compositor));
-        }
         for (const elem of elemArray) {
           const attrs = getXmlAttrs(elem);
           const resolvedName = attrs.name || attrs.ref || '';
@@ -470,13 +419,7 @@ export class CompiledSchema {
 
       // Handle nested compositors (choice within sequence, etc.)
       // This allows proper handling of complex schema structures
-      if (compiled.name === 'PersonType') {
-        console.log(`[SchemaCompiler] PersonType: About to extract nested compositors from ${compositorType}`);
-      }
       this.extractNestedCompositorElements(compositor, compositorType, compiled);
-      if (compiled.name === 'PersonType') {
-        console.log(`[SchemaCompiler] PersonType: After nested extraction, elements count=${compiled.elements.length}`);
-      }
 
       // Handle group refs within this compositor
       const groupNodes = compositor[`${this.nsPrefix}:group`] || compositor['group'];
@@ -488,13 +431,7 @@ export class CompiledSchema {
           if (groupRef) {
             // Resolve the named group and extract its elements
             const namedGroup = this.findNamedGroup(groupRef);
-            if (compiled.name === 'schema__type') {
-              console.log(`[SchemaCompiler] Found group ref: ${groupRef}, resolved:`, !!namedGroup);
-            }
             if (namedGroup) {
-              if (compiled.name === 'schema__type') {
-                console.log(`[SchemaCompiler] Group ${groupRef} keys:`, Object.keys(namedGroup));
-              }
               this.extractElementsAndAttributesFromGroup(namedGroup, compositorMinOccurs, compositorMaxOccurs, compositorType, compiled, new Set<string>());
             }
           }
@@ -550,11 +487,6 @@ export class CompiledSchema {
    */
   private extractNestedCompositorElements(compositor: any, parentCompositorType: 'sequence' | 'choice' | 'all', compiled: CompiledType): void {
     if (!compositor || typeof compositor !== 'object') return;
-
-    if (compiled.name === 'PersonType') {
-      console.log(`[extractNestedCompositorElements] PersonType: Checking for nested compositors in ${parentCompositorType}`);
-      console.log(`[extractNestedCompositorElements] PersonType: Compositor keys:`, Object.keys(compositor));
-    }
 
     // Look for nested choice, sequence, or all within this compositor
     for (const nestedCompositorKey of [
@@ -681,13 +613,6 @@ export class CompiledSchema {
       const elements = compositor[`${this.nsPrefix}:element`] || compositor['element'];
       if (elements) {
         const elemArray = Array.isArray(elements) ? elements : [elements];
-        if (compiled.name === 'schema__type') {
-          console.log(`[SchemaCompiler.extractElementsAndAttributesFromGroup] Found ${elemArray.length} elements in ${compositorType}:`, 
-            elemArray.map((e: any) => {
-              const attrs = getXmlAttrs(e);
-              return { name: attrs.name, ref: attrs.ref };
-            }));
-        }
         for (const elem of elemArray) {
           const attrs = getXmlAttrs(elem);
           const resolvedName = attrs.name || attrs.ref || '';
@@ -797,32 +722,17 @@ export class CompiledSchema {
 
       // Handle group refs within nested compositor (with cycle detection)
       const groupNodes = nestedCompositor[`${this.nsPrefix}:group`] || nestedCompositor['group'];
-      if (compiled.name === 'schema__type') {
-        console.log(`[SchemaCompiler] Looking for group refs in nested ${nestedCompositorType}, found:`, !!groupNodes, groupNodes ? 'count=' + (Array.isArray(groupNodes) ? groupNodes.length : 1) : 'N/A');
-      }
       if (groupNodes) {
         const groupArray = Array.isArray(groupNodes) ? groupNodes : [groupNodes];
         for (const groupNode of groupArray) {
           const groupAttrs = getXmlAttrs(groupNode);
           const groupRef = groupAttrs.ref;
-          if (compiled.name === 'schema__type') {
-            console.log(`[SchemaCompiler] Group ref: ${groupRef}, already seen:`, seen.has(groupRef));
-          }
           if (groupRef && !seen.has(groupRef)) {
             seen.add(groupRef);
             // Resolve the named group and extract its elements
             const namedGroup = this.findNamedGroup(groupRef);
-            if (compiled.name === 'schema__type') {
-              console.log(`[SchemaCompiler] After findNamedGroup for ${groupRef}:`, !!namedGroup);
-            }
             if (namedGroup) {
-              if (compiled.name === 'schema__type') {
-                console.log(`[SchemaCompiler] Before recursive extract for ${groupRef}, current elements:`, compiled.elements.length);
-              }
               this.extractElementsAndAttributesFromGroup(namedGroup, nestedCompositorMinOccurs, nestedCompositorMaxOccurs, nestedCompositorType, compiled, seen);
-              if (compiled.name === 'schema__type') {
-                console.log(`[SchemaCompiler] After recursive extract for ${groupRef}, new elements:`, compiled.elements.length);
-              }
             }
           }
         }
@@ -954,8 +864,6 @@ export class CompiledSchema {
    */
   public getElement(elementName: string): any {
     if (!elementName) return undefined;
-
-    console.log('[CompiledSchema.getElement] called with:', elementName, 'elementMap size:', this.elementMap.size);
 
     // Try direct lookup
     let elem = this.elementMap.get(elementName);

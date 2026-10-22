@@ -76,6 +76,10 @@ Typical build layout:
 - XML form regression tests cover schema-scoped child traversal, optional choices,
   and repeated-element attribute editing. Schema Form choice rows start collapsed;
   expand a row to edit its declaration fields.
+- Schema compilation and walking avoid per-node console tracing: large XSDs can
+  generate enough output to stall the VS Code Jest runner and cause timeouts.
+  Regression tests check that normal traversal stays quiet; warnings and errors
+  remain available.
 
 - A focused provenance test was added: [app/state/__tests__/schemaReducer.provenance.test.ts](app/state/__tests__/schemaReducer.provenance.test.ts) which asserts `__from` is attached to inlined nodes and that `isSchemaImported` returns `true` for those nodes.
 

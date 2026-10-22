@@ -586,13 +586,11 @@ export function getEnumerationsFromRestriction(restriction: any): string[] {
   // Detect namespace prefix from restriction object keys
   let nsPrefix = 'xs';
   const keys = Object.keys(restriction);
-  console.log('[getEnumerationsFromRestriction] restriction keys:', keys);
   
   for (const key of keys) {
     const match = key.match(/^(xs|xsd|xml):/);
     if (match) {
       nsPrefix = match[1];
-      console.log('[getEnumerationsFromRestriction] detected nsPrefix:', nsPrefix);
       break;
     }
   }
@@ -600,7 +598,6 @@ export function getEnumerationsFromRestriction(restriction: any): string[] {
   // Try both prefixed and unprefixed versions
   const enumKey = `${nsPrefix}:enumeration`;
   const enumerations = restriction[enumKey] || restriction['enumeration'];
-  console.log('[getEnumerationsFromRestriction] Looking for', enumKey, '- found:', !!enumerations);
   
   if (!enumerations) return [];
   
@@ -612,7 +609,6 @@ export function getEnumerationsFromRestriction(restriction: any): string[] {
     })
     .filter((value: any): value is string => typeof value === 'string');
   
-  console.log('[getEnumerationsFromRestriction] extracted values:', result);
   return result;
 }
 
@@ -733,7 +729,6 @@ export function getTypeAttributes(schema: CompiledSchema, typeName: string) {
  */
 export function getTypeEnumerations(schema: CompiledSchema, typeName: string): string[] {
   const result = schema.getEnumerations(typeName);
-  console.log(`[getTypeEnumerations] typeName="${typeName}", result=${result ? JSON.stringify(result) : 'null/undefined'}`);
   if (!result) {
     return [];
   }
@@ -1244,13 +1239,11 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
           const elemAttrs = getXmlAttrs(firstElem);
           if (elemAttrs.type) {
             typeName = elemAttrs.type;
-            console.log(`[walkSchema] Root element "${firstElemName}" has type="${typeName}"`);
           } else if (firstElemName === 'schema') {
             const syntheticTypeName = `${firstElemName}__type`;
             const syntheticType = compiledSchema.resolveType(syntheticTypeName);
             if (syntheticType && syntheticType.elements && syntheticType.elements.length > 0) {
               typeName = syntheticTypeName;
-              console.log(`[walkSchema] Using synthetic type "${syntheticTypeName}"`);
             }
           }
         }
@@ -1384,9 +1377,6 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
       const elementsToWalk = expandSubstitutionGroupElements(resolvedType.elements, compiledSchema);
       
       for (const elem of elementsToWalk) {
-        if (elem.compositorType === 'choice') {
-          console.log(`[schema-walker] Processing element "${elem.name}" with compositorType='choice'`);
-        }
         let childTypeName: string | undefined = elem.type || undefined;
         let childInlineTypeDefinition: any = undefined;
         const childLocalName = String(elem.name).replace(/^.*:/, '');
@@ -1524,9 +1514,6 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
           childNode.schemaObj = globalElementDef;
           if (elem.compositorType) {
             childNode.compositorType = elem.compositorType;
-            if (elem.compositorType === 'choice') {
-              console.log(`[schema-walker] Set childNode.compositorType='choice' for "${childNode.label}"`);
-            }
           }
           node.children.push(childNode);
         } finally {

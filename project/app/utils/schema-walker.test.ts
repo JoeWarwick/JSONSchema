@@ -6,6 +6,7 @@ import {
   getTypeElements,
   getTypeAttributes,
   getTypeEnumerations,
+  getEnumerationsFromRestriction,
   getTypeFacets,
   typeExists,
   getAllTypeNames,
@@ -81,6 +82,59 @@ const testSchema = {
 };
 
 describe('Schema Walker - Utility Functions', () => {
+  test('compiles and walks choice elements and enumerations without console tracing', () => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const debug = jest.spyOn(console, 'debug').mockImplementation(() => {});
+    const restriction = {
+      '@attributes': { base: 'xs:string' },
+      'xs:enumeration': [
+        { '@attributes': { value: 'red' } },
+        { '@attributes': { value: 'blue' } },
+      ],
+    };
+    const schema = {
+      'xs:schema': {
+        'xs:simpleType': {
+          '@attributes': { name: 'ColorType' },
+          'xs:restriction': restriction,
+        },
+        'xs:element': [
+          {
+            '@attributes': { name: 'schema' },
+            'xs:complexType': {
+              'xs:choice': { 'xs:element': { '@attributes': { ref: 'xs:color' } } },
+            },
+          },
+          { '@attributes': { name: 'color', type: 'ColorType' } },
+        ],
+      },
+    };
+
+    try {
+      const compiled = compileSchemaForWalking(schema['xs:schema']);
+      expect(compiled.getElement('xs:color')).toEqual(schema['xs:schema']['xs:element'][1]);
+      const walked = walkSchema(compiled, {
+        rootSchema: schema['xs:schema'],
+        compiledSchema: compiled,
+        visitedTypes: new Set(),
+        depth: 0,
+        maxDepth: 2,
+        path: [],
+      });
+
+      expect(walked.children).toEqual(expect.arrayContaining([
+        expect.objectContaining({ label: 'xs:color', compositorType: 'choice' }),
+      ]));
+      expect(getTypeEnumerations(compiled, 'ColorType')).toEqual(['red', 'blue']);
+      expect(getEnumerationsFromRestriction(restriction)).toEqual(['red', 'blue']);
+      expect(log).not.toHaveBeenCalled();
+      expect(debug).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+      debug.mockRestore();
+    }
+  });
+
   test('getXmlAttrs should extract @attributes', () => {
     const obj = { '@attributes': { name: 'test', type: 'string' }, other: 'value' };
     const attrs = getXmlAttrs(obj);
