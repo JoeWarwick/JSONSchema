@@ -29,6 +29,10 @@ export interface XmlElement {
 
 export type TopLevelXsdKind = 'element' | 'attribute' | 'complexType' | 'simpleType' | 'group' | 'attributeGroup' | 'notation';
 
+export interface XmlSchemaDocumentContext {
+  rootXsdAddButtons: Array<{ kind: TopLevelXsdKind; label: string }>;
+}
+
 export interface XmlElementNodeProps {
   element: XmlElement;
   path: string[];
@@ -44,6 +48,7 @@ export interface XmlElementNodeProps {
   compiledSchema?: CompiledSchema | null;
   initialAutoExpandPathsRef?: MutableRefObject<Set<string>>;
   autoExpandCaptureActiveRef?: MutableRefObject<boolean>;
+  schemaDocumentContext?: XmlSchemaDocumentContext;
   isSchemaForm?: boolean;
   rootXsdAddButtons?: Array<{ kind: TopLevelXsdKind; label: string }>;
   onAddTopLevelXsdDefinition?: (kind: TopLevelXsdKind) => void;

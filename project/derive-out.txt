@@ -1,0 +1,217 @@
+  console.log
+    [CompiledSchema.getElement] called with: schema elementMap size: 0
+
+      at CompiledSchema.log [as getElement] (app/utils/schema-compiler.ts:953:13)
+
+  console.log
+    [CompiledSchema.getElement] called with: xs:schema elementMap size: 0
+
+      at CompiledSchema.log [as getElement] (app/utils/schema-compiler.ts:953:13)
+
+  console.log
+    [CompiledSchema.getElement] called with: xs:schema elementMap size: 0
+
+      at CompiledSchema.log [as getElement] (app/utils/schema-compiler.ts:953:13)
+
+FAIL app/components/xml-instance-form.test.tsx
+  XmlInstanceForm trigger-row behavior
+    × derives schema form root add buttons from the XSD walk (1339 ms)
+    ○ skipped renders concrete element triggers for abstract substitution-group references
+    ○ skipped renders XSLT default-validation as a dropdown for its enumeration
+    ○ skipped keeps the stylesheet template trigger available alongside populated top-level declarations
+    ○ skipped does not surface unresolved required child triggers under xsl:otherwise
+    ○ skipped schema form renders XSLT top-level imports and annotation
+    ○ skipped schema form renders generic-element-type attribute declarations
+    ○ skipped infers XSD document actions from the root namespace without a mode key
+    ○ skipped does not render an absent root annotation as an existing Schema Form node
+    ○ skipped does not render the xs:schema source wrapper as a nested schema node
+    ○ skipped labels inline anonymous complexTypes instead of making them look like annotation fields
+    ○ skipped walks a root element with an inline complexType such as UpgradeStep
+    ○ skipped renders UpgradeStep inline complexType content in schema form
+    ○ skipped walks inline complexContent extension beneath complexType in schema form
+    ○ skipped infers child add triggers at nested schema depth, not just the root
+    ○ skipped sorts recursively rendered element triggers with referenced elements last
+    ○ skipped keeps nested xs:choice options visible when choice is inside xs:sequence
+    ○ skipped infers an xs:element add trigger on xs:sequence compositor nodes
+    ○ skipped infers an xs:attribute add trigger for xs:complexType when allowed by the walked schema
+    ○ skipped infers complexType model branch triggers from mixed choice/sequence grammar
+    ○ skipped infers xs:enumeration add triggers and remove controls for restriction facets
+    ○ skipped schema form preserves ColorType enumeration rows when walking schema omits restriction children
+    ○ skipped renders a color picker when xs:element declares ui:widget color
+    ○ skipped renders a color picker for xs:attribute when ui:widget is color
+    ○ skipped renders a typeable country select when ui:widget is country
+    ○ skipped renders a typeable language tag select when ui:widget is lang
+    ○ skipped restores persisted expanded paths across rerenders
+    ○ skipped renders trigger chips and disables add at maxOccurs
+    ○ skipped keeps element trigger row add-only and uses rhs trash for optional element instances
+    ○ skipped hides trigger for required singleton elements
+    ○ skipped shows required singleton trigger with ! while missing
+    ○ skipped infers bounded repeat add/remove behavior from minOccurs/maxOccurs
+    ○ skipped removes repeating children only when count is above minOccurs
+    ○ skipped choice sibling trigger is hidden once another choice option is present
+    ○ skipped repeatable choice keeps sibling options visible instead of forcing a single selected dropdown branch
+    ○ skipped walks only the schema and two-way binds declared instance values
+    ○ skipped schema form does not synthesize missing required choice rows from walking schema
+    ○ skipped schema form preserves existing sibling choice nodes without collapsing to a selected dropdown
+    ○ skipped schema form choice dropdown switches the active selected branch instead of snapping back
+    ○ skipped schema form keeps all demo XSD choice comboboxes after repeated switch-backs
+    ○ skipped schema form inline complexType repeatable choice keeps sibling nodes visible
+    ○ skipped schema form root does not duplicate top-level add triggers with prefixed child triggers
+    ○ skipped optional choice shows rhs trash near dropdown and removes selected branch
+    ○ skipped choice switch keeps the instance form free of name chips and retargets optional trash
+    ○ skipped schema form renders the root element declaration name in the schema editor
+    ○ skipped choice switch omits schema name metadata and retargets optional remove action
+    ○ skipped simple choice places optional trash button to the rhs of input
+    ○ skipped keeps sibling root options visible and allows switching active root
+    ○ skipped treats only global min:1 max:1 elements as the schema choice set
+    ○ skipped renders inherited attributes and elements for an inline extension based on modelType
+    ○ skipped removes attributes declared in an inline complexContent extension on the model element
+    ○ skipped keeps the @attributes bag when deleting a single attribute from the second model in the list
+    ○ skipped uses attribute trigger row for remove controls and hides inline attribute trash
+
+  ● XmlInstanceForm trigger-row behavior › derives schema form root add buttons from the XSD walk
+
+    expect(received).toHaveLength(expected)
+
+    Expected length: 1
+    Received length: 2
+    Received array:  [<button aria-label="Add Element" style="padding: 3px 8px; border-radius: 12px; border: 1px solid rgb(221, 221, 221); background-color: rgb(249, 249, 249); cursor: pointer; font-size: 11px; font-weight: 500; color: rgb(102, 102, 102); display: flex; align-items: center; gap: 4px; white-space: nowrap;" title="Add Element" type="button">Add Element</button>, <button aria-label="Add Element" style="padding: 3px 8px; border-radius: 12px; border: 1px solid rgb(221, 221, 221); background-color: rgb(249, 249, 249); cursor: pointer; font-size: 11px; font-weight: 500; color: rgb(102, 102, 102); display: flex; align-items: center; gap: 4px; white-space: nowrap;" title="Add Element" type="button"><span>+</span><span>Element</span></button>]
+
+    Ignored nodes: comments, script, style
+    <html>
+      <head />
+      <body>
+        <div>
+          <div
+            style="padding: 16px;"
+          >
+            <div
+              style="margin-left: 0px; margin-bottom: 12px;"
+            >
+              <div
+                style="margin-bottom: 8px; display: inline-flex; align-items: center; gap: 8px; width: auto; max-width: 100%;"
+              >
+                <button
+                  style="background: none; padding: 0px; cursor: pointer; display: flex; align-items: center;"
+                >
+                  <svg
+                    aria-hidden="true"
+                    class="lucide lucide-chevron-down"
+                    fill="none"
+                    height="16"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                    width="16"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="m6 9 6 6 6-6"
+                    />
+                  </svg>
+                </button>
+                <div
+                  data-testid="xml-tag-xs_schema"
+                  style="display: inline-flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; flex-wrap: nowrap;"
+                >
+                  <span
+                    style="white-space: nowrap; flex-shrink: 0;"
+                  >
+                    xs:schema
+                  </span>
+                </div>
+              </div>
+              <div>
+                <div
+                  style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center; max-width: 100%; margin-bottom: 8px;"
+                >
+                  <button
+                    aria-label="Add Element"
+                    style="padding: 3px 8px; border-radius: 12px; border: 1px solid rgb(221, 221, 221); background-color: rgb(249, 249, 249); cursor: pointer; font-size: 11px; font-weight: 500; color: rgb(102, 102, 102); display: flex; align-items: center; gap: 4px; white-space: nowrap;"
+                    title="Add Element"
+                    type="button"
+                  >
+                    Add Element
+                  </button>
+                  <button
+                    aria-label="Add Attribute"
+                    style="padding: 3px 8px; border-radius: 12px; border: 1px solid rgb(221, 221, 221); background-color: rgb(249, 249, 249); cursor: pointer; font-size: 11px; font-weight: 500; color: rgb(102, 102, 102); display: flex; align-items: center; gap: 4px; white-space: nowrap;"
+                    title="Add Attribute"
+                    type="button"
+                  >
+                    Add Attribute
+                  </button>
+                  <button
+                    aria-label="Add ComplexType"
+                    style="padding: 3px 8px; border-radius: 12px; border: 1px solid rgb(221, 221, 221); background-color: rgb(249, 249, 249); cursor: pointer; font-size: 11px; font-weight: 500; color: rgb(102, 102, 102); display: flex; align-items: center; gap: 4px; white-space: nowrap;"
+                    title="Add ComplexType"
+                    type="button"
+                  >
+                    Add ComplexType
+                  </button>
+                  <button
+                    aria-label="Add SimpleType"
+                    style="padding: 3px 8px; border-radius: 12px; border: 1px solid rgb(221, 221, 221); background-color: rgb(249, 249, 249); cursor: pointer; font-size: 11px; font-weight: 500; color: rgb(102, 102, 102); display: flex; align-items: center; gap: 4px; white-space: nowrap;"
+                    title="Add SimpleType"
+                    type="button"
+                  >
+                    Add SimpleType
+                  </button>
+                  <button
+                    aria-label="Add Group"
+                    style="padding: 3px 8px; border-radius: 12px; border: 1px solid rgb(221, 221, 221); background-color: rgb(249, 249, 249); cursor: pointer; font-size: 11px; font-weight: 500; color: rgb(102, 102, 102); display: flex; align-items: center; gap: 4px; white-space: nowrap;"
+                    title="Add Group"
+                    type="button"
+                  >
+                    Add Group
+                  </button>
+                  <button
+                    aria-label="Add AttributeGroup"
+                    style="padding: 3px 8px; border-radius: 12px; border: 1px solid rgb(221, 221, 221); background-color: rgb(249, 249, 249); cursor: pointer; font-size: 11px; font-weight: 500; color: rgb(102, 102, 102); display: flex; align-items: center; gap: 4px; white-space: nowrap;"
+                    title="Add AttributeGroup"
+                    type="button"
+                  >
+                    Add AttributeGroup
+                  </button>
+                  <button
+                    aria-label="Add Notation"
+                    style="padding: 3px 8px; border-radius: 12px; border: 1px solid rgb(221, 221, 221); background-color: rgb(249, 249, 249); cursor: pointer; font-size: 11px; font-weight: 500; color: rgb(102, 102, 102); display: flex; align-items: center; gap: 4px; white-space: nowrap;"
+                    title="Add Notation"
+                    type="button"
+                  >
+                    Add Notation
+                  </button>
+                </div>
+                <div
+                  style="margin-bottom: 12px;"
+                >
+                  <div
+                    style="display: flex; flex-direction: column; gap: 10px;"
+                  >
+                    <form
+                      style="display: flex; flex-direction: column; gap: 10px;"
+                    >
+                      <div
+                ...
+
+      280 |     await waitFor(() => {
+      281 |       expect(screen.getAllByText('xs:schema', { exact: true })).toHaveLength(1);
+    > 282 |       expect(screen.getAllByRole('button', { name: /Add Element/i })).toHaveLength(1);
+          |                                                                       ^
+      283 |       expect(screen.getAllByRole('button', { name: /Add ComplexType/i })).toHaveLength(1);
+      284 |       expect(screen.getAllByRole('button', { name: /Add SimpleType/i })).toHaveLength(1);
+      285 |       expect(screen.getAllByRole('button', { name: /Add Group/i })).toHaveLength(1);
+
+      at toHaveLength (app/components/xml-instance-form.test.tsx:282:71)
+      at runWithExpensiveErrorDiagnosticsDisabled (node_modules/@testing-library/dom/dist/config.js:47:12)
+      at checkCallback (node_modules/@testing-library/dom/dist/wait-for.js:124:77)
+      at checkRealTimersCallback (node_modules/@testing-library/dom/dist/wait-for.js:118:16)
+      at Timeout.task [as _onTimeout] (node_modules/jsdom/lib/jsdom/browser/Window.js:579:19)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 52 skipped, 53 total
+Snapshots:   0 total
+Time:        3.818 s, estimated 55 s
+Ran all test suites matching app/components/xml-instance-form.test.tsx with tests matching "derives schema form root add buttons from the XSD walk".

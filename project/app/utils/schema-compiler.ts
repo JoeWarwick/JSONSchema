@@ -48,6 +48,7 @@ export interface CompiledType {
  */
 export interface CompiledElement {
   name: string;
+  definition?: any;
   type?: string;
   typeNamespace?: string;
   minOccurs: number;
@@ -99,6 +100,8 @@ export interface ValidationFacets {
  */
 export class CompiledSchema {
   private typeMap: Map<string, CompiledType> = new Map(); // Maps "name" or "namespace:name"
+  private resolvedTypeMap: Map<string, CompiledType> = new Map();
+  private resolvingTypeNames: Set<string> = new Set();
   private elementMap: Map<string, any> = new Map(); // Global elements
   private schemasByNamespace: Map<string, any> = new Map(); // Imported schemas by namespace
   private nsPrefix: string;
@@ -456,6 +459,7 @@ export class CompiledSchema {
             : declaredMaxOccurs;
           compiled.elements.push({
             name: resolvedName,
+            definition: elem,
             type: inferredType,
             minOccurs: effectiveMinOccurs,
             maxOccurs: effectiveMaxOccurs,
@@ -588,6 +592,7 @@ export class CompiledSchema {
             : declaredMaxOccurs;
           compiled.elements.push({
             name: resolvedName,
+            definition: elem,
             type: attrs.type,
             minOccurs: effectiveMinOccurs,
             maxOccurs: effectiveMaxOccurs,
@@ -702,6 +707,7 @@ export class CompiledSchema {
               : declaredMaxOccurs;
           compiled.elements.push({
             name: resolvedName,
+            definition: elem,
             type: inferredType,
             minOccurs: effectiveMinOccurs,
             maxOccurs: effectiveMaxOccurs,
@@ -780,6 +786,7 @@ export class CompiledSchema {
             : declaredMaxOccurs;
           compiled.elements.push({
             name: resolvedName,
+            definition: elem,
             type: attrs.type,
             minOccurs: effectiveMinOccurs,
             maxOccurs: effectiveMaxOccurs,
@@ -970,30 +977,37 @@ export class CompiledSchema {
     const type = this.getType(typeName);
     if (!type) return undefined;
 
+    const cached = this.resolvedTypeMap.get(type.name);
+    if (cached) return cached;
+
+    if (this.resolvingTypeNames.has(type.name)) return type;
+
     // If no base type, return as-is
-    if (!type.baseType) return type;
-
-    // Resolve base type
-    const baseType = this.getType(type.baseType);
-    if (!baseType) return type;
-
-    // Merge base type elements and attributes
-    const resolved: CompiledType = {
-      ...type,
-      elements: [...(baseType.elements || []), ...(type.elements || [])],
-      attributes: [...(baseType.attributes || []), ...(type.attributes || [])],
-    };
-
-    // Recursively resolve base of base if needed
-    if (baseType.baseType) {
-      const furtherResolved = this.resolveType(baseType.name);
-      if (furtherResolved && furtherResolved.baseType !== baseType.baseType) {
-        resolved.elements = [...(furtherResolved.elements || []), ...resolved.elements];
-        resolved.attributes = [...(furtherResolved.attributes || []), ...resolved.attributes];
-      }
+    if (!type.baseType) {
+      this.resolvedTypeMap.set(type.name, type);
+      return type;
     }
 
-    return resolved;
+    this.resolvingTypeNames.add(type.name);
+    try {
+      // Resolve and flatten inherited fields once, then share the result for future lookups.
+      const baseType = this.getType(type.baseType);
+      if (!baseType) {
+        this.resolvedTypeMap.set(type.name, type);
+        return type;
+      }
+
+      const resolvedBase = this.resolveType(baseType.name) || baseType;
+      const resolved: CompiledType = {
+        ...type,
+        elements: [...(resolvedBase.elements || []), ...(type.elements || [])],
+        attributes: [...(resolvedBase.attributes || []), ...(type.attributes || [])],
+      };
+      this.resolvedTypeMap.set(type.name, resolved);
+      return resolved;
+    } finally {
+      this.resolvingTypeNames.delete(type.name);
+    }
   }
 
   /**

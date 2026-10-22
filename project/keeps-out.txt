@@ -1,0 +1,440 @@
+  console.log
+    [SchemaCompiler.indexTypes] Found elements in root schema: {
+      nsPrefix: 'xs',
+      elementKey: 'xs:element',
+      has_prefixed: true,
+      has_unprefixed: false,
+      elementCount: 1
+    }
+
+      at CompiledSchema.log [as indexTypes] (app/utils/schema-compiler.ts:143:15)
+
+  console.log
+    [CompiledSchema.getElement] called with: UpgradeStep elementMap size: 1
+
+      at CompiledSchema.log [as getElement] (app/utils/schema-compiler.ts:953:13)
+
+  console.log
+    [CompiledSchema.getElement] called with: Models elementMap size: 1
+
+      at CompiledSchema.log [as getElement] (app/utils/schema-compiler.ts:953:13)
+          at Array.flatMap (<anonymous>)
+
+  console.log
+    [CompiledSchema.getElement] called with: Model elementMap size: 1
+
+      at CompiledSchema.log [as getElement] (app/utils/schema-compiler.ts:953:13)
+          at Array.flatMap (<anonymous>)
+          at Array.map (<anonymous>)
+
+FAIL app/components/xml-instance-form.test.tsx
+  XmlInstanceForm trigger-row behavior
+    × keeps the @attributes bag when deleting a single attribute from the second model in the list (207 ms)
+    ○ skipped renders concrete element triggers for abstract substitution-group references
+    ○ skipped renders XSLT default-validation as a dropdown for its enumeration
+    ○ skipped keeps the stylesheet template trigger available alongside populated top-level declarations
+    ○ skipped does not surface unresolved required child triggers under xsl:otherwise
+    ○ skipped schema form renders XSLT top-level imports and annotation
+    ○ skipped schema form renders generic-element-type attribute declarations
+    ○ skipped infers XSD document actions from the root namespace without a mode key
+    ○ skipped derives schema form root add buttons from the XSD walk
+    ○ skipped does not render an absent root annotation as an existing Schema Form node
+    ○ skipped does not render the xs:schema source wrapper as a nested schema node
+    ○ skipped labels inline anonymous complexTypes instead of making them look like annotation fields
+    ○ skipped walks a root element with an inline complexType such as UpgradeStep
+    ○ skipped renders UpgradeStep inline complexType content in schema form
+    ○ skipped walks inline complexContent extension beneath complexType in schema form
+    ○ skipped infers child add triggers at nested schema depth, not just the root
+    ○ skipped sorts recursively rendered element triggers with referenced elements last
+    ○ skipped keeps nested xs:choice options visible when choice is inside xs:sequence
+    ○ skipped infers an xs:element add trigger on xs:sequence compositor nodes
+    ○ skipped infers an xs:attribute add trigger for xs:complexType when allowed by the walked schema
+    ○ skipped infers complexType model branch triggers from mixed choice/sequence grammar
+    ○ skipped infers xs:enumeration add triggers and remove controls for restriction facets
+    ○ skipped schema form preserves ColorType enumeration rows when walking schema omits restriction children
+    ○ skipped renders a color picker when xs:element declares ui:widget color
+    ○ skipped renders a color picker for xs:attribute when ui:widget is color
+    ○ skipped renders a typeable country select when ui:widget is country
+    ○ skipped renders a typeable language tag select when ui:widget is lang
+    ○ skipped restores persisted expanded paths across rerenders
+    ○ skipped renders trigger chips and disables add at maxOccurs
+    ○ skipped keeps element trigger row add-only and uses rhs trash for optional element instances
+    ○ skipped hides trigger for required singleton elements
+    ○ skipped shows required singleton trigger with ! while missing
+    ○ skipped infers bounded repeat add/remove behavior from minOccurs/maxOccurs
+    ○ skipped removes repeating children only when count is above minOccurs
+    ○ skipped choice sibling trigger is hidden once another choice option is present
+    ○ skipped repeatable choice keeps sibling options visible instead of forcing a single selected dropdown branch
+    ○ skipped walks only the schema and two-way binds declared instance values
+    ○ skipped schema form does not synthesize missing required choice rows from walking schema
+    ○ skipped schema form preserves existing sibling choice nodes without collapsing to a selected dropdown
+    ○ skipped schema form choice dropdown switches the active selected branch instead of snapping back
+    ○ skipped schema form keeps all demo XSD choice comboboxes after repeated switch-backs
+    ○ skipped schema form inline complexType repeatable choice keeps sibling nodes visible
+    ○ skipped schema form root does not duplicate top-level add triggers with prefixed child triggers
+    ○ skipped optional choice shows rhs trash near dropdown and removes selected branch
+    ○ skipped choice switch keeps the instance form free of name chips and retargets optional trash
+    ○ skipped schema form renders the root element declaration name in the schema editor
+    ○ skipped choice switch omits schema name metadata and retargets optional remove action
+    ○ skipped simple choice places optional trash button to the rhs of input
+    ○ skipped keeps sibling root options visible and allows switching active root
+    ○ skipped treats only global min:1 max:1 elements as the schema choice set
+    ○ skipped renders inherited attributes and elements for an inline extension based on modelType
+    ○ skipped removes attributes declared in an inline complexContent extension on the model element
+    ○ skipped uses attribute trigger row for remove controls and hides inline attribute trash
+
+  ● XmlInstanceForm trigger-row behavior › keeps the @attributes bag when deleting a single attribute from the second model in the list
+
+    TestingLibraryElementError: Unable to find an element with the title: Remove version-number.
+
+    Ignored nodes: comments, script, style
+    <body>
+      <div>
+        <div
+          style="padding: 16px;"
+        >
+          <div
+            style="margin-left: 0px; margin-bottom: 12px;"
+          >
+            <div
+              style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px;"
+            >
+              <button
+                aria-pressed="true"
+                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(167, 139, 250); background-color: rgb(243, 232, 255); cursor: default; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(91, 33, 182); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.25); opacity: 1;"
+                title="UpgradeStep already selected (1/1)"
+                type="button"
+              >
+                <span
+                  style="font-size: 10px; line-height: 1;"
+                >
+                  ●
+                </span>
+                <span>
+                  UpgradeStep
+                </span>
+              </button>
+              <button
+                aria-pressed="false"
+                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+                title="Switch to Models (0/1)"
+                type="button"
+              >
+                <span
+                  style="font-size: 10px; line-height: 1;"
+                >
+                  +
+                </span>
+                <span>
+                  Models
+                </span>
+                <span
+                  title="Required until minimum occurrences are met"
+                >
+                  !
+                </span>
+              </button>
+            </div>
+            <div
+              style="margin-bottom: 8px; display: inline-flex; align-items: center; gap: 8px; width: auto; max-width: 100%;"
+            >
+              <button
+                style="background: none; padding: 0px; cursor: pointer; display: flex; align-items: center;"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="lucide lucide-chevron-down"
+                  fill="none"
+                  height="16"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                  width="16"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="m6 9 6 6 6-6"
+                  />
+                </svg>
+              </button>
+              <div
+                data-testid="xml-tag-UpgradeStep"
+                style="display: inline-flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; flex-wrap: nowrap;"
+              >
+                <span
+                  style="white-space: nowrap; flex-shrink: 0;"
+                >
+                  UpgradeStep
+                </span>
+              </div>
+            </div>
+            <div>
+              <div
+                style="margin-bottom: 12px;"
+              />
+              <div>
+                <div
+                  style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;"
+                >
+                  <div
+                    style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;"
+                  />
+                </div>
+                <div>
+                  <div
+                    style="margin-left: 0px; margin-bottom: 12px;"
+                  >
+                    <div
+                      style="margin-bottom: 8px; display: inline-flex; align-items: center; gap: 8px; width: auto; max-width: 100%;"
+                    >
+                      <button
+                        style="background: none; padding: 0px; cursor: pointer; display: flex; align-items: center;"
+                      >
+                        <svg
+                          aria-hidden="true"
+                          class="lucide lucide-chevron-down"
+                          fill="none"
+                          height="16"
+                          stroke="currentColor"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          viewBox="0 0 24 24"
+                          width="16"
+                          xmlns="http://www.w3.org/2000/svg"
+                        >
+                          <path
+                            d="m6 9 6 6 6-6"
+                          />
+                        </svg>
+                      </button>
+                      <div
+                        data-testid="xml-tag-Models"
+                        style="display: inline-flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; flex-wrap: nowrap;"
+                      >
+                        <span
+                          style="white-space: nowrap; flex-shrink: 0;"
+                        >
+                          Models
+                        </span>
+                      </div>
+                    </div>
+                    <div>
+                      <div
+                        style="margin-bottom: 12px;"
+                      />
+                      <div>
+                        <div
+                          style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;"
+                        >
+                          <div
+                            style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;"
+                          >
+                            <div
+                              style="display: inline-flex; gap: 4px; align-items: center;"
+                            >
+                              <button
+                                aria-label="Add Model"
+                                style="padding: 3px 8px; border-radius: 12px; border: 1px solid rgb(221, 221, 221); background-color: rgb(249, 249, 249); cursor: pointer; font-size: 11px; font-weight: 500; color: rgb(102, 102, 102); display: flex; align-items: center; gap: 4px; white-space: nowrap; opacity: 1;"
+                                title="Add Model (2/∞)"
+                                type="button"
+                              >
+                                <span>
+                                  +
+                                </span>
+                                <span>
+                                  Model
+                                </span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                        <div>
+                          <div
+                            style="position: relative;"
+                          >
+                            <div
+                              style="margin-left: 0px; margin-bottom: 12px;"
+                            >
+                              <div
+                                style="margin-bottom: 8px; display: inline-flex; align-items: center; gap: 8px; width: auto; max-width: 100%;"
+                              >
+                                <button
+                                  style="background: none; padding: 0px; cursor: pointer; display: flex; align-items: center;"
+                                >
+                                  <svg
+                                    aria-hidden="true"
+                                    class="lucide lucide-chevron-right"
+                                    fill="none"
+                                    height="16"
+                                    stroke="currentColor"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    viewBox="0 0 24 24"
+                                    width="16"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                  >
+                                    <path
+                                      d="m9 18 6-6-6-6"
+                                    />
+                                  </svg>
+                                </button>
+                                <div
+                                  data-testid="xml-tag-"
+                                  style="display: inline-flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; flex-wrap: nowrap;"
+                                >
+                                  <span
+                                    style="white-space: nowrap; flex-shrink: 0;"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              aria-label="Remove Model 1"
+                              class=""
+                              data-state="closed"
+                              style="position: absolute; right: 0px; top: 8px;"
+                              title="Remove Model 1"
+                            >
+                              <svg
+                                aria-hidden="true"
+                                class="lucide lucide-trash2 lucide-trash-2"
+                                fill="none"
+                                height="14"
+                                stroke="currentColor"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                viewBox="0 0 24 24"
+                                width="14"
+                                xmlns="http://www.w3.org/2000/svg"
+                              >
+                                <path
+                                  d="M10 11v6"
+                                />
+                                <path
+                                  d="M14 11v6"
+                                />
+                                <path
+                                  d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"
+                                />
+                                <path
+                                  d="M3 6h18"
+                                />
+                                <path
+                                  d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                                />
+                              </svg>
+                            </button>
+                          </div>
+                          <div
+                            style="position: relative;"
+                          >
+                            <div
+                              style="margin-left: 0px; margin-bottom: 12px;"
+                            >
+                              <div
+                                style="margin-bottom: 8px; display: inline-flex; align-items: center; gap: 8px; width: auto; max-width: 100%;"
+                              >
+                                <button
+                                  style="background: none; padding: 0px; cursor: pointer; display: flex; align-items: center;"
+                                >
+                                  <svg
+                                    aria-hidden="true"
+                                    class="lucide lucide-chevron-right"
+                                    fill="none"
+                                    height="16"
+                                    stroke="currentColor"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    viewBox="0 0 24 24"
+                                    width="16"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                  >
+                                    <path
+                                      d="m9 18 6-6-6-6"
+                                    />
+                                  </svg>
+                                </button>
+                                <div
+                                  data-testid="xml-tag-"
+                                  style="display: inline-flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; flex-wrap: nowrap;"
+                                >
+                                  <span
+                                    style="white-space: nowrap; flex-shrink: 0;"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              aria-label="Remove Model 2"
+                              class=""
+                              data-state="closed"
+                              style="position: absolute; right: 0px; top: 8px;"
+                              title="Remove Model 2"
+                            >
+                              <svg
+                                aria-hidden="true"
+                                class="lucide lucide-trash2 lucide-trash-2"
+                                fill="none"
+                                height="14"
+                                stroke="currentColor"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                viewBox="0 0 24 24"
+                                width="14"
+                                xmlns="http://www.w3.org/2000/svg"
+                              >
+                                <path
+                                  d="M10 11v6"
+                                />
+                                <path
+                                  d="M14 11v6"
+                                />
+                                <path
+                                  d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"
+                                />
+                                <path
+                                  d="M3 6h18"
+                                />
+                                <path
+                                  d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                                />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </body>
+
+      2183 |     );
+      2184 |
+    > 2185 |     const removeButton = screen.getAllByTitle('Remove version-number')[1];
+           |                                 ^
+      2186 |     fireEvent.click(removeButton as HTMLElement);
+      2187 |
+      2188 |     await waitFor(() => expect(onChange).toHaveBeenCalled());
+
+      at Object.getElementError (node_modules/@testing-library/dom/dist/config.js:37:19)
+      at node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+      at node_modules/@testing-library/dom/dist/query-helpers.js:109:15
+      at Object.getAllByTitle (app/components/xml-instance-form.test.tsx:2185:33)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 52 skipped, 53 total
+Snapshots:   0 total
+Time:        2.609 s, estimated 3 s
+Ran all test suites matching app/components/xml-instance-form.test.tsx with tests matching "keeps the @attributes bag".

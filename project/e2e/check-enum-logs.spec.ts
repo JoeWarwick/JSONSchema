@@ -25,9 +25,9 @@ test('Check console logs for attribute enumeration handling', async ({ page }) =
   await page.waitForSelector('text=Load from URL', { timeout: 2000 }).catch(() => null);
   
   // Try to open the file
-  const fileInput = await page.$('input[type="file"]').catch(() => null);
-  if (fileInput) {
-    await fileInput.uploadFile('public/schemas/xml-form-controls-demo.xsd');
+  const fileInput = page.locator('input[type="file"]');
+  if (await fileInput.count()) {
+    await fileInput.setInputFiles('public/schemas/xml-form-controls-demo.xsd');
   }
   
   // Wait for schema to load

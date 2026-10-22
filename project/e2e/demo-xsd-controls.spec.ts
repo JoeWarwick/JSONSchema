@@ -17,7 +17,7 @@ async function clickAddElementFromContextMenu(page: any) {
 }
 
 async function getNodeGraphPosition(page: any, nodeId: string) {
-  return page.evaluate((id) => {
+  return page.evaluate((id: string) => {
     const node = document.querySelector(`.react-flow__node[data-id="${id}"]`) as HTMLElement | null;
     if (!node) return null;
     const m = (node.style.transform || '').match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/);
@@ -29,7 +29,7 @@ async function getNodeGraphPosition(page: any, nodeId: string) {
 async function waitForStableNodeY(page: any, nodeId: string, stableMs = 220): Promise<void> {
   await expect
     .poll(async () => {
-      return page.evaluate(async ({ id, stableWindow }) => {
+      return page.evaluate(async ({ id, stableWindow }: { id: string; stableWindow: number }) => {
         const readY = () => {
           const node = document.querySelector(`.react-flow__node[data-id="${id}"]`) as HTMLElement | null;
           if (!node) return null;

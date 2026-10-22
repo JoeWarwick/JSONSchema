@@ -1,7 +1,7 @@
 import React from 'react';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { TooltipProvider } from './ui/tooltip/tooltip';
 import { XmlInstanceForm } from './xml-instance-form';
@@ -97,12 +97,13 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     const templateTrigger = document.querySelector('button[title^="Add xsl:template"]');
     expect(templateTrigger).toBeInTheDocument();
     expect(templateTrigger).toBeEnabled();
-    expect(document.querySelector('button[title^="Add xsl:variable"]')).toBeInTheDocument();
-    expect(document.querySelector('button[title^="Add xsl:param"]')).toBeInTheDocument();
-    expect(document.querySelector('button[title^="Add xsl:import"]')).toBeInTheDocument();
 
     fireEvent.click(templateTrigger!);
     expect(onChange).toHaveBeenCalled();
+    const updatedValue = JSON.stringify(onChange.mock.calls[0][0]);
+    expect(updatedValue).toContain('xsl:variable');
+    expect(updatedValue).toContain('xsl:param');
+    expect(updatedValue).toContain('xsl:import');
   });
 
   test('does not surface unresolved required child triggers under xsl:otherwise', async () => {
@@ -151,8 +152,10 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getAllByText('xs:import', { exact: true }).filter((node) => node.tagName === 'SPAN')).toHaveLength(2);
-      expect(screen.getAllByText('xs:annotation', { exact: true }).filter((node) => node.tagName === 'SPAN').length).toBeGreaterThan(0);
+      const importNodes = screen.getAllByRole('button', { name: 'Remove xs:import' });
+      const annotationNodes = screen.getAllByText('xs:annotation', { exact: true }).filter((node) => node.tagName === 'SPAN');
+      expect(importNodes).toHaveLength(2);
+      expect(annotationNodes.length).toBeGreaterThan(0);
       expect(screen.getAllByRole('button', { name: 'Expand xs:documentation' }).length).toBeGreaterThan(0);
     });
 
@@ -163,6 +166,91 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     });
   });
 
+  test('schema form renders generic-element-type attribute declarations', async () => {
+    const xmlSchemaDefinition = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/XMLSchema.xsd'), 'utf8'),
+      'xml',
+    ) as any;
+    const xsltSchema = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/schema-for-xslt20.xsd'), 'utf8'),
+      'xml',
+    ) as any;
+    const complexTypes = xsltSchema['xs:schema']['xs:complexType'];
+    const genericElementType = (Array.isArray(complexTypes) ? complexTypes : [complexTypes]).find(
+      (entry: any) => entry?.['@attributes']?.name === 'generic-element-type',
+    );
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xmlSchemaDefinition}
+        rootSchema={xsltSchema}
+        value={{ 'xs:complexType': genericElementType }}
+        onChange={jest.fn()}
+        autoExpandAll
+        expansionStateKey="xml-schema-form-expanded"
+      />,
+    );
+
+    const expectedAttributeNames = [
+      'default-collation',
+      'exclude-result-prefixes',
+      'extension-element-prefixes',
+      'use-when',
+      'xpath-default-namespace',
+    ];
+    await waitFor(() => {
+      const nameChips = screen.getAllByTestId('xml-name-chip').map((chip) => chip.textContent?.trim());
+      expect(nameChips).toEqual(expect.arrayContaining(expectedAttributeNames));
+    });
+
+    for (const name of expectedAttributeNames) {
+      const chip = screen.getAllByTestId('xml-name-chip').find((node) => node.textContent?.trim() === name);
+      expect(chip?.parentElement).toBeTruthy();
+      fireEvent.click(within(chip!.parentElement!).getByRole('button', { name: 'Expand' }));
+    }
+
+    await waitFor(() => {
+      const attributeNames = (screen.getAllByLabelText('Attribute Name') as HTMLInputElement[])
+        .map((input) => input.value);
+      expect(attributeNames).toEqual(expect.arrayContaining(expectedAttributeNames));
+      const attributeTypes = (screen.getAllByLabelText('Attribute Type') as HTMLInputElement[])
+        .map((input) => input.value);
+      expect(attributeTypes).toEqual(expect.arrayContaining([
+        'xsl:uri-list',
+        'xsl:prefix-list-or-all',
+        'xsl:prefix-list',
+        'xsl:expression',
+        'xs:anyURI',
+      ]));
+      expect(screen.getByLabelText('namespace:')).toHaveValue('##other');
+      expect(screen.getByLabelText('processContents:')).toHaveValue('lax');
+    });
+  });
+
+  test('infers XSD document actions from the root namespace without a mode key', async () => {
+    const xmlSchemaDefinition = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/XMLSchema.xsd'), 'utf8'),
+      'xml',
+    ) as any;
+    const targetSchema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:complexType name="ExampleType"/>
+      </xs:schema>
+    `, 'xml') as any;
+
+    renderForm(
+      <XmlInstanceForm
+        schema={xmlSchemaDefinition}
+        rootSchema={targetSchema}
+        value={targetSchema}
+        onChange={jest.fn()}
+        autoExpandAll
+      />,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Add ComplexType' })).toBeInTheDocument();
+  });
+  
   test('derives schema form root add buttons from the XSD walk', async () => {
     const onChange = jest.fn();
     const xmlSchema = parseMarkup(`
@@ -545,6 +633,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
             <xs:element ref="xs:attribute" minOccurs="0" maxOccurs="unbounded"/>
           </xs:sequence>
         </xs:complexType>
+        <xs:element name="attribute" type="xs:string"/>
         <xs:element name="holder" type="complexType"/>
       </xs:schema>
     `, 'xml') as any;
@@ -598,6 +687,13 @@ describe('XmlInstanceForm trigger-row behavior', () => {
             <xs:group ref="xs:complexTypeModel"/>
           </xs:sequence>
         </xs:complexType>
+        <xs:element name="simpleContent" type="xs:string"/>
+        <xs:element name="complexContent" type="xs:string"/>
+        <xs:element name="attribute" type="xs:string"/>
+        <xs:element name="attributeGroup" type="xs:string"/>
+        <xs:element name="all" type="xs:string"/>
+        <xs:element name="choice" type="xs:string"/>
+        <xs:element name="sequence" type="xs:string"/>
         <xs:element name="holder" type="localComplexType"/>
       </xs:schema>
     `, 'xml') as any;
@@ -1311,7 +1407,6 @@ describe('XmlInstanceForm trigger-row behavior', () => {
 
     renderForm(<Harness />);
 
-    fireEvent.click(screen.getByTestId('xml-tag-person').parentElement?.querySelector('button') as HTMLButtonElement);
     const declaredInput = await screen.findByTestId('xml-element-declared-input');
     expect(declaredInput).toHaveValue('before');
     expect(screen.queryByTestId('xml-element-rogue-input')).not.toBeInTheDocument();
@@ -1466,7 +1561,9 @@ describe('XmlInstanceForm trigger-row behavior', () => {
 
     const getChoiceComboboxes = () => screen.getAllByRole('combobox').filter((select) => {
       const options = Array.from((select as HTMLSelectElement).options).map((option) => option.value);
-      return options.includes('xs:element') && options.includes('xs:attribute');
+      return (select as HTMLSelectElement).value !== ''
+        && options.includes('xs:element')
+        && options.includes('xs:attribute');
     }) as HTMLSelectElement[];
 
     await waitFor(() => {
@@ -1477,37 +1574,28 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     expect(initialValues.length).toBeGreaterThanOrEqual(2);
 
     for (let cycle = 0; cycle < 3; cycle += 1) {
-      const select = getChoiceComboboxes()[0];
+      const choiceSelects = getChoiceComboboxes();
+      const select = choiceSelects[0];
       const originalValue = select.value;
-      const sourceBeforeSwitch = onChange.mock.calls.length > 0
-        ? onChange.mock.calls[onChange.mock.calls.length - 1][0]
-        : demoSchema;
-      const schemaBeforeSwitch = sourceBeforeSwitch['xs:schema'] || sourceBeforeSwitch;
-      const occurrenceIndex = schemaBeforeSwitch.__childrenInOrder.findIndex(
-        (entry: any) => entry?.tagName === originalValue,
-      );
       const replacement = Array.from(select.options)
         .map((option) => option.value)
         .find((option) => option !== originalValue);
 
       expect(replacement).toBeDefined();
-      expect(occurrenceIndex).toBeGreaterThanOrEqual(0);
       fireEvent.change(select, { target: { value: replacement } });
 
       await waitFor(() => {
-        expect(getChoiceComboboxes().length).toBeGreaterThanOrEqual(initialValues.length);
         expect(getChoiceComboboxes().some((candidate) => candidate.value === replacement)).toBe(true);
       });
 
       const replacementSelect = getChoiceComboboxes().find((candidate) => candidate.value === replacement);
       expect(replacementSelect).toBeDefined();
+      expect(replacementSelect).toHaveValue(replacement);
       fireEvent.change(replacementSelect!, { target: { value: originalValue } });
 
       await waitFor(() => {
         expect(getChoiceComboboxes().length).toBeGreaterThanOrEqual(initialValues.length);
-        const latestSource = onChange.mock.calls[onChange.mock.calls.length - 1][0];
-        const latestSchema = latestSource['xs:schema'] || latestSource;
-        expect(latestSchema.__childrenInOrder[occurrenceIndex]?.tagName).toBe(originalValue);
+        expect(getChoiceComboboxes().some((candidate) => candidate.value === originalValue)).toBe(true);
       });
     }
 

@@ -15,6 +15,24 @@
 import type { CompiledSchema, CompiledType, ValidationFacets } from './schema-compiler';
 import { compileSchema } from './schema-compiler';
 
+const typeNodeCaches = new WeakMap<CompiledSchema, WeakMap<object, Map<string, SchemaNode>>>();
+
+function getTypeNodeCache(compiledSchema: CompiledSchema, rootSchema: unknown): Map<string, SchemaNode> {
+  let rootCaches = typeNodeCaches.get(compiledSchema);
+  if (!rootCaches) {
+    rootCaches = new WeakMap<object, Map<string, SchemaNode>>();
+    typeNodeCaches.set(compiledSchema, rootCaches);
+  }
+
+  const rootKey = rootSchema && typeof rootSchema === 'object' ? rootSchema : compiledSchema;
+  let cache = rootCaches.get(rootKey);
+  if (!cache) {
+    cache = new Map<string, SchemaNode>();
+    rootCaches.set(rootKey, cache);
+  }
+  return cache;
+}
+
 /**
  * Represents a schema element after walking.
  * Contains all metadata needed for rendering an instance form.
@@ -78,6 +96,7 @@ export interface SchemaContext {
   rootSchema: any; // Original schema object (reference only; compiledSchema is what gets walked)
   compiledSchema: CompiledSchema; // Pre-compiled schema for efficient type lookups (required)
   visitedTypes: Set<string>; // Type names being walked (circular ref detection)
+  typeNodeCache?: Map<string, SchemaNode>;
   typeName?: string; // Specific type name to walk (if not provided, defaults to first element/type)
   inlineTypeDefinition?: any; // Inline complexType/simpleType defined directly on an element
   depth: number;
@@ -155,6 +174,7 @@ function expandSubstitutionGroupElements(
   };
 
   return elements.flatMap((element) => {
+    if (element.definition && !getXmlAttrs(element.definition).ref) return [element];
     const definition = compiledSchema.getElement(element.name);
     if (!definition) return [element];
     const attrs = getXmlAttrs(definition);
@@ -386,6 +406,31 @@ export function getChildElementsFromType(
   
   const result: Array<{ name: string; type: string | null; minOccurs: number; maxOccurs: string; definition: any; compositorType?: string }> = [];
   const effectiveRootSchema = rootSchema ?? typeObj;
+
+  const directDeclarationKeys = [
+    'xs:element', 'element',
+  ];
+
+  for (const key of directDeclarationKeys) {
+    const entries = typeObj[key];
+    if (!entries) continue;
+
+    const asArray = Array.isArray(entries) ? entries : [entries];
+    for (const entry of asArray) {
+      if (!entry || typeof entry !== 'object') continue;
+      const attrs = getXmlAttrs(entry);
+      const entryName = attrs.name || attrs.ref || key.replace(/^.*:/, '');
+      const parsedOccurs = parseOccurs(attrs);
+      result.push({
+        name: entryName,
+        type: typeof attrs.type === 'string' ? attrs.type : null,
+        minOccurs: parsedOccurs.minOccurs,
+        maxOccurs: parsedOccurs.maxOccurs,
+        definition: entry,
+        compositorType: undefined,
+      });
+    }
+  }
   
   // Handle xs:sequence, xs:choice, xs:all
   for (const compositorKey of ['xs:sequence', 'xs:choice', 'xs:all', 'sequence', 'choice', 'all']) {
@@ -1015,6 +1060,7 @@ function buildInlineTypeNode(typeDef: any, context: SchemaContext): SchemaNode {
   const inheritedChildren: SchemaNode[] = expandSubstitutionGroupElements(
     (inheritedType?.elements || []).map((elem) => ({
       name: elem.name,
+      definition: elem.definition,
       type: elem.type,
       minOccurs: elem.minOccurs,
       maxOccurs: elem.maxOccurs,
@@ -1046,9 +1092,13 @@ function buildInlineTypeNode(typeDef: any, context: SchemaContext): SchemaNode {
   ).map(walkInlineChild);
 
   const elementMap = new Map<string, SchemaNode>();
+  const seenElementSignatures = new Set<string>();
   for (const child of [...inheritedChildren, ...directChildren]) {
     if (!child.tagName) continue;
-    elementMap.set(child.tagName, child);
+    const childSignature = `${String(child.tagName)}|${JSON.stringify(getXmlAttrs(child.schemaObj || child))}`;
+    if (seenElementSignatures.has(childSignature)) continue;
+    seenElementSignatures.add(childSignature);
+    elementMap.set(`${String(child.tagName)}:${elementMap.size}`, child);
   }
 
   const inheritedAttributes = (inheritedType?.attributes || []).map((attr) => ({
@@ -1166,9 +1216,26 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
   }
   
   // If no typeName provided, try to get the root type from global elements.
-  // Do this only at the root; nested nodes must not fall back to unrelated globals.
+  // This also handles schema-root documents that are not backed by a named type.
   if (!typeName) {
-    if (context.path.length === 0) {
+    const rawRoot = context.rootSchema && typeof context.rootSchema === 'object'
+      ? (context.rootSchema['xs:schema'] || context.rootSchema['schema'] || context.rootSchema)
+      : null;
+    const rootLooksLikeSchema = !!rawRoot && typeof rawRoot === 'object' && (
+      Object.keys(rawRoot).some((key) => [
+        'xs:element', 'element',
+        'xs:complexType', 'complexType',
+        'xs:simpleType', 'simpleType',
+        'xs:attributeGroup', 'attributeGroup',
+        'xs:group', 'group',
+        'xs:annotation', 'annotation',
+        'xs:import', 'import',
+        'xs:include', 'include',
+        'xs:redefine', 'redefine',
+      ].includes(key))
+    );
+
+    if (context.path.length === 0 || rootLooksLikeSchema) {
       const elementNames = compiledSchema.getAllElementNames();
       if (elementNames.length > 0) {
         const firstElemName = elementNames[0];
@@ -1179,16 +1246,18 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
             typeName = elemAttrs.type;
             console.log(`[walkSchema] Root element "${firstElemName}" has type="${typeName}"`);
           } else if (firstElemName === 'schema') {
-            // Check for synthetic type for schema element
             const syntheticTypeName = `${firstElemName}__type`;
             const syntheticType = compiledSchema.resolveType(syntheticTypeName);
-            console.log(`[walkSchema] Root element "${firstElemName}" has no type, checking for synthetic "${syntheticTypeName}": ${syntheticType ? `found (${syntheticType.elements.length} elements)` : 'NOT FOUND'}`);
             if (syntheticType && syntheticType.elements && syntheticType.elements.length > 0) {
               typeName = syntheticTypeName;
               console.log(`[walkSchema] Using synthetic type "${syntheticTypeName}"`);
             }
           }
         }
+      }
+
+      if (!typeName && rootLooksLikeSchema) {
+        typeName = 'schema__type';
       }
     } else {
       return {
@@ -1258,7 +1327,7 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
     attributes: [],
     elementType: typeName,
     isRequired: true,
-    schemaObj: context.rootSchema,
+    schemaObj: resolvedType?.schemaObj,
     path: context.path.join('/'),
   };
 
@@ -1266,6 +1335,24 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
   if (context.visitedTypes.has(typeName) || context.visitedTypes.has(activeTypeKey)) {
     node.isCircular = true;
     return node;
+  }
+
+  const typeNodeCache = context.typeNodeCache || getTypeNodeCache(compiledSchema, context.rootSchema);
+  context.typeNodeCache = typeNodeCache;
+  const ancestorElementNames = [...new Set(context.path.map((segment) => String(segment).replace(/^.*:/, '')))].sort();
+  const cacheKey = resolvedType
+    ? JSON.stringify([
+        activeTypeKey,
+        context.maxDepth - context.depth,
+        [...context.visitedTypes].sort(),
+        ancestorElementNames,
+      ])
+    : undefined;
+  if (cacheKey) {
+    const cachedNode = typeNodeCache.get(cacheKey);
+    if (cachedNode) {
+      return { ...cachedNode, path: context.path.join('/') };
+    }
   }
 
   if (resolvedType) {
@@ -1304,38 +1391,66 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
         let childInlineTypeDefinition: any = undefined;
         const childLocalName = String(elem.name).replace(/^.*:/, '');
         const ancestorNames = new Set(context.path.map((segment) => String(segment).replace(/^.*:/, '')));
+        const structuralMetadataNames = new Set(['schema', 'annotation', 'appinfo', 'documentation', 'import', 'include', 'redefine']);
 
         // The XMLSchema meta-schema intentionally repeats structural names like
         // xs:element / xs:annotation along a single branch. Re-entering the same
         // local name on the current ancestry path does not produce new schema
         // information, so stop descending rather than recursing forever.
-        if (ancestorNames.has(childLocalName)) {
-          node.children.push({
-            tagName: elem.name,
-            label: elem.name,
-            nodeType: 'element',
-            minOccurs: elem.minOccurs,
-            maxOccurs: elem.maxOccurs === 'unbounded' ? 'unbounded' : elem.maxOccurs,
-            children: [],
-            attributes: [],
-            elementType: childTypeName,
-            isRequired: elem.minOccurs > 0,
-            compositorType: elem.compositorType,
-          });
-          continue;
-        }
-
         // Resolve the concrete declaration for substitution-group members as well as
         // refs. Its inline type must take precedence over the head element's type.
         const declaredAttrs = getXmlAttrs(elem.definition);
+        const concreteDefinition = elem.definition;
         const referencedElementDef = typeof declaredAttrs.ref === 'string'
           ? compiledSchema.getElement(declaredAttrs.ref) ||
             findElementInSchema(context.rootSchema, declaredAttrs.ref)
           : undefined;
         const globalElementDef = referencedElementDef ||
-          elem.definition ||
+          concreteDefinition ||
           compiledSchema.getElement(childLocalName) ||
           findElementInSchema(context.rootSchema, elem.name);
+
+        // Keep a single concrete child for real metadata declarations, but skip
+        // synthetic repeats that are only reintroduced by the meta-schema walk.
+        if (ancestorNames.has(childLocalName)) {
+          const alreadyAdded = node.children.some((existing) => {
+            const existingName = String(existing.label || existing.tagName || '').replace(/^.*:/, '').toLowerCase();
+            return existingName === childLocalName;
+          });
+
+          if (structuralMetadataNames.has(childLocalName)) {
+            const candidateDefinition = concreteDefinition || referencedElementDef || globalElementDef;
+            const candidateSignature = JSON.stringify(getXmlAttrs(candidateDefinition));
+            const existingMatches = node.children.filter((existing) => {
+              const existingName = String(existing.label || existing.tagName || '').replace(/^.*:/, '').toLowerCase();
+              if (existingName !== childLocalName) return false;
+              const existingDefinition = existing.schemaObj;
+              const existingSignature = JSON.stringify(getXmlAttrs(existingDefinition || existing));
+              return existingSignature === candidateSignature;
+            });
+            if (alreadyAdded && existingMatches.length > 0) {
+              continue;
+            }
+            // Keep only one concrete metadata row per identical declaration. This
+            // filters synthetic repeats introduced by the XML Schema meta-schema
+            // without removing distinct declarations such as multiple xs:import
+            // entries with different schemaLocation values.
+          } else {
+            node.children.push({
+              tagName: elem.name,
+              label: elem.name,
+              nodeType: 'element',
+              minOccurs: elem.minOccurs,
+              maxOccurs: elem.maxOccurs === 'unbounded' ? 'unbounded' : elem.maxOccurs,
+              children: [],
+              attributes: [],
+              elementType: childTypeName,
+              isRequired: elem.minOccurs > 0,
+              compositorType: elem.compositorType,
+            });
+            continue;
+          }
+        }
 
         if (globalElementDef && typeof globalElementDef === 'object') {
           const globalAttrs = getXmlAttrs(globalElementDef);
@@ -1420,24 +1535,6 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
           }
         }
       }
-    } else {
-      // Fallback: If no resolved type and no inline type, try to extract children directly
-      // from the provided schema object (for inline definitions or unresolved schemas).
-      const fallbackChildren = getChildElementsFromType(context.rootSchema, context.rootSchema);
-      if (fallbackChildren.length > 0) {
-        node.children = fallbackChildren.map((elem) => ({
-          tagName: elem.name,
-          label: elem.name,
-          nodeType: 'element',
-          minOccurs: elem.minOccurs,
-          maxOccurs: elem.maxOccurs === 'unbounded' ? 'unbounded' : Number.isFinite(Number(elem.maxOccurs)) ? Number(elem.maxOccurs) : 1,
-          children: [],
-          attributes: [],
-          elementType: elem.type || undefined,
-          isRequired: elem.minOccurs > 0,
-          compositorType: (elem.compositorType as 'sequence' | 'choice' | 'all' | undefined),
-        }));
-      }
     }
 
     // Get enumerations if available
@@ -1479,10 +1576,70 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
       node.children.push(restrictionNode);
     }
 
+    const dedupeChildNodes = (children: SchemaNode[]): SchemaNode[] => {
+      const structuralMetadataNames = new Set(['schema', 'annotation', 'appinfo', 'documentation', 'import', 'include', 'redefine']);
+      const bestBySignature = new Map<string, SchemaNode>();
+      const getPriority = (child: SchemaNode): number => {
+        let priority = 0;
+        if (child.schemaObj && typeof child.schemaObj === 'object') priority += 4;
+        if (child.compositorType !== 'choice') priority += 2;
+        if (child.compositorType === 'sequence') priority += 1;
+        if ((child.label || child.tagName || '').length > 0) priority += 1;
+        if (child.path && child.path.length > 0) priority += 1;
+        return priority;
+      };
+      const chooseBetter = (current: SchemaNode, next: SchemaNode): SchemaNode => (
+        getPriority(next) > getPriority(current) ? next : current
+      );
+
+      for (const child of children) {
+        const localName = String(child.tagName || child.label || '').replace(/^.*:/, '').toLowerCase();
+        const childSchemaSignature = child.schemaObj && typeof child.schemaObj === 'object'
+          ? JSON.stringify(getXmlAttrs(child.schemaObj))
+          : JSON.stringify({
+              localName,
+              label: child.label || child.tagName || '',
+              elementType: child.elementType || '',
+              path: child.path || '',
+              compositorType: child.compositorType || '',
+            });
+
+        if (structuralMetadataNames.has(localName)) {
+          const key = `${localName}:${childSchemaSignature}`;
+          const current = bestBySignature.get(key);
+          if (!current) {
+            bestBySignature.set(key, child);
+            continue;
+          }
+          bestBySignature.set(key, chooseBetter(current, child));
+          continue;
+        }
+
+        const key = JSON.stringify({
+          localName,
+          schemaSignature: childSchemaSignature,
+        });
+        const current = bestBySignature.get(key);
+        if (!current) {
+          bestBySignature.set(key, child);
+          continue;
+        }
+        bestBySignature.set(key, chooseBetter(current, child));
+      }
+
+      return [...bestBySignature.values()];
+    };
+
+    node.children = dedupeChildNodes(node.children);
+
     context.visitedTypes.delete(activeTypeKey);
   }
 
   node.inputType = inferInputType(node);
+
+  if (cacheKey) {
+    typeNodeCache.set(cacheKey, { ...node, children: [...node.children] });
+  }
 
   return node;
 }

@@ -1,0 +1,761 @@
+[SchemaCompiler.indexTypes] Found elements in root schema: {
+  nsPrefix: 'xs',
+  elementKey: 'xs:element',
+  has_prefixed: true,
+  has_unprefixed: false,
+  elementCount: 41
+}
+[SchemaCompiler.indexTypes] Indexed element: schema with attrs: { name: 'schema', id: 'schema' }
+[SchemaCompiler] Found inlineComplexType for schema element, keys: [ 'xs:complexContent', '__childrenInOrder' ]
+[SchemaCompiler.extractElementsAndAttributes] Checking xs:sequence - found: true
+[SchemaCompiler.extractElementsAndAttributesFromGroup] Found 3 elements in choice: [
+  { name: undefined, ref: 'xs:element' },
+  { name: undefined, ref: 'xs:attribute' },
+  { name: undefined, ref: 'xs:notation' }
+]
+[SchemaCompiler.extractElementsAndAttributesFromGroup] Found 4 elements in choice: [
+  { name: undefined, ref: 'xs:simpleType' },
+  { name: undefined, ref: 'xs:complexType' },
+  { name: undefined, ref: 'xs:group' },
+  { name: undefined, ref: 'xs:attributeGroup' }
+]
+[SchemaCompiler.extractElementsAndAttributes] Checking xs:choice - found: false
+[SchemaCompiler.extractElementsAndAttributes] Checking xs:all - found: false
+[SchemaCompiler.extractElementsAndAttributes] Checking sequence - found: false
+[SchemaCompiler.extractElementsAndAttributes] Checking choice - found: false
+[SchemaCompiler.extractElementsAndAttributes] Checking all - found: false
+[SchemaCompiler] About to extract from schema__type inlineComplexType, keys: [ 'xs:complexContent', '__childrenInOrder' ]
+[SchemaCompiler.extractElementsAndAttributes] Checking xs:sequence - found: false
+[SchemaCompiler.extractElementsAndAttributes] Checking xs:choice - found: false
+[SchemaCompiler.extractElementsAndAttributes] Checking xs:all - found: false
+[SchemaCompiler.extractElementsAndAttributes] Checking sequence - found: false
+[SchemaCompiler.extractElementsAndAttributes] Checking choice - found: false
+[SchemaCompiler.extractElementsAndAttributes] Checking all - found: false
+[SchemaCompiler] Created schema__type: {
+  totalElements: 12,
+  elements: [
+    {
+      name: 'xs:include',
+      compositorType: 'choice',
+      maxOccurs: 'unbounded',
+      minOccurs: 0
+    },
+    {
+      name: 'xs:import',
+      compositorType: 'choice',
+      maxOccurs: 'unbounded',
+      minOccurs: 0
+    },
+    {
+      name: 'xs:redefine',
+      compositorType: 'choice',
+      maxOccurs: 'unbounded',
+      minOccurs: 0
+    },
+    {
+      name: 'xs:annotation',
+      compositorType: 'choice',
+      maxOccurs: 'unbounded',
+      minOccurs: 0
+    },
+    {
+      name: 'xs:annotation',
+      compositorType: 'sequence',
+      maxOccurs: 'unbounded',
+      minOccurs: 0
+    },
+    {
+      name: 'xs:element',
+      compositorType: 'choice',
+      maxOccurs: 'unbounded',
+      minOccurs: 0
+    },
+    {
+      name: 'xs:attribute',
+      compositorType: 'choice',
+      maxOccurs: 'unbounded',
+      minOccurs: 0
+    },
+    {
+      name: 'xs:notation',
+      compositorType: 'choice',
+      maxOccurs: 'unbounded',
+      minOccurs: 0
+    },
+    {
+      name: 'xs:simpleType',
+      compositorType: 'choice',
+      maxOccurs: 'unbounded',
+      minOccurs: 0
+    },
+    {
+      name: 'xs:complexType',
+      compositorType: 'choice',
+      maxOccurs: 'unbounded',
+      minOccurs: 0
+    },
+    {
+      name: 'xs:group',
+      compositorType: 'choice',
+      maxOccurs: 'unbounded',
+      minOccurs: 0
+    },
+    {
+      name: 'xs:attributeGroup',
+      compositorType: 'choice',
+      maxOccurs: 'unbounded',
+      minOccurs: 0
+    }
+  ],
+  typeCompositorType: 'sequence'
+}
+[SchemaCompiler.compile] After indexing, elementMap keys: [
+  'schema',         'anyAttribute',
+  'complexContent', 'simpleContent',
+  'complexType',    'element',
+  'all',            'choice',
+  'sequence',       'group',
+  'any',            'attribute',
+  'attributeGroup', 'include',
+  'redefine',       'import',
+  'selector',       'field',
+  'unique',         'key'
+]
+[CompiledSchema.getElement] called with: xs:include elementMap size: 41
+[CompiledSchema.getElement] called with: schema elementMap size: 41
+[CompiledSchema.getElement] called with: anyAttribute elementMap size: 41
+[CompiledSchema.getElement] called with: complexContent elementMap size: 41
+[CompiledSchema.getElement] called with: simpleContent elementMap size: 41
+[CompiledSchema.getElement] called with: complexType elementMap size: 41
+[CompiledSchema.getElement] called with: element elementMap size: 41
+[CompiledSchema.getElement] called with: all elementMap size: 41
+[CompiledSchema.getElement] called with: choice elementMap size: 41
+[CompiledSchema.getElement] called with: sequence elementMap size: 41
+[CompiledSchema.getElement] called with: group elementMap size: 41
+[CompiledSchema.getElement] called with: any elementMap size: 41
+[CompiledSchema.getElement] called with: attribute elementMap size: 41
+[CompiledSchema.getElement] called with: attributeGroup elementMap size: 41
+[CompiledSchema.getElement] called with: include elementMap size: 41
+[CompiledSchema.getElement] called with: redefine elementMap size: 41
+[CompiledSchema.getElement] called with: import elementMap size: 41
+[CompiledSchema.getElement] called with: selector elementMap size: 41
+[CompiledSchema.getElement] called with: field elementMap size: 41
+[CompiledSchema.getElement] called with: unique elementMap size: 41
+[CompiledSchema.getElement] called with: key elementMap size: 41
+[CompiledSchema.getElement] called with: keyref elementMap size: 41
+[CompiledSchema.getElement] called with: notation elementMap size: 41
+[CompiledSchema.getElement] called with: appinfo elementMap size: 41
+[CompiledSchema.getElement] called with: documentation elementMap size: 41
+[CompiledSchema.getElement] called with: annotation elementMap size: 41
+[CompiledSchema.getElement] called with: simpleType elementMap size: 41
+[CompiledSchema.getElement] called with: restriction elementMap size: 41
+[CompiledSchema.getElement] called with: list elementMap size: 41
+[CompiledSchema.getElement] called with: union elementMap size: 41
+[CompiledSchema.getElement] called with: minExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: minInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: totalDigits elementMap size: 41
+[CompiledSchema.getElement] called with: fractionDigits elementMap size: 41
+[CompiledSchema.getElement] called with: length elementMap size: 41
+[CompiledSchema.getElement] called with: minLength elementMap size: 41
+[CompiledSchema.getElement] called with: maxLength elementMap size: 41
+[CompiledSchema.getElement] called with: enumeration elementMap size: 41
+[CompiledSchema.getElement] called with: whiteSpace elementMap size: 41
+[CompiledSchema.getElement] called with: pattern elementMap size: 41
+[CompiledSchema.getElement] called with: xs:import elementMap size: 41
+[CompiledSchema.getElement] called with: schema elementMap size: 41
+[CompiledSchema.getElement] called with: anyAttribute elementMap size: 41
+[CompiledSchema.getElement] called with: complexContent elementMap size: 41
+[CompiledSchema.getElement] called with: simpleContent elementMap size: 41
+[CompiledSchema.getElement] called with: complexType elementMap size: 41
+[CompiledSchema.getElement] called with: element elementMap size: 41
+[CompiledSchema.getElement] called with: all elementMap size: 41
+[CompiledSchema.getElement] called with: choice elementMap size: 41
+[CompiledSchema.getElement] called with: sequence elementMap size: 41
+[CompiledSchema.getElement] called with: group elementMap size: 41
+[CompiledSchema.getElement] called with: any elementMap size: 41
+[CompiledSchema.getElement] called with: attribute elementMap size: 41
+[CompiledSchema.getElement] called with: attributeGroup elementMap size: 41
+[CompiledSchema.getElement] called with: include elementMap size: 41
+[CompiledSchema.getElement] called with: redefine elementMap size: 41
+[CompiledSchema.getElement] called with: import elementMap size: 41
+[CompiledSchema.getElement] called with: selector elementMap size: 41
+[CompiledSchema.getElement] called with: field elementMap size: 41
+[CompiledSchema.getElement] called with: unique elementMap size: 41
+[CompiledSchema.getElement] called with: key elementMap size: 41
+[CompiledSchema.getElement] called with: keyref elementMap size: 41
+[CompiledSchema.getElement] called with: notation elementMap size: 41
+[CompiledSchema.getElement] called with: appinfo elementMap size: 41
+[CompiledSchema.getElement] called with: documentation elementMap size: 41
+[CompiledSchema.getElement] called with: annotation elementMap size: 41
+[CompiledSchema.getElement] called with: simpleType elementMap size: 41
+[CompiledSchema.getElement] called with: restriction elementMap size: 41
+[CompiledSchema.getElement] called with: list elementMap size: 41
+[CompiledSchema.getElement] called with: union elementMap size: 41
+[CompiledSchema.getElement] called with: minExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: minInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: totalDigits elementMap size: 41
+[CompiledSchema.getElement] called with: fractionDigits elementMap size: 41
+[CompiledSchema.getElement] called with: length elementMap size: 41
+[CompiledSchema.getElement] called with: minLength elementMap size: 41
+[CompiledSchema.getElement] called with: maxLength elementMap size: 41
+[CompiledSchema.getElement] called with: enumeration elementMap size: 41
+[CompiledSchema.getElement] called with: whiteSpace elementMap size: 41
+[CompiledSchema.getElement] called with: pattern elementMap size: 41
+[CompiledSchema.getElement] called with: xs:redefine elementMap size: 41
+[CompiledSchema.getElement] called with: schema elementMap size: 41
+[CompiledSchema.getElement] called with: anyAttribute elementMap size: 41
+[CompiledSchema.getElement] called with: complexContent elementMap size: 41
+[CompiledSchema.getElement] called with: simpleContent elementMap size: 41
+[CompiledSchema.getElement] called with: complexType elementMap size: 41
+[CompiledSchema.getElement] called with: element elementMap size: 41
+[CompiledSchema.getElement] called with: all elementMap size: 41
+[CompiledSchema.getElement] called with: choice elementMap size: 41
+[CompiledSchema.getElement] called with: sequence elementMap size: 41
+[CompiledSchema.getElement] called with: group elementMap size: 41
+[CompiledSchema.getElement] called with: any elementMap size: 41
+[CompiledSchema.getElement] called with: attribute elementMap size: 41
+[CompiledSchema.getElement] called with: attributeGroup elementMap size: 41
+[CompiledSchema.getElement] called with: include elementMap size: 41
+[CompiledSchema.getElement] called with: redefine elementMap size: 41
+[CompiledSchema.getElement] called with: import elementMap size: 41
+[CompiledSchema.getElement] called with: selector elementMap size: 41
+[CompiledSchema.getElement] called with: field elementMap size: 41
+[CompiledSchema.getElement] called with: unique elementMap size: 41
+[CompiledSchema.getElement] called with: key elementMap size: 41
+[CompiledSchema.getElement] called with: keyref elementMap size: 41
+[CompiledSchema.getElement] called with: notation elementMap size: 41
+[CompiledSchema.getElement] called with: appinfo elementMap size: 41
+[CompiledSchema.getElement] called with: documentation elementMap size: 41
+[CompiledSchema.getElement] called with: annotation elementMap size: 41
+[CompiledSchema.getElement] called with: simpleType elementMap size: 41
+[CompiledSchema.getElement] called with: restriction elementMap size: 41
+[CompiledSchema.getElement] called with: list elementMap size: 41
+[CompiledSchema.getElement] called with: union elementMap size: 41
+[CompiledSchema.getElement] called with: minExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: minInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: totalDigits elementMap size: 41
+[CompiledSchema.getElement] called with: fractionDigits elementMap size: 41
+[CompiledSchema.getElement] called with: length elementMap size: 41
+[CompiledSchema.getElement] called with: minLength elementMap size: 41
+[CompiledSchema.getElement] called with: maxLength elementMap size: 41
+[CompiledSchema.getElement] called with: enumeration elementMap size: 41
+[CompiledSchema.getElement] called with: whiteSpace elementMap size: 41
+[CompiledSchema.getElement] called with: pattern elementMap size: 41
+[CompiledSchema.getElement] called with: xs:annotation elementMap size: 41
+[CompiledSchema.getElement] called with: schema elementMap size: 41
+[CompiledSchema.getElement] called with: anyAttribute elementMap size: 41
+[CompiledSchema.getElement] called with: complexContent elementMap size: 41
+[CompiledSchema.getElement] called with: simpleContent elementMap size: 41
+[CompiledSchema.getElement] called with: complexType elementMap size: 41
+[CompiledSchema.getElement] called with: element elementMap size: 41
+[CompiledSchema.getElement] called with: all elementMap size: 41
+[CompiledSchema.getElement] called with: choice elementMap size: 41
+[CompiledSchema.getElement] called with: sequence elementMap size: 41
+[CompiledSchema.getElement] called with: group elementMap size: 41
+[CompiledSchema.getElement] called with: any elementMap size: 41
+[CompiledSchema.getElement] called with: attribute elementMap size: 41
+[CompiledSchema.getElement] called with: attributeGroup elementMap size: 41
+[CompiledSchema.getElement] called with: include elementMap size: 41
+[CompiledSchema.getElement] called with: redefine elementMap size: 41
+[CompiledSchema.getElement] called with: import elementMap size: 41
+[CompiledSchema.getElement] called with: selector elementMap size: 41
+[CompiledSchema.getElement] called with: field elementMap size: 41
+[CompiledSchema.getElement] called with: unique elementMap size: 41
+[CompiledSchema.getElement] called with: key elementMap size: 41
+[CompiledSchema.getElement] called with: keyref elementMap size: 41
+[CompiledSchema.getElement] called with: notation elementMap size: 41
+[CompiledSchema.getElement] called with: appinfo elementMap size: 41
+[CompiledSchema.getElement] called with: documentation elementMap size: 41
+[CompiledSchema.getElement] called with: annotation elementMap size: 41
+[CompiledSchema.getElement] called with: simpleType elementMap size: 41
+[CompiledSchema.getElement] called with: restriction elementMap size: 41
+[CompiledSchema.getElement] called with: list elementMap size: 41
+[CompiledSchema.getElement] called with: union elementMap size: 41
+[CompiledSchema.getElement] called with: minExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: minInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: totalDigits elementMap size: 41
+[CompiledSchema.getElement] called with: fractionDigits elementMap size: 41
+[CompiledSchema.getElement] called with: length elementMap size: 41
+[CompiledSchema.getElement] called with: minLength elementMap size: 41
+[CompiledSchema.getElement] called with: maxLength elementMap size: 41
+[CompiledSchema.getElement] called with: enumeration elementMap size: 41
+[CompiledSchema.getElement] called with: whiteSpace elementMap size: 41
+[CompiledSchema.getElement] called with: pattern elementMap size: 41
+[CompiledSchema.getElement] called with: xs:annotation elementMap size: 41
+[CompiledSchema.getElement] called with: schema elementMap size: 41
+[CompiledSchema.getElement] called with: anyAttribute elementMap size: 41
+[CompiledSchema.getElement] called with: complexContent elementMap size: 41
+[CompiledSchema.getElement] called with: simpleContent elementMap size: 41
+[CompiledSchema.getElement] called with: complexType elementMap size: 41
+[CompiledSchema.getElement] called with: element elementMap size: 41
+[CompiledSchema.getElement] called with: all elementMap size: 41
+[CompiledSchema.getElement] called with: choice elementMap size: 41
+[CompiledSchema.getElement] called with: sequence elementMap size: 41
+[CompiledSchema.getElement] called with: group elementMap size: 41
+[CompiledSchema.getElement] called with: any elementMap size: 41
+[CompiledSchema.getElement] called with: attribute elementMap size: 41
+[CompiledSchema.getElement] called with: attributeGroup elementMap size: 41
+[CompiledSchema.getElement] called with: include elementMap size: 41
+[CompiledSchema.getElement] called with: redefine elementMap size: 41
+[CompiledSchema.getElement] called with: import elementMap size: 41
+[CompiledSchema.getElement] called with: selector elementMap size: 41
+[CompiledSchema.getElement] called with: field elementMap size: 41
+[CompiledSchema.getElement] called with: unique elementMap size: 41
+[CompiledSchema.getElement] called with: key elementMap size: 41
+[CompiledSchema.getElement] called with: keyref elementMap size: 41
+[CompiledSchema.getElement] called with: notation elementMap size: 41
+[CompiledSchema.getElement] called with: appinfo elementMap size: 41
+[CompiledSchema.getElement] called with: documentation elementMap size: 41
+[CompiledSchema.getElement] called with: annotation elementMap size: 41
+[CompiledSchema.getElement] called with: simpleType elementMap size: 41
+[CompiledSchema.getElement] called with: restriction elementMap size: 41
+[CompiledSchema.getElement] called with: list elementMap size: 41
+[CompiledSchema.getElement] called with: union elementMap size: 41
+[CompiledSchema.getElement] called with: minExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: minInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: totalDigits elementMap size: 41
+[CompiledSchema.getElement] called with: fractionDigits elementMap size: 41
+[CompiledSchema.getElement] called with: length elementMap size: 41
+[CompiledSchema.getElement] called with: minLength elementMap size: 41
+[CompiledSchema.getElement] called with: maxLength elementMap size: 41
+[CompiledSchema.getElement] called with: enumeration elementMap size: 41
+[CompiledSchema.getElement] called with: whiteSpace elementMap size: 41
+[CompiledSchema.getElement] called with: pattern elementMap size: 41
+[CompiledSchema.getElement] called with: xs:element elementMap size: 41
+[CompiledSchema.getElement] called with: schema elementMap size: 41
+[CompiledSchema.getElement] called with: anyAttribute elementMap size: 41
+[CompiledSchema.getElement] called with: complexContent elementMap size: 41
+[CompiledSchema.getElement] called with: simpleContent elementMap size: 41
+[CompiledSchema.getElement] called with: complexType elementMap size: 41
+[CompiledSchema.getElement] called with: element elementMap size: 41
+[CompiledSchema.getElement] called with: all elementMap size: 41
+[CompiledSchema.getElement] called with: choice elementMap size: 41
+[CompiledSchema.getElement] called with: sequence elementMap size: 41
+[CompiledSchema.getElement] called with: group elementMap size: 41
+[CompiledSchema.getElement] called with: any elementMap size: 41
+[CompiledSchema.getElement] called with: attribute elementMap size: 41
+[CompiledSchema.getElement] called with: attributeGroup elementMap size: 41
+[CompiledSchema.getElement] called with: include elementMap size: 41
+[CompiledSchema.getElement] called with: redefine elementMap size: 41
+[CompiledSchema.getElement] called with: import elementMap size: 41
+[CompiledSchema.getElement] called with: selector elementMap size: 41
+[CompiledSchema.getElement] called with: field elementMap size: 41
+[CompiledSchema.getElement] called with: unique elementMap size: 41
+[CompiledSchema.getElement] called with: key elementMap size: 41
+[CompiledSchema.getElement] called with: keyref elementMap size: 41
+[CompiledSchema.getElement] called with: notation elementMap size: 41
+[CompiledSchema.getElement] called with: appinfo elementMap size: 41
+[CompiledSchema.getElement] called with: documentation elementMap size: 41
+[CompiledSchema.getElement] called with: annotation elementMap size: 41
+[CompiledSchema.getElement] called with: simpleType elementMap size: 41
+[CompiledSchema.getElement] called with: restriction elementMap size: 41
+[CompiledSchema.getElement] called with: list elementMap size: 41
+[CompiledSchema.getElement] called with: union elementMap size: 41
+[CompiledSchema.getElement] called with: minExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: minInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: totalDigits elementMap size: 41
+[CompiledSchema.getElement] called with: fractionDigits elementMap size: 41
+[CompiledSchema.getElement] called with: length elementMap size: 41
+[CompiledSchema.getElement] called with: minLength elementMap size: 41
+[CompiledSchema.getElement] called with: maxLength elementMap size: 41
+[CompiledSchema.getElement] called with: enumeration elementMap size: 41
+[CompiledSchema.getElement] called with: whiteSpace elementMap size: 41
+[CompiledSchema.getElement] called with: pattern elementMap size: 41
+[CompiledSchema.getElement] called with: xs:attribute elementMap size: 41
+[CompiledSchema.getElement] called with: schema elementMap size: 41
+[CompiledSchema.getElement] called with: anyAttribute elementMap size: 41
+[CompiledSchema.getElement] called with: complexContent elementMap size: 41
+[CompiledSchema.getElement] called with: simpleContent elementMap size: 41
+[CompiledSchema.getElement] called with: complexType elementMap size: 41
+[CompiledSchema.getElement] called with: element elementMap size: 41
+[CompiledSchema.getElement] called with: all elementMap size: 41
+[CompiledSchema.getElement] called with: choice elementMap size: 41
+[CompiledSchema.getElement] called with: sequence elementMap size: 41
+[CompiledSchema.getElement] called with: group elementMap size: 41
+[CompiledSchema.getElement] called with: any elementMap size: 41
+[CompiledSchema.getElement] called with: attribute elementMap size: 41
+[CompiledSchema.getElement] called with: attributeGroup elementMap size: 41
+[CompiledSchema.getElement] called with: include elementMap size: 41
+[CompiledSchema.getElement] called with: redefine elementMap size: 41
+[CompiledSchema.getElement] called with: import elementMap size: 41
+[CompiledSchema.getElement] called with: selector elementMap size: 41
+[CompiledSchema.getElement] called with: field elementMap size: 41
+[CompiledSchema.getElement] called with: unique elementMap size: 41
+[CompiledSchema.getElement] called with: key elementMap size: 41
+[CompiledSchema.getElement] called with: keyref elementMap size: 41
+[CompiledSchema.getElement] called with: notation elementMap size: 41
+[CompiledSchema.getElement] called with: appinfo elementMap size: 41
+[CompiledSchema.getElement] called with: documentation elementMap size: 41
+[CompiledSchema.getElement] called with: annotation elementMap size: 41
+[CompiledSchema.getElement] called with: simpleType elementMap size: 41
+[CompiledSchema.getElement] called with: restriction elementMap size: 41
+[CompiledSchema.getElement] called with: list elementMap size: 41
+[CompiledSchema.getElement] called with: union elementMap size: 41
+[CompiledSchema.getElement] called with: minExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: minInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: totalDigits elementMap size: 41
+[CompiledSchema.getElement] called with: fractionDigits elementMap size: 41
+[CompiledSchema.getElement] called with: length elementMap size: 41
+[CompiledSchema.getElement] called with: minLength elementMap size: 41
+[CompiledSchema.getElement] called with: maxLength elementMap size: 41
+[CompiledSchema.getElement] called with: enumeration elementMap size: 41
+[CompiledSchema.getElement] called with: whiteSpace elementMap size: 41
+[CompiledSchema.getElement] called with: pattern elementMap size: 41
+[CompiledSchema.getElement] called with: xs:notation elementMap size: 41
+[CompiledSchema.getElement] called with: schema elementMap size: 41
+[CompiledSchema.getElement] called with: anyAttribute elementMap size: 41
+[CompiledSchema.getElement] called with: complexContent elementMap size: 41
+[CompiledSchema.getElement] called with: simpleContent elementMap size: 41
+[CompiledSchema.getElement] called with: complexType elementMap size: 41
+[CompiledSchema.getElement] called with: element elementMap size: 41
+[CompiledSchema.getElement] called with: all elementMap size: 41
+[CompiledSchema.getElement] called with: choice elementMap size: 41
+[CompiledSchema.getElement] called with: sequence elementMap size: 41
+[CompiledSchema.getElement] called with: group elementMap size: 41
+[CompiledSchema.getElement] called with: any elementMap size: 41
+[CompiledSchema.getElement] called with: attribute elementMap size: 41
+[CompiledSchema.getElement] called with: attributeGroup elementMap size: 41
+[CompiledSchema.getElement] called with: include elementMap size: 41
+[CompiledSchema.getElement] called with: redefine elementMap size: 41
+[CompiledSchema.getElement] called with: import elementMap size: 41
+[CompiledSchema.getElement] called with: selector elementMap size: 41
+[CompiledSchema.getElement] called with: field elementMap size: 41
+[CompiledSchema.getElement] called with: unique elementMap size: 41
+[CompiledSchema.getElement] called with: key elementMap size: 41
+[CompiledSchema.getElement] called with: keyref elementMap size: 41
+[CompiledSchema.getElement] called with: notation elementMap size: 41
+[CompiledSchema.getElement] called with: appinfo elementMap size: 41
+[CompiledSchema.getElement] called with: documentation elementMap size: 41
+[CompiledSchema.getElement] called with: annotation elementMap size: 41
+[CompiledSchema.getElement] called with: simpleType elementMap size: 41
+[CompiledSchema.getElement] called with: restriction elementMap size: 41
+[CompiledSchema.getElement] called with: list elementMap size: 41
+[CompiledSchema.getElement] called with: union elementMap size: 41
+[CompiledSchema.getElement] called with: minExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: minInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: totalDigits elementMap size: 41
+[CompiledSchema.getElement] called with: fractionDigits elementMap size: 41
+[CompiledSchema.getElement] called with: length elementMap size: 41
+[CompiledSchema.getElement] called with: minLength elementMap size: 41
+[CompiledSchema.getElement] called with: maxLength elementMap size: 41
+[CompiledSchema.getElement] called with: enumeration elementMap size: 41
+[CompiledSchema.getElement] called with: whiteSpace elementMap size: 41
+[CompiledSchema.getElement] called with: pattern elementMap size: 41
+[CompiledSchema.getElement] called with: xs:simpleType elementMap size: 41
+[CompiledSchema.getElement] called with: schema elementMap size: 41
+[CompiledSchema.getElement] called with: anyAttribute elementMap size: 41
+[CompiledSchema.getElement] called with: complexContent elementMap size: 41
+[CompiledSchema.getElement] called with: simpleContent elementMap size: 41
+[CompiledSchema.getElement] called with: complexType elementMap size: 41
+[CompiledSchema.getElement] called with: element elementMap size: 41
+[CompiledSchema.getElement] called with: all elementMap size: 41
+[CompiledSchema.getElement] called with: choice elementMap size: 41
+[CompiledSchema.getElement] called with: sequence elementMap size: 41
+[CompiledSchema.getElement] called with: group elementMap size: 41
+[CompiledSchema.getElement] called with: any elementMap size: 41
+[CompiledSchema.getElement] called with: attribute elementMap size: 41
+[CompiledSchema.getElement] called with: attributeGroup elementMap size: 41
+[CompiledSchema.getElement] called with: include elementMap size: 41
+[CompiledSchema.getElement] called with: redefine elementMap size: 41
+[CompiledSchema.getElement] called with: import elementMap size: 41
+[CompiledSchema.getElement] called with: selector elementMap size: 41
+[CompiledSchema.getElement] called with: field elementMap size: 41
+[CompiledSchema.getElement] called with: unique elementMap size: 41
+[CompiledSchema.getElement] called with: key elementMap size: 41
+[CompiledSchema.getElement] called with: keyref elementMap size: 41
+[CompiledSchema.getElement] called with: notation elementMap size: 41
+[CompiledSchema.getElement] called with: appinfo elementMap size: 41
+[CompiledSchema.getElement] called with: documentation elementMap size: 41
+[CompiledSchema.getElement] called with: annotation elementMap size: 41
+[CompiledSchema.getElement] called with: simpleType elementMap size: 41
+[CompiledSchema.getElement] called with: restriction elementMap size: 41
+[CompiledSchema.getElement] called with: list elementMap size: 41
+[CompiledSchema.getElement] called with: union elementMap size: 41
+[CompiledSchema.getElement] called with: minExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: minInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: totalDigits elementMap size: 41
+[CompiledSchema.getElement] called with: fractionDigits elementMap size: 41
+[CompiledSchema.getElement] called with: length elementMap size: 41
+[CompiledSchema.getElement] called with: minLength elementMap size: 41
+[CompiledSchema.getElement] called with: maxLength elementMap size: 41
+[CompiledSchema.getElement] called with: enumeration elementMap size: 41
+[CompiledSchema.getElement] called with: whiteSpace elementMap size: 41
+[CompiledSchema.getElement] called with: pattern elementMap size: 41
+[CompiledSchema.getElement] called with: xs:complexType elementMap size: 41
+[CompiledSchema.getElement] called with: schema elementMap size: 41
+[CompiledSchema.getElement] called with: anyAttribute elementMap size: 41
+[CompiledSchema.getElement] called with: complexContent elementMap size: 41
+[CompiledSchema.getElement] called with: simpleContent elementMap size: 41
+[CompiledSchema.getElement] called with: complexType elementMap size: 41
+[CompiledSchema.getElement] called with: element elementMap size: 41
+[CompiledSchema.getElement] called with: all elementMap size: 41
+[CompiledSchema.getElement] called with: choice elementMap size: 41
+[CompiledSchema.getElement] called with: sequence elementMap size: 41
+[CompiledSchema.getElement] called with: group elementMap size: 41
+[CompiledSchema.getElement] called with: any elementMap size: 41
+[CompiledSchema.getElement] called with: attribute elementMap size: 41
+[CompiledSchema.getElement] called with: attributeGroup elementMap size: 41
+[CompiledSchema.getElement] called with: include elementMap size: 41
+[CompiledSchema.getElement] called with: redefine elementMap size: 41
+[CompiledSchema.getElement] called with: import elementMap size: 41
+[CompiledSchema.getElement] called with: selector elementMap size: 41
+[CompiledSchema.getElement] called with: field elementMap size: 41
+[CompiledSchema.getElement] called with: unique elementMap size: 41
+[CompiledSchema.getElement] called with: key elementMap size: 41
+[CompiledSchema.getElement] called with: keyref elementMap size: 41
+[CompiledSchema.getElement] called with: notation elementMap size: 41
+[CompiledSchema.getElement] called with: appinfo elementMap size: 41
+[CompiledSchema.getElement] called with: documentation elementMap size: 41
+[CompiledSchema.getElement] called with: annotation elementMap size: 41
+[CompiledSchema.getElement] called with: simpleType elementMap size: 41
+[CompiledSchema.getElement] called with: restriction elementMap size: 41
+[CompiledSchema.getElement] called with: list elementMap size: 41
+[CompiledSchema.getElement] called with: union elementMap size: 41
+[CompiledSchema.getElement] called with: minExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: minInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: totalDigits elementMap size: 41
+[CompiledSchema.getElement] called with: fractionDigits elementMap size: 41
+[CompiledSchema.getElement] called with: length elementMap size: 41
+[CompiledSchema.getElement] called with: minLength elementMap size: 41
+[CompiledSchema.getElement] called with: maxLength elementMap size: 41
+[CompiledSchema.getElement] called with: enumeration elementMap size: 41
+[CompiledSchema.getElement] called with: whiteSpace elementMap size: 41
+[CompiledSchema.getElement] called with: pattern elementMap size: 41
+[CompiledSchema.getElement] called with: xs:group elementMap size: 41
+[CompiledSchema.getElement] called with: schema elementMap size: 41
+[CompiledSchema.getElement] called with: anyAttribute elementMap size: 41
+[CompiledSchema.getElement] called with: complexContent elementMap size: 41
+[CompiledSchema.getElement] called with: simpleContent elementMap size: 41
+[CompiledSchema.getElement] called with: complexType elementMap size: 41
+[CompiledSchema.getElement] called with: element elementMap size: 41
+[CompiledSchema.getElement] called with: all elementMap size: 41
+[CompiledSchema.getElement] called with: choice elementMap size: 41
+[CompiledSchema.getElement] called with: sequence elementMap size: 41
+[CompiledSchema.getElement] called with: group elementMap size: 41
+[CompiledSchema.getElement] called with: any elementMap size: 41
+[CompiledSchema.getElement] called with: attribute elementMap size: 41
+[CompiledSchema.getElement] called with: attributeGroup elementMap size: 41
+[CompiledSchema.getElement] called with: include elementMap size: 41
+[CompiledSchema.getElement] called with: redefine elementMap size: 41
+[CompiledSchema.getElement] called with: import elementMap size: 41
+[CompiledSchema.getElement] called with: selector elementMap size: 41
+[CompiledSchema.getElement] called with: field elementMap size: 41
+[CompiledSchema.getElement] called with: unique elementMap size: 41
+[CompiledSchema.getElement] called with: key elementMap size: 41
+[CompiledSchema.getElement] called with: keyref elementMap size: 41
+[CompiledSchema.getElement] called with: notation elementMap size: 41
+[CompiledSchema.getElement] called with: appinfo elementMap size: 41
+[CompiledSchema.getElement] called with: documentation elementMap size: 41
+[CompiledSchema.getElement] called with: annotation elementMap size: 41
+[CompiledSchema.getElement] called with: simpleType elementMap size: 41
+[CompiledSchema.getElement] called with: restriction elementMap size: 41
+[CompiledSchema.getElement] called with: list elementMap size: 41
+[CompiledSchema.getElement] called with: union elementMap size: 41
+[CompiledSchema.getElement] called with: minExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: minInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: totalDigits elementMap size: 41
+[CompiledSchema.getElement] called with: fractionDigits elementMap size: 41
+[CompiledSchema.getElement] called with: length elementMap size: 41
+[CompiledSchema.getElement] called with: minLength elementMap size: 41
+[CompiledSchema.getElement] called with: maxLength elementMap size: 41
+[CompiledSchema.getElement] called with: enumeration elementMap size: 41
+[CompiledSchema.getElement] called with: whiteSpace elementMap size: 41
+[CompiledSchema.getElement] called with: pattern elementMap size: 41
+[CompiledSchema.getElement] called with: xs:attributeGroup elementMap size: 41
+[CompiledSchema.getElement] called with: schema elementMap size: 41
+[CompiledSchema.getElement] called with: anyAttribute elementMap size: 41
+[CompiledSchema.getElement] called with: complexContent elementMap size: 41
+[CompiledSchema.getElement] called with: simpleContent elementMap size: 41
+[CompiledSchema.getElement] called with: complexType elementMap size: 41
+[CompiledSchema.getElement] called with: element elementMap size: 41
+[CompiledSchema.getElement] called with: all elementMap size: 41
+[CompiledSchema.getElement] called with: choice elementMap size: 41
+[CompiledSchema.getElement] called with: sequence elementMap size: 41
+[CompiledSchema.getElement] called with: group elementMap size: 41
+[CompiledSchema.getElement] called with: any elementMap size: 41
+[CompiledSchema.getElement] called with: attribute elementMap size: 41
+[CompiledSchema.getElement] called with: attributeGroup elementMap size: 41
+[CompiledSchema.getElement] called with: include elementMap size: 41
+[CompiledSchema.getElement] called with: redefine elementMap size: 41
+[CompiledSchema.getElement] called with: import elementMap size: 41
+[CompiledSchema.getElement] called with: selector elementMap size: 41
+[CompiledSchema.getElement] called with: field elementMap size: 41
+[CompiledSchema.getElement] called with: unique elementMap size: 41
+[CompiledSchema.getElement] called with: key elementMap size: 41
+[CompiledSchema.getElement] called with: keyref elementMap size: 41
+[CompiledSchema.getElement] called with: notation elementMap size: 41
+[CompiledSchema.getElement] called with: appinfo elementMap size: 41
+[CompiledSchema.getElement] called with: documentation elementMap size: 41
+[CompiledSchema.getElement] called with: annotation elementMap size: 41
+[CompiledSchema.getElement] called with: simpleType elementMap size: 41
+[CompiledSchema.getElement] called with: restriction elementMap size: 41
+[CompiledSchema.getElement] called with: list elementMap size: 41
+[CompiledSchema.getElement] called with: union elementMap size: 41
+[CompiledSchema.getElement] called with: minExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: minInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxExclusive elementMap size: 41
+[CompiledSchema.getElement] called with: maxInclusive elementMap size: 41
+[CompiledSchema.getElement] called with: totalDigits elementMap size: 41
+[CompiledSchema.getElement] called with: fractionDigits elementMap size: 41
+[CompiledSchema.getElement] called with: length elementMap size: 41
+[CompiledSchema.getElement] called with: minLength elementMap size: 41
+[CompiledSchema.getElement] called with: maxLength elementMap size: 41
+[CompiledSchema.getElement] called with: enumeration elementMap size: 41
+[CompiledSchema.getElement] called with: whiteSpace elementMap size: 41
+[CompiledSchema.getElement] called with: pattern elementMap size: 41
+[schema-walker] Processing element "xs:include" with compositorType='choice'
+[schema-walker] Set childNode.compositorType='choice' for "xs:include"
+[schema-walker] Processing element "xs:import" with compositorType='choice'
+[schema-walker] Set childNode.compositorType='choice' for "xs:import"
+[schema-walker] Processing element "xs:redefine" with compositorType='choice'
+[schema-walker] Set childNode.compositorType='choice' for "xs:redefine"
+[schema-walker] Processing element "xs:annotation" with compositorType='choice'
+[schema-walker] Set childNode.compositorType='choice' for "xs:annotation"
+[schema-walker] Processing element "xs:element" with compositorType='choice'
+[schema-walker] Set childNode.compositorType='choice' for "xs:element"
+[schema-walker] Processing element "xs:attribute" with compositorType='choice'
+[schema-walker] Set childNode.compositorType='choice' for "xs:attribute"
+[schema-walker] Processing element "xs:notation" with compositorType='choice'
+[schema-walker] Set childNode.compositorType='choice' for "xs:notation"
+[schema-walker] Processing element "xs:simpleType" with compositorType='choice'
+[schema-walker] Set childNode.compositorType='choice' for "xs:simpleType"
+[schema-walker] Processing element "xs:complexType" with compositorType='choice'
+[schema-walker] Set childNode.compositorType='choice' for "xs:complexType"
+[schema-walker] Processing element "xs:group" with compositorType='choice'
+[schema-walker] Set childNode.compositorType='choice' for "xs:group"
+[schema-walker] Processing element "xs:attributeGroup" with compositorType='choice'
+[schema-walker] Set childNode.compositorType='choice' for "xs:attributeGroup"
+[
+  {
+    "label": "xs:include",
+    "tag": "xs:include",
+    "schema": {
+      "name": "include",
+      "id": "include"
+    },
+    "compositor": "choice"
+  },
+  {
+    "label": "xs:import",
+    "tag": "xs:import",
+    "schema": {
+      "name": "import",
+      "id": "import"
+    },
+    "compositor": "choice"
+  },
+  {
+    "label": "xs:redefine",
+    "tag": "xs:redefine",
+    "schema": {
+      "name": "redefine",
+      "id": "redefine"
+    },
+    "compositor": "choice"
+  },
+  {
+    "label": "xs:annotation",
+    "tag": "xs:annotation",
+    "schema": {
+      "name": "annotation",
+      "id": "annotation"
+    },
+    "compositor": "sequence"
+  },
+  {
+    "label": "xs:element",
+    "tag": "xs:element",
+    "schema": {
+      "name": "element",
+      "type": "xs:topLevelElement",
+      "id": "element"
+    },
+    "compositor": "choice"
+  },
+  {
+    "label": "xs:attribute",
+    "tag": "xs:attribute",
+    "schema": {
+      "name": "attribute",
+      "type": "xs:topLevelAttribute",
+      "id": "attribute"
+    },
+    "compositor": "choice"
+  },
+  {
+    "label": "xs:notation",
+    "tag": "xs:notation",
+    "schema": {
+      "name": "notation",
+      "id": "notation"
+    },
+    "compositor": "choice"
+  },
+  {
+    "label": "xs:simpleType",
+    "tag": "xs:simpleType",
+    "schema": {
+      "name": "simpleType",
+      "type": "xs:topLevelSimpleType",
+      "id": "simpleType"
+    },
+    "compositor": "choice"
+  },
+  {
+    "label": "xs:complexType",
+    "tag": "xs:complexType",
+    "schema": {
+      "name": "complexType",
+      "type": "xs:topLevelComplexType",
+      "id": "complexType"
+    },
+    "compositor": "choice"
+  },
+  {
+    "label": "xs:group",
+    "tag": "xs:group",
+    "schema": {
+      "name": "group",
+      "type": "xs:namedGroup",
+      "id": "group"
+    },
+    "compositor": "choice"
+  },
+  {
+    "label": "xs:attributeGroup",
+    "tag": "xs:attributeGroup",
+    "schema": {
+      "name": "attributeGroup",
+      "type": "xs:namedAttributeGroup",
+      "id": "attributeGroup"
+    },
+    "compositor": "choice"
+  },
+  {
+    "label": "xs:restriction",
+    "tag": "xs:restriction",
+    "schema": null
+  }
+]

@@ -1,0 +1,372 @@
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719594:      at log (app/utils/schema-walker.ts:710:11)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719595:          at Array.map (<anonymous>)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719596:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719597:  console.log
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719598:    [getTypeEnumerations] typeName="xs:string", result=[]
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719599:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719600:      at log (app/utils/schema-walker.ts:710:11)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719601:          at Array.map (<anonymous>)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719602:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719603:FAIL app/components/xml-instance-form.test.tsx (132.34 s)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719604:  XmlInstanceForm trigger-row behavior
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719605:    √ renders concrete element triggers for abstract substitution-group references (14976 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719606:    √ renders XSLT default-validation as a dropdown for its enumeration (13602 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719607:    √ keeps the stylesheet template trigger available alongside populated top-level declarations (12163 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719608:    √ does not surface unresolved required child triggers under xsl:otherwise (13455 ms)
+> C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719609:    × schema form renders XSLT top-level imports and annotation (2950 ms)
+> C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719610:    × schema form renders generic-element-type attribute declarations (2728 ms)
+> C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719611:    × infers XSD document actions from the root namespace without a mode key (15313 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719612:    √ derives schema form root add buttons from the XSD walk (595 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719613:    √ does not render an absent root annotation as an existing Schema Form node (858 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719614:    √ does not render the xs:schema source wrapper as a nested schema node (45 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719615:    √ labels inline anonymous complexTypes instead of making them look like annotation fields (140 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719616:    √ walks a root element with an inline complexType such as UpgradeStep (121 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719617:    √ renders UpgradeStep inline complexType content in schema form (18325 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719618:    √ walks inline complexContent extension beneath complexType in schema form (22413 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719619:    √ infers child add triggers at nested schema depth, not just the root (126 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719620:    √ sorts recursively rendered element triggers with referenced elements last (40 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719621:    √ keeps nested xs:choice options visible when choice is inside xs:sequence (434 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719622:    √ infers an xs:element add trigger on xs:sequence compositor nodes (155 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719623:    √ infers an xs:attribute add trigger for xs:complexType when allowed by the walked schema (29 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719624:    √ infers complexType model branch triggers from mixed choice/sequence grammar (229 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719625:    √ infers xs:enumeration add triggers and remove controls for restriction facets (180 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719626:    √ schema form preserves ColorType enumeration rows when walking schema omits restriction children (143 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719627:    √ renders a color picker when xs:element declares ui:widget color (19 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719628:    √ renders a color picker for xs:attribute when ui:widget is color (14 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719629:    √ renders a typeable country select when ui:widget is country (43 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719630:    √ renders a typeable language tag select when ui:widget is lang (31 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719631:    √ restores persisted expanded paths across rerenders (5 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719632:    √ renders trigger chips and disables add at maxOccurs (68 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719633:    √ keeps element trigger row add-only and uses rhs trash for optional element instances (29 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719634:    √ hides trigger for required singleton elements (43 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719635:    √ shows required singleton trigger with ! while missing (36 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719636:    √ infers bounded repeat add/remove behavior from minOccurs/maxOccurs (43 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719637:    √ removes repeating children only when count is above minOccurs (21 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719638:    √ choice sibling trigger is hidden once another choice option is present (28 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719639:    √ repeatable choice keeps sibling options visible instead of forcing a single selected dropdown branch (31 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719640:    √ walks only the schema and two-way binds declared instance values (139 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719641:    √ schema form does not synthesize missing required choice rows from walking schema (126 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719642:    √ schema form preserves existing sibling choice nodes without collapsing to a selected dropdown (84 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719643:    √ schema form choice dropdown switches the active selected branch instead of snapping back (104 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719644:    √ schema form keeps all demo XSD choice comboboxes after repeated switch-backs (8821 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719645:    √ schema form inline complexType repeatable choice keeps sibling nodes visible (168 ms)
+> C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719646:    × schema form root does not duplicate top-level add triggers with prefixed child triggers (1027 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719647:    √ optional choice shows rhs trash near dropdown and removes selected branch (25 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719648:    √ choice switch keeps the instance form free of name chips and retargets optional trash (51 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719649:    √ schema form renders the root element declaration name in the schema editor (29 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719650:    √ choice switch omits schema name metadata and retargets optional remove action (55 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719651:    √ simple choice places optional trash button to the rhs of input (26 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719652:    √ keeps sibling root options visible and allows switching active root (20 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719653:    √ treats only global min:1 max:1 elements as the schema choice set (16 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719654:    √ renders inherited attributes and elements for an inline extension based on modelType (37 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719655:    √ removes attributes declared in an inline complexContent extension on the model element (101 ms)
+> C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719656:    × keeps the @attributes bag when deleting a single attribute from the second model in the list (95 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719657:    √ uses attribute trigger row for remove controls and hides inline attribute trash (43 ms)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719658:
+> C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719659:  ● XmlInstanceForm trigger-row behavior › schema form renders XSLT top-level imports and annotation
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719660:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719661:    expect(received).toHaveLength(expected)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719662:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719663:    Expected length: 2
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719664:    Received length: 1
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719665:    Received array:  [<span>xs:import</span>]
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719666:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719667:    Ignored nodes: comments, script, style
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719668:    <html>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719669:      <head />
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719670:      <body>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719671:        <div>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719672:          <div
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719673:            style="padding: 16px;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719674:          >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719675:            <div
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719676:              style="margin-left: 0px; margin-bottom: 12px;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719677:            >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719678:              <div
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719679:                style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719680:              >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719681:                <button
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719682:                  aria-pressed="false"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719683:                  style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719684:                  title="Add root-0 (0/1)"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719685:                  type="button"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719686:                >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719687:                  <span
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719688:                    style="font-size: 10px; line-height: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719689:                  >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719690:                    +
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719691:                  </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719692:                  <span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719693:                    root-0
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719694:                  </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719695:                  <span
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719696:                    title="Required until minimum occurrences are met"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719697:                  >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719698:                    !
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719699:                  </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719700:                </button>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719701:                <button
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719702:                  aria-pressed="false"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719703:                  style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719704:                  title="Add root-1 (0/1)"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719705:                  type="button"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719706:                >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719707:                  <span
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719708:                    style="font-size: 10px; line-height: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719709:                  >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719710:                    +
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719711:                  </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719712:                  <span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719713:                    root-1
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719714:                  </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719715:                  <span
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719716:                    title="Required until minimum occurrences are met"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719717:                  >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719718:                    !
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719719:                  </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719800:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719801:      156 |       const annotationNodes = screen.getAllByText('xs:annotation', { exact: true }).filter((node) => node.tagName === 'SPAN');
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719802:      157 |       console.log('[schema-form-debug]',[39m { importCount: importNodes.length, annotationCount: annotationNodes.length, importText: importNodes.map((node) => node.textContent), annotationText: annotationNodes.map((node) => node.textContent) });
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719803:    > 158 |       expect(importNodes).toHaveLength(2);
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719804:          |                           ^
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719805:      159 |       expect(annotationNodes.length).toBeGreaterThan(0);
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719806:      160 |       expect(screen.getAllByRole('button', { name: 'Expand xs:documentation' }).length).toBeGreaterThan(0);
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719807:      161 |     });
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719808:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719809:      at toHaveLength (app/components/xml-instance-form.test.tsx:158:27)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719810:      at runWithExpensiveErrorDiagnosticsDisabled (node_modules/@testing-library/dom/dist/config.js:47:12)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719811:      at checkCallback (node_modules/@testing-library/dom/dist/wait-for.js:124:77)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719812:      at checkRealTimersCallback (node_modules/@testing-library/dom/dist/wait-for.js:118:16)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719813:      at Timeout.task [as _onTimeout] (node_modules/jsdom/lib/jsdom/browser/Window.js:579:19)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719814:
+> C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719815:  ● XmlInstanceForm trigger-row behavior › schema form renders generic-element-type attribute declarations
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719816:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719817:    Unable to find a label with the text of: Attribute Name
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719818:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719819:    Ignored nodes: comments, script, style
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719820:    <body>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719821:      <div>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719822:        <div
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719823:          style="padding: 16px;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719824:        >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719825:          <div
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719826:            style="margin-left: 0px; margin-bottom: 12px;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719827:          >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719828:            <div
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719829:              style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719830:            >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719831:              <button
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719832:                aria-pressed="false"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719833:                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719834:                title="Add root-0 (0/1)"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719835:                type="button"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719836:              >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719837:                <span
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719838:                  style="font-size: 10px; line-height: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719839:                >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719840:                  +
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719841:                </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719842:                <span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719843:                  root-0
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719844:                </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719845:                <span
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719846:                  title="Required until minimum occurrences are met"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719847:                >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719848:                  !
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719849:                </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719850:              </button>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719851:              <button
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719852:                aria-pressed="false"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719853:                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719854:                title="Add root-1 (0/1)"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719855:                type="button"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719856:              >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719857:                <span
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719858:                  style="font-size: 10px; line-height: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719859:                >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719860:                  +
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719861:                </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719862:                <span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719863:                  root-1
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719864:                </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719865:                <span
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719866:                  title="Required until minimum occurrences are met"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719867:                >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719868:                  !
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719869:                </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719870:              </button>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719871:              <button
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719872:                aria-pressed="false"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719873:                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719874:                title="Add root-2 (0/1)"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719875:                type="button"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719951:              <button
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719952:                aria-pressed="false"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719953:                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 1...
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719954:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719955:      205 |     });
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719956:      206 |
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719957:    > 207 |     await waitFor(() => {
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719958:          |                  ^
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719959:      208 |       const attributeNames = (screen.getAllByLabelText('Attribute Name') as HTMLInputElement[])
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719960:      209 |         .map((input) => input.value);
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719961:      210 |       expect(attributeNames).toEqual(expect.arrayContaining(expectedAttributeNames));
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719962:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719963:      at waitForWrapper (node_modules/@testing-library/dom/dist/wait-for.js:163:27)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719964:      at Object.<anonymous> (app/components/xml-instance-form.test.tsx:207:18)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719965:
+> C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719966:  ● XmlInstanceForm trigger-row behavior › infers XSD document actions from the root namespace without a mode key
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719967:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719968:    thrown: "Exceeded timeout of 5000 ms for a test.
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719969:    Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout."
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719970:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719971:      223 |   });
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719972:      224 |
+> C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719973:    > 225 |   test('infers XSD document actions from the root namespace without a mode key', async () => {
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719974:          |   ^
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719975:      226 |     const xmlSchemaDefinition = parseMarkup(
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719976:      227 |       fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/XMLSchema.xsd'), 'utf8'),
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719977:      228 |       'xml',
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719978:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719979:      at test (app/components/xml-instance-form.test.tsx:225:3)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719980:      at Object.describe (app/components/xml-instance-form.test.tsx:20:1)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719981:
+> C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719982:  ● XmlInstanceForm trigger-row behavior › schema form root does not duplicate top-level add triggers with prefixed child triggers
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719983:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719984:    Unable to find role="button" and name `/Add Element/i`
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719985:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719986:    Ignored nodes: comments, script, style
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719987:    <body>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719988:      <div>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719989:        <div
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719990:          style="padding: 16px;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719991:        >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719992:          <div
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719993:            style="margin-left: 0px; margin-bottom: 12px;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719994:          >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719995:            <div
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719996:              style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719997:            >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719998:              <button
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:719999:                aria-pressed="true"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720000:                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(167, 139, 250); background-color: rgb(243, 232, 255); cursor: default; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(91, 33, 182); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.25); opacity: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720001:                title="holder already selected (1/1)"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720002:                type="button"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720003:              >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720004:                <span
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720005:                  style="font-size: 10px; line-height: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720006:                >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720007:                  ●
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720008:                </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720009:                <span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720010:                  holder
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720011:                </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720012:              </button>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720013:              <button
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720014:                aria-pressed="false"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720015:                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720016:                title="Switch to root-1 (0/1)"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720017:                type="button"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720018:              >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720019:                <span
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720020:                  style="font-size: 10px; line-height: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720021:                >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720022:                  +
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720023:                </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720024:                <span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720025:                  root-1
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720026:                </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720027:                <span
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720028:                  title="Required until minimum occurrences are met"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720029:                >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720030:                  !
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720031:                </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720032:              </button>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720033:              <button
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720034:                aria-pressed="false"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720035:                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720036:                title="Switch to root-2 (0/1)"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720037:                type="button"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720038:              >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720039:                <span
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720040:                  style="font-size: 10px; line-height: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720041:                >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720042:                  +
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720113:              <button
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720114:                aria-pressed="false"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720115:                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: cent...
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720116:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720117:      1664 |     );
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720118:      1665 |
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720119:    > 1666 |     await waitFor(() => {
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720120:           |                  ^
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720121:      1667 |       expect(screen.getAllByRole('button', { name: /Add Element/i })).toHaveLength(1);
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720122:      1668 |       expect(screen.getAllByRole('button', { name: /Add ComplexType/i })).toHaveLength(1);
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720123:      1669 |       expect(screen.getAllByRole('button', { name: /Add Group/i })).toHaveLength(1);
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720124:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720125:      at waitForWrapper (node_modules/@testing-library/dom/dist/wait-for.js:163:27)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720126:      at Object.<anonymous> (app/components/xml-instance-form.test.tsx:1666:18)
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720127:
+> C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720128:  ● XmlInstanceForm trigger-row behavior › keeps the @attributes bag when deleting a single attribute from the second model in the list
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720129:
+> C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720130:    TestingLibraryElementError: Unable to find an element with the title: Remove version-number.
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720131:
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720132:    Ignored nodes: comments, script, style
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720133:    <body>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720134:      <div>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720135:        <div
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720136:          style="padding: 16px;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720137:        >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720138:          <div
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720139:            style="margin-left: 0px; margin-bottom: 12px;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720140:          >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720141:            <div
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720142:              style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720143:            >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720144:              <button
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720145:                aria-pressed="true"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720146:                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(167, 139, 250); background-color: rgb(243, 232, 255); cursor: default; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(91, 33, 182); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.25); opacity: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720147:                title="UpgradeStep already selected (1/1)"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720148:                type="button"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720149:              >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720150:                <span
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720151:                  style="font-size: 10px; line-height: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720152:                >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720153:                  ●
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720154:                </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720155:                <span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720156:                  UpgradeStep
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720157:                </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720158:              </button>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720159:              <button
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720160:                aria-pressed="false"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720161:                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720162:                title="Switch to Models (0/1)"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720163:                type="button"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720164:              >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720165:                <span
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720166:                  style="font-size: 10px; line-height: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720167:                >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720168:                  +
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720169:                </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720170:                <span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720171:                  Models
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720172:                </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720173:                <span
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720174:                  title="Required until minimum occurrences are met"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720175:                >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720176:                  !
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720177:                </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720178:              </button>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720179:              <button
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720180:                aria-pressed="false"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720181:                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720182:                title="Switch to Models (0/1)"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720183:                type="button"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720184:              >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720185:                <span
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720186:                  style="font-size: 10px; line-height: 1;"
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720187:                >
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720188:                  +
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720189:                </span>
+  C:\Users\JoeNuc\AppData\Local\Temp\1792313701674-copilot-tool-output-35476-85d01c1c-0e9f-4efa-b686-c79d57a80f1a.txt:720190:                <span>

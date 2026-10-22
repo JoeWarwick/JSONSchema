@@ -1,0 +1,674 @@
+FAIL app/components/xml-instance-form.test.tsx (5.702 s)
+  ● XmlInstanceForm trigger-row behavior › infers complexType model branch triggers from mixed choice/sequence grammar
+
+    Found multiple elements with the role "option" and name `/xs:complexContent/i`
+
+    Here are the matching elements:
+
+    Ignored nodes: comments, script, style
+    <option
+      value="xs:complexContent"
+    >
+      xs:complexContent
+      :
+    </option>
+
+    Ignored nodes: comments, script, style
+    <option
+      value="xs:complexContent"
+    >
+      xs:complexContent
+      :
+    </option>
+
+    Ignored nodes: comments, script, style
+    <option
+      value="xs:complexContent"
+    >
+      xs:complexContent
+      :
+    </option>
+
+    Ignored nodes: comments, script, style
+    <option
+      value="xs:complexContent"
+    >
+      xs:complexContent
+      :
+    </option>
+
+    Ignored nodes: comments, script, style
+    <option
+      value="xs:complexContent"
+    >
+      xs:complexContent
+      :
+    </option>
+
+    Ignored nodes: comments, script, style
+    <option
+      value="xs:complexContent"
+    >
+      xs:complexContent
+      :
+    </option>
+
+    Ignored nodes: comments, script, style
+    <option
+      value="xs:complexContent"
+    >
+      xs:complexContent
+      :
+    </option>
+
+    (If this is intentional, then use the `*AllBy*` variant of the query (like `queryAllByText`, `getAllByText`, or `findAllByText`)).
+
+    Ignored nodes: comments, script, style
+    <body>
+      <div>
+        <div
+          style="padding: 16px;"
+        >
+          <div
+            style="margin-left: 0px; margin-bottom: 12px;"
+          >
+            <div
+              style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px;"
+            >
+              <button
+                aria-pressed="false"
+                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+                title="Switch to simpleContent (0/1)"
+                type="button"
+              >
+                <span
+                  style="font-size: 10px; line-height: 1;"
+                >
+                  +
+                </span>
+                <span>
+                  simpleContent
+                </span>
+                <span
+                  title="Required until minimum occurrences are met"
+                >
+                  !
+                </span>
+              </button>
+              <button
+                aria-pressed="false"
+                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+                title="Switch to complexContent (0/1)"
+                type="button"
+              >
+                <span
+                  style="font-size: 10px; line-height: 1;"
+                >
+                  +
+                </span>
+                <span>
+                  complexContent
+                </span>
+                <span
+                  title="Required until minimum occurrences are met"
+                >
+                  !
+                </span>
+              </button>
+              <button
+                aria-pressed="false"
+                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+                title="Switch to attribute (0/1)"
+                type="button"
+              >
+                <span
+                  style="font-size: 10px; line-height: 1;"
+                >
+                  +
+                </span>
+                <span>
+                  attribute
+                </span>
+                <span
+                  title="Required until minimum occurrences are met"
+                >
+                  !
+                </span>
+              </button>
+              <button
+                aria-pressed="false"
+                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+                title="Switch to attributeGroup (0/1)"
+                type="button"
+              >
+                <span
+                  style="font-size: 10px; line-height: 1;"
+                >
+                  +
+                </span>
+                <span>
+                  attributeGroup
+                </span>
+                <span
+                  title="Required until minimum occurrences are met"
+                >
+                  !
+                </span>
+              </button>
+              <button
+                aria-pressed="false"
+                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+                title="Switch to all (0/1)"
+                type="button"
+              >
+                <span
+                  style="font-size: 10px; line-height: 1;"
+                >
+                  +
+                </span>
+                <span>
+                  all
+                </span>
+                <span
+                  title="Required until minimum occurrences are met"
+                >
+                  !
+                </span>
+              </button>
+              <button
+                aria-pressed="false"
+                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+                title="Switch to choice (0/1)"
+                type="button"
+              >
+                <span
+                  style="font-size: 10px; line-height: 1;"
+                >
+                  +
+                </span>
+                <span>
+                  choice
+                </span>
+                <span
+                  title="Required until minimum occurrences are met"
+                >
+                  !
+                </span>
+              </button>
+              <button
+                aria-pressed="false"
+                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(...
+
+      703 |     );
+      704 |
+    > 705 |     await waitFor(() => {
+          |                  ^
+      706 |       expect(screen.getAllByRole('button', { name: /Add xs:simpleContent/i })).toHaveLength(1);
+      707 |       expect(screen.getByRole('option', { name: /xs:complexContent/i })).toBeTruthy();
+      708 |       expect(screen.getByRole('option', { name: /xs:attribute\s*:/i })).toBeTruthy();
+
+      at waitForWrapper (node_modules/@testing-library/dom/dist/wait-for.js:163:27)
+      at Object.<anonymous> (app/components/xml-instance-form.test.tsx:705:18)
+
+  ● XmlInstanceForm trigger-row behavior › schema form keeps all demo XSD choice comboboxes after repeated switch-backs
+
+    expect(received).toBeGreaterThan(expected)
+
+    Expected: > 0
+    Received:   0
+
+    Ignored nodes: comments, script, style
+    <html>
+      <head />
+      <body>
+        <div>
+          <div
+            style="padding: 16px;"
+          >
+            <div
+              style="margin-left: 0px; margin-bottom: 12px;"
+            >
+              <div
+                style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px;"
+              >
+                <button
+                  aria-pressed="false"
+                  style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+                  title="Add street (0/1)"
+                  type="button"
+                >
+                  <span
+                    style="font-size: 10px; line-height: 1;"
+                  >
+                    +
+                  </span>
+                  <span>
+                    street
+                  </span>
+                  <span
+                    title="Required until minimum occurrences are met"
+                  >
+                    !
+                  </span>
+                </button>
+                <button
+                  aria-pressed="false"
+                  style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+                  title="Add city (0/1)"
+                  type="button"
+                >
+                  <span
+                    style="font-size: 10px; line-height: 1;"
+                  >
+                    +
+                  </span>
+                  <span>
+                    city
+                  </span>
+                  <span
+                    title="Required until minimum occurrences are met"
+                  >
+                    !
+                  </span>
+                </button>
+                <button
+                  aria-pressed="false"
+                  style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+                  title="Add firstName (0/1)"
+                  type="button"
+                >
+                  <span
+                    style="font-size: 10px; line-height: 1;"
+                  >
+                    +
+                  </span>
+                  <span>
+                    firstName
+                  </span>
+                  <span
+                    title="Required until minimum occurrences are met"
+                  >
+                    !
+                  </span>
+                </button>
+                <button
+                  aria-pressed="false"
+                  style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+                  title="Add lastName (0/1)"
+                  type="button"
+                >
+                  <span
+                    style="font-size: 10px; line-height: 1;"
+                  >
+                    +
+                  </span>
+                  <span>
+                    lastName
+                  </span>
+                  <span
+                    title="Required until minimum occurrences are met"
+                  >
+                    !
+                  </span>
+                </button>
+                <button
+                  aria-pressed="false"
+                  style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+                  title="Add address (0/1)"
+                  type="button"
+                >
+                  <span
+                    style="font-size: 10px; line-height: 1;"
+                  >
+                    +
+                  </span>
+                  <span>
+                    address
+                  </span>
+                  <span
+                    title="Required until minimum occurrences are met"
+                  >
+                    !
+                  </span>
+                </button>
+                <button
+                  aria-pressed="false"
+                  style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+                  title="Add homeEmail (0/1)"
+                  type="button"
+                >
+                  <span
+                    style="font-size: 10px; line-height: 1;"
+                  >
+                    +
+                  </span>
+                  <span>
+                    homeEmail
+                  </span>
+                  <span
+                    title="Required until minimum occurrences are met"
+                  >
+                    !
+              ...
+
+      1563 |
+      1564 |     await waitFor(() => {
+    > 1565 |       expect(getChoiceComboboxes().length).toBeGreaterThan(0);
+           |                                            ^
+      1566 |     });
+      1567 |
+      1568 |     const initialValues = getChoiceComboboxes().map((select) => select.value);
+
+      at toBeGreaterThan (app/components/xml-instance-form.test.tsx:1565:44)
+      at runWithExpensiveErrorDiagnosticsDisabled (node_modules/@testing-library/dom/dist/config.js:47:12)
+      at checkCallback (node_modules/@testing-library/dom/dist/wait-for.js:124:77)
+      at checkRealTimersCallback (node_modules/@testing-library/dom/dist/wait-for.js:118:16)
+      at Timeout.task [as _onTimeout] (node_modules/jsdom/lib/jsdom/browser/Window.js:579:19)
+
+  ● XmlInstanceForm trigger-row behavior › optional choice shows rhs trash near dropdown and removes selected branch
+
+    expect(received).toBeTruthy()
+
+    Received: null
+
+      1723 |
+      1724 |     const removeChoice = screen.queryByTitle('Remove selected workEmail option');
+    > 1725 |     expect(removeChoice).toBeTruthy();
+           |                          ^
+      1726 |     fireEvent.click(removeChoice as HTMLElement);
+      1727 |
+      1728 |     const payload = onChange.mock.calls[0][0];
+
+      at Object.toBeTruthy (app/components/xml-instance-form.test.tsx:1725:26)
+
+  ● XmlInstanceForm trigger-row behavior › choice switch keeps the instance form free of name chips and retargets optional trash
+
+    TestingLibraryElementError: Unable to find an element with the title: Remove selected homeEmail option.
+
+    Ignored nodes: comments, script, style
+    <body>
+      <div>
+        <div
+          style="padding: 16px;"
+        >
+          <div
+            style="margin-left: 0px; margin-bottom: 12px;"
+          >
+            <div
+              style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px;"
+            >
+              <button
+                aria-pressed="true"
+                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(167, 139, 250); background-color: rgb(243, 232, 255); cursor: default; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(91, 33, 182); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.25); opacity: 1;"
+                title="person already selected (1/1)"
+                type="button"
+              >
+                <span
+                  style="font-size: 10px; line-height: 1;"
+                >
+                  ●
+                </span>
+                <span>
+                  person
+                </span>
+              </button>
+              <button
+                aria-pressed="false"
+                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+                title="Switch to workEmail (0/1)"
+                type="button"
+              >
+                <span
+                  style="font-size: 10px; line-height: 1;"
+                >
+                  +
+                </span>
+                <span>
+                  workEmail
+                </span>
+                <span
+                  title="Required until minimum occurrences are met"
+                >
+                  !
+                </span>
+              </button>
+              <button
+                aria-pressed="false"
+                style="padding: 5px 10px; border-radius: 999px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: rgb(146, 64, 14); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: none; opacity: 1;"
+                title="Switch to homeEmail (0/1)"
+                type="button"
+              >
+                <span
+                  style="font-size: 10px; line-height: 1;"
+                >
+                  +
+                </span>
+                <span>
+                  homeEmail
+                </span>
+                <span
+                  title="Required until minimum occurrences are met"
+                >
+                  !
+                </span>
+              </button>
+            </div>
+            <div
+              style="margin-bottom: 8px; display: inline-flex; align-items: center; gap: 8px; width: auto; max-width: 100%;"
+            >
+              <button
+                style="background: none; padding: 0px; cursor: pointer; display: flex; align-items: center;"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="lucide lucide-chevron-down"
+                  fill="none"
+                  height="16"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                  width="16"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="m6 9 6 6 6-6"
+                  />
+                </svg>
+              </button>
+              <div
+                data-testid="xml-tag-person"
+                style="display: inline-flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; flex-wrap: nowrap;"
+              >
+                <span
+                  style="white-space: nowrap; flex-shrink: 0;"
+                >
+                  person
+                </span>
+              </div>
+            </div>
+            <div>
+              <div
+                style="margin-bottom: 12px;"
+              />
+              <div>
+                <div
+                  style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;"
+                >
+                  <div
+                    style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;"
+                  >
+                    <div
+                      style="display: inline-flex; gap: 4px; align-items: center;"
+                    >
+                      <button
+                        aria-label="Add workEmail"
+                        disabled=""
+                        style="padding: 3px 8px; border-radius: 12px; border: 1px solid rgb(221, 221, 221); background-color: rgb(243, 244, 246); cursor: not-allowed; font-size: 11px; font-weight: 500; color: rgb(156, 163, 175); display: flex; align-items: center; gap: 4px; white-space: nowrap; opacity: 0.7;"
+                        title="Choice already satisfied by homeEmail"
+                        type="button"
+                      >
+                        <span>
+                          +
+                        </span>
+                        <span>
+                          workEmail
+                        </span>
+                      </button>
+                    </div>
+                    <div
+                      style="display: inline-flex; gap: 4px; align-items: center;"
+                    >
+                      <button
+                        aria-label="Add homeEmail"
+                        disabled=""
+                        style="padding: 3px 8px; border-radius: 12px; border: 1px solid rgb(221, 221, 221); background-color: rgb(243, 244, 246); cursor: not-allowed; font-size: 11px; font-weight: 500; color: rgb(156, 163, 175); display: flex; align-items: center; gap: 4px; white-space: nowrap; opacity: 0.7;"
+                        title="homeEmail reached maxOccurs (1)"
+                        type="button"
+                      >
+                        <span>
+                          +
+                        </span>
+                        <span>
+                          homeEmail
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  style="margin-left: 0px; margin-bottom: 12px;"
+                >
+                  <div
+                    style="margin-bottom: 0px; display: inline-flex; align-items: center; gap: 8px; width: auto; max-width: 100%;"
+                  >
+                    <button
+                      style="background: none; padding: 0px; cursor: pointer; display: flex; align-items: center;"
+                    >
+                      <svg
+                        aria-hidden="true"
+                        class="lucide lucide-chevron-down"
+                        fill="none"
+                        height="16"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        viewBox="0 0 24 24"
+                        width="16"
+                        xmlns="http://www.w3.org/2000/svg"
+                      >
+                        <path
+                          d="m6 9 6 6 6-6"
+                        />
+                      </svg>
+                    </button>
+                    <div
+                      data-testid="xml-tag-homeEmail"
+                      style="display: inline-flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; flex-wrap: nowrap;"
+                    >
+                      <select
+                        aria-label="Select homeEmail type"
+                        style="padding: 6px 8px; border: 1px solid rgb(221, 221, 221); border-radius: 3px; font-size: 12px; cursor: pointer; font-weight: 500; min-width: 100px; color: rgb(167, 139, 250);"
+                      >
+                        <option
+                          value="workEmail"
+                        >
+                          workEmail
+                          :
+                        </option>
+                        <option
+                          value="homeEmail"
+                        >
+                          homeEmail
+                          :
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <div
+                      style="margin-bottom: 12px;"
+                    />
+                    <div>
+                      <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;"
+                      >
+                        <div
+                          style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;"
+                        >
+                          <div
+                            style="display: inline-flex; gap: 4px; align-items: center;"
+                          >
+                            <button
+                              aria-label="Add person"
+                              style="padding: 3px 8px; border-radius: 12px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 500; color: rgb(146, 64, 14); display: flex; align-items: center; gap: 4px; white-space: nowrap; opacity: 1;"
+                              title="Add person (0/1)"
+                              type="button"
+                            >
+                              <span>
+                                +
+                              </span>
+                              <span>
+                                person
+                              </span>
+                              <span
+                                title="Required until minimum occurrences are met"
+                              >
+                                !
+                              </span>
+                            </button>
+                          </div>
+                          <div
+                            style="display: inline-flex; gap: 4px; align-items: center;"
+                          >
+                            <button
+                              aria-label="Add PersonType"
+                              style="padding: 3px 8px; border-radius: 12px; border: 1px solid rgb(245, 158, 11); background-color: rgb(255, 251, 235); cursor: pointer; font-size: 11px; font-weight: 500; color: rgb(146, 64, 14); display: flex; align-items: center; gap: 4px; white-space: nowrap; opacity: 1;"
+                              title="Add PersonType (0/1)"
+                              type="button"
+                            >
+                              <span>
+                                +
+                              </span>
+                              <span>
+                                PersonType
+                              </span>
+                              <span
+                                title="Required until minimum occurrences are met"
+                              >
+                                !
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </body>
+
+      1801 |
+      1802 |     expect(screen.queryByTestId('xml-name-chip')).not.toBeInTheDocument();
+    > 1803 |     expect(screen.getByTitle('Remove selected homeEmail option')).toBeTruthy();
+           |                   ^
+      1804 |   });
+      1805 |
+      1806 |   test('schema form renders the root element declaration name in the schema editor', async () => {
+
+      at Object.getElementError (node_modules/@testing-library/dom/dist/config.js:37:19)
+      at node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+      at node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+      at node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+      at Object.getByTitle (app/components/xml-instance-form.test.tsx:1803:19)
+
+Test Suites: 1 failed, 1 total
+Tests:       4 failed, 44 skipped, 5 passed, 53 total
+Snapshots:   0 total
+Time:        6.96 s

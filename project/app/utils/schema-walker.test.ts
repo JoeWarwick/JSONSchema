@@ -324,12 +324,78 @@ describe('Schema Walker - Schema Walking', () => {
     expect(node?.nodeType).toBeTruthy();
   });
 
+  test('walkSchema should memoize expanded type shapes across equivalent walks', () => {
+    const compiled = compileSchemaForWalking(testSchema['xs:schema']);
+    const walk = () => walkSchema(compiled, {
+      rootSchema: testSchema['xs:schema'],
+      compiledSchema: compiled,
+      visitedTypes: new Set(),
+      depth: 0,
+      maxDepth: 50,
+      path: [],
+    });
+
+    const first = walk();
+    const second = walk();
+
+    expect(second).not.toBe(first);
+    expect(second.children[0]).toBe(first.children[0]);
+  });
+
   test('walkSchema should handle element with type reference', () => {
     const schemaObj = testSchema['xs:schema'];
     const node = walkSchema(compiledSchema, { rootSchema: schemaObj, compiledSchema, visitedTypes: new Set(), depth: 0, maxDepth: 50, path: [] });
     
     expect(node).toBeTruthy();
     expect(node?.elementType).toBe('tns:PersonType');
+  });
+
+  test.each(['xs:string', 'UnknownType'])('does not use global declarations as children of %s', (typeName) => {
+    const node = walkSchema(compiledSchema, {
+      rootSchema: testSchema['xs:schema'],
+      compiledSchema,
+      visitedTypes: new Set(),
+      typeName,
+      depth: 0,
+      maxDepth: 2,
+      path: ['person', 'firstName'],
+    });
+
+    expect(node.children).toEqual([]);
+    expect(node.attributes).toEqual([]);
+  });
+
+  test('keeps local declarations and inline attributes separate from child elements', () => {
+    const localElement = {
+      '@attributes': { name: 'item' },
+      'xs:complexType': {
+        'xs:attribute': { '@attributes': { name: 'id', type: 'xs:string' } },
+        'xs:annotation': { 'xs:documentation': { _text: 'An item' } },
+      },
+    };
+    const typeDefinition = { 'xs:sequence': { 'xs:element': localElement } };
+    const schema = {
+      'xs:element': { '@attributes': { name: 'item', type: 'xs:string' } },
+      'xs:complexType': { '@attributes': { name: 'Container' }, ...typeDefinition },
+    };
+    const compiled = compileSchemaForWalking(schema);
+    const node = walkSchema(compiled, {
+      rootSchema: schema,
+      compiledSchema: compiled,
+      visitedTypes: new Set(),
+      typeName: 'Container',
+      depth: 0,
+      maxDepth: 2,
+      path: [],
+    });
+
+    expect(node.schemaObj).toBe(schema['xs:complexType']);
+    expect(node.children).toHaveLength(1);
+    expect(node.children[0].schemaObj).toBe(localElement);
+    expect(node.children[0].children).toEqual([]);
+    expect(node.children[0].attributes).toEqual([
+      expect.objectContaining({ name: 'id', type: 'xs:string' }),
+    ]);
   });
 
   test('walkSchema should prevent infinite recursion with circular references', () => {

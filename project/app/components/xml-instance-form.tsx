@@ -123,7 +123,8 @@ function findElementDefinitionInRootSchema(root: any, elementName: string): any 
       const val = node[key];
       if (!val) continue;
 
-      if (key === 'xs:element' || key === 'element') {
+      const childLocalName = String(key).replace(/^.*:/, '').toLowerCase();
+      if (childLocalName === 'element') {
         const candidates = toArray(val);
         for (const elem of candidates) {
           if (!elem) continue;
@@ -231,7 +232,8 @@ function findComplexTypeDefinitionInRootSchema(root: any, typeName: string): any
       const val = node[key];
       if (!val) continue;
 
-      if (key === 'xs:complexType' || key === 'complexType') {
+      const childLocalName = String(key).replace(/^.*:/, '').toLowerCase();
+      if (childLocalName === 'complextype') {
         const candidates = toArray(val);
         for (const candidate of candidates) {
           if (!candidate || typeof candidate !== 'object') continue;
@@ -361,13 +363,62 @@ function mapXsdTypeToHtmlInput(xsdType: string | null) {
   return 'text';
 }
 
+function getEntriesByLocalName(node: any, localName: string): any[] {
+  const target = String(localName || '').replace(/^.*:/, '').toLowerCase();
+  if (!node || typeof node !== 'object' || !target) return [];
+
+  const matches: any[] = [];
+  const seen = new Set<string>();
+
+  const canonicalKey = (entry: any): string => {
+    if (!entry || typeof entry !== 'object') return '';
+    const attrs = entry['@attributes'] && typeof entry['@attributes'] === 'object'
+      ? { ...entry['@attributes'] }
+      : { ...entry };
+    delete attrs['@attributes'];
+    delete attrs['__childrenInOrder'];
+    delete attrs['__parent'];
+    delete attrs['nodeName'];
+    return JSON.stringify(attrs);
+  };
+
+  const visit = (value: any) => {
+    if (!value || typeof value !== 'object') return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+
+    for (const [key, child] of Object.entries(value)) {
+      const childLocal = String(key || '').replace(/^.*:/, '').toLowerCase();
+      if (childLocal === target) {
+        const list = Array.isArray(child) ? child : [child];
+        for (const entry of list) {
+          if (!entry || typeof entry !== 'object') continue;
+          const keyString = canonicalKey(entry);
+          if (!keyString || seen.has(`${target}:${keyString}`)) continue;
+          seen.add(`${target}:${keyString}`);
+          matches.push(entry);
+        }
+      }
+
+      if (key.startsWith('@') || key === 'nodeName') continue;
+      if (child && typeof child === 'object') {
+        visit(child);
+      }
+    }
+  };
+
+  visit(node);
+  return matches;
+}
+
 function getSchemaImports(root: any): Array<{ namespace: string; schemaLocation: string }> {
   const schemaRoot = getSchemaRootNode(root);
   if (!schemaRoot || typeof schemaRoot !== 'object') return [];
-  const raw = schemaRoot['xs:import'] || schemaRoot['import'];
-  if (!raw) return [];
-  const imports = Array.isArray(raw) ? raw : [raw];
-  return imports
+  const raw = getEntriesByLocalName(schemaRoot, 'import');
+  if (raw.length === 0) return [];
+  return raw
     .map((it: any) => ({
       namespace: String(it?.['@namespace'] || it?.namespace || ''),
       schemaLocation: String(it?.['@schemaLocation'] || it?.schemaLocation || ''),
@@ -378,9 +429,8 @@ function getSchemaImports(root: any): Array<{ namespace: string; schemaLocation:
 function getSchemaAnnotations(root: any): string[] {
   const schemaRoot = getSchemaRootNode(root);
   if (!schemaRoot || typeof schemaRoot !== 'object') return [];
-  const annotations = schemaRoot['xs:annotation'] || schemaRoot['annotation'];
-  if (!annotations) return [];
-  const list = Array.isArray(annotations) ? annotations : [annotations];
+  const list = getEntriesByLocalName(schemaRoot, 'annotation');
+  if (list.length === 0) return [];
   const docs: string[] = [];
   for (const ann of list) {
     const doc = ann?.['xs:documentation'] || ann?.documentation;
@@ -458,7 +508,7 @@ function canAddCustomAttributeForElement(element: XmlElement, rootSchema: any): 
   if (!localTag) return false;
 
   // If this node already directly carries a wildcard declaration, allow custom attributes.
-  if (element.children.some((c) => typeof c !== 'string' && ['any', 'xs:any'].includes(c.tagName))) {
+  if (Array.isArray(element.children) && element.children.some((c) => typeof c !== 'string' && ['any', 'xs:any'].includes(c.tagName))) {
     return true;
   }
 
@@ -478,8 +528,7 @@ function canAddCustomAttributeForElement(element: XmlElement, rootSchema: any): 
     return false;
   };
 
-  const globalElements = schemaRoot['xs:element'] || schemaRoot['element'];
-  const elementList = globalElements ? (Array.isArray(globalElements) ? globalElements : [globalElements]) : [];
+  const elementList = getEntriesByLocalName(schemaRoot, 'element');
 
   for (const el of elementList) {
     const name = String(el?.['@name'] || el?.name || '').replace(/^.*:/, '');
@@ -751,22 +800,9 @@ function XmlElementNode({
     };
   }, [compiledSchema, elementTagName, isSchemaForm, providedSchemaNode, rootSchema]);
   
-  // DEBUG: Always log for first few renders to verify component is running
-  console.log(`[XmlElementNode START] element="${elementTagName}" path.len=${path.length}`);
-  if (element.tagName === 'xs:schema' || localTagName === 'schema') {
-    console.log(`[XmlElementNode] *** SCHEMA ELEMENT *** tagName="${elementTagName}" localTagName="${localTagName}" schemaNode.children=${schemaNode?.children?.length}`);
-  }
   
   // Debug: Log schemaNode for simpleType and restriction nodes
   if (isSchemaForm && (localTagName === 'simpleType' || localTagName === 'restriction')) {
-    console.log(`[XmlElementNode] ${localTagName} - schemaNode:`, {
-      tagName: schemaNode?.tagName,
-      label: schemaNode?.label,
-      hasEnumerations: !!schemaNode?.enumerations,
-      enumerationCount: schemaNode?.enumerations?.length || 0,
-      enumerations: schemaNode?.enumerations,
-      childrenCount: schemaNode?.children?.length || 0,
-    });
   }
   const inferredSchemaKind = rootSchema ? ({
     schema: 'schema',
@@ -796,108 +832,65 @@ function XmlElementNode({
   
   // Helper to find which choice group a child element belongs to
   const getChoiceGroupForChild = (childName: string): { groupIndex: number; isFirst: boolean } | null => {
-    if (!schemaNode?.children) return null;
-    
-    let groupIndex = -1;
-    let currentGroup: Array<string> | null = null;
-    
-    for (const child of schemaNode.children) {
-      if (child.compositorType === 'choice') {
-        if (!currentGroup) {
-          groupIndex++;
-          currentGroup = [];
-        }
-        currentGroup.push(child.label || child.tagName);
-      } else {
-        if (currentGroup) {
-          // Group ended, check if child is first in it
-          if (currentGroup.length > 0 && currentGroup[0] === childName) {
-            return { groupIndex, isFirst: true };
-          }
-          // Check if child is in the group (not first)
-          if (currentGroup.includes(childName)) {
-            return { groupIndex, isFirst: false };
-          }
-          currentGroup = null;
-        }
+    if (!choiceGroups.length) return null;
+
+    for (const group of choiceGroups) {
+      const optionNames = group.options.map((option) => option.name);
+      const optionIndex = optionNames.indexOf(childName);
+      if (optionIndex >= 0) {
+        return { groupIndex: group.groupIndex, isFirst: optionIndex === 0 };
       }
     }
-    
-    // Check final group
-    if (currentGroup && currentGroup.length > 0) {
-      if (currentGroup[0] === childName) {
-        return { groupIndex, isFirst: true };
-      }
-      if (currentGroup.includes(childName)) {
-        return { groupIndex, isFirst: false };
-      }
-    }
-    
+
     return null;
   };
-  
-  // Detect choice elements and group them
+
+  // Detect contiguous choice-option clusters and de-duplicate repeated members so
+  // a single XSD choice set renders as one selector rather than multiple stale copies.
   const choiceGroups = useMemo(() => {
     if (!schemaNode?.children) return [];
-    
+
     const groups: Array<{
       groupIndex: number;
       options: Array<{ name: string; node: SchemaNode }>;
     }> = [];
-    let currentGroup: Array<{ name: string; node: SchemaNode }> | null = null;
-    
-    const childrenWithCompositorInfo = schemaNode.children.map(c => ({
-      name: c.label || c.tagName || '',
-      compositorType: c.compositorType,
-      minOccurs: c.minOccurs,
-      maxOccurs: c.maxOccurs,
-    }));
-    
-    if (element?.tagName === 'xs:schema') {
-      console.log(`[ChoiceGroups] xs:schema has ${schemaNode.children.length} children:`, childrenWithCompositorInfo);
-      console.log(`[ChoiceGroups] schemaNode.children raw:`, schemaNode.children);
-    }
-    
+
+    let currentGroup: Array<{ name: string; node: SchemaNode }> = [];
+    const seenInGroup = new Set<string>();
+
     for (const child of schemaNode.children) {
       if (child.compositorType === 'choice') {
-        // This is a choice element
-        if (!currentGroup) {
-          currentGroup = [];
-        }
-        currentGroup.push({
-          name: child.label || child.tagName || '',
-          node: child,
+        const optionName = child.label || child.tagName || '';
+        if (!optionName) continue;
+        if (seenInGroup.has(optionName)) continue;
+        seenInGroup.add(optionName);
+        currentGroup.push({ name: optionName, node: child });
+        continue;
+      }
+
+      if (currentGroup.length > 0) {
+        groups.push({
+          groupIndex: groups.length,
+          options: currentGroup,
         });
-      } else {
-        // Non-choice element, close the group if one is open
-        if (currentGroup && currentGroup.length > 0) {
-          groups.push({
-            groupIndex: groups.length,
-            options: currentGroup,
-          });
-          currentGroup = null;
-        }
+        currentGroup = [];
+        seenInGroup.clear();
       }
     }
-    
-    // Don't forget the last group if it exists
-    if (currentGroup && currentGroup.length > 0) {
+
+    if (currentGroup.length > 0) {
       groups.push({
         groupIndex: groups.length,
         options: currentGroup,
       });
     }
-    
-    if (element?.tagName === 'xs:schema') {
-      console.log(`[ChoiceGroups] Found ${groups.length} choice groups for xs:schema with ${groups.reduce((sum, g) => sum + g.options.length, 0)} total options`);
-    }
-    
+
     return groups;
-  }, [schemaNode?.children, element?.tagName]);
+  }, [schemaNode]);
   
   // For each choice group, determine the selected option
   const choiceInfo = useMemo(() => {
-    return choiceGroups.map(group => {
+    const info = choiceGroups.map(group => {
       const choiceKey = `choice_${pathKey}_${group.groupIndex}`;
       
       const optionStates = group.options.map((opt) => {
@@ -917,23 +910,21 @@ function XmlElementNode({
         return Number.isFinite(max) && max > 1;
       });
       const presentOptionCount = optionStates.filter((state) => state.hasValue).length;
-      const isExclusive = !hasRepeatableOption && presentOptionCount <= 1;
+      const isExclusive = !hasRepeatableOption;
       const isChoiceGroupRequired = group.options.some((opt) => {
         const min = Number(opt.node.minOccurs ?? 0);
         return Number.isFinite(min) && min > 0;
       });
-      
-      // Determine selected option by checking which element has a value in the data
+
       if (isExclusive) {
-        // For exclusive choices, find which option exists in the data
-        for (const option of optionStates) {
-          if (option.hasValue) {
-            selectedOption = option.name;
-            break;
-          }
-        }
-        // If no value found, only default when the choice is required by schema
-        if (!selectedOption && !isSchemaForm && isChoiceGroupRequired && group.options.length > 0) {
+        // Keep the currently populated branch selected so the dropdown remains usable
+        // even when multiple sibling options are present. We still keep the sibling
+        // rows visible instead of collapsing the whole group to a synthetic single
+        // branch.
+        const populatedOption = optionStates.find((option) => option.hasValue)?.name ?? null;
+        if (populatedOption) {
+          selectedOption = populatedOption;
+        } else if (!isSchemaForm && isChoiceGroupRequired && group.options.length > 0) {
           selectedOption = group.options[0].name;
         }
       }
@@ -948,6 +939,8 @@ function XmlElementNode({
         isRepeatable: hasRepeatableOption,
       };
     });
+
+    return info;
   }, [choiceGroups, pathKey, value, compiledSchema, element?.tagName, path.length, isSchemaForm]);
 
   const shouldHideChildInInferredView = (child: XmlElement | string): boolean => {
@@ -983,7 +976,6 @@ function XmlElementNode({
       const valStr = typeof a.value === 'string' ? a.value.substring(0, 40) : String(a.value).substring(0, 40);
       return `${a.name}="${valStr}${(String(a.value).length || 0) > 40 ? '...' : ''}"`;
     }).join(', ');
-    console.log('[ELEMENT ATTRS]', element?.tagName, '- count:', elementAttributes.length, 'details:', attrDetails);
   }
   const elementText = typeof element.text === 'string' ? element.text : '';
 
@@ -1011,7 +1003,7 @@ function XmlElementNode({
         { name: 'xs:pattern', label: 'Add xs:pattern', maxOccurs: 1, minOccurs: 0 },
       ]
     : [];
-  const hasExpandableContent = hasChildren || hasAttributes || hasSchemaChildren || hasSchemaAttributes || isSchemaStructureContainer || currentNodeCompositorAddOptions.length > 0 || currentNodeRestrictionFacetAddOptions.length > 0;
+  const hasExpandableContent = hasChildren || hasAttributes || hasSchemaChildren || hasSchemaAttributes || isSchemaStructureContainer || currentNodeCompositorAddOptions.length > 0 || currentNodeRestrictionFacetAddOptions.length > 0 || (path.length === 0 && Boolean(rootXsdAddButtons?.length));
   const hasText = elementText.length > 0;
   const isCompositor = !!element.isCompositor;
   const nodeNameAttribute = elementAttributes.find((a) => a.name === 'name')?.value 
@@ -1019,13 +1011,6 @@ function XmlElementNode({
   
   // Debug: Log @name attribute discovery for schema elements
   if (isSchemaForm) {
-    console.log('[NAME BADGE DEBUG]', element?.tagName, ':', {
-      nodeNameAttribute,
-      elementAttributesCount: elementAttributes.length,
-      elementAttributeNames: elementAttributes.map(a => a.name),
-      schemaNodeAttributesCount: schemaNode?.attributes?.length || 0,
-      schemaNodeAttributeNames: schemaNode?.attributes?.map(a => a.name) || [],
-    });
   }
   
   const rootTopLevelKinds = new Set(
@@ -1041,7 +1026,6 @@ function XmlElementNode({
   
   // Debug: Log when @name badge should render
   if (isSchemaForm) {
-    console.log('[NAME BADGE RENDER]', element?.tagName, '- schemaNodeName:', schemaNodeName, 'isSchemaForm:', isSchemaForm, 'nodeNameAttribute:', nodeNameAttribute);
   }
   
   const asMutableElementObject = (entry: any): Record<string, any> => {
@@ -1112,7 +1096,6 @@ function XmlElementNode({
   };
 
   const handleRemoveAttribute = (attrName: string) => {
-    console.log('[debug-remove-attribute]', { path, attrName, value, currentPathValue: path.length ? (path.reduce((acc, part) => acc?.[part], value)) : value });
     onUpdateValue(path, (current) => {
       const result = mutateElementOrArray(current, (updated) => {
         if (updated['@attributes'] && typeof updated['@attributes'] === 'object') {
@@ -1135,10 +1118,8 @@ function XmlElementNode({
         }
         // Also clean up old format if it exists
         delete updated['@' + attrName];
-        console.log('[debug-remove-attribute-result]', { attrName, updated });
         return updated;
       });
-      console.log('[debug-remove-attribute-final]', { attrName, result });
       return result;
     });
   };
@@ -1160,25 +1141,73 @@ function XmlElementNode({
     if (path.length !== 0 || !rootSchema || typeof rootSchema !== 'object') return [];
 
     const schemaRoot = getSchemaRootNode(rootSchema);
-    const rawElements = schemaRoot?.['xs:element'] || schemaRoot?.['element'];
-    const elements = Array.isArray(rawElements) ? rawElements : rawElements ? [rawElements] : [];
+    const elements = getEntriesByLocalName(schemaRoot, 'element');
 
-    return elements
-      .map((entry: any, index: number) => {
+    const findElementDefinitionByName = (candidateName: string): any | null => {
+      if (!candidateName) return null;
+      const normalized = String(candidateName).replace(/^.*:/, '');
+      for (const entry of elements) {
         const attrs = entry?.['@attributes'] || entry || {};
-        const name = String(attrs?.name || attrs?.['@name'] || entry?.name || entry?.['@name'] || `root-${index}`);
-        if (!name) return null;
-        const maxOccursRaw = attrs?.maxOccurs ?? '1';
-        const maxOccurs = maxOccursRaw === 'unbounded' ? Number.POSITIVE_INFINITY : Number(maxOccursRaw || '1');
-        const minOccurs = Number(attrs?.minOccurs ?? '1');
+        const currentName = String(attrs?.name || attrs?.['@name'] || entry?.name || entry?.['@name'] || '');
+        if (!currentName) continue;
+        if (String(currentName).replace(/^.*:/, '') === normalized) return entry;
+      }
+      return null;
+    };
 
-        if (!(minOccurs === 1 && maxOccurs === 1)) {
-          return null;
-        }
+    const getDisplayTriggerName = (actualName: string, substitutionGroup?: string | null): string => {
+      const trimmed = String(actualName || '').trim();
+      if (!trimmed) return trimmed;
+      const localName = trimmed.replace(/^.*:/, '');
+      const group = typeof substitutionGroup === 'string' ? substitutionGroup.trim() : '';
+      if (localName === 'template' && group.startsWith('xsl:')) return 'xsl:template';
+      return trimmed;
+    };
 
-        return { name, maxOccurs, minOccurs };
-      })
-      .filter((entry): entry is { name: string; maxOccurs: number; minOccurs: number } => Boolean(entry));
+    const rootTriggerMap = new Map<string, { name: string; label: string; maxOccurs: number; minOccurs: number }>();
+
+    for (const entry of elements) {
+      const attrs = entry?.['@attributes'] || entry || {};
+      const name = String(attrs?.name || attrs?.['@name'] || entry?.name || entry?.['@name'] || '').trim();
+      if (!name) continue;
+
+      const localName = String(name).replace(/^.*:/, '').toLowerCase();
+      const schemaMetadataNames = new Set(['annotation', 'import', 'include', 'redefine']);
+      if (schemaMetadataNames.has(localName) && getRootOccurrenceCount(value, name) > 0) continue;
+
+      const abstractValue = attrs?.abstract ?? attrs?.['@abstract'] ?? attrs?.['abstract'];
+      const isAbstract = abstractValue === true || abstractValue === 'true' || abstractValue === '1' || abstractValue === 1;
+      if (isAbstract) continue;
+
+      const maxOccursRaw = attrs?.maxOccurs ?? '1';
+      const maxOccurs = maxOccursRaw === 'unbounded' ? Number.POSITIVE_INFINITY : Number(maxOccursRaw || '1');
+      const minOccurs = Number(attrs?.minOccurs ?? '1');
+      const substitutionGroup = attrs?.substitutionGroup ?? attrs?.['@substitutionGroup'] ?? attrs?.['substitutionGroup'];
+      const substitutionGroupHead = typeof substitutionGroup === 'string' ? findElementDefinitionByName(substitutionGroup) : null;
+      const substitutionHeadAttrs = substitutionGroupHead ? (substitutionGroupHead['@attributes'] || substitutionGroupHead || {}) : null;
+      const substitutionHeadAbstract = substitutionHeadAttrs && (
+        substitutionHeadAttrs.abstract === true ||
+        substitutionHeadAttrs.abstract === 'true' ||
+        substitutionHeadAttrs.abstract === '1' ||
+        substitutionHeadAttrs.abstract === 1 ||
+        substitutionHeadAttrs['@abstract'] === true ||
+        substitutionHeadAttrs['@abstract'] === 'true' ||
+        substitutionHeadAttrs['@abstract'] === '1' ||
+        substitutionHeadAttrs['@abstract'] === 1
+      );
+      const isConcreteSubstitution = Boolean(substitutionGroup) && !isAbstract && substitutionHeadAbstract;
+      const isSingletonChoice = minOccurs === 1 && maxOccurs === 1;
+      const isRepeatableRootTrigger = minOccurs === 0 && (maxOccurs === Number.POSITIVE_INFINITY || maxOccurs > 1);
+
+      if (!isSingletonChoice && !isConcreteSubstitution && !isRepeatableRootTrigger) continue;
+
+      const label = getDisplayTriggerName(name, substitutionGroup);
+      const normalizedKey = String(name).replace(/^.*:/, '');
+      if (rootTriggerMap.has(normalizedKey)) continue;
+      rootTriggerMap.set(normalizedKey, { name, label, maxOccurs, minOccurs });
+    }
+
+    return [...rootTriggerMap.values()];
   };
 
   const getRootOccurrenceCount = (currentValue: any, childName: string): number => {
@@ -1615,7 +1644,6 @@ function XmlElementNode({
               value={choiceGroupData.selectedOption || ''}
               onChange={(e) => {
                 const newSelectedOption = e.target.value;
-                console.log('[choice-select-change]', { newSelectedOption, currentChoice: choiceGroupData.selectedOption, choicePath });
                 if (newSelectedOption === choiceGroupData.selectedOption) return;
                 onUpdateValue(choicePath.slice(0, -1), (current) => applyExclusiveChoiceSwitch(current, choiceGroupData, newSelectedOption));
               }}
@@ -1659,22 +1687,6 @@ function XmlElementNode({
               </span>
             )}
           </div>
-          {showChoiceRemove && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => removeChoiceSelection(choiceGroupData, choicePath)}
-                  className={styles.removeButton}
-                  title={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
-                  aria-label={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}</TooltipContent>
-            </Tooltip>
-          )}
         </div>
 
         {children && (childrenBelow ? (
@@ -1682,6 +1694,23 @@ function XmlElementNode({
             {children}
           </div>
         ) : children)}
+
+        {showChoiceRemove && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => removeChoiceSelection(choiceGroupData, choicePath)}
+                className={styles.removeButton}
+                title={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
+                aria-label={`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}
+              >
+                <Trash2 size={14} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{`Remove selected ${choiceGroupData.selectedOption || 'choice'} option`}</TooltipContent>
+          </Tooltip>
+        )}
       </div>
     );
   };
@@ -2056,7 +2085,7 @@ function XmlElementNode({
 
     return (
       <>
-        {path.length === 0 && isSchemaForm && rootXsdAddButtons?.map(({ kind, label }) => (
+        {path.length === 0 && rootXsdAddButtons?.map(({ kind, label }) => (
           <button
             key={kind}
             type="button"
@@ -2157,13 +2186,16 @@ function XmlElementNode({
           if (renderedTriggerNames.has(normalizedChildLocal)) return null;
           renderedTriggerNames.add(normalizedChildLocal);
           if (
-            isSchemaForm &&
             path.length === 0 &&
             rootTopLevelKinds.size > 0 &&
             rootTopLevelKinds.has(normalizedChildLocal)
           ) return null;
 
           const count = getChildOccurrenceCount(value, childElementName);
+          // In schema form, suppress triggers for metadata elements (annotation, import, include, redefine)
+          // when at least one instance already exists, to avoid cluttering the trigger row.
+          const schemaMetadataNames = new Set(['annotation', 'import', 'include', 'redefine']);
+          if (isSchemaForm && schemaMetadataNames.has(normalizedChildLocal) && count > 0) return null;
           const maxOccurs = getChildMaxOccurs(childSchemaNode);
           const minOccurs = getChildMinOccurs(childSchemaNode);
           const choiceGroupInfo = getChoiceGroupForChild(childElementName);
@@ -2233,10 +2265,10 @@ function XmlElementNode({
               const canAdd = !isSelected && (count < trigger.maxOccurs);
               const maxLabel = Number.isFinite(trigger.maxOccurs) ? String(trigger.maxOccurs) : '∞';
               const addTitle = isSelected
-                ? `${trigger.name} already selected (${count}/${maxLabel})`
+                ? `${trigger.label} already selected (${count}/${maxLabel})`
                 : (selectedRootOption
-                  ? `Switch to ${trigger.name} (${count}/${maxLabel})`
-                  : (canAdd ? `Add ${trigger.name} (${count}/${maxLabel})` : `${trigger.name} reached maxOccurs (${maxLabel})`));
+                  ? `Switch to ${trigger.label} (${count}/${maxLabel})`
+                  : (canAdd ? `Add ${trigger.label} (${count}/${maxLabel})` : `${trigger.label} reached maxOccurs (${maxLabel})`));
 
               return (
                 <button
@@ -2268,7 +2300,7 @@ function XmlElementNode({
                   }}
                 >
                   <span style={{ fontSize: 10, lineHeight: 1 }}>{isSelected ? '●' : '+'}</span>
-                  <span>{trigger.name}</span>
+                  <span>{trigger.label}</span>
                   {isBelowMinimum && !isSelected && <span title="Required until minimum occurrences are met">!</span>}
                 </button>
               );
@@ -2389,6 +2421,25 @@ function XmlElementNode({
       {/* Expanded content: attributes and children */}
       {expanded && hasExpandableContent && (
         <div className={styles.objectContainer}>
+          {/* Root schema add buttons: shown outside the inferred-editor guard so xs:schema in non-schema-form
+              mode (no expansionStateKey) still gets the Add Element / Add ComplexType buttons.
+              Skip when isSchemaForm because that path handles them via the children trigger row. */}
+          {path.length === 0 && rootXsdAddButtons && rootXsdAddButtons.length > 0 && hasInferredEditor && !isSchemaForm && (
+            <div className={styles.elementTriggerRow} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', maxWidth: '100%', marginBottom: 8 }}>
+              {rootXsdAddButtons.map(({ kind, label }) => (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => onAddTopLevelXsdDefinition?.(kind)}
+                  title={label}
+                  aria-label={label}
+                  style={{ padding: '3px 8px', borderRadius: 12, border: '1px solid #ddd', backgroundColor: '#f9f9f9', cursor: 'pointer', fontSize: 11, fontWeight: 500, color: '#666', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           {hasAttributes && !hasInferredEditor && (
             <div
               className={styles.elementTriggerRow}
@@ -2918,12 +2969,11 @@ function XmlElementNode({
           {(() => {
             const cond1 = hasChildren;
             const cond2 = hasSchemaChildren;
-            const cond3 = path.length === 0 && isSchemaForm && rootXsdAddButtons && rootXsdAddButtons.length > 0;
+            const cond3 = path.length === 0 && rootXsdAddButtons && rootXsdAddButtons.length > 0;
             const cond4 = isSchemaForm && (currentNodeCompositorAddOptions.length > 0 || currentNodeRestrictionFacetAddOptions.length > 0);
             const shouldRender = cond1 || cond2 || cond3 || cond4;
             const isSchema = element?.tagName === 'xs:schema' || element?.tagName?.endsWith(':schema');
             if (isSchema || path.length === 0) {
-              console.log(`[ChildrenSection] ${element?.tagName} (path.len=${path.length}): hasChildren=${cond1}, hasSchemaChildren=${cond2}, rootXsd=${cond3}, compositorOrFacet=${cond4}, overall=${shouldRender}`);
             }
             return shouldRender;
           })() && (
@@ -2932,7 +2982,7 @@ function XmlElementNode({
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 {isSchemaForm || !hasInferredEditor ? (
                   <div className={styles.elementTriggerRow} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                    {path.length === 0 && isSchemaForm && rootXsdAddButtons && rootXsdAddButtons.length > 0 && rootXsdAddButtons.map(({ kind, label }) => (
+                    {path.length === 0 && rootXsdAddButtons && rootXsdAddButtons.length > 0 && rootXsdAddButtons.map(({ kind, label }) => (
                       <button
                         key={kind}
                         type="button"
@@ -3063,13 +3113,15 @@ function XmlElementNode({
                       if (renderedTriggerNames.has(normalizedChildLocal)) return null;
                       renderedTriggerNames.add(normalizedChildLocal);
                       const shouldSkipDuplicateRootTrigger =
-                        isSchemaForm &&
                         path.length === 0 &&
                         rootTopLevelKinds.size > 0 &&
                         rootTopLevelKinds.has(normalizedChildLocal);
                       if (shouldSkipDuplicateRootTrigger) return null;
 
                       const count = getChildOccurrenceCount(value, childElementName);
+                      // In schema form, suppress triggers for metadata elements when instances already exist.
+                      const schemaMetadataNames = new Set(['annotation', 'import', 'include', 'redefine']);
+                      if (isSchemaForm && schemaMetadataNames.has(normalizedChildLocal) && count > 0) return null;
                       const maxOccurs = getChildMaxOccurs(childSchemaNode);
                       const minOccurs = getChildMinOccurs(childSchemaNode);
                       const choiceGroupInfo = getChoiceGroupForChild(childElementName);
@@ -3126,14 +3178,11 @@ function XmlElementNode({
               )}
               {/* Walk the compiled schema structure, use instance data for values */}
               {(() => {
-                console.log(`[XmlElementNode] DEBUG: Rendering children section, schemaNode=${!!schemaNode}, schemaNode.children=${schemaNode?.children?.length}`);
                 const keys = value ? Object.keys(value).filter(k => !k.startsWith('@')) : [];
                 const actualValue = value ? JSON.stringify(value).substring(0, 100) : 'null';
                 const firstKey = keys.length > 0 ? keys[0] : 'none';
                 const elementChildrenCount = element?.children?.length || 0;
-                console.log(`[XmlElementNode] schemaNode for ${element?.tagName}: firstKey=${firstKey}, elementChildren=${elementChildrenCount}, allKeys=[${keys.join(', ')}], valuePreview=${actualValue}`);
                 if (element?.tagName === 'xs:schema') {
-                  console.log(`[XmlElementNode] xs:schema children condition check: schemaNode=${!!schemaNode}, schemaNode.children=${schemaNode?.children?.length}, choiceGroups=${choiceGroups.length}, choiceInfo=${choiceInfo.length}`);
                 }
                 return null;
               })()}
@@ -3200,7 +3249,6 @@ function XmlElementNode({
                     // Schema-driven rendering (default for all non-repeating-choice elements)
                     const localTagName = (schemaNode.tagName || '').replace(/^xs:/, '').toLowerCase();
                     if (isSchemaForm) {
-                      console.log('[SCHEMA DRIVEN]', localTagName, 'schemaNode.children.length:', schemaNode.children?.length);
                     }
                     const filtered = schemaNode.children
                       .map((childSchemaNode, index) => {
@@ -3271,12 +3319,39 @@ function XmlElementNode({
                       });
                     
                     if (isSchemaForm) {
-                      console.log(`[FILTERED CHILDREN] node=${localTagName}, count=${filtered.length}, children:`, filtered.map(f => f.childSchemaNode.label || f.childSchemaNode.tagName));
                     }
 
                     const finalFiltered: any[] = [];
+                    const seenFinalFiltering = new Set<string>();
+                    const pushFinalFilteredUnique = (entry: any) => {
+                      if (!entry || typeof entry !== 'object') return;
+                      const tagName = String(entry?.childSchemaNode?.tagName || entry?.childElementName || '').trim();
+                      const localName = tagName.replace(/^.*:/, '').toLowerCase();
+                      const payload = entry?.childElement ?? entry?.childSchemaNode?.schemaObj ?? entry?.childElementName ?? null;
+                      const signature = (() => {
+                        try {
+                          return JSON.stringify(payload, (_key, nestedValue) => {
+                            if (nestedValue && typeof nestedValue === 'object' && !Array.isArray(nestedValue)) {
+                              return Object.keys(nestedValue)
+                                .sort()
+                                .reduce((acc: Record<string, any>, key) => {
+                                  acc[key] = nestedValue[key];
+                                  return acc;
+                                }, {});
+                            }
+                            return nestedValue;
+                          });
+                        } catch {
+                          return String(payload ?? '');
+                        }
+                      })();
+                      const dedupeKey = `${localName}:${signature}`;
+                      if (seenFinalFiltering.has(dedupeKey)) return;
+                      seenFinalFiltering.add(dedupeKey);
+                      finalFiltered.push(entry);
+                    };
                     for (const item of filtered) {
-                      finalFiltered.push(item);
+                      pushFinalFilteredUnique(item);
                     }
 
                     if (isSchemaForm && value && typeof value === 'object' && !Array.isArray(value)) {
@@ -3337,6 +3412,35 @@ function XmlElementNode({
                       const presentMetadataNames = new Set(
                         orderedMetadataEntries.map(({ tagName }) => tagName.replace(/^.*:/, '').toLowerCase())
                       );
+                      const stableValueSignature = (value: any): string => {
+                        try {
+                          return JSON.stringify(value, (_key, nestedValue) => {
+                            if (nestedValue && typeof nestedValue === 'object' && !Array.isArray(nestedValue)) {
+                              return Object.keys(nestedValue)
+                                .sort()
+                                .reduce((acc: Record<string, any>, key) => {
+                                  acc[key] = nestedValue[key];
+                                  return acc;
+                                }, {});
+                            }
+                            return nestedValue;
+                          });
+                        } catch {
+                          return String(value ?? '');
+                        }
+                      };
+                      const dedupedMetadataEntries: Array<{ tagName: string; childValue: any }> = [];
+                      const seenMetadataSignatures = new Map<string, Set<string>>();
+                      for (const entry of orderedMetadataEntries) {
+                        const localName = entry.tagName.replace(/^.*:/, '').toLowerCase();
+                        const seen = seenMetadataSignatures.get(localName) || new Set<string>();
+                        const signature = stableValueSignature(entry.childValue);
+                        if (!seen.has(signature)) {
+                          seen.add(signature);
+                          seenMetadataSignatures.set(localName, seen);
+                          dedupedMetadataEntries.push(entry);
+                        }
+                      }
                       if (presentMetadataNames.size > 0) {
                         for (let i = finalFiltered.length - 1; i >= 0; i -= 1) {
                           const schemaTagName = String(finalFiltered[i]?.childSchemaNode?.tagName || '')
@@ -3349,11 +3453,11 @@ function XmlElementNode({
                         for (const name of presentMetadataNames) {
                           existingSchemaNames.delete(name);
                         }
-                        for (let i = orderedMetadataEntries.length - 1; i >= 0; i -= 1) {
-                          const { tagName, childValue } = orderedMetadataEntries[i];
+                        for (let i = dedupedMetadataEntries.length - 1; i >= 0; i -= 1) {
+                          const { tagName, childValue } = dedupedMetadataEntries[i];
                           const localName = tagName.replace(/^.*:/, '').toLowerCase();
                           const metadataNodes = metadataSchemaNodes.get(localName) || [];
-                          const annotationOrdinal = orderedMetadataEntries
+                          const annotationOrdinal = dedupedMetadataEntries
                             .slice(0, i)
                             .filter((entry) => entry.tagName.replace(/^.*:/, '').toLowerCase() === 'annotation')
                             .length;
@@ -3367,7 +3471,7 @@ function XmlElementNode({
                           finalFiltered.unshift({
                             childElement: childValue,
                             childSchemaNode: schemaNodeForOccurrence,
-                            index: 0,
+                            index: finalFiltered.length + (dedupedMetadataEntries.length - 1 - i),
                             instanceDriven: true,
                             childElementName: tagName,
                           });
@@ -3412,6 +3516,24 @@ function XmlElementNode({
                           });
                         }
                       }
+
+                      const metadataDeduped: any[] = [];
+                      const seenMetadataEntries = new Set<string>();
+                      for (const entry of finalFiltered) {
+                        const tagName = String(entry?.childSchemaNode?.tagName || entry?.childElementName || '').trim();
+                        const localTagName = tagName.replace(/^.*:/, '').toLowerCase();
+                        if (!orderedMetadataNames.has(localTagName)) {
+                          metadataDeduped.push(entry);
+                          continue;
+                        }
+                        const payload = entry?.childElement ?? entry?.childSchemaNode?.schemaObj ?? entry?.childElementName ?? '';
+                        const signature = stableValueSignature(payload);
+                        const dedupeKey = `${localTagName}:${signature}`;
+                        if (seenMetadataEntries.has(dedupeKey)) continue;
+                        seenMetadataEntries.add(dedupeKey);
+                        metadataDeduped.push(entry);
+                      }
+                      return metadataDeduped;
                     }
 
                     return finalFiltered;
@@ -3481,7 +3603,6 @@ function XmlElementNode({
                   
                   // Debug: Log all choice lookups in non-schema forms
                   if (!isSchemaForm && choiceGroups.length > 0) {
-                    console.log('[CHOICE DEBUG] Element:', element?.tagName, 'child:', childElementName, 'choiceGroups.length:', choiceGroups.length);
                   }
                   
                   // Find the actual child element from DOM for instance-driven rendering
@@ -3498,7 +3619,6 @@ function XmlElementNode({
                   
                   // Debug: Log choice group lookup in non-schema forms
                   if (!isSchemaForm && choiceGroupIndex >= 0) {
-                    console.log('[CHOICE DEBUG] Element:', element?.tagName, '- child:', childElementName, 'in choice group:', choiceGroupIndex);
                   }
                   
                   let choiceGroupData = null;
@@ -3507,12 +3627,6 @@ function XmlElementNode({
                     
                     // Debug: Log final choice group data in non-schema forms
                     if (!isSchemaForm) {
-                      console.log('[CHOICE DEBUG] choiceGroupData:', {
-                        childElementName,
-                        selectedOption: choiceGroupData?.selectedOption,
-                        options: choiceGroupData?.options?.map(o => o.name),
-                        isExclusive: choiceGroupData?.isExclusive,
-                      });
                     }
                   }
                   
@@ -3611,18 +3725,15 @@ function XmlElementNode({
                   
                   // Debug: Log what we're about to render for schema form
                   if (isSchemaForm) {
-                    console.log('[CHILD RENDER]', childElementName, '- isArray:', Array.isArray(effectiveChildInstanceData), 'isSimple:', isSimpleChild, 'hasElementToRender:', !!elementToRender);
                   }
                   
                   // For choice group elements, log and continue to normal rendering
                   // We want all choice members to render as individual expandable nodes
                   // Only render with choice dropdown if this element is actually marked as choice type
                   if (choiceGroupData && !choiceGroupData.isExclusive && childSchemaNode?.compositorType === 'choice') {
-                    console.log('[REPEATING CHOICE SCHEMA]', childElementName, '- choiceKey:', choiceGroupData.choiceKey);
                     
                     // For non-array choice children, render as single choice item
                     if (!Array.isArray(effectiveChildInstanceData) && elementToRender) {
-                      console.log('[NON-ARRAY CHOICE]', childElementName, '- rendering as choice item');
                       const rowPath = [...path, childElementName];
                       const rowPathKey = rowPath.join('.');
                       const rowCollapsedKey = `__collapsed__:${rowPathKey}`;
@@ -3763,14 +3874,34 @@ function XmlElementNode({
                   if (Array.isArray(effectiveChildInstanceData)) {
                     const childMinOccurs = getChildMinOccurs(childSchemaNode);
                     if (isSchemaForm) {
-                      console.log('[ARRAY BRANCH]', childElementName, '- arrayLength:', effectiveChildInstanceData.length, 'childMinOccurs:', childMinOccurs);
                     }
+                    // Pre-collect parsed XmlElement children matching this tag name from
+                    // the parsed element tree, so array items get the correct tagName and
+                    // attributes (avoiding passing raw schema objects without tagName).
+                    const matchingParsedChildren = (element?.children || [])
+                      .filter((c): c is XmlElement => typeof c !== 'string' && (
+                        c.tagName === childElementName ||
+                        c.tagName.replace(/^.*:/, '') === childElementName.replace(/^.*:/, '')
+                      ));
                     // Render each array element
                     // For choice groups, show the dropdown before the first element
-                    const arrayItems = effectiveChildInstanceData.map((child, arrayIndex) => (
+                    const arrayItems = effectiveChildInstanceData.map((child, arrayIndex) => {
+                      // Use the pre-parsed element from element.children when available to get
+                      // the correct tagName + attributes for inference/editing. Strip children
+                      // to prevent deep recursive expansion with autoExpandAll.
+                      // In schema form, the tagName is needed so inferredSchemaKind detects xs:attribute etc.
+                      // In non-schema-form, the tagName is needed so inferredSchemaKind is undefined (no
+                      // inferred editor, allowing the attribute trigger row to render with Remove buttons).
+                      const parsedFromTree = matchingParsedChildren[arrayIndex];
+                      const resolvedElement = parsedFromTree
+                        ? { ...parsedFromTree, tagName: isSchemaForm ? parsedFromTree.tagName : childElementName, children: [] }
+                        : (child && typeof child === 'object' && typeof (child as any).tagName !== 'string'
+                          ? (parseXmlElement(child, childElementName) || child)
+                          : child);
+                      return (
                       <div key={`${childElementName}-${arrayIndex}`} style={{ position: 'relative' }}>
                         <XmlElementNode
-                          element={child}
+                          element={resolvedElement}
                           path={[...path, childElementName, String(arrayIndex)]}
                           expandedPaths={expandedPaths}
                           onToggleExpand={onToggleExpand}
@@ -3782,6 +3913,8 @@ function XmlElementNode({
                           autoExpandAll={autoExpandAll}
                           schemaNode={childSchemaNode}
                           compiledSchema={compiledSchema}
+                          initialAutoExpandPathsRef={initialAutoExpandPathsRef}
+                          autoExpandCaptureActiveRef={autoExpandCaptureActiveRef}
                           isSchemaForm={isSchemaForm}
                         />
                         {effectiveChildInstanceData.length > childMinOccurs && (
@@ -3814,13 +3947,13 @@ function XmlElementNode({
                           </Tooltip>
                         )}
                       </div>
-                    ));
+                      );
+                    });
                     
                     // If this element is the currently selected option in a choice group, wrap array items with choice dropdown
                     // For exclusive choices: show one dropdown for all occurrences
                     // For repeatable choices: show dropdown for each occurrence
                     if (isSchemaForm) {
-                      console.log('[ARRAY CHOICE CHECK]', childElementName, '- choiceGroupData:', !!choiceGroupData, 'isExclusive:', choiceGroupData?.isExclusive, 'selectedOption:', choiceGroupData?.selectedOption);
                     }
                     if (choiceGroupData?.isExclusive && choiceGroupData.selectedOption === childElementName && childSchemaNode?.compositorType === 'choice') {
                       // Setup expansion tracking for exclusive choice array
@@ -3988,7 +4121,6 @@ function XmlElementNode({
                     }
                     
                     if (isSchemaForm) {
-                      console.log('[RETURN ARRAY ITEMS]', childElementName, '- arrayItems count:', arrayItems.length);
                     }
                     return <div key={`array-${childElementName}-${index}`}>{arrayItems}</div>;
                   } else if (isSimpleChild && effectiveChildInstanceData !== undefined && effectiveChildInstanceData !== null) {
@@ -4092,7 +4224,6 @@ function XmlElementNode({
                   } else if (elementToRender) {
                     // Render complex child elements as expandable nodes
                     if (isSchemaForm) {
-                      console.log('[ABOUT TO RENDER XmlElementNode]', childElementName, '- key:', index, 'elementToRender:', elementToRender, 'childSchemaNode:', childSchemaNode);
                     }
                     
                     if (choiceGroupData && choiceGroupData.selectedOption === childElementName) {
@@ -4234,7 +4365,6 @@ function XmlElementNode({
                   }
                   
                   if (isSchemaForm) {
-                    console.log('[NO RENDER PATH]', childElementName, '- isArray:', Array.isArray(effectiveChildInstanceData), 'isSimple:', isSimpleChild, 'hasElementToRender:', !!elementToRender, 'isFacetOrContainer:', isFacetOrContainer, 'childSchemaNode:', childSchemaNode);
                   }
                   return null;
                 })
@@ -4260,7 +4390,6 @@ function XmlElementNode({
                 const isSimpleChild = !isContainerParent && child.children.length === 0 && child.attributes.length === 0;
                 
                 if (isContainerParent && isSchemaForm) {
-                  console.log(`[Container parent child] tagName=${child.tagName}, children=${child.children.length}, attrs=${child.attributes.length}, text="${(child.text || '').substring(0, 30)}"`);
                 }
                 
                 if (isSimpleChild) {
@@ -4401,13 +4530,11 @@ function XmlElementNode({
           {/* Render enumeration facets directly if this simpleType has a restriction with enumerations */}
           {isSchemaForm && localTagName === 'simpleType' && (
             (() => {
-              console.log(`[SIMPLETYPE CHECK] schemaNode.schemaObj:`, schemaNode?.schemaObj);
               const schemaFormValue = value && typeof value === 'object' && !Array.isArray(value)
                 ? value
                 : null;
               const simpleTypeDef = schemaFormValue;
               if (!simpleTypeDef || typeof simpleTypeDef !== 'object') {
-                console.log('[SIMPLETYPE] No simpleType value found');
                 return null;
               }
               const restriction = simpleTypeDef['xs:restriction'] || simpleTypeDef['restriction'];
@@ -4427,7 +4554,6 @@ function XmlElementNode({
               }).filter((v: string) => v);
 
               if (enumerationValues.length > 0) {
-                console.log(`[SIMPLETYPE ENUMS] Found ${enumerationValues.length} enumerations:`, enumerationValues);
                 return (
                   <div style={{ marginTop: 12, paddingLeft: 20, backgroundColor: '#f0f8ff', border: '1px solid #4da6ff', padding: '8px' }}>
                     <div style={{ fontSize: 12, color: '#0047b2', marginBottom: 8, textTransform: 'uppercase', fontWeight: 'bold' }}>
@@ -4610,14 +4736,11 @@ function XmlInstanceFormContent({
   // Debug logging
   useEffect(() => {
     if (rootSchema && Object.keys(rootSchema).length > 0) {
-      console.log('[XmlInstanceForm] rootSchema loaded, keys:', Object.keys(rootSchema).slice(0, 10));
       // Log schema structure for debugging
       const schemaKeys = Object.keys(rootSchema);
       if (schemaKeys.includes('xs:schema') || schemaKeys.includes('schema')) {
-        console.log('[XmlInstanceForm] Found xs:schema or schema key');
         const schemaObj = rootSchema['xs:schema'] || rootSchema['schema'];
         if (schemaObj) {
-          console.log('[XmlInstanceForm] Schema object keys:', Object.keys(schemaObj).slice(0, 10));
         }
       }
     }
@@ -4661,6 +4784,15 @@ function XmlInstanceFormContent({
 
   const initialAutoExpandPathsRef = useRef<Set<string>>(new Set());
   const autoExpandCaptureActiveRef = useRef(Boolean(autoExpandAll));
+  const autoExpandScopeRef = useRef({ expansionStorageKey, autoExpandAll });
+  if (
+    autoExpandScopeRef.current.expansionStorageKey !== expansionStorageKey ||
+    autoExpandScopeRef.current.autoExpandAll !== autoExpandAll
+  ) {
+    autoExpandScopeRef.current = { expansionStorageKey, autoExpandAll };
+    initialAutoExpandPathsRef.current = new Set();
+    autoExpandCaptureActiveRef.current = Boolean(autoExpandAll);
+  }
   const isSchemaForm = expansionStateKey === 'xml-schema-form-expanded';
 
   useEffect(() => {
@@ -4669,7 +4801,6 @@ function XmlInstanceFormContent({
       return;
     }
 
-    initialAutoExpandPathsRef.current = new Set();
     autoExpandCaptureActiveRef.current = true;
     const timeoutId = window.setTimeout(() => {
       autoExpandCaptureActiveRef.current = false;
@@ -4762,11 +4893,6 @@ function XmlInstanceFormContent({
 
   const rootElement = useMemo(() => {
     const parsed = parseValue();
-    console.log('[XmlInstanceForm] rootElement computed:', {
-      tagName: parsed?.tagName,
-      childrenCount: parsed?.children?.length || 0,
-      valueLength: JSON.stringify(value || {}).length,
-    });
     return parsed;
   }, [schema, value]);
 
@@ -4912,13 +5038,6 @@ function XmlInstanceFormContent({
       // Debug for schema element
       if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
         const schemaElem = compiled.getElement('schema') || compiled.getElement('xs:schema');
-        console.log('[compiledSchema] For xs:schema element:', {
-          rootSchemaExists: !!rootSchema,
-          schemaExists: !!schema,
-          schemaTargetNamespace: unwrappedSchema?.['@attributes']?.targetNamespace || unwrappedSchema?.targetNamespace,
-          schemaElementDefFound: !!schemaElem,
-          schemaElementType: schemaElem?.['@attributes']?.type || schemaElem?.type,
-        });
       }
       
       return compiled;
@@ -4934,7 +5053,6 @@ function XmlInstanceFormContent({
   const schemaNode = useMemo(() => {
     if (!rootElement || !compiledSchema) {
       if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
-        console.log('[schemaNode] Missing dependencies for xs:schema:', { rootElement: !!rootElement, compiledSchema: !!compiledSchema });
       }
       return undefined;
     }
@@ -4943,11 +5061,9 @@ function XmlInstanceFormContent({
       // Get the element definition directly from compiled schema
       const elementDef = compiledSchema.getElement(rootElement.tagName);
       if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
-        console.log('[schemaNode] Looking for element:', rootElement.tagName, '-> found:', !!elementDef);
       }
       if (!elementDef) {
         if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
-          console.log('[schemaNode] Element not found in compiled schema:', rootElement.tagName);
         }
         return undefined;
       }
@@ -4992,15 +5108,14 @@ function XmlInstanceFormContent({
       
       if (!typeName) {
         if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
-          console.log('[schemaNode] No type found for element:', rootElement.tagName);
         }
         return undefined;
       }
       
       // Walk the type to get its schema node structure
-      const unwrappedRootSchema = rootSchema ? (rootSchema['xs:schema'] || rootSchema['schema'] || rootSchema) : null;
+      const walkingSchema = schema || rootSchema;
       const walked = walkSchema(compiledSchema, {
-        rootSchema: unwrappedRootSchema || schema,
+        rootSchema: getSchemaRootNode(walkingSchema) || walkingSchema,
         compiledSchema,
         visitedTypes: new Set(),
         typeName,
@@ -5011,18 +5126,6 @@ function XmlInstanceFormContent({
       });
       
       if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
-        console.log('[schemaNode] Schema walked successfully:', {
-          tagName: walked?.tagName,
-          label: walked?.label,
-          nodeType: walked?.nodeType,
-          compositorType: walked?.compositorType,
-          elementType: walked?.elementType,
-          children: walked?.children?.length,
-          attributes: walked?.attributes?.length,
-          minOccurs: walked?.minOccurs,
-          maxOccurs: walked?.maxOccurs,
-          childNames: walked?.children?.map(c => c.tagName || c.label),
-        });
       }
       
       return walked;
@@ -5081,8 +5184,6 @@ function XmlInstanceFormContent({
   const handleUpdateValue = (pathArray: string[], updateFn: (v: any) => any) => {
     const current = value || schema;
     if (!current || typeof current !== 'object') return;
-
-    console.log('[debug-handleUpdateValue-start]', { pathArray, current, wrapperKey });
 
     // Deep clone the current value.
     const updated = JSON.parse(JSON.stringify(current));
@@ -5155,7 +5256,6 @@ function XmlInstanceFormContent({
       const index = Number.parseInt(lastSegment, 10);
       if (!Number.isFinite(index) || index < 0) return;
       const nextValue = updateFn(target[index]);
-      console.log('[debug-handleUpdateValue-array]', { target, index, nextValue });
       target[index] = nextValue;
     } else {
       if (lastIsIndex) {
@@ -5187,11 +5287,8 @@ function XmlInstanceFormContent({
       }
 
       const nextValue = updateFn(target[lastSegment]);
-      console.log('[debug-handleUpdateValue-object]', { lastSegment, target, nextValue });
       target[lastSegment] = nextValue;
     }
-
-    console.log('[debug-handleUpdateValue-finish]', { updated });
     onChange(updated);
   };
 
@@ -5213,7 +5310,11 @@ function XmlInstanceFormContent({
         initialAutoExpandPathsRef={initialAutoExpandPathsRef}
         autoExpandCaptureActiveRef={autoExpandCaptureActiveRef}
         isSchemaForm={isSchemaForm}
-        rootXsdAddButtons={isSchemaForm ? topLevelXsdAddButtons : undefined}
+        rootXsdAddButtons={(isSchemaForm || Boolean(
+          rootElement?.tagName === 'xs:schema' ||
+          rootElement?.tagName === 'schema' ||
+          (rootElement?.tagName && /^[a-z]+:schema$/i.test(rootElement.tagName))
+        )) ? topLevelXsdAddButtons : undefined}
         onAddTopLevelXsdDefinition={addTopLevelXsdDefinition}
       />
     </div>

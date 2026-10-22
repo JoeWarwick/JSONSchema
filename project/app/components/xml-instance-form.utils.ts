@@ -159,6 +159,25 @@ export function resolveInstanceChildData(
     `xsd:${normalizedBase}`,
   ].filter(Boolean));
 
+  const findMatchesInOrderedEntries = (container: any): any[] => {
+    if (!container || typeof container !== 'object' || !Array.isArray(container.__childrenInOrder)) return [];
+
+    const matches = container.__childrenInOrder.filter((entry: any) => {
+      if (!entry || typeof entry !== 'object') return false;
+      const tagName = typeof entry.tagName === 'string' ? entry.tagName : '';
+      const tagLocal = normalizeXmlName(tagName);
+      return candidateNames.has(tagName) || candidateNames.has(tagLocal) || candidateNames.has(normalizeXmlName(tagName));
+    });
+
+    return matches.map((entry: any) => entry.value);
+  };
+
+  const directValue = value && typeof value === 'object' ? value : null;
+  if (directValue) {
+    const orderedMatches = findMatchesInOrderedEntries(directValue);
+    if (orderedMatches.length > 0) return orderedMatches.length === 1 ? orderedMatches[0] : orderedMatches;
+  }
+
   for (const key of candidateNames) {
     const result = value?.[key];
     if (result !== undefined) return result;
@@ -167,7 +186,11 @@ export function resolveInstanceChildData(
   if (isRootLevel && rootElementName && value && typeof value === 'object' && !Array.isArray(value)) {
     const wrapperKey = findRootWrapperKey(value, rootElementName);
     const unwrappedValue = wrapperKey ? value[wrapperKey] : value[rootElementName];
+
     if (typeof unwrappedValue === 'object' && unwrappedValue !== null) {
+      const orderedMatches = findMatchesInOrderedEntries(unwrappedValue);
+      if (orderedMatches.length > 0) return orderedMatches.length === 1 ? orderedMatches[0] : orderedMatches;
+
       for (const key of candidateNames) {
         const result = unwrappedValue[key];
         if (result !== undefined) return result;
