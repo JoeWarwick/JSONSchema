@@ -184,7 +184,7 @@ export const messages: Record<SupportedLocale, MessageCatalog> = {
     workbench: {
       language: "Language",
       schemaMenu: "Schema",
-      markupMenu: "{language} Document",
+      markupMenu: "{language} Doc",
       aboutTitle: "Schema Sculptor",
       aboutSubtitle: "JSON Schema Workbench",
       aboutDescription: "Generate and modify JSON schemas with an intuitive form-based editor.",
