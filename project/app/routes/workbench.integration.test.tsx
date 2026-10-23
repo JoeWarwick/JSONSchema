@@ -2,7 +2,7 @@ import React from 'react';
 import fs from 'fs';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import Workbench from './workbench';
+import { Workbench } from './workbench';
 import { parseMarkup } from '~/utils/markup';
 
 const STORAGE_KEY = 'schema-sculptor-schema';

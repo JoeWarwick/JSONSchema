@@ -1,0 +1,72 @@
+.container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  color: var(--color-neutral-12);
+  background: var(--color-neutral-1);
+}
+.menu, .tabs, .fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+}
+.menu, .tabs {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-neutral-6);
+}
+.tabs button[aria-selected="true"] {
+  border-bottom: 2px solid var(--color-primary-7);
+}
+.panel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+.container label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.container button, .container input, .container select {
+  font: inherit;
+  padding: 6px 10px;
+  color: inherit;
+  background: var(--color-neutral-2);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: 4px;
+}
+.container button:disabled {
+  opacity: 0.5;
+}
+.container .checkbox {
+  flex-direction: row;
+  align-items: center;
+}
+.endpoint {
+  margin-top: 16px;
+  border: 1px solid var(--color-neutral-6);
+}
+.error {
+  padding: 12px;
+  border: 1px solid var(--color-neutral-8);
+}
+.warning {
+  padding-left: 12px;
+  border-left: 3px solid var(--color-neutral-8);
+}
+.editor {
+  margin: 16px 0;
+}
+.editor textarea {
+  min-height: 320px;
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font: 13px/1.5 monospace;
+  padding: 12px;
+  color: inherit;
+  background: var(--color-neutral-2);
+  border: 1px solid var(--color-neutral-6);
+}

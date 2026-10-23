@@ -1,4 +1,5 @@
 import React from 'react';
+import { HelpTip } from './help-tip';
 import type { InlineSimpleTypeData, XmlNodeRhsEditorProps } from './types';
 import { XmlAnnotationFieldAuto } from './xml-editor-controls';
 import { InlineSimpleTypeEditor, ReferencedEnumerationList, XmlTypeSelector } from './xml-simple-type-controls';
@@ -214,9 +215,9 @@ export function XmlInstanceAttributeEditor({ node, onChange, readOnlySource, get
         />
       </label>
       {hasInlineSimpleType && (
-        <div style={{ fontSize: 12, color: 'var(--graph-muted)' }}>
+        <HelpTip>
           This attribute has an inline SimpleType. Select its child node to edit it.
-        </div>
+        </HelpTip>
       )}
       {referencedEnumerations.length > 0 && (
         <ReferencedEnumerationList values={referencedEnumerations} typeName={referencedTypeName} />

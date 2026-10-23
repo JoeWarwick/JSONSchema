@@ -1,4 +1,5 @@
 import type { ValidationFacets } from '../utils/schema-compiler';
+import { browserStorage } from '../state/workbench-context';
 
 export function generateChoiceStorageKey(instanceXml: any, path: string[], optionName: string): string {
   const normalizedPath = path.length > 0 ? path.join('/') : 'root';
@@ -7,20 +8,20 @@ export function generateChoiceStorageKey(instanceXml: any, path: string[], optio
   return `choice_${normalizedPath}_${normalizedOptionName}`;
 }
 
-export function saveChoiceDataToStorage(instanceXml: any, path: string[], optionName: string, data: any): void {
+export function saveChoiceDataToStorage(instanceXml: any, path: string[], optionName: string, data: any, storage: Storage = browserStorage): void {
   try {
     const key = generateChoiceStorageKey(instanceXml, path, optionName);
-    localStorage.setItem(key, JSON.stringify(data));
+    storage.setItem(key, JSON.stringify(data));
     console.log(`[ChoiceStorage] Saved ${optionName} to ${key}`);
   } catch (error) {
     console.warn('[ChoiceStorage] Failed to save choice data:', error);
   }
 }
 
-export function restoreChoiceDataFromStorage(instanceXml: any, path: string[], optionName: string): any {
+export function restoreChoiceDataFromStorage(instanceXml: any, path: string[], optionName: string, storage: Storage = browserStorage): any {
   try {
     const key = generateChoiceStorageKey(instanceXml, path, optionName);
-    const stored = localStorage.getItem(key);
+    const stored = storage.getItem(key);
     if (stored) {
       console.log(`[ChoiceStorage] Restored ${optionName} from ${key}`);
       return JSON.parse(stored);

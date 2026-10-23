@@ -72,6 +72,10 @@
   padding: 0;
 }
 
+.embeddedContainer {
+  height: 100%;
+}
+
 /* ── App menu bar ─────────────────────────────────────────────────── */
 .menuBar {
   display: flex;

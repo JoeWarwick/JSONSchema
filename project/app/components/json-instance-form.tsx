@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
+import { HelpTip } from './help-tip';
+import { useWorkbenchStorage } from "../state/workbench-context";
 import styles from "./json-instance-form.module.css";
 import Select from "react-select";
 import CreatableSelect from "react-select/creatable";
@@ -110,6 +112,7 @@ const resolveLocalRefSchema = (
 };
 
 export function JsonInstanceForm({ schema: rawSchema, value, onChange, path = [], rootSchema, autoFocus = false }: JsonInstanceFormProps) {
+  const localStorage = useWorkbenchStorage();
   const rootSchemaRef = rootSchema ?? rawSchema;
   const schema = useMemo(
     () => resolveLocalRefSchema(rawSchema, rootSchemaRef),
@@ -1454,11 +1457,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                 })()}
               </div>
             )}
-            {helperText && (
-              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--color-info, #0066cc)', fontStyle: 'italic' }}>
-                {helperText}
-              </div>
-            )}
+            {helperText && <HelpTip>{helperText}</HelpTip>}
             {deprecatedFlag && <div style={{ color: '#b07', marginTop: 6, fontSize: 12 }}>Deprecated</div>}
             {inputError && !patternAttr && <div style={{ color: 'red', marginTop: 6 }}>{inputError}</div>}
             {patternAttr && stringPatternTouched && inputError && <div style={{ color: 'red', marginTop: 6 }}>{inputError}</div>}
@@ -1774,7 +1773,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                       onChange={setRenameDraft}
                       onCommit={commitRename}
                       onCancel={() => setCreatingPropKey(null)}
-                      hint={<div style={{ fontSize: 11, color: '#666', marginLeft: 8 }}>Enter to confirm — Esc to cancel</div>}
+                      hint={<HelpTip>Enter to confirm — Esc to cancel</HelpTip>}
                     />
                   ) : (
                     <>
@@ -1838,7 +1837,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                       setCreatingPropKey(null);
                     }}
                     onCancel={() => setCreatingPropKey(null)}
-                    hint={<div data-testid="rename-hint" style={{ fontSize: 11, color: '#666', marginLeft: 8 }}>Press Enter — Esc to cancel</div>}
+                    hint={<HelpTip>Press Enter — Esc to cancel</HelpTip>}
                   />
                 ) : (
                   <>
@@ -1901,7 +1900,7 @@ function FocusStringInputEffect({ inputRef }: { inputRef: React.RefObject<HTMLIn
                   setCreatingPropKey(null);
                 }}
                 onCancel={() => setCreatingPropKey(null)}
-                hint={<div data-testid="rename-hint" style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>Press Enter to confirm — Esc to cancel</div>}
+                hint={<HelpTip>Press Enter to confirm — Esc to cancel</HelpTip>}
               />
             </div>
             <JsonInstanceForm

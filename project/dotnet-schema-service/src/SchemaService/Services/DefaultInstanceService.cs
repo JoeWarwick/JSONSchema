@@ -164,7 +164,12 @@ public sealed class DefaultInstanceService
         if (TryResolveComplexType(element, schema) is XmlSchemaComplexType complexType)
         {
             if (string.Equals(localName, "stylesheet", StringComparison.Ordinal) &&
-                string.Equals(namespaceUri, "http://www.w3.org/1999/XSL/Transform", StringComparison.Ordinal))
+                string.Equals(namespaceUri, "http://www.w3.org/1999/XSL/Transform", StringComparison.Ordinal) &&
+                !EnumerateDeclaredAttributes(complexType).Any(attribute =>
+                    string.Equals(attribute.Name, "version", StringComparison.Ordinal) &&
+                    (attribute.Use == XmlSchemaUse.Required ||
+                     attribute.DefaultValue is not null ||
+                     attribute.FixedValue is not null)))
             {
                 writer.WriteAttributeString("version", "2.0");
             }

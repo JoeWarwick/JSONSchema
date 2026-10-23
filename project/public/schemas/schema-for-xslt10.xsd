@@ -1,0 +1,417 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+           targetNamespace="http://www.w3.org/1999/XSL/Transform"
+           elementFormDefault="qualified" attributeFormDefault="unqualified">
+  <xs:annotation>
+    <xs:documentation>
+      Schema Sculptor XSLT 1.0 authoring schema. Application-maintained, not a
+      normative or official W3C schema. Independently authored using the XSLT 1.0
+      Recommendation (https://www.w3.org/TR/xslt-10/) and the vocabulary described
+      by https://www.w3.org/1999/11/xslt10.dtd.
+      This offline XSD 1.0 describes all 35 XSLT 1.0 elements. It does not validate
+      XPath, match patterns, attribute value templates, binding rules, or all
+      context-dependent constraints. Compile stylesheets with an XSLT processor.
+      Foreign and unqualified result/extension subtrees are accepted without
+      validation; XSLT instructions inside those subtrees are not checked.
+      Simplified stylesheets whose root is a literal-result element require
+      processor validation. Forward-compatible versions above 1.0 are not accepted.
+    </xs:documentation>
+  </xs:annotation>
+
+  <xs:simpleType name="yes-no">
+    <xs:restriction base="xs:token">
+      <xs:enumeration value="yes"/>
+      <xs:enumeration value="no"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="qnames">
+    <xs:list itemType="xs:QName"/>
+  </xs:simpleType>
+  <xs:simpleType name="prefix">
+    <xs:union memberTypes="xs:NCName">
+      <xs:simpleType>
+        <xs:restriction base="xs:token">
+          <xs:enumeration value="#default"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:union>
+  </xs:simpleType>
+  <xs:simpleType name="prefixes">
+    <xs:list itemType="xsl:prefix"/>
+  </xs:simpleType>
+  <xs:simpleType name="character">
+    <xs:restriction base="xs:string">
+      <xs:length value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="number-level">
+    <xs:restriction base="xs:token">
+      <xs:enumeration value="single"/>
+      <xs:enumeration value="multiple"/>
+      <xs:enumeration value="any"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:attribute name="version" type="xs:decimal" fixed="1.0">
+    <xs:annotation><xs:documentation>Marks a literal-result element as an XSLT 1.0 simplified stylesheet.</xs:documentation></xs:annotation>
+  </xs:attribute>
+  <xs:attribute name="extension-element-prefixes" type="xsl:prefixes">
+    <xs:annotation><xs:documentation>Namespace prefixes identifying extension instructions.</xs:documentation></xs:annotation>
+  </xs:attribute>
+  <xs:attribute name="exclude-result-prefixes" type="xsl:prefixes">
+    <xs:annotation><xs:documentation>Namespace prefixes to omit from literal results when not otherwise needed.</xs:documentation></xs:annotation>
+  </xs:attribute>
+  <xs:attribute name="use-attribute-sets" type="xsl:qnames">
+    <xs:annotation><xs:documentation>Named attribute sets to apply to a literal-result element.</xs:documentation></xs:annotation>
+  </xs:attribute>
+
+  <xs:attributeGroup name="foreign-attributes">
+    <xs:anyAttribute namespace="##other" processContents="lax"/>
+  </xs:attributeGroup>
+  <xs:group name="instructions">
+    <xs:choice>
+      <xs:element ref="xsl:apply-imports"/>
+      <xs:element ref="xsl:apply-templates"/>
+      <xs:element ref="xsl:attribute"/>
+      <xs:element ref="xsl:call-template"/>
+      <xs:element ref="xsl:choose"/>
+      <xs:element ref="xsl:comment"/>
+      <xs:element ref="xsl:copy"/>
+      <xs:element ref="xsl:copy-of"/>
+      <xs:element ref="xsl:element"/>
+      <xs:element ref="xsl:fallback"/>
+      <xs:element ref="xsl:for-each"/>
+      <xs:element ref="xsl:if"/>
+      <xs:element ref="xsl:message"/>
+      <xs:element ref="xsl:number"/>
+      <xs:element ref="xsl:processing-instruction"/>
+      <xs:element ref="xsl:text"/>
+      <xs:element ref="xsl:value-of"/>
+      <xs:element ref="xsl:variable"/>
+      <xs:any namespace="##other" processContents="skip"/>
+      <xs:any namespace="##local" processContents="skip"/>
+    </xs:choice>
+  </xs:group>
+  <xs:complexType name="sequence-constructor" mixed="true">
+    <xs:group ref="xsl:instructions" minOccurs="0" maxOccurs="unbounded"/>
+    <xs:attributeGroup ref="xsl:foreign-attributes"/>
+  </xs:complexType>
+
+  <xs:complexType name="stylesheet">
+    <xs:sequence>
+      <xs:element ref="xsl:import" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:choice minOccurs="0" maxOccurs="unbounded">
+        <xs:element ref="xsl:include"/>
+        <xs:element ref="xsl:strip-space"/>
+        <xs:element ref="xsl:preserve-space"/>
+        <xs:element ref="xsl:output"/>
+        <xs:element ref="xsl:key"/>
+        <xs:element ref="xsl:decimal-format"/>
+        <xs:element ref="xsl:attribute-set"/>
+        <xs:element ref="xsl:variable"/>
+        <xs:element ref="xsl:param"/>
+        <xs:element ref="xsl:template"/>
+        <xs:element ref="xsl:namespace-alias"/>
+        <xs:any namespace="##other" processContents="skip"/>
+      </xs:choice>
+    </xs:sequence>
+    <xs:attribute name="version" type="xs:decimal" use="required" fixed="1.0">
+      <xs:annotation><xs:documentation>Stylesheet language version; this authoring profile targets 1.0 only.</xs:documentation></xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="id" type="xs:ID"/>
+    <xs:attribute name="extension-element-prefixes" type="xsl:prefixes"/>
+    <xs:attribute name="exclude-result-prefixes" type="xsl:prefixes"/>
+    <xs:attributeGroup ref="xsl:foreign-attributes"/>
+  </xs:complexType>
+  <xs:element name="stylesheet" type="xsl:stylesheet">
+    <xs:annotation><xs:documentation>Root stylesheet containing imports followed by declarations and templates.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="transform" type="xsl:stylesheet">
+    <xs:annotation><xs:documentation>Alternative root name with the same meaning as xsl:stylesheet.</xs:documentation></xs:annotation>
+  </xs:element>
+
+  <xs:complexType name="module-reference">
+    <xs:attribute name="href" type="xs:anyURI" use="required">
+      <xs:annotation><xs:documentation>URI of another stylesheet module. The execution environment controls resolution.</xs:documentation></xs:annotation>
+    </xs:attribute>
+    <xs:attributeGroup ref="xsl:foreign-attributes"/>
+  </xs:complexType>
+  <xs:element name="import" type="xsl:module-reference">
+    <xs:annotation><xs:documentation>Imports a module at lower precedence. Imports precede all other top-level elements.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="include" type="xsl:module-reference">
+    <xs:annotation><xs:documentation>Includes a stylesheet module at the same import precedence.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:complexType name="space-control">
+    <xs:attribute name="elements" type="xs:string" use="required">
+      <xs:annotation><xs:documentation>Whitespace-separated element name tests, including * or prefix:*.</xs:documentation></xs:annotation>
+    </xs:attribute>
+    <xs:attributeGroup ref="xsl:foreign-attributes"/>
+  </xs:complexType>
+  <xs:element name="strip-space" type="xsl:space-control">
+    <xs:annotation><xs:documentation>Removes whitespace-only source text nodes for the selected element names.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="preserve-space" type="xsl:space-control">
+    <xs:annotation><xs:documentation>Preserves whitespace-only source text nodes for the selected element names.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="output">
+    <xs:annotation><xs:documentation>Controls result serialization, not the stylesheet language version.</xs:documentation></xs:annotation>
+    <xs:complexType>
+      <xs:attribute name="method" type="xs:QName">
+        <xs:annotation><xs:documentation>xml, html, text, or a namespace-qualified extension method.</xs:documentation></xs:annotation>
+      </xs:attribute>
+      <xs:attribute name="version" type="xs:NMTOKEN"/>
+      <xs:attribute name="encoding" type="xs:string"/>
+      <xs:attribute name="omit-xml-declaration" type="xsl:yes-no"/>
+      <xs:attribute name="standalone" type="xsl:yes-no"/>
+      <xs:attribute name="doctype-public" type="xs:string"/>
+      <xs:attribute name="doctype-system" type="xs:string"/>
+      <xs:attribute name="cdata-section-elements" type="xsl:qnames"/>
+      <xs:attribute name="indent" type="xsl:yes-no"/>
+      <xs:attribute name="media-type" type="xs:string"/>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="key">
+    <xs:annotation><xs:documentation>Declares a named index used by the key() function.</xs:documentation></xs:annotation>
+    <xs:complexType>
+      <xs:attribute name="name" type="xs:QName" use="required"/>
+      <xs:attribute name="match" type="xs:string" use="required"/>
+      <xs:attribute name="use" type="xs:string" use="required"/>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="decimal-format">
+    <xs:annotation><xs:documentation>Defines symbols used by format-number(); omit name for the default format.</xs:documentation></xs:annotation>
+    <xs:complexType>
+      <xs:attribute name="name" type="xs:QName"/>
+      <xs:attribute name="decimal-separator" type="xsl:character" default="."/>
+      <xs:attribute name="grouping-separator" type="xsl:character" default=","/>
+      <xs:attribute name="infinity" type="xs:string" default="Infinity"/>
+      <xs:attribute name="minus-sign" type="xsl:character" default="-"/>
+      <xs:attribute name="NaN" type="xs:string" default="NaN"/>
+      <xs:attribute name="percent" type="xsl:character" default="%"/>
+      <xs:attribute name="per-mille" type="xsl:character" default="&#x2030;"/>
+      <xs:attribute name="zero-digit" type="xsl:character" default="0"/>
+      <xs:attribute name="digit" type="xsl:character" default="#"/>
+      <xs:attribute name="pattern-separator" type="xsl:character" default=";"/>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="namespace-alias">
+    <xs:annotation><xs:documentation>Maps a stylesheet namespace prefix to a result prefix, often when generating XSLT.</xs:documentation></xs:annotation>
+    <xs:complexType>
+      <xs:attribute name="stylesheet-prefix" type="xsl:prefix" use="required"/>
+      <xs:attribute name="result-prefix" type="xsl:prefix" use="required"/>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="attribute-set">
+    <xs:annotation><xs:documentation>Declares reusable attributes, optionally composed from other named sets.</xs:documentation></xs:annotation>
+    <xs:complexType>
+      <xs:sequence><xs:element ref="xsl:attribute" minOccurs="0" maxOccurs="unbounded"/></xs:sequence>
+      <xs:attribute name="name" type="xs:QName" use="required"/>
+      <xs:attribute name="use-attribute-sets" type="xsl:qnames"/>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="template">
+    <xs:annotation><xs:documentation>Defines a matched and/or named template. Supply match or name; mode requires match. Parameters precede the body.</xs:documentation></xs:annotation>
+    <xs:complexType mixed="true">
+      <xs:sequence>
+        <xs:element ref="xsl:param" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:group ref="xsl:instructions" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attribute name="match" type="xs:string">
+        <xs:annotation><xs:documentation>XSLT 1.0 match pattern, such as /, person, or @*|node().</xs:documentation></xs:annotation>
+      </xs:attribute>
+      <xs:attribute name="name" type="xs:QName"/>
+      <xs:attribute name="priority" type="xs:decimal"/>
+      <xs:attribute name="mode" type="xs:QName">
+        <xs:annotation><xs:documentation>Dispatch mode shared with xsl:apply-templates; no 2.0 #all or #current values.</xs:documentation></xs:annotation>
+      </xs:attribute>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:complexType name="binding" mixed="true">
+    <xs:group ref="xsl:instructions" minOccurs="0" maxOccurs="unbounded"/>
+    <xs:attribute name="name" type="xs:QName" use="required"/>
+    <xs:attribute name="select" type="xs:string">
+      <xs:annotation><xs:documentation>XPath 1.0 value expression. Use select or a content body, not both; checked by the processor.</xs:documentation></xs:annotation>
+    </xs:attribute>
+    <xs:attributeGroup ref="xsl:foreign-attributes"/>
+  </xs:complexType>
+  <xs:element name="variable" type="xsl:binding">
+    <xs:annotation><xs:documentation>Binds an immutable value, globally or inside a template.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="param" type="xsl:binding">
+    <xs:annotation><xs:documentation>Declares a global or template parameter and its default value.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="with-param" type="xsl:binding">
+    <xs:annotation><xs:documentation>Supplies an argument to a called or applied template.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="apply-templates">
+    <xs:annotation><xs:documentation>Dispatches selected source nodes to matching templates, optionally in a named mode.</xs:documentation></xs:annotation>
+    <xs:complexType>
+      <xs:choice minOccurs="0" maxOccurs="unbounded">
+        <xs:element ref="xsl:sort"/>
+        <xs:element ref="xsl:with-param"/>
+      </xs:choice>
+      <xs:attribute name="select" type="xs:string" default="node()"/>
+      <xs:attribute name="mode" type="xs:QName"/>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="apply-imports">
+    <xs:annotation><xs:documentation>Invokes a lower-precedence matching rule in the current mode.</xs:documentation></xs:annotation>
+    <xs:complexType><xs:attributeGroup ref="xsl:foreign-attributes"/></xs:complexType>
+  </xs:element>
+  <xs:element name="call-template">
+    <xs:annotation><xs:documentation>Calls a template by its qualified name without changing the current node.</xs:documentation></xs:annotation>
+    <xs:complexType>
+      <xs:sequence><xs:element ref="xsl:with-param" minOccurs="0" maxOccurs="unbounded"/></xs:sequence>
+      <xs:attribute name="name" type="xs:QName" use="required"/>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="for-each">
+    <xs:annotation><xs:documentation>Evaluates the body for each selected node. Sort instructions must precede the body.</xs:documentation></xs:annotation>
+    <xs:complexType mixed="true">
+      <xs:sequence>
+        <xs:element ref="xsl:sort" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:group ref="xsl:instructions" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attribute name="select" type="xs:string" use="required"/>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="sort">
+    <xs:annotation><xs:documentation>Sort key for apply-templates or for-each. Formatting attributes accept attribute value templates.</xs:documentation></xs:annotation>
+    <xs:complexType>
+      <xs:attribute name="select" type="xs:string" default="."/>
+      <xs:attribute name="lang" type="xs:string"/>
+      <xs:attribute name="data-type" type="xs:string" default="text"/>
+      <xs:attribute name="order" type="xs:string" default="ascending"/>
+      <xs:attribute name="case-order" type="xs:string"/>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:complexType name="conditional" mixed="true">
+    <xs:group ref="xsl:instructions" minOccurs="0" maxOccurs="unbounded"/>
+    <xs:attribute name="test" type="xs:string" use="required">
+      <xs:annotation><xs:documentation>XPath 1.0 expression evaluated as a boolean.</xs:documentation></xs:annotation>
+    </xs:attribute>
+    <xs:attributeGroup ref="xsl:foreign-attributes"/>
+  </xs:complexType>
+  <xs:element name="if" type="xsl:conditional">
+    <xs:annotation><xs:documentation>Evaluates its body only when test is true.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="when" type="xsl:conditional">
+    <xs:annotation><xs:documentation>Conditional branch inside xsl:choose; the first true branch is selected.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="otherwise" type="xsl:sequence-constructor">
+    <xs:annotation><xs:documentation>Optional final branch when no xsl:when test succeeds.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="choose">
+    <xs:annotation><xs:documentation>Selects one branch from one or more when clauses and an optional final otherwise.</xs:documentation></xs:annotation>
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="xsl:when" maxOccurs="unbounded"/>
+        <xs:element ref="xsl:otherwise" minOccurs="0"/>
+      </xs:sequence>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="value-of">
+    <xs:annotation><xs:documentation>Writes the string value of an XPath 1.0 expression.</xs:documentation></xs:annotation>
+    <xs:complexType>
+      <xs:attribute name="select" type="xs:string" use="required"/>
+      <xs:attribute name="disable-output-escaping" type="xsl:yes-no" default="no"/>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="copy-of">
+    <xs:annotation><xs:documentation>Copies the selected value, including complete subtrees for node selections.</xs:documentation></xs:annotation>
+    <xs:complexType>
+      <xs:attribute name="select" type="xs:string" use="required"/>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="text">
+    <xs:annotation><xs:documentation>Emits literal text, including whitespace that would otherwise be stripped.</xs:documentation></xs:annotation>
+    <xs:complexType>
+      <xs:simpleContent>
+        <xs:extension base="xs:string">
+          <xs:attribute name="disable-output-escaping" type="xsl:yes-no" default="no"/>
+          <xs:attributeGroup ref="xsl:foreign-attributes"/>
+        </xs:extension>
+      </xs:simpleContent>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="number">
+    <xs:annotation><xs:documentation>Formats an explicit number or numbers source nodes by position.</xs:documentation></xs:annotation>
+    <xs:complexType>
+      <xs:attribute name="level" type="xsl:number-level" default="single"/>
+      <xs:attribute name="count" type="xs:string"/>
+      <xs:attribute name="from" type="xs:string"/>
+      <xs:attribute name="value" type="xs:string"/>
+      <xs:attribute name="format" type="xs:string" default="1"/>
+      <xs:attribute name="lang" type="xs:string"/>
+      <xs:attribute name="letter-value" type="xs:string"/>
+      <xs:attribute name="grouping-separator" type="xs:string"/>
+      <xs:attribute name="grouping-size" type="xs:string"/>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="element">
+    <xs:annotation><xs:documentation>Constructs a result element; name and namespace accept attribute value templates.</xs:documentation></xs:annotation>
+    <xs:complexType mixed="true">
+      <xs:group ref="xsl:instructions" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:attribute name="name" type="xs:string" use="required"/>
+      <xs:attribute name="namespace" type="xs:string"/>
+      <xs:attribute name="use-attribute-sets" type="xsl:qnames"/>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="attribute">
+    <xs:annotation><xs:documentation>Constructs an attribute before child nodes. Name and namespace accept attribute value templates; the body must produce text.</xs:documentation></xs:annotation>
+    <xs:complexType mixed="true">
+      <xs:group ref="xsl:instructions" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:attribute name="name" type="xs:string" use="required"/>
+      <xs:attribute name="namespace" type="xs:string"/>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="copy">
+    <xs:annotation><xs:documentation>Copies the current node without its attributes or children, then evaluates the body.</xs:documentation></xs:annotation>
+    <xs:complexType mixed="true">
+      <xs:group ref="xsl:instructions" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:attribute name="use-attribute-sets" type="xsl:qnames"/>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="comment" type="xsl:sequence-constructor">
+    <xs:annotation><xs:documentation>Creates a result comment; the body must produce text.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="processing-instruction">
+    <xs:annotation><xs:documentation>Creates a processing instruction with a computed target name and text body.</xs:documentation></xs:annotation>
+    <xs:complexType mixed="true">
+      <xs:group ref="xsl:instructions" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:attribute name="name" type="xs:string" use="required"/>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="message">
+    <xs:annotation><xs:documentation>Reports a diagnostic; terminate=yes requests termination of the transformation.</xs:documentation></xs:annotation>
+    <xs:complexType mixed="true">
+      <xs:group ref="xsl:instructions" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:attribute name="terminate" type="xsl:yes-no" default="no"/>
+      <xs:attributeGroup ref="xsl:foreign-attributes"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="fallback" type="xsl:sequence-constructor">
+    <xs:annotation><xs:documentation>Fallback body for an unavailable extension instruction; placement and execution are processor-checked.</xs:documentation></xs:annotation>
+  </xs:element>
+</xs:schema>

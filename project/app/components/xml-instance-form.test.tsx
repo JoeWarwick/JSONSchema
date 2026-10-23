@@ -22,6 +22,58 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     window.localStorage.clear();
   });
 
+  test('uses the offline XSLT 1.0 schema for instruction triggers, modes and enum controls', () => {
+    const schema = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/schema-for-xslt10.xsd'), 'utf8'),
+      'xml',
+    );
+    const onChange = jest.fn();
+    const view = renderForm(
+      <XmlInstanceForm
+        schema={schema}
+        rootSchema={schema}
+        value={parseMarkup(
+          '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0"><xsl:output indent="yes"/><xsl:template match="person" mode="people"/></xsl:stylesheet>',
+          'xml',
+        )}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+    expect(Array.from(document.querySelectorAll('button[title]')).map(button => button.getAttribute('title')))
+      .toEqual(expect.arrayContaining([expect.stringMatching(/^Add (xsl:)?template\b/)]));
+    expect(document.querySelector('button[title^="Add apply-templates"], button[title^="Add xsl:apply-templates"]')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Add (xsl:)?sequence\b/ })).not.toBeInTheDocument();
+    view.unmount();
+    const outputView = renderForm(
+      <XmlInstanceForm
+        schema={schema}
+        rootSchema={schema}
+        value={parseMarkup('<xsl:output xmlns:xsl="http://www.w3.org/1999/XSL/Transform" indent="yes"/>', 'xml')}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+    const indent = screen.getByLabelText('indent:');
+    expect(indent.tagName).toBe('SELECT');
+    expect(within(indent).getAllByRole('option').map(option => option.getAttribute('value'))).toEqual(['', 'yes', 'no']);
+    outputView.unmount();
+    renderForm(
+      <XmlInstanceForm
+        schema={schema}
+        rootSchema={schema}
+        value={parseMarkup('<xsl:template xmlns:xsl="http://www.w3.org/1999/XSL/Transform" match="person" mode="people"/>', 'xml')}
+        onChange={onChange}
+        autoExpandAll
+      />,
+    );
+    const mode = screen.getByLabelText('mode:');
+    expect(mode).toHaveValue('people');
+    fireEvent.change(mode, { target: { value: 'employees' } });
+    expect(onChange).toHaveBeenCalled();
+    expect(JSON.stringify(onChange.mock.calls.at(-1))).toContain('employees');
+  });
+
   test('renders concrete element triggers for abstract substitution-group references', async () => {
     const xsltSchema = parseMarkup(
       fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/schema-for-xslt20.xsd'), 'utf8'),

@@ -344,7 +344,7 @@ export function isSchemaImported(schemaOrState: Schema | SchemaState | null, pat
 }
 
 // Helper to encapsulate sync+async resolution and dispatch updates.
-export async function ensureResolved(dispatch: (a: SchemaAction) => void, source: Schema) {
+export async function ensureResolved(dispatch: (a: SchemaAction) => void, source: Schema, storage?: Storage) {
   dispatch({ type: SET_DEREF_IN_PROGRESS, payload: true });
   // Clear any runtime deref completion signals before starting
   try {
@@ -352,7 +352,7 @@ export async function ensureResolved(dispatch: (a: SchemaAction) => void, source
       try { document.documentElement.removeAttribute('data-deref-complete'); } catch (_) {
         // ignore
       }
-      try { localStorage.removeItem('schema-sculptor-deref-complete'); } catch (_) {
+      try { (storage ?? localStorage).removeItem('schema-sculptor-deref-complete'); } catch (_) {
         // ignore
       }
       try { (window as any).__schemaSculptorDerefComplete = false; } catch (_) {
@@ -382,7 +382,7 @@ export async function ensureResolved(dispatch: (a: SchemaAction) => void, source
         dispatch({ type: SET_RESOLVED_CACHE, payload: asyncResolved });
         try {
           if (typeof window !== 'undefined') {
-            try { localStorage.setItem('schema-sculptor-deref-complete', JSON.stringify({ ts: Date.now(), id: (asyncResolved as any)?.$id || null })); } catch (_) {
+            try { (storage ?? localStorage).setItem('schema-sculptor-deref-complete', JSON.stringify({ ts: Date.now(), id: (asyncResolved as any)?.$id || null })); } catch (_) {
               // ignore
             }
             try { (window as any).__schemaSculptorDerefComplete = true; } catch (_) {
@@ -413,7 +413,7 @@ export async function ensureResolved(dispatch: (a: SchemaAction) => void, source
       }
       try {
         if (typeof window !== 'undefined') {
-          try { localStorage.setItem('schema-sculptor-deref-error', JSON.stringify({ message: (e && e.message) || String(e), stack: (e && e.stack) || null, ts: Date.now() })); } catch (_) {
+          try { (storage ?? localStorage).setItem('schema-sculptor-deref-error', JSON.stringify({ message: (e && e.message) || String(e), stack: (e && e.stack) || null, ts: Date.now() })); } catch (_) {
             // ignore
           }
           try { document.documentElement.setAttribute('data-deref-error', '1'); } catch (_) {
@@ -1044,7 +1044,7 @@ export function getPersistableSource(state: SchemaState): Schema {
 
 // Canonicalize an object for persistence: remove transient metadata and
 // return a deep-cloned structure with deterministic key ordering.
-function canonicalizeForPersist(s: Schema): Schema {
+export function canonicalizeForPersist(s: Schema): Schema {
   if (!s || typeof s !== 'object') return s;
   const clone = JSON.parse(JSON.stringify(s));
 

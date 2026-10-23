@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useWorkbenchStorage } from '../state/workbench-context';
 
 const STORAGE_KEY = 'schema-editor-expanded-nodes';
 
@@ -7,6 +8,7 @@ const STORAGE_KEY = 'schema-editor-expanded-nodes';
  * Stores expanded paths in localStorage and restores them across navigation
  */
 export function useExpandedNodes() {
+  const localStorage = useWorkbenchStorage();
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => {
     // Initialize from localStorage
     if (typeof window === 'undefined') return new Set();

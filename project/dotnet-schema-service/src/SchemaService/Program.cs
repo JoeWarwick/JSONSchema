@@ -1,5 +1,11 @@
 using SchemaService.Services;
 
+if (args is ["--transform-worker"])
+{
+    await TransformWorker.RunAsync();
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
@@ -10,6 +16,7 @@ builder.Services.AddSingleton<XmlSchemaResolverService>();
 builder.Services.AddSingleton<SchemaValidationService>();
 builder.Services.AddSingleton<JsonSchemaValidationService>();
 builder.Services.AddSingleton<JsonSchemaInferenceService>();
+builder.Services.AddSingleton<ITransformService, TransformService>();
 
 // Add CORS to allow requests from the frontend
 builder.Services.AddCors(options =>

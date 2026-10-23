@@ -1,4 +1,6 @@
 import { useState, useMemo } from "react";
+import { HelpTip } from './help-tip';
+import { useWorkbenchStorage } from "../state/workbench-context";
 import styles from "./json-instance-form.module.css";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { 
@@ -29,6 +31,7 @@ export function XmlSchemaForm({
   rootSchema,
   xmlPath = [],
 }: XmlSchemaFormProps) {
+  const localStorage = useWorkbenchStorage();
   const schemaIdentity = useMemo(() => getSchemaIdentity(rawSchema), [rawSchema]);
   const pathKey = xmlPath.join('.');
 
@@ -421,9 +424,9 @@ export function XmlSchemaForm({
                   borderRadius: 4,
                   border: '1px solid #e0e0e0'
                 }}>
-                  <p style={{ margin: '0 0 8px 0', fontSize: 11, color: '#666' }}>
+                  <HelpTip>
                     Expanded definition for: <code>{namedTypeRef.refName}</code>
-                  </p>
+                  </HelpTip>
                   {(() => {
                     const resolvedDef = resolveRefDefinition(namedTypeRef.refName, namedTypeRef.refPath);
                     return resolvedDef ? (

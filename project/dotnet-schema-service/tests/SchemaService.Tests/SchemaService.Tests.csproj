@@ -20,6 +20,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\..\..\public\schemas\schema-for-xslt10.xsd"
+          Link="schema-for-xslt10.xsd"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\..\public\schemas\schema-for-xslt20.xsd"
           Link="schema-for-xslt20.xsd"
           CopyToOutputDirectory="PreserveNewest" />

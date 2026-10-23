@@ -1,4 +1,5 @@
 import React from 'react';
+import { HelpTip } from './help-tip';
 import { ChevronDown, Printer, Sparkles, Trash2 } from 'lucide-react';
 import type { ErdColumn, ErdModel, ErdRelationship, ErdTable } from '../types/erd';
 import styles from './erd/erd-editor.module.css';
@@ -409,7 +410,7 @@ export function ErdEditorSidebar({
         </div>
       ) : (
         <div className={styles.emptySidebarState}>
-          <p>Select a table to inspect it.</p>
+          <HelpTip>Select a table to inspect it.</HelpTip>
           <button type="button" className={styles.buttonSecondary} onClick={onAddEntity}>Add Entity</button>
         </div>
       )}

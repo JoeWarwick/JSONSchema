@@ -1,0 +1,19 @@
+@baseUrl = http://localhost:5080
+
+### XSLT 1.0 preview
+POST {{baseUrl}}/api/transform/preview
+Content-Type: application/json
+
+{
+  "input": "<order><id>42</id></order>",
+  "stylesheet": "<xsl:stylesheet version=\"1.0\" xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\"><xsl:template match=\"/\"><invoice><number><xsl:value-of select=\"/order/id\"/></number></invoice></xsl:template></xsl:stylesheet>"
+}
+
+### Invalid input returns Problem Details
+POST {{baseUrl}}/api/transform/preview
+Content-Type: application/json
+
+{
+  "input": "<order>",
+  "stylesheet": "<invalid/>"
+}

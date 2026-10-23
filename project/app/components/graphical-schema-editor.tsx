@@ -1,4 +1,5 @@
 import React from 'react';
+import { useWorkbenchRuntime, useWorkbenchStorage } from '../state/workbench-context';
 import * as dagreLib from 'dagre';
 import { ContextMenu } from "./ContextMenu";
 import {
@@ -56,10 +57,10 @@ interface PersistedCollapseState {
   userToggled: boolean;
 }
 
-function loadPersistedCollapseState(): PersistedCollapseState | null {
+function loadPersistedCollapseState(storage: Storage): PersistedCollapseState | null {
   if (typeof window === 'undefined') return null;
   try {
-    const raw = window.localStorage.getItem(COLLAPSE_STATE_STORAGE_KEY);
+    const raw = storage.getItem(COLLAPSE_STATE_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return null;
@@ -74,10 +75,10 @@ function loadPersistedCollapseState(): PersistedCollapseState | null {
   }
 }
 
-function savePersistedCollapseState(state: PersistedCollapseState) {
+function savePersistedCollapseState(state: PersistedCollapseState, storage: Storage) {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(COLLAPSE_STATE_STORAGE_KEY, JSON.stringify(state));
+    storage.setItem(COLLAPSE_STATE_STORAGE_KEY, JSON.stringify(state));
   } catch (_) {
     // ignore (e.g. storage disabled or quota exceeded)
   }
@@ -87,8 +88,8 @@ function savePersistedCollapseState(state: PersistedCollapseState) {
 // collapse-state containers from localStorage before any component instance reads them —
 // without this, a fresh page load starts with empty globalThis containers even though the
 // user's collapse shape was saved from the previous page load.
-function hydrateCollapseStateFromStorageIfNeeded() {
-  const runtime = globalThis as typeof globalThis & {
+function hydrateCollapseStateFromStorageIfNeeded(runtimeState: object, storage: Storage) {
+  const runtime = runtimeState as {
     __graphicalSchemaCollapseHydratedFromStorage?: boolean;
     __graphicalSchemaCollapsedNodeIds?: Set<string>;
     __graphicalSchemaExpandedNodeIds?: Set<string>;
@@ -97,7 +98,7 @@ function hydrateCollapseStateFromStorageIfNeeded() {
   };
   if (runtime.__graphicalSchemaCollapseHydratedFromStorage) return;
   runtime.__graphicalSchemaCollapseHydratedFromStorage = true;
-  const persisted = loadPersistedCollapseState();
+  const persisted = loadPersistedCollapseState(storage);
   if (!persisted) return;
   runtime.__graphicalSchemaCollapsedNodeIds = new Set(persisted.collapsed);
   runtime.__graphicalSchemaExpandedNodeIds = new Set(persisted.expanded);
@@ -464,6 +465,8 @@ const XML_GLOBAL_REF_TARGETS: Record<string, { tagKeys: string[]; attrKey: 'type
 };
 
 export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData, schemaLanguage }: GraphicalSchemaEditorProps) {
+  const storage = useWorkbenchStorage();
+  const runtimeState = useWorkbenchRuntime();
   type ExpansionState = {
     combiners: Record<string, boolean>;
     variants: Record<string, boolean>;
@@ -3501,7 +3504,7 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
   // tearing down and rebuilding nodes (which causes selection loss).
   const skipSchemaSyncRef = React.useRef(false);
   const expansionStateRef = React.useRef<ExpansionState>((() => {
-    const runtime = globalThis as typeof globalThis & { __graphicalSchemaExpansionState?: ExpansionState };
+    const runtime = runtimeState as { __graphicalSchemaExpansionState?: ExpansionState };
     if (!runtime.__graphicalSchemaExpansionState) {
       runtime.__graphicalSchemaExpansionState = { combiners: {}, variants: {} };
     }
@@ -3510,7 +3513,7 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
   const pendingLocalSchemaFingerprintRef = React.useRef<string | null>(null);
   const writeExpansionState = React.useCallback((nextState: ExpansionState) => {
     expansionStateRef.current = nextState;
-    const runtime = globalThis as typeof globalThis & { __graphicalSchemaExpansionState?: ExpansionState };
+    const runtime = runtimeState as { __graphicalSchemaExpansionState?: ExpansionState };
     runtime.__graphicalSchemaExpansionState = nextState;
   }, []);
   // Persists which plain (property/globalType/enum) nodes the user has manually collapsed,
@@ -3518,9 +3521,9 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
   // away from and back to the graphical editor (which fully unmounts/remounts it) restores the
   // user's own collapse state instead of resetting to the default "collapse everything below
   // root's direct children" heuristic.
-  hydrateCollapseStateFromStorageIfNeeded();
+  hydrateCollapseStateFromStorageIfNeeded(runtimeState, storage);
   const collapsedNodeIdsRef = React.useRef<Set<string>>((() => {
-    const runtime = globalThis as typeof globalThis & { __graphicalSchemaCollapsedNodeIds?: Set<string> };
+    const runtime = runtimeState as { __graphicalSchemaCollapsedNodeIds?: Set<string> };
     if (!runtime.__graphicalSchemaCollapsedNodeIds) {
       runtime.__graphicalSchemaCollapsedNodeIds = new Set<string>();
     }
@@ -3533,7 +3536,7 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
   // time (e.g. `visibleOnly: false` after some other node was toggled) would treat it as
   // "never collapsed" and show it fully expanded instead of applying the collapsed default.
   const expandedNodeIdsRef = React.useRef<Set<string>>((() => {
-    const runtime = globalThis as typeof globalThis & { __graphicalSchemaExpandedNodeIds?: Set<string> };
+    const runtime = runtimeState as { __graphicalSchemaExpandedNodeIds?: Set<string> };
     if (!runtime.__graphicalSchemaExpandedNodeIds) {
       runtime.__graphicalSchemaExpandedNodeIds = new Set<string>();
     }
@@ -3544,7 +3547,7 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
   // schema resets collapse tracking instead of accumulating unrelated node ids (and the
   // "has ever toggled" flag) forever across every schema ever opened in this tab.
   const collapsedNodeIdsSchemaKeyRef = React.useRef<string | null>((() => {
-    const runtime = globalThis as typeof globalThis & { __graphicalSchemaCollapsedNodeIdsKey?: string | null };
+    const runtime = runtimeState as { __graphicalSchemaCollapsedNodeIdsKey?: string | null };
     return runtime.__graphicalSchemaCollapsedNodeIdsKey ?? null;
   })());
   const resetCollapsedNodeIdsForSchema = React.useCallback((schemaKey: string | null) => {
@@ -3555,7 +3558,7 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
     // render with a *different* (e.g. default/placeholder, pre-hydration) schema would clear the
     // globalThis containers that were just seeded from localStorage for this schema before this
     // schema's own render ever got a chance to use them, permanently losing the restored shape.
-    const persisted = loadPersistedCollapseState();
+    const persisted = loadPersistedCollapseState(storage);
     if (persisted && persisted.schemaKey === schemaKey) {
       collapsedNodeIdsRef.current = new Set(persisted.collapsed);
       expandedNodeIdsRef.current = new Set(persisted.expanded);
@@ -3565,7 +3568,7 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
       expandedNodeIdsRef.current.clear();
       hasUserToggledChildrenRef.current = false;
     }
-    const runtime = globalThis as typeof globalThis & {
+    const runtime = runtimeState as {
       __graphicalSchemaCollapsedNodeIds?: Set<string>;
       __graphicalSchemaExpandedNodeIds?: Set<string>;
       __graphicalSchemaCollapsedNodeIdsKey?: string | null;
@@ -3578,12 +3581,12 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
     persistCollapseState();
   }, []);
   const hasUserToggledChildrenRef = React.useRef<boolean>((() => {
-    const runtime = globalThis as typeof globalThis & { __graphicalSchemaUserToggledChildren?: boolean };
+    const runtime = runtimeState as { __graphicalSchemaUserToggledChildren?: boolean };
     return Boolean(runtime.__graphicalSchemaUserToggledChildren);
   })());
   const markUserToggledChildren = React.useCallback(() => {
     hasUserToggledChildrenRef.current = true;
-    const runtime = globalThis as typeof globalThis & { __graphicalSchemaUserToggledChildren?: boolean };
+    const runtime = runtimeState as { __graphicalSchemaUserToggledChildren?: boolean };
     runtime.__graphicalSchemaUserToggledChildren = true;
   }, []);
   // Mirrors the current collapse-state refs into localStorage so the graph's expand/collapse
@@ -3594,7 +3597,7 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
       collapsed: Array.from(collapsedNodeIdsRef.current),
       expanded: Array.from(expandedNodeIdsRef.current),
       userToggled: hasUserToggledChildrenRef.current,
-    });
+    }, storage);
   }, []);
   const setVariantExpandedPersisted = React.useCallback((variantId: string, expanded: boolean) => {
     const current = expansionStateRef.current;
@@ -6720,5 +6723,4 @@ export function GraphicalSchemaEditor({ schema, onChange = () => {}, useTestData
     </>
   );
 }
-
 

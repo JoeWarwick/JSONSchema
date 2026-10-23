@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useWorkbenchStorage } from "../state/workbench-context";
 import styles from "./xml-instance-form.module.css";
 import { Trash2, ChevronDown, ChevronRight, Plus, Maximize2, Minimize2 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip/tooltip";
@@ -735,6 +736,7 @@ function XmlElementNode({
   headerLabel,
   headerAction,
 }: XmlElementNodeProps) {
+  const localStorage = useWorkbenchStorage();
   const pathKey = path.join('.');
   if (autoExpandAll && autoExpandCaptureActiveRef?.current) {
     initialAutoExpandPathsRef?.current.add(pathKey);
@@ -1477,14 +1479,14 @@ function XmlElementNode({
     for (const opt of choiceGroupData.options) {
       if (opt.name !== newSelectedOption) {
         if (updated[opt.name] !== undefined) {
-          saveChoiceDataToStorage(value, path, opt.name, updated[opt.name]);
+          saveChoiceDataToStorage(value, path, opt.name, updated[opt.name], localStorage);
         }
         delete updated[opt.name];
       }
     }
 
     if (!updated[newSelectedOption]) {
-      const restored = restoreChoiceDataFromStorage(value, path, newSelectedOption);
+      const restored = restoreChoiceDataFromStorage(value, path, newSelectedOption, localStorage);
       const previousName = currentlySelectedOption
         ? current?.[currentlySelectedOption]?.['@attributes']?.name
           ?? current?.[currentlySelectedOption]?.name
@@ -4728,6 +4730,7 @@ function XmlInstanceFormContent({
   showRootElementTriggers = true,
   expansionStateKey = 'xml-instance-form-expanded',
 }: XmlInstanceFormProps) {
+  const localStorage = useWorkbenchStorage();
   const referencedElementNames = useMemo(
     () => getReferencedElementNames(rootSchema),
     [rootSchema],
@@ -4763,7 +4766,7 @@ function XmlInstanceFormContent({
     }
 
     try {
-      const stored = window.localStorage.getItem(expansionStorageKey);
+      const stored = localStorage.getItem(expansionStorageKey);
       if (!stored) {
         return initial;
       }
@@ -4820,7 +4823,7 @@ function XmlInstanceFormContent({
       if (rootPath) {
         next.add(rootPath);
       }
-      window.localStorage.setItem(expansionStorageKey, JSON.stringify(Array.from(next)));
+      localStorage.setItem(expansionStorageKey, JSON.stringify(Array.from(next)));
     } catch {
       // Ignore storage failures.
     }

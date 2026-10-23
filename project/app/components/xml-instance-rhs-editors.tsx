@@ -1,4 +1,5 @@
 import React from 'react';
+import { HelpTip } from './help-tip';
 
 // Instance-form-specific RHS editors.
 // This file is intentionally forked from xml-rhs-editors.tsx so
@@ -339,9 +340,9 @@ function XmlAnyEditor({ node, getNodeByName }: XmlNodeRhsEditorProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>xs:any (wildcard content)</div>
-      <div style={{ fontSize: 12, color: '#888', fontStyle: 'italic' }}>
+      <HelpTip>
         Matches any element from the given namespace; not individually editable.
-      </div>
+      </HelpTip>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ fontSize: 12 }}>namespace</span>
         <span style={{ fontSize: 12, fontFamily: 'monospace' }}>{String(data.xmlAnyNamespace ?? '##any')}</span>
@@ -605,9 +606,9 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
       ) : (
         !readOnly && !isRef ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12, color: '#666', background: '#fff7ed', border: '1px solid #f5c2b7', borderRadius: 6, padding: 8 }}>
-            <div>
+            <HelpTip>
               This element is currently simpleType-backed. Convert it to ComplexType before adding xs:attribute or xs:anyAttribute.
-            </div>
+            </HelpTip>
             <button
               type="button"
               aria-label="Convert to ComplexType"
@@ -1103,9 +1104,9 @@ function XmlSchemaEditor({ node, onChange, onToggleShowAnnotations, xmlShowAnnot
             <span>Show Annotations</span>
           </label>
           {xmlShowAnnotations === true && (
-            <div style={{ fontSize: 11, color: 'var(--graph-muted)', marginTop: 6 }}>
+            <HelpTip>
               Annotation entries follow document order.
-            </div>
+            </HelpTip>
           )}
         </div>
       ) : null}
@@ -1151,9 +1152,9 @@ function XmlSchemaEditor({ node, onChange, onToggleShowAnnotations, xmlShowAnnot
             <span>Show Imports</span>
           </label>
           {xmlShowImports === true && (
-            <div style={{ fontSize: 11, color: 'var(--graph-muted)', marginTop: 6 }}>
+            <HelpTip>
               Import entries follow document order.
-            </div>
+            </HelpTip>
           )}
         </div>
       ) : null}
@@ -1236,5 +1237,5 @@ export function XmlNodeRhsEditor({ node, onChange, onToggleShowAnnotations, xmlS
   if (kind === 'sequence' || kind === 'choice' || kind === 'all') return <XmlCompositorEditor node={node} onChange={onChange} readOnlySource={readOnlySource} getNodeByName={getNodeByName} />;
   if (kind === 'any') return <XmlAnyEditor node={node} onChange={onChange} getNodeByName={getNodeByName} />;
 
-  return <div style={{ color: '#888', fontStyle: 'italic' }}>Select a schema, SimpleType, ComplexType, attribute, element, or compositor node to edit.</div>;
+  return <HelpTip>Select a schema, SimpleType, ComplexType, attribute, element, or compositor node to edit.</HelpTip>;
 }

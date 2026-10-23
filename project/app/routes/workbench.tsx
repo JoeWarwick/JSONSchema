@@ -1,4 +1,12 @@
-import { useState, useRef, useEffect, useReducer, useMemo } from "react";
+import { useState, useRef, useEffect, useReducer, useMemo, type ReactNode } from "react";
+import { Workspace } from "~/components/workspace";
+import { useWorkbenchStorage } from "~/state/workbench-context";
+import type { WorkbenchKind } from "~/state/workspace";
+import { TransformWorkbench } from "~/components/transform-workbench";
+import { OpenApiWorkbench } from "~/components/openapi-workbench";
+import { ApiFormOriginNotice } from "~/components/api-form-origin";
+import { HelpTip } from "~/components/help-tip";
+import { XmlCollectionDialog, type CollectionInput } from "~/components/xml-collection-dialog";
 import { Sparkles, Copy, Check, X, Link as LinkIcon, Download, FileUp, ShieldCheck } from "lucide-react";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { toast } from "sonner";
@@ -250,7 +258,18 @@ function getAvailableXmlRootElementNames(schema: unknown): string[] {
   return sortElementsByReferenceUsage(uniqueNames, (name) => name, elementRefs);
 }
 
-export default function Workbench() {
+const renderWorkbench = (fileMenu: ReactNode, kind: WorkbenchKind) => kind === 'transform'
+  ? <TransformWorkbench fileMenu={fileMenu} />
+  : kind === 'openapi' ? <OpenApiWorkbench fileMenu={fileMenu} />
+    : <Workbench fileMenu={fileMenu} kind={kind} />;
+
+export default function WorkspaceRoute() {
+  return <Workspace renderWorkbench={renderWorkbench} />;
+}
+
+export function Workbench({ fileMenu, kind = 'json' }: { fileMenu?: ReactNode; kind?: WorkbenchKind } = {}) {
+  const isEntityWorkbench = kind === 'erd';
+  const localStorage = useWorkbenchStorage();
   const t = useT();
   const showDevStorageTools = typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
   const [state, dispatch] = useReducer(schemaReducer, initialSchemaState(null));
@@ -264,6 +283,7 @@ export default function Workbench() {
   const [schemaDetectionWarning, setSchemaDetectionWarning] = useState<boolean>(false);
   const [copied, setCopied] = useState(false);
   const [showSchemaSource, setShowSchemaSource] = useState(false);
+  const [collectionInput, setCollectionInput] = useState<CollectionInput | null>(null);
   const [jsonUrl, setJsonUrl] = useState("");
   const [isLoadingUrl, setIsLoadingUrl] = useState(false);
   const [schemaUrl, setSchemaUrl] = useState("");
@@ -336,10 +356,10 @@ export default function Workbench() {
     const hydratePersistedState = () => {
       try {
         // 1. Load language preference from localStorage
-        const savedLanguage = window.localStorage.getItem(LANGUAGE_PREFERENCE_KEY) as MarkupLanguage | null;
+        const savedLanguage = localStorage.getItem(LANGUAGE_PREFERENCE_KEY) as MarkupLanguage | null;
         const initialLanguage = (savedLanguage && ['json', 'yaml', 'xml'].includes(savedLanguage)) ? savedLanguage : 'json';
         
-        const rawSchema = window.localStorage.getItem(getLanguageSchemaKey(initialLanguage));
+        const rawSchema = localStorage.getItem(getLanguageSchemaKey(initialLanguage));
         let persistedSchema: Record<string, unknown> | null = null;
         if (rawSchema) {
           try {
@@ -357,7 +377,7 @@ export default function Workbench() {
         let instanceDataToLoad: unknown = null;
         let jsonInputToLoad = '';
         
-        const languageSpecificContent = window.localStorage.getItem(getLanguageInstanceKey(initialLanguage));
+        const languageSpecificContent = localStorage.getItem(getLanguageInstanceKey(initialLanguage));
         if (languageSpecificContent) {
           try {
             // Parse the language-specific serialized content
@@ -366,17 +386,22 @@ export default function Workbench() {
             jsonInputToLoad = languageSpecificContent;
           } catch (err) {
             console.error(`Failed to parse language-specific ${initialLanguage} content:`, err);
-            try {
-              window.localStorage.removeItem(getLanguageInstanceKey(initialLanguage));
-            } catch (_) {
-              // ignore
+            if (fileMenu) {
+              jsonInputToLoad = languageSpecificContent;
+              setError(err instanceof Error ? err.message : 'Invalid instance data');
+            } else {
+              try {
+                localStorage.removeItem(getLanguageInstanceKey(initialLanguage));
+              } catch (_) {
+                // ignore
+              }
             }
           }
         }
 
         // 3. Fall back to legacy INSTANCE_STORAGE_KEY for JSON/YAML only.
         if (!jsonInputToLoad && initialLanguage !== 'xml') {
-          const savedInstance = window.localStorage.getItem(INSTANCE_STORAGE_KEY);
+          const savedInstance = localStorage.getItem(INSTANCE_STORAGE_KEY);
           if (savedInstance) {
             try {
               const parsedInstance = JSON.parse(savedInstance);
@@ -392,7 +417,7 @@ export default function Workbench() {
         if (jsonInputToLoad) {
           setInstanceData(instanceDataToLoad);
           setJsonInput(jsonInputToLoad);
-        } else if (persistedSchema) {
+        } else if (persistedSchema && !fileMenu) {
           // For both JSON and XML schemas, generate a default instance
           try {
             if (initialLanguage === 'xml') {
@@ -433,7 +458,7 @@ export default function Workbench() {
 
         // 5. Load ERD model from localStorage
         try {
-          const savedErdJson = window.localStorage.getItem(ERD_STORAGE_KEY);
+          const savedErdJson = localStorage.getItem(ERD_STORAGE_KEY);
           if (savedErdJson) {
             const parsedErd = JSON.parse(savedErdJson) as ErdModel;
             setErdModel(parsedErd);
@@ -457,6 +482,12 @@ export default function Workbench() {
   useEffect(() => {
     resolutionCache.current.clear();
   }, [state.source]);
+
+  // Workspace snapshots must retain newly loaded source even while remote refs resolve.
+  useEffect(() => {
+    if (!fileMenu || !hasHydratedPersistedState || !state.source) return;
+    localStorage.setItem(getLanguageSchemaKey(markupLanguage), JSON.stringify(getPersistableSource(state)));
+  }, [state.source, hasHydratedPersistedState, markupLanguage, localStorage, fileMenu]);
 
   useEffect(() => {
     if (markupLanguage !== 'xml') {
@@ -501,7 +532,7 @@ export default function Workbench() {
     
     const initLanguage = () => {
       try {
-        const savedLanguage = window.localStorage.getItem(LANGUAGE_PREFERENCE_KEY) as MarkupLanguage | null;
+        const savedLanguage = localStorage.getItem(LANGUAGE_PREFERENCE_KEY) as MarkupLanguage | null;
         if (savedLanguage && ['json', 'yaml', 'xml'].includes(savedLanguage)) {
           setMarkupLanguageState(savedLanguage);
           previousLanguageRef.current = savedLanguage;
@@ -632,7 +663,7 @@ export default function Workbench() {
     };
     (async () => {
       try {
-        await ensureResolved(guardedDispatch, state.source);
+        await ensureResolved(guardedDispatch, state.source, localStorage);
       } catch (_) {
         /* ignore error */
       }
@@ -698,6 +729,9 @@ export default function Workbench() {
     if (markupLanguage !== 'xml' || !instanceData) return;
     
     try {
+      // Keep original XML formatting until the form changes its parsed value.
+      if (fileMenu && jsonInput.trim()
+        && JSON.stringify(parseMarkup(jsonInput, 'xml')) === JSON.stringify(instanceData)) return;
       // serializeMarkup expects { rootElementName: {...} } structure
       const serializedXml = serializeMarkup(instanceData, 'xml');
       setJsonInput(serializedXml);
@@ -1033,7 +1067,7 @@ export default function Workbench() {
     // reappear (e.g. from a stale persist-effect write racing the new source update).
     try {
       if (typeof window !== 'undefined') {
-        window.localStorage.removeItem(getLanguageSchemaKey(markupLanguage));
+        localStorage.removeItem(getLanguageSchemaKey(markupLanguage));
       }
     } catch (_) {
       /* ignore */
@@ -1585,7 +1619,7 @@ export default function Workbench() {
   };
 
   // Tabbed UI state
-  const [activeTab, setActiveTab] = useState<'json' | 'xmlschema' | 'schema' | 'instance' | 'output' | 'graph' | 'erd'>('json');
+  const [activeTab, setActiveTab] = useState<'json' | 'xmlschema' | 'schema' | 'instance' | 'output' | 'graph' | 'erd'>(isEntityWorkbench ? 'erd' : 'json');
   const [hasHydratedActiveTab, setHasHydratedActiveTab] = useState(false);
 
   // Restore last active tab from localStorage - deferred to avoid sync storage access during render
@@ -1593,8 +1627,9 @@ export default function Workbench() {
     if (typeof window === 'undefined') return;
     const timer = window.setTimeout(() => {
       try {
-        const savedTab = window.localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
-        if (savedTab && ['json', 'xmlschema', 'schema', 'instance', 'output', 'graph', 'erd'].includes(savedTab)) {
+        const savedTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+        const availableTabs = isEntityWorkbench ? ['erd'] : ['json', 'xmlschema', 'schema', 'instance', 'output', 'graph'];
+        if (savedTab && availableTabs.includes(savedTab)) {
           setActiveTab(savedTab as typeof activeTab);
         }
       } catch (_) {
@@ -1610,7 +1645,7 @@ export default function Workbench() {
   useEffect(() => {
     if (typeof window === 'undefined' || !hasHydratedActiveTab) return;
     try {
-      window.localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
+      localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
     } catch (_) {
       // ignore localStorage errors
     }
@@ -1722,7 +1757,9 @@ export default function Workbench() {
 
   return (
     <TooltipProvider>
-    <div className={styles.container}>
+    <div className={`${styles.container}${fileMenu ? ` ${styles.embeddedContainer}` : ''}`}>
+      {hasHydratedPersistedState && <ApiFormOriginNotice />}
+      {collectionInput && <XmlCollectionDialog input={collectionInput} onClose={() => setCollectionInput(null)} />}
       {/* Hidden file inputs — top-level so menu items can trigger them from any active tab */}
       <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept={acceptAttr(markupLanguage)} style={{ display: 'none' }} />
       <input type="file" ref={schemaFileInputRef} onChange={handleSchemaFileUpload} accept=".json,.xml,.xsd,.yaml,.yml,application/json,application/xml" style={{ display: 'none' }} />
@@ -1733,7 +1770,7 @@ export default function Workbench() {
         <span className={styles.menuLogo}>Schema Sculptor</span>
         
         {/* Language selector as toggle group */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 24 }}>
+        {!isEntityWorkbench && <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 24 }}>
           <span style={{ fontSize: 12, fontWeight: 500, color: '#666' }}>{t('workbench.language')}:</span>
           <ToggleGroup
             type="single"
@@ -1753,11 +1790,12 @@ export default function Workbench() {
               XML
             </ToggleGroupItem>
           </ToggleGroup>
-        </div>
+        </div>}
         
         <Menubar loop>
+          {fileMenu}
           {/* Markup document operations — label tracks selected language */}
-          <MenubarMenu>
+          {!isEntityWorkbench && <MenubarMenu>
             <MenubarTrigger>{t('workbench.markupMenu', { language: markupLabel[markupLanguage] })}</MenubarTrigger>
             <MenubarContent>
               <MenubarItem onSelect={() => fileInputRef.current?.click()}>
@@ -1806,13 +1844,24 @@ export default function Workbench() {
                 )
               )}
             </MenubarContent>
-          </MenubarMenu>
+          </MenubarMenu>}
 
           {/* Schema operations - hidden for YAML since it uses JSON schema */}
-          {markupLanguage !== 'yaml' && (
+          {!isEntityWorkbench && markupLanguage !== 'yaml' && (
             <MenubarMenu>
               <MenubarTrigger>{t('workbench.schemaMenu')}</MenubarTrigger>
               <MenubarContent>
+                {markupLanguage === 'xml' && <MenubarItem onSelect={() => {
+                  try {
+                    setCollectionInput({
+                      xml: jsonInput,
+                      schema: state.source ? serializeMarkup(state.source, 'xml') : '',
+                    });
+                  } catch (failure) {
+                    console.error('Failed to prepare XML collection:', failure);
+                    setError(failure instanceof Error ? failure.message : t('collection.failed'));
+                  }
+                }}>{t('collection.title')}</MenubarItem>}
                 <MenubarItem onSelect={() => schemaFileInputRef.current?.click()}>
                   <FileUp size={14} style={{ marginRight: 6 }} />
                   Open Schema&hellip;
@@ -1902,7 +1951,7 @@ export default function Workbench() {
           )}
 
           {/* Entity Relationship Diagram operations */}
-          <MenubarMenu>
+          {isEntityWorkbench && <MenubarMenu>
             <MenubarTrigger>ERD</MenubarTrigger>
             <MenubarContent>
               <MenubarItem onSelect={handleNewErd}>
@@ -1923,7 +1972,7 @@ export default function Workbench() {
                 Export SQL
               </MenubarItem>
             </MenubarContent>
-          </MenubarMenu>
+          </MenubarMenu>}
 
           {/* About */}
           <MenubarMenu>
@@ -1940,12 +1989,12 @@ export default function Workbench() {
             </MenubarContent>
           </MenubarMenu>
         </Menubar>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginLeft: 'auto', marginRight: 12 }}>
+        {!isEntityWorkbench && <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginLeft: 'auto', marginRight: 12 }}>
           <DraftIndicator detectedDraft={detectedDraft} />
           <small className={styles.menuStatusBadge} suppressHydrationWarning data-testid="schema-source-badge">
             Source: {state.resolvedCache ? 'resolved' : state.source ? 'source' : 'none'}
           </small>
-        </div>
+        </div>}
       </div>
 
       {/* ── URL load dialog — markup document ───────────────────────── */}
@@ -2027,12 +2076,14 @@ export default function Workbench() {
       </Dialog>
 
       <div className={styles.tabs}>
+        {!isEntityWorkbench && <>
         <button className={activeTab === 'json' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('json')}>{markupLabel[markupLanguage]} Input</button>
         <button className={activeTab === 'instance' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('instance')}>Instance Form</button>
         <button className={activeTab === 'xmlschema' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('xmlschema')}>Schema Input</button>
         <button className={activeTab === 'schema' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('schema')}>Schema Form</button>
         <button className={activeTab === 'graph' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('graph')}>Schema Graph</button>
-        <button className={activeTab === 'erd' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('erd')}>Entity Graph</button>
+        </>}
+        {isEntityWorkbench && <button className={activeTab === 'erd' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('erd')}>Entity Graph</button>}
       </div>
 
       <div className={`${styles.tabPanel}${activeTab === 'graph' ? ` ${styles.tabPanelFlush}` : ''}${activeTab === 'erd' ? ` ${styles.tabPanelFlush}` : ''}`}>
@@ -2052,7 +2103,7 @@ export default function Workbench() {
             ) : state.source ? (
               <div className={styles.emptyState}>Resolving schema&hellip;</div>
             ) : (
-              <div className={styles.emptyState}>Load or generate a schema to begin editing</div>
+              <div className={styles.emptyState}><HelpTip>Load or generate a schema to begin editing</HelpTip></div>
             )}
           </>
         )}
@@ -2072,7 +2123,7 @@ export default function Workbench() {
                     schemaLanguage={markupLanguage === 'yaml' ? 'json' : markupLanguage}
                   />
                 ) : (
-                  <div className={styles.emptyState}>Load or generate a schema to begin editing</div>
+                  <div className={styles.emptyState}><HelpTip>Load or generate a schema to begin editing</HelpTip></div>
                 )}
               </div>
             </div>
@@ -2108,10 +2159,11 @@ export default function Workbench() {
                     />
                   ) : (
                     <div className={styles.emptyState}>
-                      <div>{state.source ? 'Loading XMLSchema.xsd walking schema...' : 'Load or generate an XSD schema to begin editing'}</div>
-                      <div style={{ fontSize: 12, marginTop: 16, maxWidth: 400 }}>
+                      {state.source ? <div role="status">Loading XMLSchema.xsd walking schema...</div> :
+                        <HelpTip>Load or generate an XSD schema to begin editing</HelpTip>}
+                      <HelpTip label="Schema Form">
                         Tip: Use <strong>Schema menu → Load from URL</strong> or <strong>Open Schema File</strong> to load an XSD.
-                      </div>
+                      </HelpTip>
                       <div style={{ marginTop: 12 }}>
                         <button className={styles.controlButton} onClick={handleLoadDemoXsdControls} style={{ marginRight: 8 }}>Load demo controls XSD</button>
                         <button className={styles.controlButton} onClick={handleLoadLocalXsd}>Load local XMLSchema.xsd</button>
@@ -2246,7 +2298,7 @@ export default function Workbench() {
                   ) : state.source ? (
                     <div className={styles.emptyState}>Resolving schema&hellip;</div>
                   ) : (
-                    <div className={styles.emptyState}>Load or generate a schema to begin editing</div>
+                    <div className={styles.emptyState}><HelpTip>Load or generate a schema to begin editing</HelpTip></div>
                   )
                 )}
               </div>
@@ -2370,9 +2422,9 @@ export default function Workbench() {
                   />
                 </div>
               ) : !state.source ? (
-                <div className={styles.emptyState}>Load an XML schema to edit instance data</div>
+                <div className={styles.emptyState}><HelpTip>Load an XML schema to edit instance data</HelpTip></div>
               ) : (
-                <div className={styles.emptyState}>Paste XML instance data in the "XML Input" tab to view and edit it here</div>
+                <div className={styles.emptyState}><HelpTip>Paste XML instance data in the "XML Input" tab to view and edit it here</HelpTip></div>
               )
             ) : (
               // JSON/YAML Instance Form
@@ -2390,7 +2442,7 @@ export default function Workbench() {
               ) : state.source ? (
                 <div className={styles.emptyState}>Resolving schema&hellip;</div>
               ) : (
-                <div className={styles.emptyState}>Generate a schema to edit instance data</div>
+                <div className={styles.emptyState}><HelpTip>Generate a schema to edit instance data</HelpTip></div>
               )
             )}
           </div>
