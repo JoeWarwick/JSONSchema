@@ -12,6 +12,8 @@ export interface XmlInstanceFormProps {
   autoExpandAll?: boolean;
   showRootElementTriggers?: boolean;
   expansionStateKey?: string;
+  fieldGroups?: Readonly<Record<string, string>>;
+  xsdAuthoring?: boolean;
 }
 
 export interface XmlAttribute {
@@ -42,6 +44,7 @@ export interface XmlElementNodeProps {
   onChange: (value: any) => void;
   onUpdateValue: (pathArray: string[], updateFn: (value: any) => any) => void;
   rootSchema?: any;
+  showRootElementTriggers?: boolean;
   referencedElementNames?: ReadonlySet<string>;
   autoExpandAll?: boolean;
   schemaNode?: SchemaNode;

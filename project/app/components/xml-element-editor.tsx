@@ -1,4 +1,6 @@
 import React from 'react';
+import { HelpTip } from './help-tip';
+import { FormActionRow, FormFieldGroup } from './form-field-layout';
 import type { Node as FlowNode } from 'reactflow';
 import type { NodeData, XmlNodeRhsEditorProps } from './types';
 import { XmlAnnotationFieldAuto, XmlReadOnlyHint } from './xml-editor-controls';
@@ -58,6 +60,7 @@ export function XmlElementEditor({ node, onChange, readOnlySource, renderAttribu
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>Element Editor</div>
       {readOnly && <XmlReadOnlyHint source={readOnlySource!} />}
+      <FormFieldGroup group="identity">
       {!isRef && (
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span style={{ fontSize: 12 }}>Name</span>
@@ -91,6 +94,7 @@ export function XmlElementEditor({ node, onChange, readOnlySource, renderAttribu
           onChange({ id: node.id, xmlElementType: next });
         }}
       />
+      </FormFieldGroup>
       <XmlElementWidgetField
         widget={widget}
         readOnly={readOnly}
@@ -134,6 +138,7 @@ export function XmlElementEditor({ node, onChange, readOnlySource, renderAttribu
         onDefaultBlur={() => onChange({ id: node.id, xmlDefault: defaultValue })}
         onFixedBlur={() => onChange({ id: node.id, xmlFixed: fixedValue })}
       />
+      <FormActionRow>
       <XmlElementToggleField
         checked={isRef}
         disabled={readOnly || isRef}
@@ -154,6 +159,24 @@ export function XmlElementEditor({ node, onChange, readOnlySource, renderAttribu
           onChange({ id: node.id, xmlMixed: next });
         }}
       />
+      {!data.xmlHasInlineComplexType && !isRef && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <HelpTip>
+            This element is currently simpleType-backed. Convert it to ComplexType before adding xs:attribute or xs:anyAttribute.
+          </HelpTip>
+          {!readOnly && (
+            <button
+              type="button"
+              aria-label="Convert to ComplexType"
+              onClick={() => onChange({ id: node.id, xmlConvertToComplexType: true })}
+              style={{ whiteSpace: 'nowrap', padding: '4px 10px', borderRadius: 999, border: '1px solid var(--graph-node-border, #4b5563)', backgroundColor: 'var(--graph-node-bg-subtle, #1f2937)', color: 'var(--graph-text, #e5e7eb)', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+            >
+              Convert to ComplexType
+            </button>
+          )}
+        </div>
+      )}
+      </FormActionRow>
       <XmlElementComplexContentFields
         hasInlineComplexType={Boolean(data.xmlHasInlineComplexType)}
         readOnly={readOnly}
@@ -196,27 +219,6 @@ export function XmlElementEditor({ node, onChange, readOnlySource, renderAttribu
         hasInlineComplexType={Boolean(data.xmlHasInlineComplexType)}
         hasComplexContentExtension={hasComplexContentExtension}
       />
-      {!data.xmlHasInlineComplexType ? (
-        !isRef ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12, color: '#666', background: '#fff7ed', border: '1px solid #f5c2b7', borderRadius: 6, padding: 8 }}>
-            <div>
-              This element is currently simpleType-backed. Convert it to ComplexType before adding xs:attribute or xs:anyAttribute.
-            </div>
-            {!readOnly ? (
-              <button
-                type="button"
-                aria-label="Convert to ComplexType"
-                onClick={() => {
-                  onChange({ id: node.id, xmlConvertToComplexType: true });
-                }}
-                style={{ alignSelf: 'flex-start', padding: '4px 10px', borderRadius: 999, border: '1px solid var(--graph-node-border, #4b5563)', backgroundColor: 'var(--graph-node-bg-subtle, #1f2937)', color: 'var(--graph-text, #e5e7eb)', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
-              >
-                Convert to ComplexType
-              </button>
-            ) : null}
-          </div>
-        ) : null
-      ) : null}
       <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} />
     </form>
   );

@@ -1,4 +1,5 @@
 import React from 'react';
+import { FormFieldGroup } from './form-field-layout';
 import { HelpTip } from './help-tip';
 import type { InlineSimpleTypeData, XmlNodeRhsEditorProps } from './types';
 import { XmlAnnotationFieldAuto } from './xml-editor-controls';
@@ -153,6 +154,7 @@ export function XmlInstanceAttributeEditor({ node, onChange, readOnlySource, get
         <div style={{ fontSize: 12, color: '#666' }}>
           Inherited from <code>xs:attributeGroup ref="{attributeGroupRef}"</code> — read-only here. Edit it on the <strong>{attributeGroupRef}</strong> attributeGroup node instead.
         </div>
+        <FormFieldGroup group="identity">
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span style={{ fontSize: 12 }}>Name</span>
           <input aria-label="Attribute Name" value={name} readOnly disabled style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5' }} />
@@ -161,9 +163,11 @@ export function XmlInstanceAttributeEditor({ node, onChange, readOnlySource, get
           <span style={{ fontSize: 12 }}>Type</span>
           <input aria-label="Attribute Type" value={type} readOnly disabled style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5' }} />
         </label>
+        </FormFieldGroup>
         {referencedEnumerations.length > 0 && (
           <ReferencedEnumerationList values={referencedEnumerations} typeName={referencedTypeName} />
         )}
+        <FormFieldGroup group="options">
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span style={{ fontSize: 12 }}>Use</span>
           <input aria-label="Attribute Use" value={useValue} readOnly disabled style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5' }} />
@@ -174,6 +178,7 @@ export function XmlInstanceAttributeEditor({ node, onChange, readOnlySource, get
             <input aria-label="Attribute Widget" value={widget || '(none)'} readOnly disabled style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5' }} />
           </label>
         )}
+        </FormFieldGroup>
         {showDefault && (
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span style={{ fontSize: 12 }}>Default</span>
@@ -197,6 +202,7 @@ export function XmlInstanceAttributeEditor({ node, onChange, readOnlySource, get
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>Attribute Editor</div>
+      <FormFieldGroup group="identity">
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ fontSize: 12 }}>Name</span>
         <input aria-label="Attribute Name" value={name} onChange={(e) => setName(e.target.value)} onBlur={() => onChange({ id: node.id, xmlName: name })} style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }} />
@@ -214,6 +220,7 @@ export function XmlInstanceAttributeEditor({ node, onChange, readOnlySource, get
           disabled={hasInlineSimpleType}
         />
       </label>
+      </FormFieldGroup>
       {hasInlineSimpleType && (
         <HelpTip>
           This attribute has an inline SimpleType. Select its child node to edit it.
@@ -222,6 +229,7 @@ export function XmlInstanceAttributeEditor({ node, onChange, readOnlySource, get
       {referencedEnumerations.length > 0 && (
         <ReferencedEnumerationList values={referencedEnumerations} typeName={referencedTypeName} />
       )}
+      <FormFieldGroup group="options">
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ fontSize: 12 }}>Use</span>
         <select
@@ -258,6 +266,7 @@ export function XmlInstanceAttributeEditor({ node, onChange, readOnlySource, get
           </select>
         </label>
       )}
+      </FormFieldGroup>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
         <button
           type="button"

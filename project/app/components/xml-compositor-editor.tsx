@@ -1,4 +1,5 @@
 import React from 'react';
+import { FormFieldGroup } from './form-field-layout';
 import type { XmlNodeRhsEditorProps } from './types';
 import { XmlAnnotationFieldAuto, XmlReadOnlyHint } from './xml-editor-controls';
 
@@ -18,7 +19,8 @@ export function XmlCompositorEditor({ node, onChange, readOnlySource }: XmlNodeR
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>{String(data.xmlNodeKind || 'Compositor')} Editor</div>
       {readOnly && <XmlReadOnlyHint source={readOnlySource!} />}
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <FormFieldGroup group="occurrence">
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
         <span style={{ fontSize: 12 }}>minOccurs</span>
         <input
           aria-label="minOccurs"
@@ -26,11 +28,11 @@ export function XmlCompositorEditor({ node, onChange, readOnlySource }: XmlNodeR
           disabled={readOnly}
           onChange={(e) => setMinOccurs(e.target.value)}
           onBlur={() => onChange({ id: node.id, xmlMinOccurs: minOccurs })}
-          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' }}
           placeholder="1"
         />
       </label>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
         <span style={{ fontSize: 12 }}>maxOccurs</span>
         <input
           aria-label="maxOccurs"
@@ -38,10 +40,11 @@ export function XmlCompositorEditor({ node, onChange, readOnlySource }: XmlNodeR
           disabled={readOnly}
           onChange={(e) => setMaxOccurs(e.target.value)}
           onBlur={() => onChange({ id: node.id, xmlMaxOccurs: maxOccurs })}
-          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' }}
           placeholder="1 or unbounded"
         />
       </label>
+      </FormFieldGroup>
       <XmlAnnotationFieldAuto nodeId={node.id} data={data} onChange={onChange} disabled={readOnly} />
     </form>
   );

@@ -1,0 +1,33 @@
+.fieldRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  align-items: start;
+  gap: 6px;
+}
+
+.fieldRow > label,
+.field {
+  min-width: 0;
+}
+
+.actionRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.actionRow > label {
+  white-space: nowrap;
+}
+
+.field > div {
+  flex-wrap: wrap;
+}
+
+.fieldRow input:not([type="checkbox"]):not([type="radio"]),
+.fieldRow select {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}

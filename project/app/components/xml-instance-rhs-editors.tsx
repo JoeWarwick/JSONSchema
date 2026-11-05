@@ -1,4 +1,5 @@
 import React from 'react';
+import { FormActionRow, FormFieldGroup } from './form-field-layout';
 import { HelpTip } from './help-tip';
 
 // Instance-form-specific RHS editors.
@@ -14,6 +15,23 @@ import { XmlInstanceComplexTypeEditor } from './xml-instance-complex-type-editor
 import { XmlInstanceAttributeGroupEditor } from './xml-instance-attribute-group-editor';
 import { XmlInstanceAttributeEditor, XmlInstanceAttributeSimpleTypeEditor } from './xml-instance-attribute-editors';
 import { XSD_BUILTIN_SIMPLE_TYPES } from '~/utils/xsd-types';
+
+export function getXsdAuthoringChildOptions(localName: string, prefix: string) {
+  const children = ['sequence', 'choice', 'all'].includes(localName)
+    ? [{ name: 'element', maxOccurs: Number.POSITIVE_INFINITY }]
+    : localName === 'restriction'
+      ? [
+          { name: 'enumeration', maxOccurs: Number.POSITIVE_INFINITY },
+          ...['length', 'minLength', 'maxLength', 'pattern'].map(name => ({ name, maxOccurs: 1 })),
+        ]
+      : [];
+  return children.map(child => ({
+    ...child,
+    name: `${prefix}${child.name}`,
+    label: `Add ${prefix}${child.name}`,
+    minOccurs: 0,
+  }));
+}
 
 /**
  * XmlAttributesManager - A reusable control for managing attributes on XML schema elements.
@@ -119,7 +137,7 @@ export function XmlAttributesManager({
                   cursor: isInherited ? 'default' : 'pointer',
                 }}
               >
-                <span>+</span>
+                {!isInherited && <span>-</span>}
                 <span>{badgeLabel}</span>
                 {isInherited ? <span style={{ fontSize: 10 }}>(inherited)</span> : null}
               </button>
@@ -240,7 +258,8 @@ function XmlCompositorEditor({ node, onChange, readOnlySource, getNodeByName }: 
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>{String(data.xmlNodeKind || 'Compositor')} Editor</div>
       {readOnly && <XmlReadOnlyHint source={readOnlySource!} />}
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <FormFieldGroup group="occurrence">
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
         <span style={{ fontSize: 12 }}>minOccurs</span>
         <input
           aria-label="minOccurs"
@@ -248,11 +267,11 @@ function XmlCompositorEditor({ node, onChange, readOnlySource, getNodeByName }: 
           disabled={readOnly}
           onChange={(e) => setMinOccurs(e.target.value)}
           onBlur={() => onChange({ id: node.id, xmlMinOccurs: minOccurs })}
-          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' }}
           placeholder="1"
         />
       </label>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
         <span style={{ fontSize: 12 }}>maxOccurs</span>
         <input
           aria-label="maxOccurs"
@@ -260,10 +279,11 @@ function XmlCompositorEditor({ node, onChange, readOnlySource, getNodeByName }: 
           disabled={readOnly}
           onChange={(e) => setMaxOccurs(e.target.value)}
           onBlur={() => onChange({ id: node.id, xmlMaxOccurs: maxOccurs })}
-          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
+          style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' }}
           placeholder="1 or unbounded"
         />
       </label>
+      </FormFieldGroup>
 
       <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--graph-text)' }}>Elements</div>
 
@@ -401,6 +421,7 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>Element Editor</div>
       {readOnly && <XmlReadOnlyHint source={readOnlySource!} />}
+      <FormFieldGroup group="identity">
       {!isRef && (
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span style={{ fontSize: 12 }}>Name</span>
@@ -450,6 +471,7 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
           />
         )}
       </label>
+      </FormFieldGroup>
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ fontSize: 12 }}>Widget</span>
         <select
@@ -485,7 +507,7 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
           />
         </label>
       ) : null}
-      <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+      <FormFieldGroup group="occurrence">
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
           <span style={{ fontSize: 12 }}>minOccurs</span>
           <input
@@ -510,8 +532,8 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
             style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' }}
           />
         </label>
-      </label>
-      <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+      </FormFieldGroup>
+      <FormFieldGroup group="defaults">
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
           <span style={{ fontSize: 12 }}>default</span>
           <input
@@ -536,7 +558,8 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
             style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
           />
         </label>
-      </label>
+      </FormFieldGroup>
+      <FormActionRow>
       <label style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
         <input
           type="checkbox"
@@ -565,6 +588,22 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
         />
         <span style={{ fontSize: 12 }}>Mixed Content</span>
       </label>
+      {!data.xmlHasInlineComplexType && !readOnly && !isRef && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <HelpTip>
+            This element is currently simpleType-backed. Convert it to ComplexType before adding xs:attribute or xs:anyAttribute.
+          </HelpTip>
+          <button
+            type="button"
+            aria-label="Convert to ComplexType"
+            onClick={() => onChange({ id: node.id, xmlConvertToComplexType: true })}
+            style={{ whiteSpace: 'nowrap', padding: '4px 10px', borderRadius: 999, border: '1px solid var(--graph-node-border, #4b5563)', backgroundColor: 'var(--graph-node-bg-subtle, #1f2937)', color: 'var(--graph-text, #e5e7eb)', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+          >
+            Convert to ComplexType
+          </button>
+        </div>
+      )}
+      </FormActionRow>
       {data.xmlHasInlineComplexType ? (
         !readOnly ? (
           <XmlAttributesManager
@@ -597,31 +636,13 @@ function XmlElementEditor({ node, onChange, readOnlySource, getNodeByName }: Xml
                   boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.04)',
                 }}
               >
-                <span>+</span>
+                <span>{hasAnyAttributeNamespace ? '-' : '+'}</span>
                 <span>Any #ns</span>
               </button>
             ) : null}
           />
         ) : null
-      ) : (
-        !readOnly && !isRef ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12, color: '#666', background: '#fff7ed', border: '1px solid #f5c2b7', borderRadius: 6, padding: 8 }}>
-            <HelpTip>
-              This element is currently simpleType-backed. Convert it to ComplexType before adding xs:attribute or xs:anyAttribute.
-            </HelpTip>
-            <button
-              type="button"
-              aria-label="Convert to ComplexType"
-              onClick={() => {
-                onChange({ id: node.id, xmlConvertToComplexType: true });
-              }}
-              style={{ alignSelf: 'flex-start', padding: '4px 10px', borderRadius: 999, border: '1px solid var(--graph-node-border, #4b5563)', backgroundColor: 'var(--graph-node-bg-subtle, #1f2937)', color: 'var(--graph-text, #e5e7eb)', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
-            >
-              Convert to ComplexType
-            </button>
-          </div>
-        ) : null
-      )}
+      ) : null}
 
       <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--graph-text)' }}>Elements</div>
 

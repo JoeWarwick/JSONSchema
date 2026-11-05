@@ -82,6 +82,44 @@ const testSchema = {
 };
 
 describe('Schema Walker - Utility Functions', () => {
+  test('recursive children retain declarations for a fresh bounded walk', () => {
+    const childDefinition = { '@attributes': { name: 'child', type: 'TreeType', minOccurs: '0' } };
+    const schema = {
+      'xs:complexType': {
+        '@attributes': { name: 'TreeType' },
+        'xs:sequence': { 'xs:element': childDefinition },
+        'xs:attribute': { '@attributes': { name: 'id', type: 'xs:string' } },
+      },
+      'xs:element': { '@attributes': { name: 'tree', type: 'TreeType' } },
+    };
+    const compiled = compileSchemaForWalking(schema);
+    const context = {
+      rootSchema: schema, compiledSchema: compiled, visitedTypes: new Set<string>(),
+      depth: 0, maxDepth: 2, path: [], typeName: 'TreeType',
+    };
+    const node = walkSchema(compiled, context);
+    expect(node.children).toHaveLength(1);
+    expect(node.children[0]).toMatchObject({
+      tagName: 'child', elementType: 'TreeType', isCircular: true, children: [],
+      schemaObj: childDefinition,
+    });
+    expect(node.children[0].attributes).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'id' })]));
+    const expanded = walkSchema(compiled, { ...context, path: ['child'], visitedTypes: new Set() });
+    expect(expanded.children[0].tagName).toBe('child');
+  });
+
+  test('simple type facets remain validation metadata, not instance children', () => {
+    const schema = testSchema['xs:schema'];
+    const compiled = compileSchemaForWalking(schema);
+    const node = walkSchema(compiled, {
+      rootSchema: schema, compiledSchema: compiled, visitedTypes: new Set(),
+      depth: 0, maxDepth: 2, path: [], typeName: 'ColorType',
+    });
+    expect(node.enumerations).toEqual(['red', 'green', 'blue']);
+    expect(node.children).toEqual([]);
+    expect(getChildElementsFromType(schema['xs:simpleType'][0], schema)).toEqual([]);
+  });
+
   test('compiles and walks choice elements and enumerations without console tracing', () => {
     const log = jest.spyOn(console, 'log').mockImplementation(() => {});
     const debug = jest.spyOn(console, 'debug').mockImplementation(() => {});

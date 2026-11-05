@@ -86,6 +86,42 @@ export function facetsToHint(facets: ValidationFacets | undefined): string | nul
 
 export const normalizeXmlName = (name: unknown): string => String(name ?? '').replace(/^.*:/, '');
 
+export function resolveInstanceChildKey(container: unknown, name: string): string | undefined {
+  if (!container || typeof container !== 'object' || Array.isArray(container)) return undefined;
+  if (Object.prototype.hasOwnProperty.call(container, name)) return name;
+  const localName = normalizeXmlName(name);
+  const matches = Object.keys(container).filter(key =>
+    !key.startsWith('@') && !key.startsWith('_') && !key.startsWith('#')
+    && normalizeXmlName(key) === localName);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+export function synchronizeXmlChildOrder(value: unknown): void {
+  if (!value || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    value.forEach(synchronizeXmlChildOrder);
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  for (const [key, child] of Object.entries(record)) {
+    if (!key.startsWith('@') && !key.startsWith('_') && !key.startsWith('#')) {
+      synchronizeXmlChildOrder(child);
+    }
+  }
+  if (!Array.isArray(record.__childrenInOrder)) return;
+  const occurrences = new Map<string, number>();
+  // Order entries are a secondary view of the current keyed values, not independent snapshots.
+  record.__childrenInOrder = record.__childrenInOrder.flatMap((entry: unknown) => {
+    if (!entry || typeof entry !== 'object' || !('tagName' in entry) || typeof entry.tagName !== 'string') return [];
+    const key = entry.tagName;
+    const current = record[key];
+    const index = occurrences.get(key) ?? 0;
+    occurrences.set(key, index + 1);
+    const child = Array.isArray(current) ? current[index] : index === 0 ? current : undefined;
+    return child === undefined ? [] : [{ ...entry, value: child }];
+  });
+}
+
 export function getReferencedElementNames(schema: unknown): Set<string> {
   const schemaRoot = getSchemaRootNode(schema);
   const referencedNames = new Set<string>();
@@ -183,6 +219,8 @@ export function resolveInstanceChildData(
     const result = value?.[key];
     if (result !== undefined) return result;
   }
+  const directKey = !isRootLevel ? resolveInstanceChildKey(value, childElementName) : undefined;
+  if (directKey !== undefined) return value[directKey];
 
   if (isRootLevel && rootElementName && value && typeof value === 'object' && !Array.isArray(value)) {
     const wrapperKey = findRootWrapperKey(value, rootElementName);

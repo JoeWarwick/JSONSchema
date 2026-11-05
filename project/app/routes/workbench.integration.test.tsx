@@ -1,7 +1,7 @@
 import React from 'react';
 import fs from 'fs';
 import path from 'path';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { Workbench } from './workbench';
 import { parseMarkup } from '~/utils/markup';
@@ -78,6 +78,54 @@ describe('Workbench integration - load unresolved $defs schema', () => {
       URL.revokeObjectURL = originalRevoke;
       click.mockRestore();
     }
+  });
+
+  it('persists namespace-qualified XML form edits and restores them on remount', async () => {
+    const schema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+        xmlns:tns="urn:person" targetNamespace="urn:person" elementFormDefault="qualified">
+        <xs:element name="person"><xs:complexType><xs:sequence>
+          <xs:element name="firstName" type="xs:string"/>
+          <xs:element name="address"><xs:complexType><xs:sequence>
+            <xs:element name="street" type="xs:string"/>
+          </xs:sequence></xs:complexType></xs:element>
+        </xs:sequence></xs:complexType></xs:element>
+      </xs:schema>`, 'xml');
+    localStorage.setItem('schema-sculptor-markup-language', 'xml');
+    localStorage.setItem('schema-sculptor-schema-xml', JSON.stringify(schema));
+    localStorage.setItem('schema-sculptor-instance-xml',
+      '<tns:person xmlns:tns="urn:person"><tns:firstName>Jane</tns:firstName>' +
+      '<tns:address><tns:street>Old Street</tns:street></tns:address></tns:person>');
+
+    const view = render(<Workbench />);
+    fireEvent.click(await screen.findByRole('button', { name: /Instance Form/i }));
+    const rootLabel = await screen.findByTestId(/xml-tag-.*person$/);
+    fireEvent.click(within(rootLabel.parentElement!).getByRole('button'));
+    fireEvent.change(await screen.findByTestId('xml-element-firstName-input'), { target: { value: 'Janet' } });
+    const addressLabel = await screen.findByTestId(/xml-tag-.*address$/);
+    fireEvent.click(within(addressLabel.parentElement!).getByRole('button'));
+    fireEvent.change(await screen.findByTestId('xml-element-street-input'), { target: { value: 'New Street' } });
+    expect(screen.getByTestId('xml-element-firstName-input')).toHaveValue('Janet');
+    expect(screen.getByTestId('xml-element-street-input')).toHaveValue('New Street');
+
+    fireEvent.click(screen.getByRole('button', { name: /XML Input/i }));
+    const xml = (screen.getByPlaceholderText(/Paste your XML here/i) as HTMLTextAreaElement).value;
+    const document = new DOMParser().parseFromString(xml, 'application/xml');
+    expect(document.getElementsByTagName('tns:firstName')[0].textContent?.trim()).toBe('Janet');
+    expect(document.getElementsByTagName('tns:street')[0].textContent?.trim()).toBe('New Street');
+    expect(document.getElementsByTagName('firstName')).toHaveLength(0);
+    expect(document.getElementsByTagName('street')).toHaveLength(0);
+    await waitFor(() => expect(localStorage.getItem('schema-sculptor-instance-xml')).toBe(xml));
+
+    view.unmount();
+    render(<Workbench />);
+    fireEvent.click(await screen.findByRole('button', { name: /Instance Form/i }));
+    const restoredRoot = await screen.findByTestId(/xml-tag-.*person$/);
+    fireEvent.click(within(restoredRoot.parentElement!).getByRole('button'));
+    expect(await screen.findByTestId('xml-element-firstName-input')).toHaveValue('Janet');
+    const restoredAddress = await screen.findByTestId(/xml-tag-.*address$/);
+    fireEvent.click(within(restoredAddress.parentElement!).getByRole('button'));
+    expect(await screen.findByTestId('xml-element-street-input')).toHaveValue('New Street');
   });
 
   it('clears invalid persisted XML instance content on hydration', async () => {
@@ -595,44 +643,22 @@ describe('Workbench integration - load unresolved $defs schema', () => {
         fireEvent.click(rootToggle);
       }
 
-      const clickChevronRightExpanders = () => {
-        const expandButtons = Array.from(document.querySelectorAll('button')).filter((btn) => {
-          const title = btn.getAttribute('title') || '';
-          const aria = btn.getAttribute('aria-label') || '';
-          const iconClass = btn.querySelector('svg')?.getAttribute('class') || '';
-          const text = (btn.textContent || '').trim();
-          const isTextArrow = text === '▶';
-          const isIconChevronRight = !title && !aria && iconClass.includes('chevron-right');
-          return isTextArrow || isIconChevronRight;
-        }) as HTMLButtonElement[];
-        expandButtons.forEach((btn) => fireEvent.click(btn));
-        return expandButtons.length;
-      };
-
-      for (let pass = 0; pass < 10; pass += 1) {
-        const clicked = clickChevronRightExpanders();
-        if (clicked === 0) break;
-      }
-
       const colorTypeChip = await screen.findByText('ColorType', { exact: true });
-      const colorTypeHeader = colorTypeChip.parentElement?.parentElement;
-      const colorTypeToggle = colorTypeHeader?.querySelector('button') as HTMLButtonElement | null;
-      if (colorTypeToggle?.querySelector('svg')?.getAttribute('class')?.includes('chevron-right')) {
-        fireEvent.click(colorTypeToggle);
-      }
+      fireEvent.click(within(colorTypeChip.parentElement!).getByRole('button', { name: 'Expand' }));
+      const colorTypeName = await screen.findByDisplayValue('ColorType');
+      const colorTypeEditor = colorTypeName.closest('form')!.parentElement!.parentElement!;
 
-      const restrictionTag = await screen.findByTestId('xml-tag-xs_restriction');
-      const restrictionHeader = restrictionTag.parentElement?.parentElement;
-      const restrictionToggle = restrictionHeader?.querySelector('button') as HTMLButtonElement | null;
-      if (restrictionToggle?.querySelector('svg')?.getAttribute('class')?.includes('chevron-right')) {
-        fireEvent.click(restrictionToggle);
+      for (let depth = 0; depth < 5; depth += 1) {
+        const expanders = within(colorTypeEditor).queryAllByRole('button', { name: 'Expand' });
+        if (expanders.length === 0) break;
+        expanders.forEach(button => fireEvent.click(button));
       }
 
       await waitFor(() => {
-        const text = document.body.textContent || '';
-        expect(text).toContain('red');
-        expect(text).toContain('green');
-        expect(text).toContain('blue');
+        for (const color of ['red', 'green', 'blue']) {
+          expect(within(colorTypeEditor).getByDisplayValue(color)).toBeVisible();
+        }
+        expect(within(colorTypeEditor).queryByText(/Enumeration Values/)).not.toBeInTheDocument();
       });
     } finally {
       (global as any).fetch = originalFetch;

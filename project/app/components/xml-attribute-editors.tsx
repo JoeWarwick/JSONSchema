@@ -1,4 +1,5 @@
 import React from 'react';
+import { FormFieldGroup } from './form-field-layout';
 import type { InlineSimpleTypeData, XmlNodeRhsEditorProps } from './types';
 import { XmlAnnotationFieldAuto } from './xml-editor-controls';
 import { InlineSimpleTypeEditor, ReferencedEnumerationList, XmlTypeSelector } from './xml-simple-type-controls';
@@ -82,6 +83,7 @@ export function XmlAttributeEditor({ node, onChange, readOnlySource }: XmlNodeRh
         <div style={{ fontSize: 12, color: '#666' }}>
           Inherited from <code>xs:attributeGroup ref="{attributeGroupRef}"</code> - read-only here. Edit it on the <strong>{attributeGroupRef}</strong> attributeGroup node instead.
         </div>
+        <FormFieldGroup group="identity">
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span style={{ fontSize: 12 }}>Name</span>
           <input aria-label="Attribute Name" value={name} readOnly disabled style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5' }} />
@@ -90,9 +92,11 @@ export function XmlAttributeEditor({ node, onChange, readOnlySource }: XmlNodeRh
           <span style={{ fontSize: 12 }}>Type</span>
           <input aria-label="Attribute Type" value={type} readOnly disabled style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5' }} />
         </label>
+        </FormFieldGroup>
         {referencedEnumerations.length > 0 && (
           <ReferencedEnumerationList values={referencedEnumerations} typeName={referencedTypeName} />
         )}
+        <FormFieldGroup group="options">
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span style={{ fontSize: 12 }}>Use</span>
           <input aria-label="Attribute Use" value={useValue} readOnly disabled style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5' }} />
@@ -103,6 +107,7 @@ export function XmlAttributeEditor({ node, onChange, readOnlySource }: XmlNodeRh
             <input aria-label="Attribute Widget" value={widget || '(none)'} readOnly disabled style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', background: '#f5f5f5' }} />
           </label>
         )}
+        </FormFieldGroup>
         {showDefault && (
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span style={{ fontSize: 12 }}>Default</span>
@@ -117,6 +122,7 @@ export function XmlAttributeEditor({ node, onChange, readOnlySource }: XmlNodeRh
   return (
     <form style={{ display: 'flex', flexDirection: 'column', gap: 10 }} onSubmit={(e) => e.preventDefault()}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>Attribute Editor</div>
+      <FormFieldGroup group="identity">
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ fontSize: 12 }}>Name</span>
         <input aria-label="Attribute Name" value={name} onChange={(e) => setName(e.target.value)} onBlur={() => onChange({ id: node.id, xmlName: name })} style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }} />
@@ -134,6 +140,7 @@ export function XmlAttributeEditor({ node, onChange, readOnlySource }: XmlNodeRh
           disabled={hasInlineSimpleType}
         />
       </label>
+      </FormFieldGroup>
       {hasInlineSimpleType && (
         <div style={{ fontSize: 12, color: 'var(--graph-muted)' }}>
           This attribute has an inline SimpleType. Select its child node to edit it.
@@ -142,6 +149,7 @@ export function XmlAttributeEditor({ node, onChange, readOnlySource }: XmlNodeRh
       {referencedEnumerations.length > 0 && (
         <ReferencedEnumerationList values={referencedEnumerations} typeName={referencedTypeName} />
       )}
+      <FormFieldGroup group="options">
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ fontSize: 12 }}>Use</span>
         <select
@@ -180,6 +188,7 @@ export function XmlAttributeEditor({ node, onChange, readOnlySource }: XmlNodeRh
           </select>
         </label>
       )}
+      </FormFieldGroup>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
         <button
           type="button"

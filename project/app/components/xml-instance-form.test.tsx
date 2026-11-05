@@ -5,7 +5,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import '@testing-library/jest-dom';
 import { TooltipProvider } from './ui/tooltip/tooltip';
 import { XmlInstanceForm } from './xml-instance-form';
-import { parseMarkup } from '../utils/markup';
+import { parseMarkup, serializeMarkup } from '../utils/markup';
 
 function renderForm(ui: React.ReactElement) {
   return render(<TooltipProvider delayDuration={0}>{ui}</TooltipProvider>);
@@ -20,6 +20,136 @@ function getFirstCombobox(): HTMLSelectElement {
 describe('XmlInstanceForm trigger-row behavior', () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  test.each(['tns:', 'p:', ''])('qualifies inserted optional nodes using the instance namespace %s', async prefix => {
+    const schema = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/xml-form-controls-demo.xsd'), 'utf8'), 'xml',
+    );
+    const namespace = prefix ? `xmlns:${prefix.slice(0, -1)}` : 'xmlns';
+    const initial = parseMarkup(
+      `<${prefix}person ${namespace}="http://example.com/demo"><${prefix}firstName>Jane</${prefix}firstName>` +
+      `<${prefix}lastName>Doe</${prefix}lastName></${prefix}person>`, 'xml',
+    );
+    let latest = initial;
+    function Editor() {
+      const [value, setValue] = React.useState(initial);
+      return <XmlInstanceForm schema={schema} rootSchema={schema} value={value} autoExpandAll showRootElementTriggers={false}
+        onChange={next => { latest = next; setValue(next); }} />;
+    }
+    renderForm(<Editor />);
+    fireEvent.click(await screen.findByRole('button', { name: /Add birthDate/i }));
+    fireEvent.change(await screen.findByTestId('xml-element-birthDate-input'), { target: { value: '1976-10-16' } });
+    fireEvent.click(screen.getByRole('button', { name: /Add homeEmail/i }));
+    fireEvent.change(await screen.findByTestId('xml-element-homeEmail-input'), { target: { value: 'person@example.com' } });
+    const doc = new DOMParser().parseFromString(serializeMarkup(latest, 'xml'), 'application/xml');
+    for (const name of ['birthDate', 'homeEmail']) {
+      const nodes = doc.getElementsByTagNameNS('http://example.com/demo', name);
+      expect(nodes).toHaveLength(1);
+      expect(nodes[0].tagName).toBe(`${prefix}${name}`);
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Remove birthDate' }));
+    expect(screen.queryByTestId('xml-element-birthDate-input')).not.toBeInTheDocument();
+    expect(serializeMarkup(latest, 'xml')).not.toContain('birthDate');
+    const choice = screen.getAllByRole('combobox').find(select =>
+      [...(select as HTMLSelectElement).options].some(option => option.value === 'workEmail'));
+    expect(choice).toBeDefined();
+    fireEvent.change(choice!, { target: { value: 'workEmail' } });
+    const switched = new DOMParser().parseFromString(serializeMarkup(latest, 'xml'), 'application/xml');
+    expect(switched.getElementsByTagNameNS('http://example.com/demo', 'homeEmail')).toHaveLength(0);
+    expect(switched.getElementsByTagNameNS('http://example.com/demo', 'workEmail')).toHaveLength(1);
+  });
+
+  test('respects explicit unqualified local elements when inserting under a default namespace', async () => {
+    const schema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+        targetNamespace="urn:example" elementFormDefault="qualified">
+        <xs:element name="root"><xs:complexType><xs:sequence>
+          <xs:element name="local" type="xs:string" form="unqualified" minOccurs="0"/>
+        </xs:sequence></xs:complexType></xs:element>
+      </xs:schema>`, 'xml');
+    let latest = parseMarkup('<root xmlns="urn:example"/>', 'xml');
+    function Editor() {
+      const [value, setValue] = React.useState(latest);
+      return <XmlInstanceForm schema={schema} rootSchema={schema} value={value} autoExpandAll
+        onChange={next => { latest = next; setValue(next); }} />;
+    }
+    renderForm(<Editor />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add local' }));
+    const doc = new DOMParser().parseFromString(serializeMarkup(latest, 'xml'), 'application/xml');
+    expect(doc.getElementsByTagName('local')[0].namespaceURI).toBeNull();
+  });
+
+  test.each([true, false])('renders the demo date picker with root triggers %s and retains edits', async showRootElementTriggers => {
+    const schema = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/xml-form-controls-demo.xsd'), 'utf8'),
+      'xml',
+    );
+    const initial = parseMarkup(
+      '<tns:person xmlns:tns="http://example.com/demo"><tns:firstName>Jane</tns:firstName>' +
+      '<tns:lastName>Doe</tns:lastName><tns:birthDate/></tns:person>', 'xml',
+    );
+    let latest = initial;
+    function Editor() {
+      const [value, setValue] = React.useState(initial);
+      return <XmlInstanceForm schema={schema} rootSchema={schema} value={value} autoExpandAll
+        showRootElementTriggers={showRootElementTriggers}
+        onChange={next => { latest = next; setValue(next); }} />;
+    }
+    renderForm(<Editor />);
+    const birthDate = await screen.findByTestId('xml-element-birthDate-input');
+    expect(birthDate).toHaveAttribute('type', 'date');
+    expect(screen.queryByRole('button', { name: /person/i }) !== null).toBe(showRootElementTriggers);
+    fireEvent.change(birthDate, { target: { value: '1990-04-23' } });
+    expect(screen.getByTestId('xml-element-birthDate-input')).toHaveValue('1990-04-23');
+    expect(serializeMarkup(latest, 'xml')).toContain('1990-04-23');
+  });
+
+  test.each(['', 'tns:'])('edits parsed %s XML leaves without stale order values or duplicate elements', async prefix => {
+    const schema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+        xmlns:tns="urn:person" targetNamespace="urn:person" elementFormDefault="qualified">
+        <xs:element name="person" type="tns:PersonType"/>
+        <xs:complexType name="PersonType"><xs:sequence>
+          <xs:element name="firstName" type="xs:string"/>
+          <xs:element name="address"><xs:complexType><xs:sequence>
+            <xs:element name="street" type="xs:string"/>
+            <xs:element name="city" type="xs:string"/>
+          </xs:sequence><xs:attribute name="code" type="xs:string"/></xs:complexType></xs:element>
+          <xs:element name="alias" type="xs:string" maxOccurs="unbounded"/>
+        </xs:sequence></xs:complexType>
+      </xs:schema>`, 'xml');
+    const initial = parseMarkup(
+      `<${prefix}person xmlns:tns="urn:person"><${prefix}firstName>Jane</${prefix}firstName>` +
+      `<${prefix}address code="A"><${prefix}street>Old Street</${prefix}street><${prefix}city>Paris</${prefix}city></${prefix}address>` +
+      `<${prefix}alias>First</${prefix}alias><${prefix}alias>Second</${prefix}alias></${prefix}person>`, 'xml',
+    );
+    let latest = initial;
+    function Editor() {
+      const [value, setValue] = React.useState(initial);
+      return <XmlInstanceForm schema={schema} rootSchema={schema} value={value} autoExpandAll
+        onChange={next => { latest = next; setValue(next); }} />;
+    }
+    renderForm(<Editor />);
+    const firstName = await screen.findByTestId('xml-element-firstName-input');
+    fireEvent.change(firstName, { target: { value: 'Janet' } });
+    expect(screen.getByTestId('xml-element-firstName-input')).toHaveValue('Janet');
+    fireEvent.change(screen.getByTestId('xml-element-firstName-input'), { target: { value: '' } });
+    expect(screen.getByTestId('xml-element-firstName-input')).toHaveValue('');
+    fireEvent.change(screen.getByTestId('xml-element-firstName-input'), { target: { value: 'Janet' } });
+    fireEvent.change(await screen.findByTestId('xml-element-street-input'), { target: { value: 'New Street' } });
+    expect(screen.getByTestId('xml-element-street-input')).toHaveValue('New Street');
+    expect(screen.getByTestId('xml-element-city-input')).toHaveValue('Paris');
+    const xml = serializeMarkup(latest, 'xml');
+    const document = new DOMParser().parseFromString(xml, 'application/xml');
+    const root = document.documentElement;
+    expect([...root.children].map(child => child.tagName)).toEqual([
+      `${prefix}firstName`, `${prefix}address`, `${prefix}alias`, `${prefix}alias`,
+    ]);
+    expect(root.getElementsByTagName(`${prefix}firstName`)[0].textContent?.trim()).toBe('Janet');
+    expect(root.getElementsByTagName(`${prefix}street`)[0].textContent?.trim()).toBe('New Street');
+    expect(root.getElementsByTagName(`${prefix}address`)[0].getAttribute('code')).toBe('A');
+    expect([...root.getElementsByTagName(`${prefix}alias`)].map(child => child.textContent?.trim())).toEqual(['First', 'Second']);
   });
 
   test('uses the offline XSLT 1.0 schema for instruction triggers, modes and enum controls', () => {
@@ -208,10 +338,11 @@ describe('XmlInstanceForm trigger-row behavior', () => {
       const annotationNodes = screen.getAllByText('xs:annotation', { exact: true }).filter((node) => node.tagName === 'SPAN');
       expect(importNodes).toHaveLength(2);
       expect(annotationNodes.length).toBeGreaterThan(0);
-      expect(screen.getAllByRole('button', { name: 'Expand xs:documentation' }).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole('combobox', { name: /^Select .*documentation type$/ }).length).toBeGreaterThan(0);
     });
 
-    const expandDocumentation = screen.getAllByRole('button', { name: 'Expand xs:documentation' })[0];
+    const documentation = screen.getAllByRole('combobox', { name: /^Select .*documentation type$/ })[0];
+    const expandDocumentation = within(documentation.parentElement!).getByRole('button', { name: 'Expand' });
     fireEvent.click(expandDocumentation);
     await waitFor(() => {
       expect(document.querySelectorAll('textarea').length).toBeGreaterThan(0);
@@ -468,6 +599,68 @@ describe('XmlInstanceForm trigger-row behavior', () => {
       expect(screen.getByRole('button', { name: /Add Models/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /from-version/i })).toBeInTheDocument();
     });
+  });
+
+  test('schema form preserves demo PersonType attributes and nested field declarations', async () => {
+    const xmlSchemaDefinition = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/XMLSchema.xsd'), 'utf8'), 'xml',
+    );
+    const demoSchema = parseMarkup(
+      fs.readFileSync(path.resolve(process.cwd(), 'public/schemas/xml-form-controls-demo.xsd'), 'utf8'), 'xml',
+    );
+    let latest = demoSchema;
+    function Editor() {
+      const [value, setValue] = React.useState(demoSchema);
+      return <XmlInstanceForm schema={xmlSchemaDefinition} rootSchema={value} value={value}
+        onChange={next => { latest = next; setValue(next); }} autoExpandAll
+        expansionStateKey="xml-schema-form-expanded" />;
+    }
+    renderForm(<Editor />);
+
+    const personChip = (await screen.findAllByTestId('xml-name-chip')).find(chip => chip.textContent === 'PersonType')!;
+    fireEvent.click(within(personChip.parentElement!).getByRole('button', { name: 'Expand' }));
+    const personName = await screen.findByDisplayValue('PersonType');
+    const personEditor = personName.closest('form')!.parentElement!.parentElement!;
+    for (const name of ['id', 'active', 'favoriteColor']) {
+      expect(within(personEditor).getByTitle(`Remove ${name} attribute`)).toHaveTextContent(`-${name}`);
+    }
+    expect(within(personEditor).getByTitle('Add attribute declaration')).toHaveTextContent('+xs:attribute');
+    expect(within(personEditor).getByTitle('Add AnyAttribute namespace')).toHaveTextContent('+Any #ns');
+    fireEvent.click(within(personEditor).getByTitle('Add AnyAttribute namespace'));
+    expect(within(personEditor).getByTitle('Remove AnyAttribute namespace')).toHaveTextContent('-Any #ns');
+    fireEvent.click(within(personEditor).getByTitle('Remove AnyAttribute namespace'));
+    for (let i = 0; i < 5; i += 1) {
+      const expanders = within(personEditor).queryAllByRole('button', { name: 'Expand' });
+      if (expanders.length === 0) break;
+      expanders.forEach(button => fireEvent.click(button));
+    }
+    for (const name of ['id', 'active', 'favoriteColor', 'firstName', 'lastName', 'birthDate', 'address', 'homeEmail', 'workEmail']) {
+      expect(within(personEditor).getByDisplayValue(name)).toBeInTheDocument();
+    }
+
+    for (const [name, nextName] of [['active', 'enabled'], ['lastName', 'surname'], ['workEmail', 'officeEmail']]) {
+      const input = within(personEditor).getByDisplayValue(name);
+      fireEvent.change(input, { target: { value: nextName } });
+      fireEvent.blur(input);
+      expect(within(personEditor).getByDisplayValue(nextName)).toBeInTheDocument();
+    }
+    let addressRow = within(personEditor).getByDisplayValue('address').parentElement!;
+    while (!within(addressRow).queryByRole('button', { name: /^Remove (xs:)?element$/ })) {
+      addressRow = addressRow.parentElement!;
+    }
+    fireEvent.click(within(addressRow).getByRole('button', { name: /^Remove (xs:)?element$/ }));
+    expect(within(personEditor).queryByDisplayValue('address')).not.toBeInTheDocument();
+    const serialized = serializeMarkup(latest, 'xml');
+    const doc = new DOMParser().parseFromString(serialized, 'application/xml');
+    expect(doc.querySelector('parsererror')?.textContent ?? '').toBe('');
+    const person = Array.from(doc.getElementsByTagNameNS('http://www.w3.org/2001/XMLSchema', 'complexType'))
+      .find(node => node.getAttribute('name') === 'PersonType')!;
+    const names = Array.from(person.querySelectorAll('[name]')).map(node => node.getAttribute('name'));
+    expect(names).toEqual(expect.arrayContaining(['id', 'enabled', 'favoriteColor', 'firstName', 'surname', 'officeEmail']));
+    for (const name of ['active', 'lastName', 'workEmail', 'address']) {
+      expect(names).not.toContain(name);
+    }
+    expect(names).toContain('homeEmail');
   });
 
   test('renders UpgradeStep inline complexType content in schema form', async () => {
@@ -762,11 +955,9 @@ describe('XmlInstanceForm trigger-row behavior', () => {
 
     await waitFor(() => {
       expect(screen.getAllByRole('button', { name: /Add xs:simpleContent/i })).toHaveLength(1);
-      expect(screen.getByRole('option', { name: /xs:complexContent/i })).toBeTruthy();
-      expect(screen.getByRole('option', { name: /xs:attribute\s*:/i })).toBeTruthy();
-      expect(screen.getByRole('option', { name: /xs:all/i })).toBeTruthy();
-      expect(screen.getByRole('option', { name: /xs:choice/i })).toBeTruthy();
-      expect(screen.getByRole('option', { name: /xs:sequence/i })).toBeTruthy();
+      for (const name of ['complexContent', 'attribute', 'all', 'choice', 'sequence']) {
+        expect(screen.getByRole('button', { name: `Add xs:${name}` })).toBeInTheDocument();
+      }
     });
   });
 
@@ -1481,7 +1672,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     const onChange = jest.fn();
     const schemaGrammar = parseMarkup(`
       <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
-        <xs:element name="holder" type="HolderType"/>
+        <xs:element name="schema" type="HolderType"/>
         <xs:complexType name="HolderType">
           <xs:choice>
             <xs:element name="xs:import" type="xs:string"/>
@@ -1495,7 +1686,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
       <XmlInstanceForm
         schema={schemaGrammar}
         rootSchema={schemaGrammar}
-        value={{ holder: {} }}
+        value={{ 'xs:schema': { '@attributes': { 'xmlns:xs': 'http://www.w3.org/2001/XMLSchema' } } }}
         onChange={onChange}
         autoExpandAll
         expansionStateKey="xml-schema-form-expanded"
@@ -1692,7 +1883,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     const onChange = jest.fn();
     const xmlSchema = parseMarkup(`
       <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
-        <xs:element name="holder" type="SchemaType"/>
+        <xs:element name="schema" type="SchemaType"/>
         <xs:complexType name="SchemaType">
           <xs:sequence>
             <xs:group ref="xs:schemaTop" minOccurs="0" maxOccurs="unbounded"/>
@@ -1712,7 +1903,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
       <XmlInstanceForm
         schema={xmlSchema}
         rootSchema={xmlSchema}
-        value={{ holder: {} }}
+        value={{ 'xs:schema': { '@attributes': { 'xmlns:xs': 'http://www.w3.org/2001/XMLSchema' } } }}
         onChange={onChange}
         autoExpandAll
         expansionStateKey="xml-schema-form-expanded"
@@ -1786,7 +1977,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     expect(payload.person.workEmail).toBeUndefined();
   });
 
-  test('choice switch keeps the instance form free of name chips and retargets optional trash', async () => {
+  test('choice switch preserves existing name data without inventing a name on the new branch', async () => {
     const onChange = jest.fn();
     const optionalChoiceSchema = {
       'xs:schema': {
@@ -1847,7 +2038,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
 
     const combo = getFirstCombobox();
     expect(combo).toHaveValue('workEmail');
-    expect(screen.queryByTestId('xml-name-chip')).not.toBeInTheDocument();
+    expect(screen.getByTestId('xml-name-chip')).toHaveTextContent('workEmail');
 
     fireEvent.change(combo, { target: { value: 'homeEmail' } });
 
@@ -1954,7 +2145,7 @@ describe('XmlInstanceForm trigger-row behavior', () => {
     expect(latestPayload.person.workEmail).toBeUndefined();
     expect(latestPayload.person.homeEmail).toEqual({ _text: '' });
     expect(screen.getByTestId('xml-element-homeEmail-input')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Collapse' })).not.toBeInTheDocument();
+    expect(within(screen.getByRole('combobox').parentElement!).queryByRole('button', { name: 'Collapse' })).not.toBeInTheDocument();
     expect(screen.getByTitle('Remove selected homeEmail option')).toBeTruthy();
   });
 

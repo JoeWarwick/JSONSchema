@@ -342,6 +342,7 @@ function gatherGroupChildren(
     const entries = Array.isArray(node) ? node : [node];
     for (const entry of entries) {
       if (!entry || typeof entry !== 'object') continue;
+      const entryOccurs = mergeOccurs(currentOccurs, parseOccurs(getXmlAttrs(entry)));
 
       // Resolve nested xs:group refs rather than surfacing group names as pseudo-children.
       if (kind === 'group') {
@@ -358,7 +359,7 @@ function gatherGroupChildren(
             || (typeof elementAttrs.name === 'string' ? elementAttrs.name : undefined)
             || '';
           if (!resolvedName) continue;
-          const mergedElementOccurs = mergeOccurs(currentOccurs, parseOccurs(elementAttrs));
+          const mergedElementOccurs = mergeOccurs(entryOccurs, parseOccurs(elementAttrs));
           result.push({
             name: resolvedName,
             type: typeof elementAttrs.type === 'string' ? elementAttrs.type : null,
@@ -389,7 +390,7 @@ function gatherGroupChildren(
           result.push(...gatherGroupChildren({
             '@attributes': getXmlAttrs(nestedEntry),
             [key]: nestedEntry,
-          }, rootSchema, new Set(seen), currentOccurs));
+          }, rootSchema, new Set(seen), entryOccurs));
         }
       }
     }
@@ -501,33 +502,6 @@ export function getChildElementsFromType(
       if (content) {
         const nestedElems = getChildElementsFromType(content, effectiveRootSchema);
         result.push(...nestedElems);
-      }
-    }
-  }
-
-  // If we're walking the XML Schema namespace itself (XMLSchema.xsd), extract facet elements
-  // In XMLSchema.xsd, xs:enumeration, xs:pattern, etc. are actual xs:element definitions
-  // In user schemas, they're just facets (validation metadata), not structural children
-  const restriction = typeObj['xs:restriction'] || typeObj['restriction'];
-  if (restriction) {
-    const facetKeys = ['xs:enumeration', 'enumeration', 'xs:pattern', 'pattern', 'xs:length', 'length',
-                      'xs:minLength', 'minLength', 'xs:maxLength', 'maxLength', 'xs:minInclusive', 'minInclusive',
-                      'xs:maxInclusive', 'maxInclusive', 'xs:minExclusive', 'minExclusive', 'xs:maxExclusive', 'maxExclusive',
-                      'xs:fractionDigits', 'fractionDigits', 'xs:totalDigits', 'totalDigits', 'xs:whiteSpace', 'whiteSpace'];
-    for (const facetKey of facetKeys) {
-      const facets = restriction[facetKey];
-      if (facets) {
-        const facetArray = Array.isArray(facets) ? facets : [facets];
-        for (const facet of facetArray) {
-          const facetName = facetKey.replace(/^xs:/, '');
-          result.push({
-            name: facetName,
-            type: null,
-            minOccurs: 0,
-            maxOccurs: 'unbounded',
-            definition: facet,
-          });
-        }
       }
     }
   }
@@ -1132,24 +1106,6 @@ function buildInlineTypeNode(typeDef: any, context: SchemaContext): SchemaNode {
       node.inputType = inferInputType(node);
     }
     
-    // Create a child SchemaNode for xs:restriction so it renders as an expandable node
-    // This allows enumerations to be displayed as children in the schema form
-    const restrictionNode: SchemaNode = {
-      tagName: 'xs:restriction',
-      label: 'xs:restriction',
-      nodeType: 'element',
-      minOccurs: 1,
-      maxOccurs: 1,
-      children: [],
-      attributes: [],
-      isRequired: true,
-      enumerations: node.enumerations.length > 0 ? node.enumerations : [], // Pass parent's enumerations to restriction child
-      schemaObj: restriction,
-      path: context.path.join('/') + '/xs:restriction',
-    };
-    
-    // Add restriction node as a child so it appears in the tree
-    node.children.push(restrictionNode);
   }
 
   if (typeDef['xs:choice'] || typeDef['choice'] || typeDef['xs:sequence'] || typeDef['sequence'] || typeDef['xs:all'] || typeDef['all']) {
@@ -1332,13 +1288,11 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
 
   const typeNodeCache = context.typeNodeCache || getTypeNodeCache(compiledSchema, context.rootSchema);
   context.typeNodeCache = typeNodeCache;
-  const ancestorElementNames = [...new Set(context.path.map((segment) => String(segment).replace(/^.*:/, '')))].sort();
   const cacheKey = resolvedType
     ? JSON.stringify([
         activeTypeKey,
         context.maxDepth - context.depth,
         [...context.visitedTypes].sort(),
-        ancestorElementNames,
       ])
     : undefined;
   if (cacheKey) {
@@ -1380,13 +1334,6 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
         let childTypeName: string | undefined = elem.type || undefined;
         let childInlineTypeDefinition: any = undefined;
         const childLocalName = String(elem.name).replace(/^.*:/, '');
-        const ancestorNames = new Set(context.path.map((segment) => String(segment).replace(/^.*:/, '')));
-        const structuralMetadataNames = new Set(['schema', 'annotation', 'appinfo', 'documentation', 'import', 'include', 'redefine']);
-
-        // The XMLSchema meta-schema intentionally repeats structural names like
-        // xs:element / xs:annotation along a single branch. Re-entering the same
-        // local name on the current ancestry path does not produce new schema
-        // information, so stop descending rather than recursing forever.
         // Resolve the concrete declaration for substitution-group members as well as
         // refs. Its inline type must take precedence over the head element's type.
         const declaredAttrs = getXmlAttrs(elem.definition);
@@ -1399,48 +1346,6 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
           concreteDefinition ||
           compiledSchema.getElement(childLocalName) ||
           findElementInSchema(context.rootSchema, elem.name);
-
-        // Keep a single concrete child for real metadata declarations, but skip
-        // synthetic repeats that are only reintroduced by the meta-schema walk.
-        if (ancestorNames.has(childLocalName)) {
-          const alreadyAdded = node.children.some((existing) => {
-            const existingName = String(existing.label || existing.tagName || '').replace(/^.*:/, '').toLowerCase();
-            return existingName === childLocalName;
-          });
-
-          if (structuralMetadataNames.has(childLocalName)) {
-            const candidateDefinition = concreteDefinition || referencedElementDef || globalElementDef;
-            const candidateSignature = JSON.stringify(getXmlAttrs(candidateDefinition));
-            const existingMatches = node.children.filter((existing) => {
-              const existingName = String(existing.label || existing.tagName || '').replace(/^.*:/, '').toLowerCase();
-              if (existingName !== childLocalName) return false;
-              const existingDefinition = existing.schemaObj;
-              const existingSignature = JSON.stringify(getXmlAttrs(existingDefinition || existing));
-              return existingSignature === candidateSignature;
-            });
-            if (alreadyAdded && existingMatches.length > 0) {
-              continue;
-            }
-            // Keep only one concrete metadata row per identical declaration. This
-            // filters synthetic repeats introduced by the XML Schema meta-schema
-            // without removing distinct declarations such as multiple xs:import
-            // entries with different schemaLocation values.
-          } else {
-            node.children.push({
-              tagName: elem.name,
-              label: elem.name,
-              nodeType: 'element',
-              minOccurs: elem.minOccurs,
-              maxOccurs: elem.maxOccurs === 'unbounded' ? 'unbounded' : elem.maxOccurs,
-              children: [],
-              attributes: [],
-              elementType: childTypeName,
-              isRequired: elem.minOccurs > 0,
-              compositorType: elem.compositorType,
-            });
-            continue;
-          }
-        }
 
         if (globalElementDef && typeof globalElementDef === 'object') {
           const globalAttrs = getXmlAttrs(globalElementDef);
@@ -1491,6 +1396,27 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
           context.visitedTypes.has(recursionKey)
         );
         if (isTypeRecursion || (!childTypeName && context.visitedTypes.has(recursionKey))) {
+          const recursiveType = childTypeName ? compiledSchema.resolveType(childTypeName) : undefined;
+          node.children.push({
+            tagName: elem.name,
+            label: elem.name,
+            nodeType: 'element',
+            minOccurs: elem.minOccurs,
+            maxOccurs: elem.maxOccurs,
+            children: [],
+            attributes: (recursiveType?.attributes || []).map(attribute => ({
+              name: attribute.name,
+              type: attribute.type || null,
+              use: attribute.use,
+              default: attribute.default,
+              fixed: attribute.fixed,
+            })),
+            elementType: childTypeName,
+            isRequired: elem.minOccurs > 0,
+            compositorType: elem.compositorType,
+            schemaObj: globalElementDef,
+            isCircular: true,
+          });
           continue;
         }
 
@@ -1543,28 +1469,7 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
       }
     }
     
-    // Create a child SchemaNode for xs:restriction if this is a simple type with a restriction
-    // This allows restriction facets (enumerations, length, pattern, etc.) to be displayed as children
-    if (node.restriction || (node.enumerations?.length || 0) > 0) {
-      const restrictionNode: SchemaNode = {
-        tagName: 'xs:restriction',
-        label: 'xs:restriction',
-        nodeType: 'element',
-        minOccurs: 1,
-        maxOccurs: 1,
-        children: [],
-        attributes: [],
-        isRequired: true,
-        enumerations: (node.enumerations?.length || 0) > 0 ? node.enumerations : [], // Pass parent's enumerations to restriction child
-        path: context.path.join('/') + '/xs:restriction',
-      };
-      
-      // Add restriction node as a child so it appears in the tree
-      node.children.push(restrictionNode);
-    }
-
     const dedupeChildNodes = (children: SchemaNode[]): SchemaNode[] => {
-      const structuralMetadataNames = new Set(['schema', 'annotation', 'appinfo', 'documentation', 'import', 'include', 'redefine']);
       const bestBySignature = new Map<string, SchemaNode>();
       const getPriority = (child: SchemaNode): number => {
         let priority = 0;
@@ -1590,17 +1495,6 @@ export function walkSchema(compiledSchema: CompiledSchema, context: SchemaContex
               path: child.path || '',
               compositorType: child.compositorType || '',
             });
-
-        if (structuralMetadataNames.has(localName)) {
-          const key = `${localName}:${childSchemaSignature}`;
-          const current = bestBySignature.get(key);
-          if (!current) {
-            bestBySignature.set(key, child);
-            continue;
-          }
-          bestBySignature.set(key, chooseBetter(current, child));
-          continue;
-        }
 
         const key = JSON.stringify({
           localName,

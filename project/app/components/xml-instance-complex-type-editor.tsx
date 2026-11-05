@@ -112,7 +112,7 @@ export function XmlInstanceComplexTypeEditor({ node, onChange, readOnlySource, r
                 boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.04)',
               }}
             >
-              <span>+</span>
+              <span>{hasAnyAttributeNamespace ? '-' : '+'}</span>
               <span>Any #ns</span>
             </button>
           ),

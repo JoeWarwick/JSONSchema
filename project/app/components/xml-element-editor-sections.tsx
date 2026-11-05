@@ -1,4 +1,5 @@
 import React from 'react';
+import { FormFieldGroup } from './form-field-layout';
 import type { Node as FlowNode } from 'reactflow';
 import type { NodeData } from './types';
 import { XmlTypeSelector } from './xml-simple-type-controls';
@@ -103,7 +104,7 @@ export function XmlElementOccursFields({
   onMaxOccursBlur,
 }: XmlElementOccursFieldsProps) {
   return (
-    <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+    <FormFieldGroup group="occurrence">
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
         <span style={{ fontSize: 12 }}>minOccurs</span>
         <input
@@ -128,7 +129,7 @@ export function XmlElementOccursFields({
           style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' }}
         />
       </label>
-    </label>
+    </FormFieldGroup>
   );
 }
 
@@ -154,7 +155,7 @@ export function XmlElementDefaultFields({
   onFixedBlur,
 }: XmlElementDefaultFieldsProps) {
   return (
-    <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+    <FormFieldGroup group="defaults">
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
         <span style={{ fontSize: 12 }}>default</span>
         <input
@@ -179,7 +180,7 @@ export function XmlElementDefaultFields({
           style={{ padding: 6, borderRadius: 6, border: '1px solid #ccc' }}
         />
       </label>
-    </label>
+    </FormFieldGroup>
   );
 }
 
