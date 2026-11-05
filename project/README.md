@@ -47,13 +47,42 @@ provides an instance editor form and an instance plain json editor.
 - **File > Open** creates a new workbench. XSD files open as schemas;
   JSON/YAML/XML files prompt for schema versus instance data. Multiple C# files
   open together as one Entity workbench.
-- **File > Save Workbench** downloads an editable `.workbench.json` snapshot,
-  including the schema, instance data, and editor preferences. Reopen it with
-  **File > Open**. Existing document/schema/ERD export commands still export their
+- **File > Save Workbench** saves an editable `.workbench.json` snapshot,
+  including the schema, instance data, and editor preferences. The first save
+  opens a destination dialog. In a supported browser (for example desktop Chrome
+  or Edge on HTTPS/localhost), **Save File...** opens the system file picker.
+  Choose a folder and confirm replacement there if a file already exists.
+  Subsequent saves write to that remembered file; **Save Workbench As...**
+  always selects another destination. Workbench display names are independent of
+  filenames. Reopen saved files with **File > Open**; imported files require a
+  new save destination.
+- Destinations and file handles are stored separately in this browser's
+  IndexedDB (`schema-sculptor-file-locations-v1`), never in portable workbench
+  files or the account database. The browser may request write access again
+  after reopening. Closing a workbench forgets its destination but never deletes
+  the file. Clearing browser data removes remembered locations; file saves still
+  require no account. Storage errors are displayed explicitly; a completed file
+  write stays successful even when its location cannot be remembered.
+- **Download Copy** is available on all browsers and is the fallback where
+  native local saving is unsupported. The app can only request a download, not
+  confirm that it reached disk. Downloads therefore do **not** clear `*` or
+  automatically close the workbench. Check the downloaded file before explicitly
+  discarding it. Existing document/schema/ERD export commands still export their
   individual formats.
-- Rename and close workbenches through the File menu; modified workbenches prompt
-  to save, discard, or cancel before closing. `*` indicates content changed since
-  the last workbench export, not a failure to autosave.
+- Rename and close workbenches through the File menu; modified workbenches
+  prompt to save, discard, or cancel before closing. `*` indicates content
+  changed since the last confirmed workbench save (or import), not a failure to
+  autosave. **Save and Close** waits for a successful file write. If content
+  changes while saving, only the saved snapshot is marked saved and the newer
+  workbench stays open. File writes cannot be cancelled after starting;
+  cancelling the system picker leaves the workbench and its previous destination
+  unchanged.
+- Saving checks the destination's contents against the last successful save and
+  refuses to overwrite external changes. Use **Save As** for a separate copy or
+  reopen the changed file to review it. Local filesystems do not provide atomic
+  compare-and-swap through this browser API: another app could still change the
+  file between the check and write. This is not a multi-user synchronization
+  system.
 - The workspace autosaves locally under `schema-sculptor-workspace-v1`. On first
   use, existing editor storage is copied into a restored workbench without
   deleting legacy keys. Storage errors are shown explicitly; export workbenches

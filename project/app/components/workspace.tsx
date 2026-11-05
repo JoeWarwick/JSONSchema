@@ -5,7 +5,7 @@ import { useT } from '../i18n';
 import { parseMarkup, detectMarkupLanguageFromPath } from '../utils/markup';
 import { parseDbContextFiles } from '../utils/csharp-dbcontext-parser';
 import {
-  contentFingerprint, createWorkbench, createWorkbenchStorage, exportWorkbench, importWorkbench,
+  contentFingerprint, createWorkbench, createWorkbenchStorage, importWorkbench,
   migrateLegacyWorkspace, parseWorkspace, WORKSPACE_STORAGE_KEY,
   type WorkbenchDocument, type WorkbenchKind, type WorkspaceDocument,
 } from '../state/workspace';
@@ -16,22 +16,13 @@ import {
 } from './ui/menubar/menubar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog/dialog';
 import styles from './workspace.module.css';
+import { SaveWorkbenchDialog } from './save-workbench-dialog';
+import {
+  chooseLocalFile, downloadWorkbenchCopy, loadLocalLocations, localWorkbenchProvider,
+  snapshotWorkbench, storeLocalLocation, supportsLocalSave, type LocalSaveLocation,
+} from '../utils/workbench-storage';
 
 const kinds: WorkbenchKind[] = ['json', 'yaml', 'xml', 'erd', 'transform', 'openapi'];
-
-function downloadWorkbench(bench: WorkbenchDocument) {
-  const url = URL.createObjectURL(new Blob([exportWorkbench(bench)], { type: 'application/json' }));
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = `${bench.name.replace(/[<>:"/\\|?*]/g, '_')}.workbench.json`;
-  document.body.appendChild(anchor);
-  try {
-    anchor.click();
-  } finally {
-    anchor.remove();
-    URL.revokeObjectURL(url);
-  }
-}
 
 export function Workspace({ renderWorkbench }: { renderWorkbench: (fileMenu: ReactNode, kind: WorkbenchKind) => ReactNode }) {
   const t = useT();
@@ -46,6 +37,14 @@ export function Workspace({ renderWorkbench }: { renderWorkbench: (fileMenu: Rea
   const [name, setName] = useState('');
   const [pendingFile, setPendingFile] = useState<{ name: string; text: string } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [saveRequest, setSaveRequest] = useState<{ id: string; closeAfter: boolean } | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [locationsReady, setLocationsReady] = useState(false);
+  const [locationWarning, setLocationWarning] = useState<string | null>(null);
+  const locations = useRef(new Map<string, LocalSaveLocation>());
+  const inFlight = useRef<string | null>(null);
   const current = useRef<WorkspaceDocument | null>(null);
   const environments = useRef(new Map<string, WorkbenchEnvironment>());
   const changeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,25 +79,37 @@ export function Workspace({ renderWorkbench }: { renderWorkbench: (fileMenu: Rea
   };
 
   useEffect(() => {
+    let mounted = true;
     try {
       const saved = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
       const loaded = saved ? parseWorkspace(saved) : migrateLegacyWorkspace(window.localStorage);
       current.current = loaded;
       setWorkspace(loaded);
       persist();
+      if (supportsLocalSave()) {
+        loadLocalLocations(loaded.workbenches.map(bench => bench.id)).then(value => {
+          if (mounted) locations.current = value;
+        }).catch((error: unknown) => {
+          console.error('Failed to restore workbench file locations:', error);
+          if (mounted) setLocationWarning(translate.current('saveDialog.restoreFailed'));
+        }).finally(() => {
+          if (mounted) setLocationsReady(true);
+        });
+      } else setLocationsReady(true);
     } catch (error) {
       console.error('Failed to load workspace:', error);
       setLoadError(error instanceof Error ? error.message : translate.current('workspace.loadError'));
     }
     const beforeUnload = (event: BeforeUnloadEvent) => {
       persist();
-      if (current.current?.workbenches.some(bench => contentFingerprint(bench) !== bench.savedContent)) {
+      if (inFlight.current || current.current?.workbenches.some(bench => contentFingerprint(bench) !== bench.savedContent)) {
         event.preventDefault();
         event.returnValue = '';
       }
     };
     window.addEventListener('beforeunload', beforeUnload);
     return () => {
+      mounted = false;
       window.removeEventListener('beforeunload', beforeUnload);
       if (changeTimer.current !== null) clearTimeout(changeTimer.current);
       // Flush pending editor writes on navigation as well as browser refresh.
@@ -145,25 +156,19 @@ export function Workspace({ renderWorkbench }: { renderWorkbench: (fileMenu: Rea
     if (current.current) updateWorkspace({ ...current.current, activeId: id });
   };
 
-  const save = (bench: WorkbenchDocument): boolean => {
-    try {
-      downloadWorkbench(bench);
-      bench.savedContent = contentFingerprint(bench);
-      changed();
-      return true;
-    } catch (error) {
-      console.error('Failed to export workbench:', error);
-      toast.error(t('workspace.saveError'));
-      return false;
-    }
-  };
-
   const remove = (id: string) => {
+    if (inFlight.current === id) return;
     const value = current.current;
     if (!value) return;
     const index = value.workbenches.findIndex(bench => bench.id === id);
     const remaining = value.workbenches.filter(bench => bench.id !== id);
     environments.current.delete(id);
+    if (locations.current.delete(id)) {
+      void storeLocalLocation(id, null).catch((error: unknown) => {
+        console.error('Failed to remove workbench file location:', error);
+        toast.error(t('saveDialog.cleanupFailed'));
+      });
+    }
     const activeId = value.activeId === id ? remaining[Math.min(index, remaining.length - 1)]?.id ?? null : value.activeId;
     focusAfterClose.current = activeId;
     updateWorkspace({
@@ -173,8 +178,76 @@ export function Workspace({ renderWorkbench }: { renderWorkbench: (fileMenu: Rea
   };
 
   const requestClose = (bench: WorkbenchDocument) => {
+    if (!locationsReady) {
+      toast.info(t('common.loading'));
+      return;
+    }
+    if (inFlight.current === bench.id) {
+      toast.info(t('saveDialog.waitForSave'));
+      return;
+    }
     if (contentFingerprint(bench) !== bench.savedContent) setCloseId(bench.id);
     else remove(bench.id);
+  };
+
+  const performSave = async (bench: WorkbenchDocument, closeAfter: boolean, filename?: string) => {
+    if (inFlight.current) return;
+    inFlight.current = bench.id;
+    setSavingId(bench.id);
+    setSaveError(null);
+    setSaveNotice(null);
+    try {
+      const snapshot = snapshotWorkbench(bench);
+      let location = locations.current.get(bench.id);
+      if (filename !== undefined) {
+        const handle = await chooseLocalFile(filename);
+        if (!handle) return;
+        location = { provider: 'local', handle, revision: '' };
+      }
+      if (!location) throw new Error(t('saveDialog.destinationRequired'));
+      const savedLocation = await localWorkbenchProvider.write(snapshot, location);
+      locations.current.set(bench.id, savedLocation);
+      bench.savedContent = snapshot.fingerprint;
+      changed();
+      try {
+        await storeLocalLocation(bench.id, savedLocation);
+      } catch (error) {
+        console.error('File saved, but failed to remember its location:', error);
+        setLocationWarning(t('saveDialog.rememberFailed'));
+      }
+      setSaveRequest(null);
+      toast.success(t('saveDialog.saved', { name: savedLocation.handle.name }));
+      if (closeAfter) {
+        if (contentFingerprint(bench) === snapshot.fingerprint) {
+          inFlight.current = null;
+          remove(bench.id);
+        } else {
+          setCloseId(bench.id);
+          toast.info(t('saveDialog.newerChanges'));
+        }
+      }
+    } catch (error) {
+      console.error('Failed to save workbench file:', error);
+      const message = error instanceof Error ? error.message : t('workspace.saveError');
+      setSaveError(message);
+      setCloseId(null);
+      setSaveRequest({ id: bench.id, closeAfter });
+    } finally {
+      inFlight.current = null;
+      setSavingId(null);
+    }
+  };
+
+  const requestSave = (bench: WorkbenchDocument, saveAs = false, closeAfter = false) => {
+    if (inFlight.current || !locationsReady) return;
+    setSaveError(null);
+    setSaveNotice(null);
+    if (!saveAs && supportsLocalSave() && locations.current.has(bench.id)) {
+      void performSave(bench, closeAfter);
+    } else {
+      setCloseId(null);
+      setSaveRequest({ id: bench.id, closeAfter });
+    }
   };
 
   const openSource = (file: { name: string; text: string }, role: 'schema' | 'instance') => {
@@ -232,6 +305,7 @@ export function Workspace({ renderWorkbench }: { renderWorkbench: (fileMenu: Rea
 
   const active = workspace.workbenches.find(bench => bench.id === workspace.activeId);
   const closing = workspace.workbenches.find(bench => bench.id === closeId);
+  const saving = workspace.workbenches.find(bench => bench.id === saveRequest?.id);
   const fileMenu = (
     <MenubarMenu>
       <MenubarTrigger>{t('workspace.file')}</MenubarTrigger>
@@ -246,11 +320,15 @@ export function Workspace({ renderWorkbench }: { renderWorkbench: (fileMenu: Rea
         </MenubarSub>
         <MenubarItem onSelect={() => fileInput.current?.click()}>{t('workspace.open')}</MenubarItem>
         <MenubarSeparator />
-        <MenubarItem disabled={!active} onSelect={() => { if (active) save(active); }}>{t('workspace.save')}</MenubarItem>
+        <MenubarItem disabled={!active || !!savingId || !locationsReady}
+          onSelect={() => { if (active) requestSave(active); }}>{t('workspace.save')}</MenubarItem>
+        <MenubarItem disabled={!active || !!savingId || !locationsReady}
+          onSelect={() => { if (active) requestSave(active, true); }}>{t('workspace.saveAs')}</MenubarItem>
         <MenubarItem disabled={!active} onSelect={() => {
           if (active) { setRenameId(active.id); setName(active.name); }
         }}>{t('workspace.rename')}</MenubarItem>
-        <MenubarItem disabled={!active} onSelect={() => { if (active) requestClose(active); }}>{t('workspace.close')}</MenubarItem>
+        <MenubarItem disabled={!active || !locationsReady || savingId === active?.id}
+          onSelect={() => { if (active) requestClose(active); }}>{t('workspace.close')}</MenubarItem>
       </MenubarContent>
     </MenubarMenu>
   );
@@ -264,6 +342,8 @@ export function Workspace({ renderWorkbench }: { renderWorkbench: (fileMenu: Rea
         if (files.length > 0) void openFiles(files);
       }} />
     {storageError && <div className={styles.storageError} role="alert">{storageError}</div>}
+    {locationWarning && <div className={styles.storageError} role="alert">{locationWarning}</div>}
+    {savingId && <div className={styles.storageError} role="status">{t('saveDialog.saving')}</div>}
     <div className={styles.editors}>
       {workspace.workbenches.map(bench => {
         let environment = environments.current.get(bench.id);
@@ -313,6 +393,7 @@ export function Workspace({ renderWorkbench }: { renderWorkbench: (fileMenu: Rea
               {bench.name}{dirty && <span aria-label={t('workspace.modified')}> *</span>}
             </button>
             <button className={styles.close} aria-label={t('workspace.closeNamed', { name: bench.name })}
+              disabled={!locationsReady || savingId === bench.id}
               onClick={() => requestClose(bench)}><X size={12} /></button>
           </div>;
         })}
@@ -321,17 +402,39 @@ export function Workspace({ renderWorkbench }: { renderWorkbench: (fileMenu: Rea
         <Plus size={14} />
       </button>
     </div>
-    <Dialog open={!!closing} onOpenChange={open => { if (!open) setCloseId(null); }}>
-      <DialogContent>
+    <Dialog open={!!closing} onOpenChange={open => { if (!open && !savingId) setCloseId(null); }}>
+      <DialogContent onEscapeKeyDown={event => { if (savingId) event.preventDefault(); }}
+        onInteractOutside={event => { if (savingId) event.preventDefault(); }}>
         <DialogHeader><DialogTitle>{t('workspace.unsavedTitle')}</DialogTitle></DialogHeader>
         <p>{t('workspace.unsavedDescription', { name: closing?.name ?? '' })}</p>
         <DialogFooter>
-          <button onClick={() => setCloseId(null)}>{t('common.cancel')}</button>
-          <button onClick={() => { if (closing) remove(closing.id); }}>{t('workspace.discard')}</button>
-          <button onClick={() => { if (closing && save(closing)) remove(closing.id); }}>{t('workspace.saveAndClose')}</button>
+          <button disabled={!!savingId} onClick={() => setCloseId(null)}>{t('common.cancel')}</button>
+          <button disabled={!!savingId} onClick={() => { if (closing) remove(closing.id); }}>{t('workspace.discard')}</button>
+          <button disabled={!!savingId || !locationsReady} onClick={() => {
+            if (closing) requestSave(closing, false, true);
+          }}>{t('workspace.saveAndClose')}</button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    {saving && saveRequest && <SaveWorkbenchDialog key={saving.id} name={saving.name}
+      destination={locations.current.get(saving.id)?.handle.name}
+      busy={!!savingId} error={saveError} notice={saveNotice}
+      onSave={filename => void performSave(saving, saveRequest.closeAfter, filename)}
+      onDownload={filename => {
+        try {
+          downloadWorkbenchCopy(snapshotWorkbench(saving), filename);
+          setSaveError(null);
+          setSaveNotice(t('saveDialog.downloadRequested'));
+        } catch (error) {
+          console.error('Failed to download workbench copy:', error);
+          setSaveError(error instanceof Error ? error.message : t('workspace.saveError'));
+        }
+      }}
+      onClose={() => {
+        if (savingId) return;
+        if (saveRequest.closeAfter) setCloseId(saveRequest.id);
+        setSaveRequest(null);
+      }} />}
     <Dialog open={renameId !== null} onOpenChange={open => { if (!open) setRenameId(null); }}>
       <DialogContent>
         <DialogHeader><DialogTitle>{t('workspace.rename')}</DialogTitle></DialogHeader>

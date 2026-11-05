@@ -1,0 +1,40 @@
+.form,
+.form label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form {
+  gap: 12px;
+}
+
+.form input,
+.form select {
+  padding: 8px;
+  border: 1px solid var(--color-neutral-7);
+  border-radius: 4px;
+  background: var(--color-neutral-1);
+  color: var(--color-neutral-12);
+  min-width: 0;
+}
+
+.form p {
+  font-size: 12px;
+}
+
+.form button {
+  cursor: pointer;
+}
+
+.form button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.form input:focus-visible,
+.form select:focus-visible,
+.form button:focus-visible {
+  outline: 2px solid var(--color-primary-7);
+  outline-offset: 2px;
+}

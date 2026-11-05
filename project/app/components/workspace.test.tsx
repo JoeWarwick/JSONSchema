@@ -112,8 +112,11 @@ describe('workspace integration', () => {
       render(<WorkspaceRoute />);
       fireEvent.change(await screen.findByPlaceholderText(/Paste your JSON here/), { target: { value: '{"saved":42}' } });
       await openFileMenu();
-      fireEvent.click(await screen.findByRole('menuitem', { name: /Save Workbench/ }));
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Save Workbench...' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Download Copy' }));
       await waitFor(() => expect(blob).toBeDefined());
+      expect(screen.getByRole('status')).toHaveTextContent('Download requested, not confirmed');
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
       const text = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result));
@@ -128,7 +131,7 @@ describe('workspace integration', () => {
         .toHaveValue('{"saved":42}'));
       await waitFor(() => {
         const saved = parseWorkspace(localStorage.getItem(WORKSPACE_STORAGE_KEY)!);
-        expect(saved.workbenches[0].savedContent).toBe(contentFingerprint(saved.workbenches[0]));
+        expect(saved.workbenches[0].savedContent).not.toBe(contentFingerprint(saved.workbenches[0]));
       });
     } finally {
       click.mockRestore();
