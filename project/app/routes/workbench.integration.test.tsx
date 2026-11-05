@@ -1,5 +1,6 @@
 import React from 'react';
 import fs from 'fs';
+import path from 'path';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { Workbench } from './workbench';
@@ -33,6 +34,50 @@ describe('Workbench integration - load unresolved $defs schema', () => {
 
   beforeEach(() => {
     localStorage.clear();
+  });
+
+  it.each([
+    ['xml', '<person xmlns="urn:person"><name>Jane</name></person>', 'application/xml', 'data.xml'],
+    ['yaml', 'person:\n  name: Jane\n', 'text/yaml', 'data.yaml'],
+    ['json', '{"person":{"name":"Jane"}}', 'application/json', 'data.json'],
+  ])('exports the current %s text without parsing it as JSON', async (language, content, mime, filename) => {
+    localStorage.setItem('schema-sculptor-markup-language', language);
+    localStorage.setItem(`schema-sculptor-instance-${language}`, content);
+    const originalCreate = URL.createObjectURL;
+    const originalRevoke = URL.revokeObjectURL;
+    const create = jest.fn<string, [Blob | MediaSource]>(() => 'blob:export');
+    URL.createObjectURL = create;
+    URL.revokeObjectURL = jest.fn();
+    let downloadedFilename = '';
+    const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      downloadedFilename = this.download;
+    });
+    try {
+      render(<Workbench />);
+      await screen.findByRole('button', { name: `${language.toUpperCase()} Input` });
+      const input = await screen.findByPlaceholderText(`Paste your ${language.toUpperCase()} here...`);
+      await waitFor(() => expect((input as HTMLTextAreaElement).value).toContain('Jane'));
+      const exportedText = (input as HTMLTextAreaElement).value;
+      const menuName = language === 'xml' ? 'XML Doc' : language === 'yaml' ? 'YAML Doc' : 'JSON Doc';
+      fireEvent.pointerDown(screen.getByRole('menuitem', { name: menuName }), { bubbles: true, cancelable: true });
+      fireEvent.click(await screen.findByRole('menuitem', { name: `Save ${language.toUpperCase()}` }));
+      expect(create).toHaveBeenCalledTimes(1);
+      const blob = create.mock.calls[0][0];
+      if (!(blob instanceof Blob)) throw new Error('Expected an exported Blob');
+      expect(blob.type).toBe(mime);
+      const text = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsText(blob);
+      });
+      expect(text).toBe(exportedText);
+      expect(downloadedFilename).toBe(filename);
+    } finally {
+      URL.createObjectURL = originalCreate;
+      URL.revokeObjectURL = originalRevoke;
+      click.mockRestore();
+    }
   });
 
   it('clears invalid persisted XML instance content on hydration', async () => {
@@ -110,7 +155,7 @@ describe('Workbench integration - load unresolved $defs schema', () => {
   });
 
   it('shows XML schema root add buttons inferred from the XSD walk', async () => {
-    const xmlSchemaMetadata = fs.readFileSync('public/schemas/XMLSchema.xsd', 'utf-8');
+    const xmlSchemaMetadata = fs.readFileSync(path.join(__dirname, '..', '..', 'public', 'schemas', 'XMLSchema.xsd'), 'utf-8');
     const originalFetch = global.fetch;
     (global as any).fetch = jest.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : String((input as Request).url);
@@ -298,7 +343,7 @@ describe('Workbench integration - load unresolved $defs schema', () => {
   });
 
   it('XML instance form hides root pills and the default-instance menu selects a root', async () => {
-    const xmlSchemaMetadata = fs.readFileSync('public/schemas/XMLSchema.xsd', 'utf-8');
+    const xmlSchemaMetadata = fs.readFileSync(path.join(__dirname, '..', '..', 'public', 'schemas', 'XMLSchema.xsd'), 'utf-8');
     const demoXsd = `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
            xmlns:tns="http://example.com/demo"
@@ -396,7 +441,7 @@ describe('Workbench integration - load unresolved $defs schema', () => {
       expect(screen.queryByRole('button', { name: /^\+\s*employee\b/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /^\+\s*note\b/i })).not.toBeInTheDocument();
 
-      const xmlMenuTrigger = screen.getByText(/XML Document/i);
+      const xmlMenuTrigger = screen.getByRole('menuitem', { name: 'XML Doc' });
       fireEvent.pointerDown(xmlMenuTrigger, { bubbles: true, cancelable: true });
 
       const generateDefaultItem = await screen.findByRole('menuitem', { name: /Generate Default Instance/i });
@@ -424,13 +469,13 @@ describe('Workbench integration - load unresolved $defs schema', () => {
   });
 
   it('excludes members of abstract XSLT child groups from roots but keeps other concrete globals', async () => {
-    const xsltSchema = fs.readFileSync('public/schemas/schema-for-xslt20.xsd', 'utf-8');
-    const xmlSchemaMetadata = fs.readFileSync('public/schemas/XMLSchema.xsd', 'utf-8');
+    const xsltSchema = fs.readFileSync(path.join(__dirname, '..', '..', 'public', 'schemas', 'schema-for-xslt20.xsd'), 'utf-8');
+    const xmlSchemaMetadata = fs.readFileSync(path.join(__dirname, '..', '..', 'public', 'schemas', 'XMLSchema.xsd'), 'utf-8');
     localStorage.setItem('schema-sculptor-markup-language', 'xml');
     localStorage.setItem('schema-sculptor-schema-xml', JSON.stringify(parseMarkup(xsltSchema, 'xml')));
 
     const originalFetch = global.fetch;
-    const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : String((input as Request).url);
       if (url === '/schemas/XMLSchema.xsd') {
         return { ok: true, text: async () => xmlSchemaMetadata } as Response;
@@ -465,7 +510,7 @@ describe('Workbench integration - load unresolved $defs schema', () => {
         expect(JSON.parse(String((call as any)[1]?.body || '{}')).rootElementName).toBe('stylesheet');
       });
 
-      const xmlMenuTrigger = screen.getByText(/XML Document/i);
+      const xmlMenuTrigger = screen.getByRole('menuitem', { name: 'XML Doc' });
       fireEvent.pointerDown(xmlMenuTrigger, { bubbles: true, cancelable: true });
       const generateDefaultItem = await screen.findByRole('menuitem', { name: /Generate Default Instance/i });
       fireEvent.pointerMove(generateDefaultItem, { bubbles: true });
@@ -488,8 +533,8 @@ describe('Workbench integration - load unresolved $defs schema', () => {
   });
 
   it('Schema Form keeps ColorType enumerations visible after loading demo XSD', async () => {
-    const xmlSchemaMetadata = fs.readFileSync('public/schemas/XMLSchema.xsd', 'utf-8');
-    const demoXsd = fs.readFileSync('public/schemas/xml-form-controls-demo.xsd', 'utf-8');
+    const xmlSchemaMetadata = fs.readFileSync(path.join(__dirname, '..', '..', 'public', 'schemas', 'XMLSchema.xsd'), 'utf-8');
+    const demoXsd = fs.readFileSync(path.join(__dirname, '..', '..', 'public', 'schemas', 'xml-form-controls-demo.xsd'), 'utf-8');
 
     const originalFetch = global.fetch;
     const fetchMock = jest.fn(async (input: RequestInfo | URL) => {

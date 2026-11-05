@@ -1503,13 +1503,7 @@ export function Workbench({ fileMenu, kind = 'json' }: { fileMenu?: ReactNode; k
   const handleSaveMarkup = () => {
     if (!jsonInput.trim()) return;
     try {
-      let content: string;
-      if (markupLanguage === 'json') {
-        content = jsonInput;
-      } else {
-        const data = JSON.parse(jsonInput);
-        content = serializeMarkup(data, markupLanguage);
-      }
+      const content = jsonInput;
       const blob = new Blob([content], { type: mimeType(markupLanguage) });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

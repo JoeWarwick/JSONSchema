@@ -24,6 +24,8 @@ It also provides an instance editor form and an instance plain json editor.
   Use the left/right arrow keys, Home, and End to navigate the tab strip.
 - Entity workbenches show only **Entity Graph** and ERD operations. JSON/YAML/XML
   workbenches show their data/schema views without an Entity Graph tab or ERD menu.
+- **XML Doc > Save XML** exports the current XML text directly; JSON and YAML
+  document exports likewise preserve their current editor text.
 - **File > Open** creates a new workbench. XSD files open as schemas; JSON/YAML/XML
   files prompt for schema versus instance data. Multiple C# files open together as
   one Entity workbench.
