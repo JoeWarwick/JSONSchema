@@ -16,6 +16,7 @@ import {
 } from './ui/menubar/menubar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog/dialog';
 import styles from './workspace.module.css';
+import { AccountDialog } from './account-dialog';
 import { SaveWorkbenchDialog } from './save-workbench-dialog';
 import {
   chooseLocalFile, downloadWorkbenchCopy, loadLocalLocations, localWorkbenchProvider,
@@ -401,6 +402,7 @@ export function Workspace({ renderWorkbench }: { renderWorkbench: (fileMenu: Rea
       <button className={styles.add} aria-label={t('workspace.add')} onClick={() => newWorkbench('json')}>
         <Plus size={14} />
       </button>
+      <AccountDialog />
     </div>
     <Dialog open={!!closing} onOpenChange={open => { if (!open && !savingId) setCloseId(null); }}>
       <DialogContent onEscapeKeyDown={event => { if (savingId) event.preventDefault(); }}

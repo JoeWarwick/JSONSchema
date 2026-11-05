@@ -84,3 +84,6 @@ obj/
 project/test-results
 /test-results
 project/..*.txt
+
+# Local identity database, encryption keys and development email pickup
+project/dotnet-schema-service/**/App_Data/

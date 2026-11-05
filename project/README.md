@@ -22,6 +22,44 @@ provides an instance editor form and an instance plain json editor.
 - Tests and automation: Jest unit tests and Playwright e2e tests are provided to
   validate behavior and integrations.
 
+### Accounts
+
+- **Account** in the bottom workbench bar opens sign-in and account settings.
+  Successful sign-in closes the dialog and shows a brief confirmation. Open
+  **Account** again while signed in to change your password or manage login
+  methods. Local editing, workspace recovery and file downloads do not require
+  an account. Authentication does not upload or associate existing local
+  workbenches with a user; signing out leaves local workbenches intact. On a
+  shared device, close/remove local workbenches and clear browser storage
+  separately when finished.
+- Start both frontend and API with `npm run dev:full`. The frontend uses the
+  existing same-origin `/api` proxy; do not put authentication secrets in
+  `VITE_*` variables. In production, route `/api` to the backend under the
+  frontend's HTTPS origin.
+- Email/password registration requires email verification. The dialog supports
+  resending verification, password recovery, changing/setting a password, and
+  linking/unlinking Google. Linking or unlinking Google on a password account
+  requires the current password; the last sign-in method cannot be removed.
+- Registration and password-reset fields advertise `autocomplete="new-password"`
+  for browser password generation. Suggestions depend on the browser/password
+  manager being enabled; embedded browsers may not provide this feature.
+- Account fields remain editable while the account service is unavailable.
+  Submission requires a successful account connection; use **Retry account
+  connection** after starting/restarting the backend if `/api/auth/session`
+  fails.
+- Google sign-in is available only when the server has Google OAuth credentials
+  configured. It requests identity, not Google Drive permissions. A Google
+  account with a matching email is not automatically linked to an existing
+  account.
+- Accounts use ASP.NET Core Identity and SQLite. Workbench contents and local
+  file handles are not stored in the identity database. PostgreSQL adoption will
+  require provider-specific EF migrations and a verified data transfer, not just
+  a new connection string.
+- See [backend setup](dotnet-schema-service/README.md) for the database,
+  persistent encryption keys, Google OAuth, SMTP and development-only email
+  pickup configuration. Back up the database and key storage; never commit
+  either or development email files.
+
 ### Multiple workbenches
 
 - Explanatory guidance is available through compact **!** help buttons. Hover or

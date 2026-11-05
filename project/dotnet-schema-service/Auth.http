@@ -1,0 +1,98 @@
+@baseUrl = http://localhost:5080
+@csrf = COPY_csrfToken_FROM_SESSION
+@email = developer@example.com
+@password = Development-Password-42!
+@userId = COPY_FROM_CONFIRMATION_EMAIL
+@token = COPY_FROM_EMAIL
+
+### Use a client cookie jar. Fetch a new token after login/logout and before mutations.
+GET {{baseUrl}}/api/auth/session
+
+### Register (generic response; inspect development App_Data/mail for .eml)
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"email":"{{email}}","password":"{{password}}"}
+
+### Verify the confirmation link explicitly (GET links never mutate accounts)
+POST {{baseUrl}}/api/auth/confirm-email
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"userId":"{{userId}}","token":"{{token}}"}
+
+### Sign in
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"email":"{{email}}","password":"{{password}}"}
+
+### Sign out
+POST {{baseUrl}}/api/auth/logout
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{}
+
+### Request password reset (generic response)
+POST {{baseUrl}}/api/auth/forgot-password
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"email":"{{email}}"}
+
+### Reset (token is single-use)
+POST {{baseUrl}}/api/auth/reset-password
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"email":"{{email}}","token":"{{token}}","password":"New-Development-Password-42!"}
+
+### Resend verification (generic response)
+POST {{baseUrl}}/api/auth/resend-confirmation
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"email":"{{email}}"}
+
+### Change password. Google-only users omit currentPassword after fresh Google sign-in.
+POST {{baseUrl}}/api/auth/password
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"currentPassword":"{{password}}","newPassword":"New-Development-Password-42!"}
+
+### Google login (404 when disabled). Navigate the browser to the returned local URL.
+POST {{baseUrl}}/api/auth/google/start
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"mode":"login"}
+
+### Link Google (signed in; current password required)
+POST {{baseUrl}}/api/auth/google/start
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"mode":"link","password":"{{password}}"}
+
+### Google challenge (state URL and matching HttpOnly cookie issued by start)
+GET {{baseUrl}}/api/auth/google/challenge?state=COPY_FROM_START_URL
+
+### Callback is normally reached only after the provider middleware validates OAuth state.
+GET {{baseUrl}}/api/auth/google/callback
+
+### Unlink (requires a current password; cannot remove the last authentication method)
+POST {{baseUrl}}/api/auth/google/unlink
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"password":"{{password}}"}
+
+### Error: missing CSRF is rejected, even for login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{"email":"{{email}}","password":"incorrect"}

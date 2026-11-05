@@ -1,4 +1,8 @@
 using SchemaService.Services;
+using SchemaService.Auth;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Mvc;
+using System.Text.Json.Serialization;
 
 if (args is ["--transform-worker"])
 {
@@ -8,7 +12,11 @@ if (args is ["--transform-worker"])
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
+builder.Services.AddControllers(options => options.Filters.Add(new ProducesResponseTypeAttribute(typeof(ProblemDetails), 400)))
+    .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+builder.Services.AddOpenApi();
+builder.Services.AddProblemDetails();
+builder.Services.AddAccountAuthentication(builder.Configuration, builder.Environment);
 builder.Services.AddSingleton<XmlSchemaLocationService>();
 builder.Services.AddSingleton<SchemaInferenceService>();
 builder.Services.AddSingleton<DefaultInstanceService>();
@@ -31,6 +39,12 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+using (var scope = app.Services.CreateScope())
+{
+    await scope.ServiceProvider.GetRequiredService<AuthDbContext>().Database.MigrateAsync();
+}
+app.UseExceptionHandler();
+app.UseStatusCodePages();
 // Disable HTTPS redirection in development
 if (!app.Environment.IsDevelopment())
 {
@@ -38,7 +52,13 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseCors();
+app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
+if (app.Environment.IsDevelopment()) app.MapOpenApi();
 app.MapControllers();
 app.MapGet("/", () => Results.Ok(new { service = "SchemaService", status = "running" }));
 
 app.Run();
+
+public partial class Program;

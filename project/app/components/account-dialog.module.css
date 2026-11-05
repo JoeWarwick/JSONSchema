@@ -1,0 +1,76 @@
+.trigger {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border: 0;
+  border-left: 1px solid var(--color-neutral-6);
+  background: var(--color-neutral-2);
+  color: var(--color-neutral-12);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.dialog {
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.body,
+.form,
+.form label {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.body,
+.form {
+  margin: 8px 0;
+}
+
+.form input {
+  padding: 8px;
+  border: 1px solid var(--color-neutral-7);
+  border-radius: 4px;
+  background: var(--color-neutral-1);
+  color: var(--color-neutral-12);
+  min-width: 0;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dialog button {
+  cursor: pointer;
+}
+
+.dialog button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.hint {
+  color: var(--color-neutral-11);
+  font-size: 12px;
+}
+
+.error {
+  border-left: 3px solid var(--color-neutral-9);
+  padding-left: 10px;
+}
+
+.trigger:focus-visible,
+.dialog button:focus-visible,
+.dialog input:focus-visible {
+  outline: 2px solid var(--color-primary-7);
+  outline-offset: 2px;
+}
+
+@media print {
+  .trigger {
+    display: none;
+  }
+}
