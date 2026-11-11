@@ -134,9 +134,10 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
   const removeSelectedTable = React.useCallback(() => {
     if (!selectedTable) return;
     if (!window.confirm('are you sure you wish to delete this entity?')) return;
+    setEdges((currentEdges) => currentEdges.filter((edge) => edge.source !== selectedTable.id && edge.target !== selectedTable.id));
     setSelectedTableId(null);
     commitModel(deleteErdTable(normalizedModel, selectedTable.id));
-  }, [normalizedModel, selectedTable, commitModel]);
+  }, [normalizedModel, selectedTable, setEdges, commitModel]);
 
   const handlePrintGraph = React.useCallback(() => {
     printErdModel(normalizedModel);
