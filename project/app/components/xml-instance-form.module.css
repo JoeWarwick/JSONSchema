@@ -101,6 +101,13 @@
   background: rgba(15, 23, 36, 0.55);
 }
 
+.attributeFields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
 .elementTriggerRow {
   padding: 4px 0;
 }

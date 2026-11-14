@@ -64,7 +64,10 @@ function NamespacesListEditor({
                 borderRadius: 3,
                 border: '1px solid #ddd',
                 fontSize: 11,
-                flex: 1,
+                width: 320,
+                maxWidth: '100%',
+                boxSizing: 'border-box',
+                flex: '0 1 320px',
               }}
             />
             <button
@@ -111,7 +114,10 @@ function NamespacesListEditor({
             borderRadius: 3,
             border: '1px solid #ddd',
             fontSize: 11,
-            flex: 1,
+            width: 320,
+            maxWidth: '100%',
+            boxSizing: 'border-box',
+            flex: '0 1 320px',
           }}
         />
         <button

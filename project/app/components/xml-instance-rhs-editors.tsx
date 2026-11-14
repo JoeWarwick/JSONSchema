@@ -6,10 +6,10 @@ import { HelpTip } from './help-tip';
 // This file is intentionally forked from xml-rhs-editors.tsx so
 // XML Instance Form behavior can evolve independently from graph tooling.
 import type { Node as FlowNode } from 'reactflow';
-import type { NodeData, InlineSimpleTypeData, SimpleTypeFacets, XmlNodeKind, XmlNodeRhsEditorProps } from './types';
+import type { NodeData, XmlNodeKind, XmlNodeRhsEditorProps } from './types';
 import { PropertyForm, XmlAnnotationFieldAuto, XmlReadOnlyHint } from './xml-editor-controls';
 import { XML_SCHEMA_PROPERTY_CONFIGS, SpecialAttributesEditor } from './xml-schema-root-settings-controls';
-import { EnumerationListEditor, FacetsEditor, InlineSimpleTypeEditor, ListValuesEditor, MemberTypesListEditor, ReferencedEnumerationList, XmlTypeSelector } from './xml-simple-type-controls';
+import { XmlTypeSelector } from './xml-simple-type-controls';
 import { XmlInstanceSimpleTypeEditor } from './xml-instance-simple-type-editor';
 import { XmlInstanceComplexTypeEditor } from './xml-instance-complex-type-editor';
 import { XmlInstanceAttributeGroupEditor } from './xml-instance-attribute-group-editor';
@@ -212,28 +212,6 @@ export function XmlAttributesManager({
     </div>
   );
 }
-
-/**
- * Read-only display of enumeration values inherited from a named simpleType referenced via
- * `type="X"` (as opposed to an inline/anonymous simpleType owned by this node) — editing must
-
-
-/**
- * Add/edit control for a restriction's single-value facets (`xs:pattern`,
- * `xs:minInclusive`/`xs:maxInclusive`, `xs:minLength`/`xs:maxLength`,
- * `xs:totalDigits`/`xs:fractionDigits`, `xs:whiteSpace`) — unlike `xs:enumeration` these
- * are each at most one occurrence, so a plain labeled text input per facet suffices.
- */
-const SIMPLE_TYPE_FACET_FIELDS: Array<[keyof SimpleTypeFacets, string]> = [
-  ['pattern', 'Pattern'],
-  ['minInclusive', 'Min Inclusive'],
-  ['maxInclusive', 'Max Inclusive'],
-  ['minLength', 'Min Length'],
-  ['maxLength', 'Max Length'],
-  ['totalDigits', 'Total Digits'],
-  ['fractionDigits', 'Fraction Digits'],
-  ['whiteSpace', 'White Space'],
-];
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function XmlCompositorEditor({ node, onChange, readOnlySource, getNodeByName }: XmlNodeRhsEditorProps) {
@@ -770,7 +748,10 @@ function NamespacesListEditor({
                 borderRadius: 3,
                 border: '1px solid #ddd',
                 fontSize: 11,
-                flex: 1,
+                width: 320,
+                maxWidth: '100%',
+                boxSizing: 'border-box',
+                flex: '0 1 320px',
               }}
             />
             <button
@@ -840,7 +821,10 @@ function NamespacesListEditor({
               borderRadius: 3,
               border: '1px solid #ddd',
               fontSize: 11,
-              flex: 1,
+              width: 320,
+              maxWidth: '100%',
+              boxSizing: 'border-box',
+              flex: '0 1 320px',
             }}
           />
           <button

@@ -7,6 +7,7 @@ import { addErdRelationship, addErdTable, addErdTableColumn, deleteErdRelationsh
 import { commonPropertyTypes, isIdentityEligibleColumnType, isTimestampColumnType } from '../utils/erd-editor-utils';
 import { buildErdDisplayNodes } from '../utils/erd-editor-display';
 import { printErdModel } from '../utils/print-erd';
+import { ContextMenu } from './ContextMenu';
 import { erdNodeTypes } from './erd-node-types';
 import { ErdEditorSidebar } from './erd-editor-sidebar';
 import { ErdFocusController } from './erd-focus-controller';
@@ -14,6 +15,11 @@ import { HorizontalSplitPane } from './ui/split-pane';
 import type { ErdEditorProps, ErdFocusRequest } from '../types/erd-editor';
 import styles from './erd/erd-editor.module.css';
 import 'reactflow/dist/style.css';
+
+type ErdContextMenuState = {
+  position: { x: number; y: number };
+  target: { type: 'table'; id: string } | { type: 'pane' };
+};
 
 export function ErdEditor({ model, onChange }: ErdEditorProps) {
   const normalizedModel = React.useMemo(() => normalizeErdModel(model), [model]);
@@ -25,6 +31,7 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
   const [diagnosticsOpen, setDiagnosticsOpen] = React.useState(false);
   const [focusedNavigation, setFocusedNavigation] = React.useState<{ tableId: string; navigationName: string } | null>(null);
   const [focusRequest, setFocusRequest] = React.useState<ErdFocusRequest | null>(null);
+  const [contextMenu, setContextMenu] = React.useState<ErdContextMenuState | null>(null);
   const focusTokenRef = React.useRef(0);
   const edgeCrossings = React.useMemo(() => countErdGraphCrossings(graph), [graph]);
   const selectedTable = normalizedModel.tables.find((table) => table.id === selectedTableId);
@@ -71,6 +78,8 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
   const addSelectedTable = React.useCallback(() => {
     const { model: nextModel, tableId } = addErdTable(normalizedModel);
     setSelectedTableId(tableId);
+    focusTokenRef.current += 1;
+    setFocusRequest({ tableId, token: focusTokenRef.current });
     commitModel(nextModel);
   }, [normalizedModel, commitModel]);
 
@@ -131,13 +140,16 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
     commitModel(deleteErdRelationship(normalizedModel, relationshipId));
   }, [normalizedModel, commitModel]);
 
-  const removeSelectedTable = React.useCallback(() => {
-    if (!selectedTable) return;
+  const removeTable = React.useCallback((tableId: string) => {
     if (!window.confirm('are you sure you wish to delete this entity?')) return;
-    setEdges((currentEdges) => currentEdges.filter((edge) => edge.source !== selectedTable.id && edge.target !== selectedTable.id));
-    setSelectedTableId(null);
-    commitModel(deleteErdTable(normalizedModel, selectedTable.id));
-  }, [normalizedModel, selectedTable, setEdges, commitModel]);
+    setEdges((currentEdges) => currentEdges.filter((edge) => edge.source !== tableId && edge.target !== tableId));
+    setSelectedTableId((currentId) => currentId === tableId ? null : currentId);
+    commitModel(deleteErdTable(normalizedModel, tableId));
+  }, [normalizedModel, setEdges, commitModel]);
+
+  const removeSelectedTable = React.useCallback(() => {
+    if (selectedTable) removeTable(selectedTable.id);
+  }, [selectedTable, removeTable]);
 
   const handlePrintGraph = React.useCallback(() => {
     printErdModel(normalizedModel);
@@ -178,6 +190,36 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
   const handleNodeClick = React.useCallback((event: any, node: Node<ErdTableNodeData>) => {
     setSelectedTableId(node.id);
   }, []);
+
+  const handleNodeContextMenu = React.useCallback((event: React.MouseEvent, node: Node<ErdTableNodeData>) => {
+    event.preventDefault();
+    setContextMenu({
+      position: { x: event.clientX, y: event.clientY },
+      target: { type: 'table', id: node.id },
+    });
+  }, []);
+
+  const handlePaneContextMenu = React.useCallback((event: React.MouseEvent) => {
+    const target = event.target;
+    if (!(target instanceof Element) || target.closest('.react-flow__node') || !target.closest('.react-flow__pane')) return;
+    event.preventDefault();
+    setContextMenu({
+      position: { x: event.clientX, y: event.clientY },
+      target: { type: 'pane' },
+    });
+  }, []);
+
+  const contextMenuItems = React.useMemo(() => {
+    if (!contextMenu) return [];
+    if (contextMenu.target.type === 'pane') {
+      return [{ label: 'Add entity', onClick: addSelectedTable }];
+    }
+    const tableId = contextMenu.target.id;
+    return [
+      { label: 'Edit entity', onClick: () => setSelectedTableId(tableId) },
+      { label: 'Delete entity', onClick: () => removeTable(tableId), danger: true },
+    ];
+  }, [contextMenu, addSelectedTable, removeTable]);
 
   const handleColumnNameChange = React.useCallback((columnName: string, value: string) => {
     updateSelectedColumn(columnName, { name: value });
@@ -225,9 +267,10 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
   }, [reorderSelectedColumn]);
 
   return (
+    <>
     <HorizontalSplitPane className={styles.erdEditor} defaultRightWidth={385} minRightWidth={280} minLeftWidth={360}>
       <div className={styles.flowPanel}>
-        <div className={styles.flow}>
+        <div className={styles.flow} onContextMenu={handlePaneContextMenu}>
           <ReactFlowProvider>
             <ReactFlow
               nodes={displayNodes}
@@ -239,10 +282,11 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
               onNodeDragStop={handleNodeDragStop}
               onEdgesChange={onEdgesChange}
               onNodeClick={handleNodeClick}
+              onNodeContextMenu={handleNodeContextMenu}
             >
               <Controls />
               <Background />
-              <ErdFocusController focusRequest={focusRequest} />
+              <ErdFocusController focusRequest={focusRequest} nodes={nodes} />
             </ReactFlow>
           </ReactFlowProvider>
         </div>
@@ -282,5 +326,13 @@ export function ErdEditor({ model, onChange }: ErdEditorProps) {
         />
       </div>
     </HorizontalSplitPane>
+    {contextMenu && (
+      <ContextMenu
+        items={contextMenuItems}
+        position={contextMenu.position}
+        onClose={() => setContextMenu(null)}
+      />
+    )}
+    </>
   );
 }

@@ -1028,7 +1028,6 @@ function XmlElementNode({
         const max = Number(maxRaw);
         return Number.isFinite(max) && max > 1;
       });
-      const presentOptionCount = optionStates.filter((state) => state.hasValue).length;
       const isExclusive = !hasRepeatableOption;
       const isChoiceGroupRequired = group.options.some((opt) => {
         const min = Number(opt.node.minOccurs ?? 0);
@@ -2689,7 +2688,7 @@ function XmlElementNode({
                       ) : null;
                     })()}
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div className={styles.attributeFields}>
                       <AutoFormFields>
                       {editableAttrs.map((attr) => {
                         const attrType = schemaNode?.attributes?.find(definition => definition.name === attr.name)?.type;
@@ -2964,9 +2963,6 @@ function XmlElementNode({
             const cond3 = path.length === 0 && rootXsdAddButtons && rootXsdAddButtons.length > 0;
             const cond4 = authoringChildAddOptions.length > 0;
             const shouldRender = cond1 || cond2 || cond3 || cond4;
-            const isSchema = element?.tagName === 'xs:schema' || element?.tagName?.endsWith(':schema');
-            if (isSchema || path.length === 0) {
-            }
             return shouldRender;
           })() && (
             <div>
@@ -4039,13 +4035,7 @@ function XmlInstanceFormContent({
   // Debug logging
   useEffect(() => {
     if (rootSchema && Object.keys(rootSchema).length > 0) {
-      // Log schema structure for debugging
-      const schemaKeys = Object.keys(rootSchema);
-      if (schemaKeys.includes('xs:schema') || schemaKeys.includes('schema')) {
-        const schemaObj = rootSchema['xs:schema'] || rootSchema['schema'];
-        if (schemaObj) {
-        }
-      }
+      console.debug('[XmlInstanceForm] Root schema:', rootSchema);
     }
   }, [rootSchema]);
 
@@ -4343,6 +4333,7 @@ function XmlInstanceFormContent({
       // Debug for schema element
       if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
         const schemaElem = compiled.getElement('schema') || compiled.getElement('xs:schema');
+        console.debug('[XmlInstanceForm] Schema element:', schemaElem);
       }
       
       return compiled;
@@ -4357,22 +4348,13 @@ function XmlInstanceFormContent({
   // Walk the ACTUAL ROOT ELEMENT definition, not xs:schema
   const schemaNode = useMemo(() => {
     if (!rootElement || !compiledSchema) {
-      if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
-      }
       return undefined;
     }
     
     try {
       // Get the element definition directly from compiled schema
       const elementDef = compiledSchema.getElement(rootElement.tagName);
-      if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
-      }
-      if (!elementDef) {
-        if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
-        }
-        return undefined;
-      }
-      
+
       // Extract the type from the element definition
       const attrs = elementDef['@attributes'] || elementDef;
       let typeName = attrs?.type;
@@ -4412,8 +4394,6 @@ function XmlInstanceFormContent({
       }
       
       if (!typeName) {
-        if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
-        }
         return undefined;
       }
       
@@ -4429,9 +4409,6 @@ function XmlInstanceFormContent({
         maxDepth: 2,
         path: [],
       });
-      
-      if (rootElement?.tagName === 'xs:schema' || rootElement?.tagName?.endsWith(':schema')) {
-      }
       
       return walked;
     } catch (e) {
