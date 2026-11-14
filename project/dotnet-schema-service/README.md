@@ -10,6 +10,17 @@ A small ASP.NET Core service for XML schema inference and default-instance gener
 - `POST /api/schema/default-instance`
   - Input: XSD schema text
   - Behavior: emits a minimal XML instance from the schema
+- `POST /api/schema/generate-sqlite`
+  - Input: `{ "workbenchId": "...", "tables": [...], "relationships": [...] }`
+  - Behavior: synchronizes the workbench's persistent SQLite database and returns it as `schema-sculptor.sqlite`
+- `POST /api/schema/erd-database/sync`
+  - Input: the same workbench ID, tables and relationships
+  - Behavior: creates or safely updates the persistent database, then returns entity tables, columns, relationships and records
+- `GET /api/schema/erd-database/{workbenchId}`
+  - Behavior: returns the current entity tables and records for a previously initialized workbench database
+- `POST /api/schema/erd-database/{workbenchId}/records`
+  - Input: `{ "tableId": "...", "rowId": 1, "values": { ... } }`; omit `rowId` to create a record
+  - Behavior: inserts or updates one entity record and returns its saved values
 - `POST /api/transform/preview`
   - Input: `{ "input": "<xml/>", "stylesheet": "<xsl:stylesheet .../>" }`
   - Output: `{ "xml": "<result/>" }`
@@ -32,6 +43,8 @@ cd project/dotnet-schema-service
 
 - The service is intentionally separate from the web app so the workbench and HTMLCMS can share it later.
 - Schema inference uses the built-in .NET XML APIs.
+- ERD databases persist under `App_Data/erd-workspaces` as one SQLite file and a schema sidecar per workbench. The server hashes workbench IDs before using them in file names. Keep this directory on persistent local storage and do not expose these anonymous workbench endpoints to untrusted networks.
+- ERD synchronization preserves existing records: it can add tables and nullable non-key, non-foreign-key columns without defaults, while incompatible removals, renames, and key/type/nullability changes return a conflict instead of dropping data. The SQLite download contains the current persistent database.
 
 ## Accounts and authentication
 

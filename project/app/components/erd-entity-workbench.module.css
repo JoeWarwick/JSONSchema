@@ -1,0 +1,150 @@
+.workbench {
+  display: grid;
+  grid-template-columns: minmax(250px, 30%) minmax(0, 1fr);
+  gap: var(--space-4);
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-4);
+}
+
+.entityList,
+.editor {
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-neutral-6);
+  border-radius: var(--radius-3);
+  background: var(--color-neutral-1);
+}
+
+.entityList {
+  overflow: auto;
+}
+
+.editor {
+  overflow: auto;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.sectionHeader h2 {
+  margin: 0;
+  font-size: var(--font-size-3);
+}
+
+.tablePicker,
+.parentPicker {
+  display: grid;
+  gap: var(--space-2);
+  color: var(--color-neutral-11);
+  font-size: var(--font-size-2);
+}
+
+.tablePicker select,
+.parentPicker select {
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--color-neutral-7);
+  border-radius: var(--radius-2);
+  background: var(--color-neutral-1);
+  color: var(--color-neutral-12);
+  font: inherit;
+}
+
+.primaryButton,
+.secondaryButton,
+.recordList button {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-neutral-7);
+  border-radius: var(--radius-2);
+  color: var(--color-neutral-12);
+  font: inherit;
+  cursor: pointer;
+}
+
+.primaryButton {
+  border-color: var(--color-primary-8);
+  background: var(--color-primary-9);
+  color: white;
+  white-space: nowrap;
+}
+
+.secondaryButton,
+.recordList button {
+  background: var(--color-neutral-2);
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.recordList button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.recordList {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recordList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-neutral-5);
+  color: var(--color-neutral-12);
+}
+
+.recordList li span {
+  overflow-wrap: anywhere;
+}
+
+.parentPicker {
+  margin-bottom: var(--space-4);
+}
+
+.helpText,
+.emptyState,
+.status {
+  color: var(--color-neutral-10);
+}
+
+.emptyState {
+  padding: var(--space-4) 0;
+}
+
+.status {
+  padding: var(--space-6);
+}
+
+.error {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--color-error-7);
+  border-radius: var(--radius-2);
+  background: var(--color-error-3);
+  color: var(--color-error-11);
+  overflow-wrap: anywhere;
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}
+
+@media (max-width: 760px) {
+  .workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

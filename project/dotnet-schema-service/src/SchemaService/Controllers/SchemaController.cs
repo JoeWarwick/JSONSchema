@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using Microsoft.AspNetCore.Mvc;
 using SchemaService.Models;
 using SchemaService.Services;
@@ -14,6 +15,7 @@ public sealed class SchemaController : ControllerBase
     private readonly SchemaValidationService schemaValidationService;
     private readonly JsonSchemaValidationService jsonSchemaValidationService;
     private readonly JsonSchemaInferenceService jsonSchemaInferenceService;
+    private readonly ErdWorkbenchDatabaseService erdWorkbenchDatabaseService;
 
     public SchemaController(
         SchemaInferenceService schemaInferenceService,
@@ -21,7 +23,8 @@ public sealed class SchemaController : ControllerBase
         XmlSchemaResolverService schemaResolverService,
         SchemaValidationService schemaValidationService,
         JsonSchemaValidationService jsonSchemaValidationService,
-        JsonSchemaInferenceService jsonSchemaInferenceService)
+        JsonSchemaInferenceService jsonSchemaInferenceService,
+        ErdWorkbenchDatabaseService erdWorkbenchDatabaseService)
     {
         this.schemaInferenceService = schemaInferenceService;
         this.defaultInstanceService = defaultInstanceService;
@@ -29,6 +32,7 @@ public sealed class SchemaController : ControllerBase
         this.schemaValidationService = schemaValidationService;
         this.jsonSchemaValidationService = jsonSchemaValidationService;
         this.jsonSchemaInferenceService = jsonSchemaInferenceService;
+        this.erdWorkbenchDatabaseService = erdWorkbenchDatabaseService;
     }
 
     [HttpPost("from-xml")]
@@ -110,5 +114,84 @@ public sealed class SchemaController : ControllerBase
 
         var response = jsonSchemaInferenceService.InferSchema(request);
         return Ok(response);
+    }
+
+    [HttpPost("generate-sqlite")]
+    public async Task<IActionResult> GenerateSqlite(
+        [FromBody] GenerateSqliteSchemaRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await erdWorkbenchDatabaseService.SyncAsync(request, cancellationToken);
+            var database = await erdWorkbenchDatabaseService.ExportAsync(request.WorkbenchId, cancellationToken);
+            return File(database, "application/vnd.sqlite3", "schema-sculptor.sqlite");
+        }
+        catch (SqliteSchemaCompatibilityException ex)
+        {
+            return Problem(statusCode: StatusCodes.Status409Conflict, title: "SQLite schema update requires attention", detail: ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    [HttpPost("erd-database/sync")]
+    public async Task<ActionResult<ErdWorkbenchSnapshot>> SyncErdDatabase(
+        [FromBody] GenerateSqliteSchemaRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await erdWorkbenchDatabaseService.SyncAsync(request, cancellationToken));
+        }
+        catch (SqliteSchemaCompatibilityException ex)
+        {
+            return Problem(statusCode: StatusCodes.Status409Conflict, title: "SQLite schema update requires attention", detail: ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    [HttpGet("erd-database/{workbenchId}")]
+    public async Task<ActionResult<ErdWorkbenchSnapshot>> GetErdDatabase(
+        string workbenchId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await erdWorkbenchDatabaseService.GetSnapshotAsync(workbenchId, cancellationToken));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return NotFound(ex.Message);
+        }
+    }
+
+    [HttpPost("erd-database/{workbenchId}/records")]
+    public async Task<ActionResult<ErdWorkbenchRecord>> SaveErdRecord(
+        string workbenchId,
+        [FromBody] SaveErdWorkbenchRecordRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await erdWorkbenchDatabaseService.SaveRecordAsync(workbenchId, request, cancellationToken));
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+        {
+            return BadRequest($"The record violates a SQLite constraint: {ex.Message}");
+        }
+        catch (FormatException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 }

@@ -24,6 +24,8 @@ builder.Services.AddSingleton<XmlSchemaResolverService>();
 builder.Services.AddSingleton<SchemaValidationService>();
 builder.Services.AddSingleton<JsonSchemaValidationService>();
 builder.Services.AddSingleton<JsonSchemaInferenceService>();
+builder.Services.AddSingleton(new ErdWorkbenchDatabaseService(
+    Path.Combine(builder.Environment.ContentRootPath, "App_Data", "erd-workspaces")));
 builder.Services.AddSingleton<ITransformService, TransformService>();
 
 // Add CORS to allow requests from the frontend

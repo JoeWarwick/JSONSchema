@@ -8,6 +8,69 @@ import { parseMarkup } from '~/utils/markup';
 
 const STORAGE_KEY = 'schema-sculptor-schema';
 
+describe('Workbench ERD SQLite export', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('sends the ERD model to the SQLite endpoint and downloads the database', async () => {
+    const model = {
+      tables: [{
+        id: 'Person',
+        name: 'Person',
+        clrName: 'Person',
+        columns: [{ name: 'Id', type: 'int', isNullable: false, isPrimaryKey: true, isForeignKey: false }],
+        navigations: [],
+      }],
+      relationships: [],
+      sourceFiles: [],
+      diagnostics: [],
+    };
+    localStorage.setItem('schema-sculptor-erd', JSON.stringify(model));
+
+    const originalFetch = global.fetch;
+    const originalCreate = URL.createObjectURL;
+    const originalRevoke = URL.revokeObjectURL;
+    const fetchMock = jest.fn(async () => ({
+      ok: true,
+      blob: async () => new Blob(['sqlite database']),
+    } as Response));
+    const createObjectURL = jest.fn<string, [Blob | MediaSource]>(() => 'blob:sqlite');
+    let downloadedFilename = '';
+    const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      downloadedFilename = this.download;
+    });
+    global.fetch = fetchMock as typeof fetch;
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = jest.fn();
+
+    try {
+      render(<Workbench kind="erd" />);
+      fireEvent.pointerDown(await screen.findByRole('menuitem', { name: /^ERD$/ }), { bubbles: true, cancelable: true });
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Generate SQLite database' }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const request = (fetchMock.mock.calls[0] as unknown as [RequestInfo | URL, RequestInit])[1];
+      expect(fetchMock).toHaveBeenCalledWith('/api/schema/generate-sqlite', expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }));
+      expect(JSON.parse(request.body as string)).toMatchObject({
+        workbenchId: expect.any(String),
+        tables: model.tables,
+        relationships: model.relationships,
+      });
+      expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+      expect(downloadedFilename).toBe('schema-sculptor.sqlite');
+    } finally {
+      global.fetch = originalFetch;
+      URL.createObjectURL = originalCreate;
+      URL.revokeObjectURL = originalRevoke;
+      click.mockRestore();
+    }
+  });
+});
+
 describe('Workbench integration - load unresolved $defs schema', () => {
   const unresolved = {
     $id: 'https://example.com/ecommerce.schema.json',

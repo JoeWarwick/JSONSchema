@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect, useReducer, useMemo, type ReactNode } from "react";
+import { useState, useRef, useEffect, useReducer, useMemo, useContext, type ReactNode } from "react";
 import { Workspace } from "~/components/workspace";
-import { useWorkbenchStorage } from "~/state/workbench-context";
+import { WorkbenchContext, useWorkbenchStorage } from "~/state/workbench-context";
 import type { WorkbenchKind } from "~/state/workspace";
 import { TransformWorkbench } from "~/components/transform-workbench";
 import { OpenApiWorkbench } from "~/components/openapi-workbench";
@@ -33,6 +33,7 @@ import { SchemaEditorForm } from "~/components/schema-editor-form";
 import { GraphicalSchemaEditor } from "~/components/graphical-schema-editor";
 import { SchemaSourceEditor } from "~/components/schema-source-editor";
 import { ErdEditor } from "~/components/erd-editor";
+import { ErdEntityWorkbench } from "~/components/erd-entity-workbench";
 import { DraftIndicator } from "~/components/draft-indicator";
 import { DraftMigrationDialog } from "~/components/draft-migration-dialog";
 import type { ErdModel } from "~/types/erd";
@@ -57,6 +58,7 @@ const INSTANCE_STORAGE_KEY = 'schema-sculptor-instance';
 const DEREF_COMPLETE_STORAGE_KEY = 'schema-sculptor-deref-complete';
 const DEREF_ERROR_STORAGE_KEY = 'schema-sculptor-deref-error';
 const ERD_STORAGE_KEY = 'schema-sculptor-erd';
+const ERD_DATABASE_ID_STORAGE_KEY = 'schema-sculptor-erd-database-id';
 const ACTIVE_TAB_STORAGE_KEY = 'schema-sculptor-active-tab';
 
 // Language-specific storage keys for preserving markup across language switches
@@ -270,6 +272,7 @@ export default function WorkspaceRoute() {
 export function Workbench({ fileMenu, kind = 'json' }: { fileMenu?: ReactNode; kind?: WorkbenchKind } = {}) {
   const isEntityWorkbench = kind === 'erd';
   const localStorage = useWorkbenchStorage();
+  const { documentId } = useContext(WorkbenchContext);
   const t = useT();
   const showDevStorageTools = typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
   const [state, dispatch] = useReducer(schemaReducer, initialSchemaState(null));
@@ -277,6 +280,8 @@ export function Workbench({ fileMenu, kind = 'json' }: { fileMenu?: ReactNode; k
   const [jsonInput, setJsonInput] = useState('');
   const [hasHydratedPersistedState, setHasHydratedPersistedState] = useState(false);
   const [erdModel, setErdModel] = useState<ErdModel | null>(null);
+  const [erdDatabaseId, setErdDatabaseId] = useState<string | null>(null);
+  const [erdDatabaseIdError, setErdDatabaseIdError] = useState<string | null>(null);
   const { validate: validateSchema } = useSchemaValidation();
   const { validate: validateInstanceWithImports } = useInstanceValidationWithImports();
   const [error, setError] = useState<string | null>(null);
@@ -298,6 +303,32 @@ export function Workbench({ fileMenu, kind = 'json' }: { fileMenu?: ReactNode; k
   const schemaFileInputRef = useRef<HTMLInputElement>(null);
   const erdFileInputRef = useRef<HTMLInputElement>(null);
   const [compactJsonView, setCompactJsonView] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!isEntityWorkbench) return;
+    if (documentId) {
+      setErdDatabaseId(documentId);
+      setErdDatabaseIdError(null);
+      return;
+    }
+
+    try {
+      let databaseId = localStorage.getItem(ERD_DATABASE_ID_STORAGE_KEY);
+      if (!databaseId) {
+        databaseId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `erd-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        localStorage.setItem(ERD_DATABASE_ID_STORAGE_KEY, databaseId);
+      }
+      setErdDatabaseId(databaseId);
+      setErdDatabaseIdError(null);
+    } catch (identityError) {
+      setErdDatabaseId(null);
+      setErdDatabaseIdError(identityError instanceof Error
+        ? `Could not establish a persistent ERD database ID: ${identityError.message}`
+        : 'Could not establish a persistent ERD database ID.');
+    }
+  }, [documentId, isEntityWorkbench, localStorage]);
   const [markupLanguage, setMarkupLanguageState] = useState<MarkupLanguage>('json');
   const [showMarkupUrlDialog, setShowMarkupUrlDialog] = useState(false);
   const [showSchemaUrlDialog, setShowSchemaUrlDialog] = useState(false);
@@ -1602,6 +1633,52 @@ export function Workbench({ fileMenu, kind = 'json' }: { fileMenu?: ReactNode; k
     URL.revokeObjectURL(url);
   };
 
+  const [isGeneratingSqlite, setIsGeneratingSqlite] = useState(false);
+  const handleGenerateSqlite = async () => {
+    if (!erdModel || !erdDatabaseId || isGeneratingSqlite) return;
+    setIsGeneratingSqlite(true);
+    try {
+      const response = await fetch('/api/schema/generate-sqlite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workbenchId: erdDatabaseId,
+          tables: erdModel.tables,
+          relationships: erdModel.relationships,
+        }),
+      });
+      if (!response.ok) {
+        const responseText = await response.text();
+        let errorMessage = `SQLite generation failed (${response.status}).`;
+        try {
+          const errorBody: unknown = JSON.parse(responseText);
+          if (typeof errorBody === 'string') errorMessage = errorBody;
+          else if (errorBody && typeof errorBody === 'object' && !Array.isArray(errorBody)) {
+            const problem = errorBody as Record<string, unknown>;
+            if (typeof problem.detail === 'string') errorMessage = problem.detail;
+            else if (typeof problem.title === 'string') errorMessage = problem.title;
+          }
+        } catch {
+          if (responseText.trim()) errorMessage = responseText;
+        }
+        throw new Error(errorMessage);
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'schema-sculptor.sqlite';
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success('SQLite database generated.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to generate SQLite database.');
+    } finally {
+      setIsGeneratingSqlite(false);
+    }
+  };
+
   const handleNewErd = () => {
     setErdModel({
       tables: [],
@@ -1613,7 +1690,7 @@ export function Workbench({ fileMenu, kind = 'json' }: { fileMenu?: ReactNode; k
   };
 
   // Tabbed UI state
-  const [activeTab, setActiveTab] = useState<'json' | 'xmlschema' | 'schema' | 'instance' | 'output' | 'graph' | 'erd'>(isEntityWorkbench ? 'erd' : 'json');
+  const [activeTab, setActiveTab] = useState<'json' | 'xmlschema' | 'schema' | 'instance' | 'output' | 'graph' | 'erd' | 'entities'>(isEntityWorkbench ? 'erd' : 'json');
   const [hasHydratedActiveTab, setHasHydratedActiveTab] = useState(false);
 
   // Restore last active tab from localStorage - deferred to avoid sync storage access during render
@@ -1622,7 +1699,7 @@ export function Workbench({ fileMenu, kind = 'json' }: { fileMenu?: ReactNode; k
     const timer = window.setTimeout(() => {
       try {
         const savedTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
-        const availableTabs = isEntityWorkbench ? ['erd'] : ['json', 'xmlschema', 'schema', 'instance', 'output', 'graph'];
+        const availableTabs = isEntityWorkbench ? ['erd', 'entities'] : ['json', 'xmlschema', 'schema', 'instance', 'output', 'graph'];
         if (savedTab && availableTabs.includes(savedTab)) {
           setActiveTab(savedTab as typeof activeTab);
         }
@@ -1965,6 +2042,10 @@ export function Workbench({ fileMenu, kind = 'json' }: { fileMenu?: ReactNode; k
                 <Download size={14} style={{ marginRight: 6 }} />
                 Export SQL
               </MenubarItem>
+              <MenubarItem onSelect={handleGenerateSqlite} disabled={!erdModel || !erdDatabaseId || isGeneratingSqlite}>
+                <Download size={14} style={{ marginRight: 6 }} />
+                {isGeneratingSqlite ? 'Generating SQLite database…' : 'Generate SQLite database'}
+              </MenubarItem>
             </MenubarContent>
           </MenubarMenu>}
 
@@ -2077,10 +2158,13 @@ export function Workbench({ fileMenu, kind = 'json' }: { fileMenu?: ReactNode; k
         <button className={activeTab === 'schema' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('schema')}>Schema Form</button>
         <button className={activeTab === 'graph' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('graph')}>Schema Graph</button>
         </>}
-        {isEntityWorkbench && <button className={activeTab === 'erd' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('erd')}>Entity Graph</button>}
+        {isEntityWorkbench && <>
+          <button className={activeTab === 'erd' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('erd')}>Entity Graph</button>
+          <button className={activeTab === 'entities' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('entities')}>Entity Data</button>
+        </>}
       </div>
 
-      <div className={`${styles.tabPanel}${activeTab === 'graph' ? ` ${styles.tabPanelFlush}` : ''}${activeTab === 'erd' ? ` ${styles.tabPanelFlush}` : ''}`}>
+      <div className={`${styles.tabPanel}${activeTab === 'graph' || activeTab === 'erd' || activeTab === 'entities' ? ` ${styles.tabPanelFlush}` : ''}`}>
         {activeTab === 'graph' && (
           <>
             {editorSchema ? (
@@ -2497,6 +2581,15 @@ export function Workbench({ fileMenu, kind = 'json' }: { fileMenu?: ReactNode; k
             />
           ) : (
             <div className={styles.emptyState}>Open one or more DbContext C# files to create an ERD.</div>
+          )
+        )}
+        {activeTab === 'entities' && (
+          erdDatabaseIdError ? (
+            <div className={styles.emptyState} role="alert">{erdDatabaseIdError}</div>
+          ) : erdModel && erdDatabaseId ? (
+            <ErdEntityWorkbench model={erdModel} workbenchId={erdDatabaseId} />
+          ) : (
+            <div className={styles.emptyState}>Open or create an entity diagram before managing entity data.</div>
           )
         )}
       </div>
