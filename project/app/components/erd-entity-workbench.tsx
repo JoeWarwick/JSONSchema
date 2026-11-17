@@ -1,6 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { XmlInstanceForm } from "~/components/xml-instance-form";
 import type { ErdModel } from "~/types/erd";
+import { AddWorkbenchContext, WorkbenchContext } from "~/state/workbench-context";
+import { contentFingerprint, createWorkbench } from "~/state/workspace";
+import { getAuthSession } from "~/utils/auth-client";
+import { createErdXmlTemplate, generateErdXsd } from "~/utils/erd-xsd";
 import styles from "./erd-entity-workbench.module.css";
 
 interface DatabaseColumn {
@@ -35,6 +39,21 @@ interface DatabaseSnapshot {
   relationships: DatabaseRelationship[];
 }
 
+interface ManyToManyCollection {
+  id: string;
+  junctionTable: DatabaseTable;
+  parentTable: DatabaseTable;
+  parentRelationship: DatabaseRelationship;
+  targetRelationship: DatabaseRelationship;
+  targetTable: DatabaseTable;
+  reverseSelfReference: boolean;
+}
+
+interface LinkedRecord {
+  junctionRecord: DatabaseRecord;
+  targetRecord: DatabaseRecord | null;
+}
+
 interface ErdEntityWorkbenchProps {
   model: ErdModel;
   workbenchId: string;
@@ -62,12 +81,33 @@ function getErrorMessage(body: string, status: number): string {
   return body;
 }
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+async function fetchErdApi(url: string, init: RequestInit): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const method = (init.method ?? "GET").toUpperCase();
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    const session = await getAuthSession();
+    headers.set("X-CSRF-TOKEN", session.csrfToken);
+  }
+  return fetch(url, {
+    ...init,
+    credentials: init.credentials ?? "same-origin",
+    headers,
+  });
+}
+
+async function requestJson<T>(url: string, init: RequestInit): Promise<T> {
+  const response = await fetchErdApi(url, init);
   if (!response.ok) {
     throw new Error(getErrorMessage(await response.text(), response.status));
   }
   return response.json() as Promise<T>;
+}
+
+async function requestOk(url: string, init: RequestInit): Promise<void> {
+  const response = await fetchErdApi(url, init);
+  if (!response.ok) {
+    throw new Error(getErrorMessage(await response.text(), response.status));
+  }
 }
 
 function toSyncRequest(model: ErdModel, workbenchId: string) {
@@ -84,10 +124,24 @@ function toSyncRequest(model: ErdModel, workbenchId: string) {
         defaultGeneration,
       })),
     })),
-    relationships: model.relationships.map(({ principalTable, dependentTable, foreignKeyColumns }) => ({
+    relationships: model.relationships.map(({
+      id,
       principalTable,
       dependentTable,
       foreignKeyColumns,
+      principalCardinality,
+      dependentCardinality,
+      principalNavigation,
+      dependentNavigation,
+    }) => ({
+      id,
+      principalTable,
+      dependentTable,
+      foreignKeyColumns,
+      principalCardinality,
+      dependentCardinality,
+      principalNavigation,
+      dependentNavigation,
     })),
   };
 }
@@ -167,6 +221,135 @@ function findColumn(table: DatabaseTable, name: string): DatabaseColumn | undefi
   return table.columns.find((column) => column.name.toLowerCase() === name.toLowerCase());
 }
 
+function relationshipsMatch(left: DatabaseRelationship, right: DatabaseRelationship): boolean {
+  return left.dependentTable === right.dependentTable &&
+    left.principalTable === right.principalTable &&
+    left.foreignKeyColumns.length === right.foreignKeyColumns.length &&
+    left.foreignKeyColumns.every((column, index) => column.toLowerCase() === right.foreignKeyColumns[index].toLowerCase());
+}
+
+function getManyToManyCollections(
+  snapshot: DatabaseSnapshot,
+  model: ErdModel,
+  tableId: string,
+): ManyToManyCollection[] {
+  const collections: ManyToManyCollection[] = [];
+  for (const junctionTable of snapshot.tables) {
+    if (snapshot.relationships.some((relationship) => relationship.principalTable === junctionTable.id)) continue;
+    const relationships = snapshot.relationships.filter((relationship) => relationship.dependentTable === junctionTable.id);
+    if (relationships.length !== 2) continue;
+    const [first, second] = relationships;
+    const selfReference = first.principalTable === second.principalTable;
+    const allForeignKeys = [...first.foreignKeyColumns, ...second.foreignKeyColumns];
+    if (allForeignKeys.some((name, index) =>
+      allForeignKeys.slice(index + 1).some((other) => name.toLowerCase() === other.toLowerCase()))) continue;
+
+    for (const [index, parentRelationship] of relationships.entries()) {
+      if (parentRelationship.principalTable !== tableId) continue;
+      if (index === 1 && selfReference) continue;
+      const relationshipDefinition = model.relationships.find((relationship) =>
+        relationshipsMatch(relationship, parentRelationship));
+      if (relationshipDefinition?.dependentCardinality !== "many") continue;
+
+      const targetRelationship = relationships[1 - index];
+      const parentTable = snapshot.tables.find((table) => table.id === parentRelationship.principalTable);
+      const targetTable = snapshot.tables.find((table) => table.id === targetRelationship.principalTable);
+      if (!parentTable || !targetTable) continue;
+      collections.push({
+        id: `${junctionTable.id}:${parentRelationship.foreignKeyColumns.join(",")}=>${targetRelationship.foreignKeyColumns.join(",")}`,
+        junctionTable,
+        parentTable,
+        parentRelationship,
+        targetRelationship,
+        targetTable,
+        reverseSelfReference: selfReference,
+      });
+    }
+  }
+  return collections;
+}
+
+function relationshipValues(
+  relationship: DatabaseRelationship,
+  principalTable: DatabaseTable,
+  principalRecord: DatabaseRecord,
+  junctionTable: DatabaseTable,
+): Record<string, unknown> {
+  const primaryKeys = principalTable.columns.filter((column) => column.isPrimaryKey);
+  if (primaryKeys.length !== relationship.foreignKeyColumns.length) {
+    throw new Error(`The relationship to "${principalTable.name}" has an incomplete key mapping.`);
+  }
+  return Object.fromEntries(relationship.foreignKeyColumns.map((name, index) => {
+    const foreignKey = findColumn(junctionTable, name);
+    if (!foreignKey) throw new Error(`Junction entity "${junctionTable.name}" is missing column "${name}".`);
+    return [foreignKey.name, principalRecord.values[primaryKeys[index].name]];
+  }));
+}
+
+function recordMatchesParent(
+  junctionRecord: DatabaseRecord,
+  relationship: DatabaseRelationship,
+  junctionTable: DatabaseTable,
+  parentTable: DatabaseTable,
+  parentRecord: DatabaseRecord,
+): boolean {
+  const primaryKeys = parentTable.columns.filter((column) => column.isPrimaryKey);
+  const foreignKeyValues = relationship.foreignKeyColumns.map((name) => {
+    const column = findColumn(junctionTable, name);
+    return column ? junctionRecord.values[column.name] : undefined;
+  });
+  return foreignKeyValues.every((value) => value !== undefined) &&
+    sameKeyValues(foreignKeyValues, primaryKeys.map((column) => parentRecord.values[column.name]));
+}
+
+function getLinkedRecords(
+  collection: ManyToManyCollection,
+  parentRecord: DatabaseRecord,
+): LinkedRecord[] {
+  const targetKeys = collection.targetTable.columns.filter((column) => column.isPrimaryKey);
+  const linked: LinkedRecord[] = [];
+  for (const junctionRecord of collection.junctionTable.records) {
+    const matchesParentSide = recordMatchesParent(
+      junctionRecord,
+      collection.parentRelationship,
+      collection.junctionTable,
+      collection.parentTable,
+      parentRecord,
+    );
+    const reverseMatch = !matchesParentSide && collection.reverseSelfReference && recordMatchesParent(
+      junctionRecord,
+      collection.targetRelationship,
+      collection.junctionTable,
+      collection.parentTable,
+      parentRecord,
+    );
+    if (!matchesParentSide && !reverseMatch) continue;
+    const targetRelationship = reverseMatch ? collection.parentRelationship : collection.targetRelationship;
+    const targetKeyValues = targetRelationship.foreignKeyColumns.map((name) => {
+      const column = findColumn(collection.junctionTable, name);
+      return column ? junctionRecord.values[column.name] : undefined;
+    });
+    linked.push({
+      junctionRecord,
+      targetRecord: collection.targetTable.records.find((record) =>
+        sameKeyValues(targetKeyValues, targetKeys.map((column) => record.values[column.name]))) ?? null,
+    });
+  }
+  return linked;
+}
+
+function hasRequiredAssociationFields(collection: ManyToManyCollection): boolean {
+  const foreignKeys = new Set([
+    ...collection.parentRelationship.foreignKeyColumns,
+    ...collection.targetRelationship.foreignKeyColumns,
+  ].map((name) => name.toLowerCase()));
+  return collection.junctionTable.columns.some((column) =>
+    !foreignKeys.has(column.name.toLowerCase()) &&
+    !column.isNullable &&
+    column.defaultGeneration !== "current-timestamp" &&
+    !isIntegerIdentity(column));
+}
+
 function sameKeyValues(left: unknown[], right: unknown[]): boolean {
   return left.length === right.length && left.every((value, index) => String(value) === String(right[index]));
 }
@@ -203,12 +386,15 @@ function findCurrentParentValue(
 }
 
 export function ErdEntityWorkbench({ model, workbenchId }: ErdEntityWorkbenchProps) {
+  const addWorkbench = useContext(AddWorkbenchContext);
+  const { documentId } = useContext(WorkbenchContext);
   const [snapshot, setSnapshot] = useState<DatabaseSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedTableId, setSelectedTableId] = useState("");
   const [editor, setEditor] = useState<EntityEditor | null>(null);
   const [selectedParents, setSelectedParents] = useState<Record<string, string>>({});
+  const [collectionSelections, setCollectionSelections] = useState<Record<string, string>>({});
   const [formValue, setFormValue] = useState<unknown>(null);
   const [isSaving, setIsSaving] = useState(false);
   const selectedTable = snapshot?.tables.find((table) => table.id === selectedTableId) ?? null;
@@ -217,6 +403,10 @@ export function ErdEntityWorkbench({ model, workbenchId }: ErdEntityWorkbenchPro
   const editorColumns = useMemo(
     () => selectedTable && editor ? getEditorColumns(selectedTable, editor) : [],
     [selectedTable, editor],
+  );
+  const collections = useMemo(
+    () => snapshot && selectedTable ? getManyToManyCollections(snapshot, model, selectedTable.id) : [],
+    [snapshot, model, selectedTable],
   );
 
   useEffect(() => {
@@ -262,6 +452,7 @@ export function ErdEntityWorkbench({ model, workbenchId }: ErdEntityWorkbenchPro
   const beginCreate = () => {
     if (!selectedTable) return;
     setSelectedParents({});
+    setCollectionSelections({});
     setFormValue(toXmlFormValue(getEditorColumns(selectedTable, { kind: "create" })));
     setEditor({ kind: "create" });
   };
@@ -276,6 +467,7 @@ export function ErdEntityWorkbench({ model, workbenchId }: ErdEntityWorkbenchPro
         : ""];
     }));
     setSelectedParents(parents);
+    setCollectionSelections({});
     setFormValue(toXmlFormValue(getEditorColumns(selectedTable, { kind: "edit", record }), record));
     setEditor({ kind: "edit", record });
   };
@@ -348,6 +540,106 @@ export function ErdEntityWorkbench({ model, workbenchId }: ErdEntityWorkbenchPro
     }
   };
 
+  const openXmlWorkbench = () => {
+    if (!selectedTable || !addWorkbench) return;
+    setError(null);
+    try {
+      const workbench = createWorkbench(
+        "xml",
+        crypto.randomUUID(),
+        `${selectedTable.name} XML`,
+      );
+      workbench.entries["schema-sculptor-schema-xml"] = JSON.stringify(
+        generateErdXsd(model, selectedTable.id),
+      );
+      workbench.entries["schema-sculptor-instance-xml"] = JSON.stringify(
+        createErdXmlTemplate(model, selectedTable.id),
+      );
+      workbench.entries["schema-sculptor-erd-origin"] = JSON.stringify({
+        workbenchId,
+        sourceWorkbenchId: documentId ?? workbenchId,
+        rootTableId: selectedTable.id,
+      });
+      workbench.savedContent = contentFingerprint(workbench);
+      addWorkbench(workbench, true);
+    } catch (schemaError: unknown) {
+      setError(schemaError instanceof Error ? schemaError.message : "Could not generate the entity XML workbench.");
+    }
+  };
+
+  const linkRelatedRecord = async (collection: ManyToManyCollection) => {
+    if (!snapshot || editor?.kind !== "edit") return;
+    const targetRecord = collection.targetTable.records.find((record) =>
+      String(record.rowId) === collectionSelections[collection.id]);
+    if (!targetRecord) {
+      setError(`Select a ${collection.targetTable.name} record to link.`);
+      return;
+    }
+
+    setIsSaving(true);
+    setError(null);
+    try {
+      const values = {
+        ...relationshipValues(
+          collection.parentRelationship,
+          collection.parentTable,
+          editor.record,
+          collection.junctionTable,
+        ),
+        ...relationshipValues(
+          collection.targetRelationship,
+          collection.targetTable,
+          targetRecord,
+          collection.junctionTable,
+        ),
+      };
+      const linkedRecord = await requestJson<DatabaseRecord>(
+        `/api/schema/erd-database/${encodeURIComponent(workbenchId)}/records`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tableId: collection.junctionTable.id, values }),
+        },
+      );
+      setSnapshot((current) => current && ({
+        ...current,
+        tables: current.tables.map((table) => table.id !== collection.junctionTable.id
+          ? table
+          : { ...table, records: [...table.records, linkedRecord] }),
+      }));
+      setCollectionSelections((current) => ({ ...current, [collection.id]: "" }));
+    } catch (linkError: unknown) {
+      setError(linkError instanceof Error ? linkError.message : "Could not link these entities.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const unlinkRelatedRecord = async (collection: ManyToManyCollection, junctionRecord: DatabaseRecord) => {
+    setIsSaving(true);
+    setError(null);
+    try {
+      await requestOk(
+        `/api/schema/erd-database/${encodeURIComponent(workbenchId)}/relationships/unlink`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tableId: collection.junctionTable.id, rowId: junctionRecord.rowId }),
+        },
+      );
+      setSnapshot((current) => current && ({
+        ...current,
+        tables: current.tables.map((table) => table.id !== collection.junctionTable.id
+          ? table
+          : { ...table, records: table.records.filter((record) => record.rowId !== junctionRecord.rowId) }),
+      }));
+    } catch (unlinkError: unknown) {
+      setError(unlinkError instanceof Error ? unlinkError.message : "Could not unlink these entities.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   if (isLoading) {
     return <div className={styles.status} role="status">Synchronizing the ERD database…</div>;
   }
@@ -365,6 +657,7 @@ export function ErdEntityWorkbench({ model, workbenchId }: ErdEntityWorkbenchPro
                 setSelectedTableId(event.target.value);
                 setEditor(null);
                 setSelectedParents({});
+                setCollectionSelections({});
                 setFormValue(null);
               }}
               disabled={!snapshot?.tables.length}
@@ -372,6 +665,14 @@ export function ErdEntityWorkbench({ model, workbenchId }: ErdEntityWorkbenchPro
               {snapshot?.tables.map((table) => <option key={table.id} value={table.id}>{table.name}</option>)}
             </select>
           </label>
+          <button
+            type="button"
+            className={styles.secondaryButton}
+            onClick={openXmlWorkbench}
+            disabled={!selectedTable || !addWorkbench}
+          >
+            Open XML Schema
+          </button>
           <button type="button" className={styles.primaryButton} onClick={beginCreate} disabled={!selectedTable}>
             Add entity
           </button>
@@ -446,6 +747,79 @@ export function ErdEntityWorkbench({ model, workbenchId }: ErdEntityWorkbenchPro
                 expansionStateKey={`erd-entity-${selectedTable.id}`}
               />
             ) : <p className={styles.emptyState}>This entity has no additional fields to edit.</p>}
+            {editor.kind === "edit" && collections.length > 0 && (
+              <section className={styles.collections} aria-label={`Related entities for ${selectedTable.name}`}>
+                <h3>Related entities</h3>
+                {collections.map((collection) => {
+                  const linkedRecords = getLinkedRecords(collection, editor.record);
+                  const linkedTargetIds = new Set(linkedRecords.flatMap(({ targetRecord }) =>
+                    targetRecord ? [targetRecord.rowId] : []));
+                  const availableRecords = collection.targetTable.records.filter((record) =>
+                    !linkedTargetIds.has(record.rowId));
+                  const requiresManualEntry = hasRequiredAssociationFields(collection);
+                  return (
+                    <div className={styles.collection} key={collection.id}>
+                      <h4>{collection.targetTable.name}</h4>
+                      {linkedRecords.length > 0 ? (
+                        <ul className={styles.recordList}>
+                          {linkedRecords.map(({ junctionRecord, targetRecord }) => (
+                            <li key={junctionRecord.rowId}>
+                              <span>{targetRecord
+                                ? getRecordLabel(collection.targetTable, targetRecord)
+                                : "Referenced record is unavailable"}</span>
+                              <button
+                                type="button"
+                                onClick={() => void unlinkRelatedRecord(collection, junctionRecord)}
+                                disabled={isSaving}
+                                aria-label={`Remove link to ${collection.targetTable.name} record`}
+                              >
+                                Remove link
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : <p className={styles.emptyState}>No related {collection.targetTable.name} records.</p>}
+                      <div className={styles.linkControls}>
+                        <label className={styles.parentPicker}>
+                          Add {collection.targetTable.name}
+                          <select
+                            aria-label={`Add ${collection.targetTable.name}`}
+                            value={collectionSelections[collection.id] ?? ""}
+                            onChange={(event) => setCollectionSelections((current) => ({
+                              ...current,
+                              [collection.id]: event.target.value,
+                            }))}
+                            disabled={isSaving || availableRecords.length === 0 || requiresManualEntry}
+                          >
+                            <option value="">
+                              {availableRecords.length > 0 ? "Select a record…" : "No unlinked records"}
+                            </option>
+                            {availableRecords.map((record) => (
+                              <option key={record.rowId} value={record.rowId}>
+                                {getRecordLabel(collection.targetTable, record)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          className={styles.secondaryButton}
+                          onClick={() => void linkRelatedRecord(collection)}
+                          disabled={isSaving || requiresManualEntry || !collectionSelections[collection.id]}
+                        >
+                          {isSaving ? "Saving…" : "Link"}
+                        </button>
+                      </div>
+                      {requiresManualEntry && (
+                        <p className={styles.helpText}>
+                          Create this association in the {collection.junctionTable.name} entity to fill its required fields.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </section>
+            )}
             <div className={styles.formActions}>
               <button type="button" className={styles.primaryButton} onClick={() => void saveRecord()} disabled={isSaving}>
                 {isSaving ? "Saving…" : "Save entity"}

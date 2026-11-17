@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Hosting;
@@ -88,6 +90,33 @@ public sealed class AuthTests
         Assert.Equal(HttpStatusCode.OK, (await Post(client, "forgot-password", new { email = "absent@example.com" })).StatusCode);
         Assert.Empty(factory.Mail.Links);
         Assert.Equal(HttpStatusCode.BadRequest, (await Post(client, "confirm-email", new { userId = "missing", token = "invalid" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task ErdXmlOpenApiDocumentsRawXmlAndEndpointAcceptsIt()
+    {
+        using var factory = new AuthFactory();
+        using var anonymousClient = factory.CreateClient();
+        using var openApi = await JsonDocument.ParseAsync(await anonymousClient.GetStreamAsync("/openapi/v1.json"));
+        var operation = openApi.RootElement
+            .GetProperty("paths")
+            .GetProperty("/api/schema/erd-xml/{workbenchId}/{rootTableId}")
+            .GetProperty("post");
+        Assert.Equal("string", operation.GetProperty("requestBody")
+            .GetProperty("content").GetProperty("application/xml")
+            .GetProperty("schema").GetProperty("type").GetString());
+
+        var user = await factory.SeedUser("erd-xml@example.com");
+        using var client = factory.SignedInClient(user);
+        var session = await client.GetFromJsonAsync<SessionResponse>("/api/auth/session");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/schema/erd-xml/workbench/root")
+        {
+            Content = new StringContent("<Root />", Encoding.UTF8, "application/xml"),
+        };
+        request.Headers.Add("X-CSRF-TOKEN", session!.CsrfToken);
+
+        var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Fact]

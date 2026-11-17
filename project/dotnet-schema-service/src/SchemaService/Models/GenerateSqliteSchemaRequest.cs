@@ -25,9 +25,14 @@ public sealed class SqliteSchemaColumn
 
 public sealed class SqliteSchemaRelationship
 {
+    public string Id { get; set; } = "";
     public string PrincipalTable { get; set; } = "";
     public string DependentTable { get; set; } = "";
     public List<string> ForeignKeyColumns { get; set; } = [];
+    public string PrincipalCardinality { get; set; } = "one";
+    public string DependentCardinality { get; set; } = "many";
+    public string? PrincipalNavigation { get; set; }
+    public string? DependentNavigation { get; set; }
 }
 
 public sealed class ErdWorkbenchSnapshot
@@ -55,4 +60,10 @@ public sealed class SaveErdWorkbenchRecordRequest
     public string TableId { get; set; } = "";
     public long? RowId { get; set; }
     public Dictionary<string, System.Text.Json.JsonElement> Values { get; set; } = [];
+}
+
+public sealed class DeleteErdWorkbenchJunctionRecordRequest
+{
+    public string TableId { get; set; } = "";
+    public long RowId { get; set; }
 }

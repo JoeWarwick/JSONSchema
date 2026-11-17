@@ -26,6 +26,7 @@ const contentKeys = new Set([
   'schema-sculptor-instance', 'schema-sculptor-instance-json',
   'schema-sculptor-instance-yaml', 'schema-sculptor-instance-xml',
   'schema-sculptor-erd', 'schema-sculptor-markup-language',
+  'schema-sculptor-erd-origin',
   TRANSFORM_STORAGE_KEY,
   OPENAPI_STORAGE_KEY,
   'schema-sculptor-api-form-origin',

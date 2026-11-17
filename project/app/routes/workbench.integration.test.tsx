@@ -5,12 +5,54 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import '@testing-library/jest-dom';
 import { Workbench } from './workbench';
 import { parseMarkup } from '~/utils/markup';
+import { toast } from 'sonner';
+
+jest.mock('sonner', () => ({ toast: { error: jest.fn(), success: jest.fn() } }));
 
 const STORAGE_KEY = 'schema-sculptor-schema';
 
 describe('Workbench ERD SQLite export', () => {
   beforeEach(() => {
     localStorage.clear();
+    jest.clearAllMocks();
+  });
+
+  it('explains that sign-in is required before requesting a SQLite database', async () => {
+    localStorage.setItem('schema-sculptor-erd', JSON.stringify({
+      tables: [{
+        id: 'Person',
+        name: 'Person',
+        clrName: 'Person',
+        columns: [{ name: 'Id', type: 'int', isNullable: false, isPrimaryKey: true, isForeignKey: false }],
+        navigations: [],
+      }],
+      relationships: [],
+      sourceFiles: [],
+      diagnostics: [],
+    }));
+
+    const originalFetch = global.fetch;
+    const fetchMock = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ user: null, googleEnabled: false, csrfToken: 'test-csrf-token' }),
+    } as unknown as Response));
+    global.fetch = fetchMock as typeof fetch;
+
+    try {
+      render(<Workbench kind="erd" />);
+      fireEvent.pointerDown(await screen.findByRole('menuitem', { name: /^ERD$/ }), { bubbles: true, cancelable: true });
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Generate SQLite database' }));
+
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+        'Sign in using Account before generating the SQLite database.',
+      ));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith('/api/auth/session', expect.anything());
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 
   it('sends the ERD model to the SQLite endpoint and downloads the database', async () => {
@@ -31,10 +73,24 @@ describe('Workbench ERD SQLite export', () => {
     const originalFetch = global.fetch;
     const originalCreate = URL.createObjectURL;
     const originalRevoke = URL.revokeObjectURL;
-    const fetchMock = jest.fn(async () => ({
-      ok: true,
-      blob: async () => new Blob(['sqlite database']),
-    } as Response));
+    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === '/api/auth/session') {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => ({
+            user: { email: 'editor@example.test', emailConfirmed: true, hasPassword: true, hasGoogleLogin: false },
+            googleEnabled: false,
+            csrfToken: 'test-csrf-token',
+          }),
+        } as unknown as Response;
+      }
+      return {
+        ok: true,
+        blob: async () => new Blob(['sqlite database']),
+      } as Response;
+    });
     const createObjectURL = jest.fn<string, [Blob | MediaSource]>(() => 'blob:sqlite');
     let downloadedFilename = '';
     const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
@@ -49,12 +105,14 @@ describe('Workbench ERD SQLite export', () => {
       fireEvent.pointerDown(await screen.findByRole('menuitem', { name: /^ERD$/ }), { bubbles: true, cancelable: true });
       fireEvent.click(await screen.findByRole('menuitem', { name: 'Generate SQLite database' }));
 
-      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-      const request = (fetchMock.mock.calls[0] as unknown as [RequestInfo | URL, RequestInit])[1];
-      expect(fetchMock).toHaveBeenCalledWith('/api/schema/generate-sqlite', expect.objectContaining({
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      const apiCall = fetchMock.mock.calls.find(([input]) => String(input) === '/api/schema/generate-sqlite');
+      const request = (apiCall as unknown as [RequestInfo | URL, RequestInit])[1];
+      expect(apiCall).toEqual(['/api/schema/generate-sqlite', expect.objectContaining({
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      }));
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': 'test-csrf-token' },
+      })]);
       expect(JSON.parse(request.body as string)).toMatchObject({
         workbenchId: expect.any(String),
         tables: model.tables,
@@ -189,6 +247,110 @@ describe('Workbench integration - load unresolved $defs schema', () => {
     const restoredAddress = await screen.findByTestId(/xml-tag-.*address$/);
     fireEvent.click(within(restoredAddress.parentElement!).getByRole('button'));
     expect(await screen.findByTestId('xml-element-street-input')).toHaveValue('New Street');
+  });
+
+  it('loads and saves an ERD-origin XML graph through the authenticated runtime routes', async () => {
+    const schema = parseMarkup(`
+      <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="Person"><xs:complexType><xs:sequence>
+          <xs:element name="Id" type="xs:integer" minOccurs="0"/>
+          <xs:element name="Name" type="xs:string"/>
+        </xs:sequence></xs:complexType></xs:element>
+      </xs:schema>`, 'xml');
+    localStorage.setItem('schema-sculptor-markup-language', 'xml');
+    localStorage.setItem('schema-sculptor-schema-xml', JSON.stringify(schema));
+    localStorage.setItem('schema-sculptor-instance-xml', '<Person><Name>New person</Name></Person>');
+    localStorage.setItem('schema-sculptor-erd-origin', JSON.stringify({
+      workbenchId: 'erd-db',
+      rootTableId: 'person',
+    }));
+
+    const originalFetch = global.fetch;
+    const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/schema/erd-database/erd-db') {
+        return {
+          ok: true,
+          json: async () => ({ tables: [{ id: 'person', records: [{ rowId: 5 }, { rowId: 6 }] }] }),
+        } as Response;
+      }
+      if (url === '/schemas/XMLSchema.xsd') {
+        return {
+          ok: true,
+          text: async () => '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"/>',
+        } as Response;
+      }
+      if (url === '/api/schema/erd-xml/erd-db/person/5' && (!init?.method || init.method === 'GET')) {
+        return {
+          ok: true,
+          headers: { get: (name: string) => name === 'X-ERD-Row-Id' ? '5' : null },
+          text: async () => '<Person><Id>5</Id><Name>Existing</Name></Person>',
+        } as unknown as Response;
+      }
+      if (url === '/api/schema/erd-xml/erd-db/person/6' && (!init?.method || init.method === 'GET')) {
+        return {
+          ok: true,
+          headers: { get: (name: string) => name === 'X-ERD-Row-Id' ? '6' : null },
+          text: async () => '<Person><Id>6</Id><Name>Second person</Name></Person>',
+        } as unknown as Response;
+      }
+      if (url === '/api/schema/erd-xml/erd-db/person/5' && init?.method === 'PUT') {
+        return {
+          ok: true,
+          headers: { get: (name: string) => name === 'X-ERD-Row-Id' ? '5' : null },
+          text: async () => '<Person><Id>5</Id><Name>Updated</Name></Person>',
+        } as unknown as Response;
+      }
+      if (url === '/api/auth/session') {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => ({
+            user: { email: 'editor@example.test', emailConfirmed: true, hasPassword: true, hasGoogleLogin: false },
+            googleEnabled: false,
+            csrfToken: 'test-csrf-token',
+          }),
+        } as unknown as Response;
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    try {
+      render(<Workbench />);
+      fireEvent.click(await screen.findByRole('button', { name: /Instance Form/i }));
+      const newGraphButton = await screen.findByRole('button', { name: 'New graph' });
+      await waitFor(() => expect(newGraphButton).toBeEnabled());
+      fireEvent.click(newGraphButton);
+      const rootLabel = await screen.findByTestId(/xml-tag-.*Person$/);
+      fireEvent.click(within(rootLabel.parentElement!).getByRole('button', { name: 'Expand' }));
+      const nameInput = await screen.findByTestId('xml-element-Name-input');
+      await waitFor(() => expect(nameInput).toHaveValue('New person'));
+
+      const recordSelector = await screen.findByRole('combobox', { name: 'ERD record' });
+      fireEvent.change(recordSelector, { target: { value: '5' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Load from ERD' }));
+      await waitFor(() => expect(nameInput).toHaveValue('Existing'));
+      fireEvent.change(nameInput, { target: { value: 'Updated' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Save to ERD' }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+        '/api/schema/erd-xml/erd-db/person/5',
+        expect.objectContaining({ method: 'PUT', headers: expect.any(Object) }),
+      ));
+      const saveCall = fetchMock.mock.calls.find(([input, init]) =>
+        String(input) === '/api/schema/erd-xml/erd-db/person/5' && init?.method === 'PUT');
+      expect(saveCall).toBeDefined();
+      expect(new Headers(saveCall?.[1]?.headers).get('X-CSRF-TOKEN')).toBe('test-csrf-token');
+      const savedXml = new DOMParser().parseFromString(String(saveCall?.[1]?.body), 'application/xml');
+      expect(savedXml.getElementsByTagName('Name')[0].textContent?.trim()).toBe('Updated');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Next ERD record' }));
+      await waitFor(() => expect(nameInput).toHaveValue('Second person'));
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 
   it('clears invalid persisted XML instance content on hydration', async () => {

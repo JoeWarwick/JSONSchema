@@ -1,5 +1,9 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
+using System.Text;
+using SchemaService.Auth;
 using SchemaService.Models;
 using SchemaService.Services;
 
@@ -117,15 +121,22 @@ public sealed class SchemaController : ControllerBase
     }
 
     [HttpPost("generate-sqlite")]
+    [Authorize]
+    [ServiceFilter(typeof(AuthCsrfFilter))]
     public async Task<IActionResult> GenerateSqlite(
         [FromBody] GenerateSqliteSchemaRequest request,
         CancellationToken cancellationToken)
     {
         try
         {
-            await erdWorkbenchDatabaseService.SyncAsync(request, cancellationToken);
-            var database = await erdWorkbenchDatabaseService.ExportAsync(request.WorkbenchId, cancellationToken);
+            var ownerId = GetOwnerId();
+            await erdWorkbenchDatabaseService.SyncAsync(request, cancellationToken, ownerId);
+            var database = await erdWorkbenchDatabaseService.ExportAsync(request.WorkbenchId, cancellationToken, ownerId);
             return File(database, "application/vnd.sqlite3", "schema-sculptor.sqlite");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return NotFound("The ERD workbench does not exist or is not accessible.");
         }
         catch (SqliteSchemaCompatibilityException ex)
         {
@@ -138,13 +149,19 @@ public sealed class SchemaController : ControllerBase
     }
 
     [HttpPost("erd-database/sync")]
+    [Authorize]
+    [ServiceFilter(typeof(AuthCsrfFilter))]
     public async Task<ActionResult<ErdWorkbenchSnapshot>> SyncErdDatabase(
         [FromBody] GenerateSqliteSchemaRequest request,
         CancellationToken cancellationToken)
     {
         try
         {
-            return Ok(await erdWorkbenchDatabaseService.SyncAsync(request, cancellationToken));
+            return Ok(await erdWorkbenchDatabaseService.SyncAsync(request, cancellationToken, GetOwnerId()));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return NotFound("The ERD workbench does not exist or is not accessible.");
         }
         catch (SqliteSchemaCompatibilityException ex)
         {
@@ -157,13 +174,18 @@ public sealed class SchemaController : ControllerBase
     }
 
     [HttpGet("erd-database/{workbenchId}")]
+    [Authorize]
     public async Task<ActionResult<ErdWorkbenchSnapshot>> GetErdDatabase(
         string workbenchId,
         CancellationToken cancellationToken)
     {
         try
         {
-            return Ok(await erdWorkbenchDatabaseService.GetSnapshotAsync(workbenchId, cancellationToken));
+            return Ok(await erdWorkbenchDatabaseService.GetSnapshotAsync(workbenchId, cancellationToken, GetOwnerId()));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return NotFound("The ERD workbench does not exist or is not accessible.");
         }
         catch (InvalidOperationException ex)
         {
@@ -171,7 +193,116 @@ public sealed class SchemaController : ControllerBase
         }
     }
 
+    [HttpGet("erd-xml/{workbenchId}/{rootTableId}/{rowId:long}")]
+    [Authorize]
+    [ProducesResponseType(typeof(string), StatusCodes.Status200OK, "application/xml")]
+    public async Task<IActionResult> GetErdXmlRecord(
+        string workbenchId,
+        string rootTableId,
+        long rowId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var xml = await erdWorkbenchDatabaseService.ReadXmlRecordAsync(
+                workbenchId,
+                rootTableId,
+                rowId,
+                GetOwnerId(),
+                cancellationToken);
+            Response.Headers["X-ERD-Row-Id"] = rowId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return Content(xml, "application/xml", Encoding.UTF8);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return NotFound("The ERD workbench does not exist or is not accessible.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            return NotFound(ex.Message);
+        }
+    }
+
+    [HttpPost("erd-xml/{workbenchId}/{rootTableId}")]
+    [Authorize]
+    [ServiceFilter(typeof(AuthCsrfFilter))]
+    [Consumes("application/xml", "text/xml")]
+    [ProducesResponseType(typeof(string), StatusCodes.Status200OK, "application/xml")]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    public async Task<IActionResult> CreateErdXmlRecord(
+        string workbenchId,
+        string rootTableId,
+        [FromBody] string xml,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var saved = await erdWorkbenchDatabaseService.SaveXmlRecordAsync(
+                workbenchId,
+                rootTableId,
+                null,
+                xml,
+                GetOwnerId(),
+                cancellationToken);
+            Response.Headers["X-ERD-Row-Id"] = saved.RowId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return Content(saved.Xml, "application/xml", Encoding.UTF8);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return NotFound("The ERD workbench does not exist or is not accessible.");
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+        {
+            return BadRequest($"The XML graph violates a SQLite constraint: {ex.Message}");
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    [HttpPut("erd-xml/{workbenchId}/{rootTableId}/{rowId:long}")]
+    [Authorize]
+    [ServiceFilter(typeof(AuthCsrfFilter))]
+    [Consumes("application/xml", "text/xml")]
+    [ProducesResponseType(typeof(string), StatusCodes.Status200OK, "application/xml")]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    public async Task<IActionResult> UpdateErdXmlRecord(
+        string workbenchId,
+        string rootTableId,
+        long rowId,
+        [FromBody] string xml,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var saved = await erdWorkbenchDatabaseService.SaveXmlRecordAsync(
+                workbenchId,
+                rootTableId,
+                rowId,
+                xml,
+                GetOwnerId(),
+                cancellationToken);
+            Response.Headers["X-ERD-Row-Id"] = saved.RowId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return Content(saved.Xml, "application/xml", Encoding.UTF8);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return NotFound("The ERD workbench does not exist or is not accessible.");
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+        {
+            return BadRequest($"The XML graph violates a SQLite constraint: {ex.Message}");
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
     [HttpPost("erd-database/{workbenchId}/records")]
+    [Authorize]
+    [ServiceFilter(typeof(AuthCsrfFilter))]
     public async Task<ActionResult<ErdWorkbenchRecord>> SaveErdRecord(
         string workbenchId,
         [FromBody] SaveErdWorkbenchRecordRequest request,
@@ -179,7 +310,11 @@ public sealed class SchemaController : ControllerBase
     {
         try
         {
-            return Ok(await erdWorkbenchDatabaseService.SaveRecordAsync(workbenchId, request, cancellationToken));
+            return Ok(await erdWorkbenchDatabaseService.SaveRecordAsync(workbenchId, request, cancellationToken, GetOwnerId()));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return NotFound("The ERD workbench does not exist or is not accessible.");
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
         {
@@ -194,4 +329,36 @@ public sealed class SchemaController : ControllerBase
             return BadRequest(ex.Message);
         }
     }
+
+    [HttpPost("erd-database/{workbenchId}/relationships/unlink")]
+    [Authorize]
+    [ServiceFilter(typeof(AuthCsrfFilter))]
+    public async Task<IActionResult> UnlinkErdRelationship(
+        string workbenchId,
+        [FromBody] DeleteErdWorkbenchJunctionRecordRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await erdWorkbenchDatabaseService.DeleteJunctionRecordAsync(workbenchId, request, cancellationToken, GetOwnerId());
+            return NoContent();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return NotFound("The ERD workbench does not exist or is not accessible.");
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+        {
+            return BadRequest($"The junction record cannot be unlinked because it is still referenced: {ex.Message}");
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    private string GetOwnerId() =>
+        User.FindFirstValue(ClaimTypes.NameIdentifier)
+        ?? throw new UnauthorizedAccessException("An authenticated account is required.");
+
 }

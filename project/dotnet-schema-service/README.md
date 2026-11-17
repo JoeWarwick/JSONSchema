@@ -18,9 +18,18 @@ A small ASP.NET Core service for XML schema inference and default-instance gener
   - Behavior: creates or safely updates the persistent database, then returns entity tables, columns, relationships and records
 - `GET /api/schema/erd-database/{workbenchId}`
   - Behavior: returns the current entity tables and records for a previously initialized workbench database
+- `GET /api/schema/erd-xml/{workbenchId}/{rootTableId}/{rowId}`
+  - Behavior: returns one authenticated, owner-scoped entity graph as `application/xml`; related rows are nested, foreign-key columns are omitted, and cycle edges use primary-key-only references
+- `POST /api/schema/erd-xml/{workbenchId}/{rootTableId}`
+  - Input: an XML graph in `application/xml` or `text/xml` (maximum 10 MB); behavior: creates the root and nested entities atomically, deduplicating records by primary key; returns `X-ERD-Row-Id`
+- `PUT /api/schema/erd-xml/{workbenchId}/{rootTableId}/{rowId}`
+  - Input: an XML graph in `application/xml` or `text/xml` (maximum 10 MB); behavior: updates the selected root and its nested entities atomically; returns `X-ERD-Row-Id`
 - `POST /api/schema/erd-database/{workbenchId}/records`
   - Input: `{ "tableId": "...", "rowId": 1, "values": { ... } }`; omit `rowId` to create a record
   - Behavior: inserts or updates one entity record and returns its saved values
+- `POST /api/schema/erd-database/{workbenchId}/relationships/unlink`
+  - Input: `{ "tableId": "<junction-entity-id>", "rowId": 1 }`
+  - Behavior: deletes one link record from a junction entity with two parent relationships; parent records are not deleted
 - `POST /api/transform/preview`
   - Input: `{ "input": "<xml/>", "stylesheet": "<xsl:stylesheet .../>" }`
   - Output: `{ "xml": "<result/>" }`
@@ -43,13 +52,18 @@ cd project/dotnet-schema-service
 
 - The service is intentionally separate from the web app so the workbench and HTMLCMS can share it later.
 - Schema inference uses the built-in .NET XML APIs.
-- ERD databases persist under `App_Data/erd-workspaces` as one SQLite file and a schema sidecar per workbench. The server hashes workbench IDs before using them in file names. Keep this directory on persistent local storage and do not expose these anonymous workbench endpoints to untrusted networks.
+- ERD databases persist under `App_Data/erd-workspaces` as one SQLite file, schema sidecar, and hashed account-owner sidecar per workbench. The server hashes workbench IDs before using them in file names. ERD database endpoints require the owning authenticated account; mutating requests also require the account CSRF token. Previously created databases without an owner sidecar cannot be claimed automatically.
+- In Entity Data, an unreferenced junction entity with exactly two distinct parent relationships, each marked as many from the parent, is available as a collection from either parent record. Linking creates a junction record; unlinking removes only that record. Junction entities with additional required fields can still be managed directly from the entity list.
 - ERD synchronization preserves existing records: it can add tables and nullable non-key, non-foreign-key columns without defaults, while incompatible removals, renames, and key/type/nullability changes return a conflict instead of dropping data. The SQLite download contains the current persistent database.
+- The Entity Data editor bridges ERD entities to the existing XML form system by building an in-memory XSD for each record form. The generated `Record` element contains an ordered sequence of editable columns; nullable columns have `minOccurs="0"`, and `int`, `long` and `short` map to `xs:integer`, `decimal` to `xs:decimal`, and `float`/`double` to `xs:double`. Other column types use `xs:string`. Foreign keys are edited through relationship controls instead of the XML form; primary keys, generated integer identity keys and current-timestamp columns are also omitted where appropriate. This schema is an editor adapter, not an XSD export or a persisted schema: the ERD model and records remain the source of truth, and record changes are saved through the ERD database API.
+- “Open XML Schema” creates a separate browser-local XML workbench with a single ERD entity as its document root. Related entities are nested in both relationship directions; foreign-key columns are represented by navigation elements, and a relationship that loops back to an ancestor is represented as a key-only reference. The generated XSD includes ERD provenance, cardinality, slug-source and widget hints. HTML fields use the vendored HtmlEditPro WYSIWYG editor, URL fields enforce an HTTP(S) pattern, and image fields support validated uploads. Saved root graphs can be browsed with previous/next controls. This local schema is an authoring bridge, not a second database model; the ERD remains authoritative.
+- The fixed ERD XML routes parse XML with DTD processing disabled and save the graph in one SQLite transaction. Ancestor references resolve against the active graph; references to new unsaved cycles without usable keys are rejected. Slug keys are generated from `Title`, `Name`, or `Label` when omitted, with a unique numeric suffix. Image data URLs are limited to 5 MB and checked against PNG, JPEG, GIF, or WebP signatures before storage as SQLite BLOBs.
 
 ## Accounts and authentication
 
 Accounts use ASP.NET Core Identity, EF Core SQLite, and HttpOnly session cookies.
-No documents are stored. Existing schema/transform APIs remain anonymous.
+Generic workbench documents remain browser-local; ERD rows are stored in the
+owner-scoped SQLite workbench database. Non-ERD schema/transform APIs remain anonymous.
 The checked-in `InitialIdentity` EF migration is applied at every server startup
 with `MigrateAsync` (not `EnsureCreated`), preserving existing accounts on restart.
 This startup strategy is for one server process; coordinate migrations explicitly

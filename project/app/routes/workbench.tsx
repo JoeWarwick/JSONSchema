@@ -29,6 +29,7 @@ import { validateJsonDataAgainstSchema, inferJsonSchema } from "~/utils/schema-v
 import { JsonInstanceForm } from "~/components/json-instance-form";
 import { XmlInstanceForm } from "~/components/xml-instance-form";
 import { getReferencedElementNames, sortElementsByReferenceUsage } from "~/components/xml-instance-form.utils";
+import { getAuthSession } from "~/utils/auth-client";
 import { SchemaEditorForm } from "~/components/schema-editor-form";
 import { GraphicalSchemaEditor } from "~/components/graphical-schema-editor";
 import { SchemaSourceEditor } from "~/components/schema-source-editor";
@@ -60,6 +61,33 @@ const DEREF_ERROR_STORAGE_KEY = 'schema-sculptor-deref-error';
 const ERD_STORAGE_KEY = 'schema-sculptor-erd';
 const ERD_DATABASE_ID_STORAGE_KEY = 'schema-sculptor-erd-database-id';
 const ACTIVE_TAB_STORAGE_KEY = 'schema-sculptor-active-tab';
+const ERD_XML_ORIGIN_STORAGE_KEY = 'schema-sculptor-erd-origin';
+
+interface ErdXmlOrigin {
+  workbenchId: string;
+  rootTableId: string;
+}
+
+interface ErdXmlDatabaseSnapshot {
+  tables: Array<{ id: string; records: Array<{ rowId: number }> }>;
+}
+
+async function erdXmlResponseError(response: Response): Promise<string> {
+  const body = await response.text();
+  if (!body.trim()) return `ERD XML request failed (${response.status}).`;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (typeof parsed === 'string') return parsed;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const problem = parsed as Record<string, unknown>;
+      if (typeof problem.detail === 'string') return problem.detail;
+      if (typeof problem.title === 'string') return problem.title;
+    }
+  } catch {
+    return body;
+  }
+  return body;
+}
 
 // Language-specific storage keys for preserving markup across language switches
 const getLanguageInstanceKey = (lang: MarkupLanguage) => `schema-sculptor-instance-${lang}`;
@@ -282,6 +310,12 @@ export function Workbench({ fileMenu, kind = 'json' }: { fileMenu?: ReactNode; k
   const [erdModel, setErdModel] = useState<ErdModel | null>(null);
   const [erdDatabaseId, setErdDatabaseId] = useState<string | null>(null);
   const [erdDatabaseIdError, setErdDatabaseIdError] = useState<string | null>(null);
+  const [erdXmlOrigin, setErdXmlOrigin] = useState<ErdXmlOrigin | null>(null);
+  const [erdXmlRecordIds, setErdXmlRecordIds] = useState<number[]>([]);
+  const [selectedErdXmlRowId, setSelectedErdXmlRowId] = useState('');
+  const [loadedErdXmlRowId, setLoadedErdXmlRowId] = useState('');
+  const erdXmlTemplateRef = useRef<unknown>(null);
+  const [isErdXmlBusy, setIsErdXmlBusy] = useState(false);
   const { validate: validateSchema } = useSchemaValidation();
   const { validate: validateInstanceWithImports } = useInstanceValidationWithImports();
   const [error, setError] = useState<string | null>(null);
@@ -497,6 +531,23 @@ export function Workbench({ fileMenu, kind = 'json' }: { fileMenu?: ReactNode; k
         } catch (err) {
           console.error('Failed to parse persisted ERD model:', err);
         }
+
+        try {
+          const rawOrigin = localStorage.getItem(ERD_XML_ORIGIN_STORAGE_KEY);
+          if (rawOrigin) {
+            const parsedOrigin: unknown = JSON.parse(rawOrigin);
+            if (parsedOrigin && typeof parsedOrigin === 'object' &&
+              typeof (parsedOrigin as Record<string, unknown>).workbenchId === 'string' &&
+              typeof (parsedOrigin as Record<string, unknown>).rootTableId === 'string') {
+              setErdXmlOrigin({
+                workbenchId: (parsedOrigin as Record<string, string>).workbenchId,
+                rootTableId: (parsedOrigin as Record<string, string>).rootTableId,
+              });
+            }
+          }
+        } catch (originError) {
+          console.error('Failed to parse ERD XML workbench origin:', originError);
+        }
       } catch (_) {
         // ignore
       } finally {
@@ -508,6 +559,39 @@ export function Workbench({ fileMenu, kind = 'json' }: { fileMenu?: ReactNode; k
     const timer = window.setTimeout(hydratePersistedState, 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (!hasHydratedPersistedState || markupLanguage !== 'xml' || !erdXmlOrigin) return;
+    let cancelled = false;
+    setIsErdXmlBusy(true);
+    const url = `/api/schema/erd-database/${encodeURIComponent(erdXmlOrigin.workbenchId)}`;
+    void fetch(url, { credentials: 'same-origin' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await erdXmlResponseError(response));
+        return response.json() as Promise<ErdXmlDatabaseSnapshot>;
+      })
+      .then((snapshot) => {
+        if (cancelled) return;
+        const table = snapshot.tables.find((candidate) => candidate.id === erdXmlOrigin.rootTableId);
+        if (!table) throw new Error('The XML root entity is no longer available in this ERD database.');
+        setErdXmlRecordIds(table.records.map((record) => record.rowId));
+      })
+      .catch((loadError: unknown) => {
+        if (!cancelled) {
+          toast.error(loadError instanceof Error ? loadError.message : 'Could not load ERD records.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsErdXmlBusy(false);
+      });
+    return () => { cancelled = true; };
+  }, [hasHydratedPersistedState, markupLanguage, erdXmlOrigin]);
+
+  useEffect(() => {
+    if (!hasHydratedPersistedState || markupLanguage !== 'xml' || !erdXmlOrigin ||
+      instanceData == null || erdXmlTemplateRef.current != null) return;
+    erdXmlTemplateRef.current = JSON.parse(JSON.stringify(instanceData));
+  }, [hasHydratedPersistedState, markupLanguage, erdXmlOrigin, instanceData]);
 
   // Clear cache if source changes
   useEffect(() => {
@@ -1638,9 +1722,17 @@ export function Workbench({ fileMenu, kind = 'json' }: { fileMenu?: ReactNode; k
     if (!erdModel || !erdDatabaseId || isGeneratingSqlite) return;
     setIsGeneratingSqlite(true);
     try {
+      const session = await getAuthSession();
+      if (!session.user) {
+        throw new Error('Sign in using Account before generating the SQLite database.');
+      }
       const response = await fetch('/api/schema/generate-sqlite', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-TOKEN': session.csrfToken,
+        },
         body: JSON.stringify({
           workbenchId: erdDatabaseId,
           tables: erdModel.tables,
@@ -1825,6 +1917,100 @@ export function Workbench({ fileMenu, kind = 'json' }: { fileMenu?: ReactNode; k
     if (markupLanguage !== 'xml') return [];
     return getAvailableXmlRootElementNames(state.source);
   }, [markupLanguage, state.source]);
+
+  const loadErdXmlRecord = async (rowId = selectedErdXmlRowId) => {
+    if (!erdXmlOrigin || !rowId) return;
+    setIsErdXmlBusy(true);
+    try {
+      const url = `/api/schema/erd-xml/${encodeURIComponent(erdXmlOrigin.workbenchId)}/${encodeURIComponent(erdXmlOrigin.rootTableId)}/${encodeURIComponent(rowId)}`;
+      const response = await fetch(url, { credentials: 'same-origin' });
+      if (!response.ok) throw new Error(await erdXmlResponseError(response));
+      const xml = await response.text();
+      const savedRowId = response.headers.get('X-ERD-Row-Id');
+      if (!savedRowId || savedRowId !== rowId || !/^\d+$/.test(savedRowId)) {
+        throw new Error('The ERD service returned a record that does not match the selection.');
+      }
+      const parsed = parseMarkup(xml, 'xml');
+      setInstanceData(parsed);
+      setJsonInput(xml);
+      setSelectedErdXmlRowId(savedRowId);
+      setLoadedErdXmlRowId(savedRowId);
+      setActiveTab('instance');
+    } catch (loadError) {
+      toast.error(loadError instanceof Error ? loadError.message : 'Could not load the ERD XML record.');
+    } finally {
+      setIsErdXmlBusy(false);
+    }
+  };
+
+  const startNewErdXmlGraph = () => {
+    if (erdXmlTemplateRef.current == null) {
+      toast.error('The ERD XML template is not ready yet.');
+      return;
+    }
+    const template = JSON.parse(JSON.stringify(erdXmlTemplateRef.current));
+    setSelectedErdXmlRowId('');
+    setLoadedErdXmlRowId('');
+    setInstanceData(template);
+    setJsonInput(serializeMarkup(template, 'xml'));
+  };
+
+  const selectedErdXmlRecordIndex = erdXmlRecordIds.indexOf(Number(selectedErdXmlRowId));
+  const previousErdXmlRowId = selectedErdXmlRecordIndex > 0
+    ? erdXmlRecordIds[selectedErdXmlRecordIndex - 1]
+    : undefined;
+  const nextErdXmlRowId = selectedErdXmlRecordIndex < 0
+    ? erdXmlRecordIds[0]
+    : erdXmlRecordIds[selectedErdXmlRecordIndex + 1];
+
+  const saveErdXmlRecord = async () => {
+    if (!erdXmlOrigin || instanceData == null) return;
+    setIsErdXmlBusy(true);
+    try {
+      const hasInvalidUrl = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="url"]'))
+        .some((input) => !input.checkValidity());
+      if (hasInvalidUrl) {
+        throw new Error('Correct invalid URL values before saving the ERD graph.');
+      }
+      const xml = serializeMarkup(instanceData, 'xml');
+      const session = await getAuthSession();
+      const rowId = selectedErdXmlRowId ? Number(selectedErdXmlRowId) : null;
+      if (rowId !== null && selectedErdXmlRowId !== loadedErdXmlRowId) {
+        throw new Error('Load the selected ERD record before saving it.');
+      }
+      if (rowId !== null && (!Number.isSafeInteger(rowId) || rowId <= 0)) {
+        throw new Error('Select a valid ERD record before saving.');
+      }
+      const endpoint = `/api/schema/erd-xml/${encodeURIComponent(erdXmlOrigin.workbenchId)}/${encodeURIComponent(erdXmlOrigin.rootTableId)}${rowId === null ? '' : `/${rowId}`}`;
+      const response = await fetch(endpoint, {
+        method: rowId === null ? 'POST' : 'PUT',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/xml',
+          'X-CSRF-TOKEN': session.csrfToken,
+        },
+        body: xml,
+      });
+      if (!response.ok) throw new Error(await erdXmlResponseError(response));
+      const savedXml = await response.text();
+      const savedRowId = response.headers.get('X-ERD-Row-Id');
+      if (!savedRowId || !/^\d+$/.test(savedRowId)) {
+        throw new Error('The ERD service saved the graph but did not return its record ID.');
+      }
+      setInstanceData(parseMarkup(savedXml, 'xml'));
+      setJsonInput(savedXml);
+      setSelectedErdXmlRowId(savedRowId);
+      setLoadedErdXmlRowId(savedRowId);
+      setErdXmlRecordIds((current) => current.includes(Number(savedRowId))
+        ? current
+        : [...current, Number(savedRowId)]);
+      toast.success('XML entity graph saved to the ERD database.');
+    } catch (saveError) {
+      toast.error(saveError instanceof Error ? saveError.message : 'Could not save the ERD XML record.');
+    } finally {
+      setIsErdXmlBusy(false);
+    }
+  };
 
   return (
     <TooltipProvider>
@@ -2483,6 +2669,71 @@ export function Workbench({ fileMenu, kind = 'json' }: { fileMenu?: ReactNode; k
           <div className={styles.panel}>
             <div className={styles.panelHeader}>
               <h2 className={styles.panelTitle}>Instance Form</h2>
+              {markupLanguage === 'xml' && erdXmlOrigin && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <select
+                    aria-label="ERD record"
+                    value={selectedErdXmlRowId}
+                    onChange={(event) => {
+                      if (event.target.value) {
+                        setSelectedErdXmlRowId(event.target.value);
+                        setLoadedErdXmlRowId('');
+                      } else {
+                        startNewErdXmlGraph();
+                      }
+                    }}
+                    disabled={isErdXmlBusy}
+                  >
+                    <option value="">New graph</option>
+                    {erdXmlRecordIds.map((rowId) => (
+                      <option key={rowId} value={String(rowId)}>Record #{rowId}</option>
+                    ))}
+                  </select>
+                  <button
+                    className={styles.controlButton}
+                    onClick={() => previousErdXmlRowId && void loadErdXmlRecord(String(previousErdXmlRowId))}
+                    disabled={isErdXmlBusy || !previousErdXmlRowId}
+                    aria-label="Previous ERD record"
+                  >
+                    Previous
+                  </button>
+                  <span aria-live="polite">
+                    {selectedErdXmlRecordIndex < 0
+                      ? `New graph${erdXmlRecordIds.length ? ` · ${erdXmlRecordIds.length} saved` : ''}`
+                      : `Record ${selectedErdXmlRecordIndex + 1} of ${erdXmlRecordIds.length}`}
+                  </span>
+                  <button
+                    className={styles.controlButton}
+                    onClick={() => nextErdXmlRowId && void loadErdXmlRecord(String(nextErdXmlRowId))}
+                    disabled={isErdXmlBusy || !nextErdXmlRowId}
+                    aria-label="Next ERD record"
+                  >
+                    Next
+                  </button>
+                  <button
+                    className={styles.controlButton}
+                    onClick={() => void loadErdXmlRecord()}
+                    disabled={isErdXmlBusy || !selectedErdXmlRowId}
+                  >
+                    Load from ERD
+                  </button>
+                  <button
+                    className={styles.controlButton}
+                    onClick={startNewErdXmlGraph}
+                    disabled={isErdXmlBusy || erdXmlTemplateRef.current == null}
+                  >
+                    New graph
+                  </button>
+                  <button
+                    className={styles.controlButton}
+                    onClick={() => void saveErdXmlRecord()}
+                    disabled={isErdXmlBusy || instanceData == null ||
+                      Boolean(selectedErdXmlRowId && selectedErdXmlRowId !== loadedErdXmlRowId)}
+                  >
+                    {selectedErdXmlRowId ? 'Save to ERD' : 'Create in ERD'}
+                  </button>
+                </div>
+              )}
             </div>
             {markupLanguage === 'xml' ? (
               // XML Instance Form - render raw XML documents

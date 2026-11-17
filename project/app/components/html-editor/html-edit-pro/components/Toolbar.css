@@ -1,0 +1,511 @@
+.toolbar {
+  position: fixed;
+  transform: translate(30%, -100%);
+  --toolbar-surface: var(--color-background, #ffffff);
+  --toolbar-surface-hover: var(--color-background-hover, #f5f5f5);
+  --toolbar-border: var(--color-border, #ddd);
+  --toolbar-text: var(--color-text, #000);
+  --toolbar-accent: var(--color-accent, #3b82f6);
+  --toolbar-accent-contrast: #ffffff;
+  --toolbar-focus-ring: rgba(59, 130, 246, 0.14);
+  --toolbar-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  --toolbar-radius: 8px;
+  --toolbar-chip-radius: 4px;
+  background-color: var(--toolbar-surface);
+  border: 1px solid var(--toolbar-border);
+  border-radius: var(--toolbar-radius);
+  padding: 8px;
+  box-shadow: var(--toolbar-shadow);
+  z-index: 1000;
+  max-width: 400px;
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: box-shadow 0.2s ease;
+}
+
+.toolbar.ui-framework-tailwind {
+  --toolbar-surface: rgba(248, 250, 252, 0.98);
+  --toolbar-surface-hover: #eef2ff;
+  --toolbar-border: #cbd5e1;
+  --toolbar-text: #0f172a;
+  --toolbar-accent: #2563eb;
+  --toolbar-accent-contrast: #ffffff;
+  --toolbar-focus-ring: rgba(37, 99, 235, 0.14);
+  --toolbar-shadow: 0 12px 30px rgba(15, 23, 42, 0.18);
+  --toolbar-radius: 14px;
+  --toolbar-chip-radius: 999px;
+}
+
+.toolbar.ui-framework-bootstrap {
+  --toolbar-surface: #ffffff;
+  --toolbar-surface-hover: #f8f9fa;
+  --toolbar-border: #ced4da;
+  --toolbar-text: #212529;
+  --toolbar-accent: #0d6efd;
+  --toolbar-accent-contrast: #ffffff;
+  --toolbar-focus-ring: rgba(13, 110, 253, 0.14);
+  --toolbar-shadow: 0 0.5rem 1.25rem rgba(33, 37, 41, 0.14);
+  --toolbar-radius: 12px;
+  --toolbar-chip-radius: 8px;
+}
+
+.toolbar.ui-framework-material {
+  --toolbar-surface: #fcf8ff;
+  --toolbar-surface-hover: #f5efff;
+  --toolbar-border: #d7cce8;
+  --toolbar-text: #1f1b24;
+  --toolbar-accent: #6750a4;
+  --toolbar-accent-contrast: #ffffff;
+  --toolbar-focus-ring: rgba(103, 80, 164, 0.14);
+  --toolbar-shadow: 0 16px 36px rgba(103, 80, 164, 0.18);
+  --toolbar-radius: 16px;
+  --toolbar-chip-radius: 999px;
+}
+
+.toolbar.dragging {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+}
+
+.toolbar-handle {
+  display: flex;
+  align-items: center;
+  padding: 6px;
+  margin: -8px -8px 0 -8px;
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.02), transparent);
+  user-select: none;
+  -webkit-user-select: none;
+  position: relative;
+  justify-content: flex-start;
+  pointer-events: none;
+}
+
+.drag-indicator {
+  width: 32px;
+  height: 4px;
+  background-color: var(--toolbar-border);
+  border-radius: 2px;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  cursor: grab;
+  pointer-events: auto;
+}
+
+.drag-indicator:active {
+  cursor: grabbing;
+}
+
+.toolbar-section {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background-color: var(--color-border, #ddd);
+  margin: 0 4px;
+}
+
+.toolbar-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--toolbar-border);
+  background-color: var(--toolbar-surface);
+  color: var(--toolbar-text);
+  border-radius: var(--toolbar-chip-radius);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  min-width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolbar-btn:hover {
+  background-color: var(--toolbar-surface-hover);
+  border-color: var(--toolbar-accent);
+}
+
+.toolbar-btn:active,
+.toolbar-btn.active {
+  background-color: var(--toolbar-accent);
+  color: var(--toolbar-accent-contrast);
+  border-color: var(--toolbar-accent);
+  position: relative;
+}
+
+button[title="Toggle CSS Panel"].active::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid var(--toolbar-accent-contrast);
+}
+
+/* CSS Panel Toggle Button - Always show accent color as indicator */
+button[title="Toggle CSS Panel"] {
+  background-color: var(--toolbar-accent);
+  color: var(--toolbar-accent-contrast);
+  border-color: var(--toolbar-accent);
+}
+
+button[title="Toggle CSS Panel"]:hover {
+  background-color: var(--toolbar-accent);
+  border-color: var(--toolbar-accent);
+  opacity: 0.9;
+}
+
+.close-btn {
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  font-size: 14px;
+  color: #999;
+  flex-shrink: 0;
+}
+
+.toolbar-handle .close-btn {
+  pointer-events: auto;
+}
+
+.close-btn:hover {
+  color: #e74c3c;
+  border-color: #e74c3c;
+}
+
+.close-btn.active {
+  background-color: #e74c3c;
+  color: white;
+  border-color: #e74c3c;
+}
+
+.toolbar-select {
+  padding: 6px 8px;
+  border: 1px solid var(--toolbar-border);
+  background-color: var(--toolbar-surface);
+  color: var(--toolbar-text);
+  border-radius: var(--toolbar-chip-radius);
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s ease;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23666' stroke='%23666' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 18px;
+  padding-right: 28px;
+}
+
+.toolbar-select:hover {
+  border-color: var(--toolbar-accent);
+}
+
+.toolbar-select:focus {
+  outline: none;
+  border-color: var(--toolbar-accent);
+  box-shadow: 0 0 0 2px var(--toolbar-focus-ring);
+}
+
+.toolbar-list-control {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.toolbar-list-control .toolbar-btn {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.toolbar-list-select {
+  width: 45px;
+  min-width: 45px;
+  padding: 0 8px 6px 4px;
+  border: 1px solid var(--toolbar-border);
+  border-left: 0;
+  border-radius: 0 var(--toolbar-chip-radius) var(--toolbar-chip-radius) 0;
+  background: var(--toolbar-surface);
+  color: var(--toolbar-text);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='3'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 3px bottom 3px;
+  background-size: 10px;
+}
+
+.toolbar-list-select:focus {
+  outline: none;
+  border-color: var(--toolbar-accent);
+  box-shadow: 0 0 0 2px var(--toolbar-focus-ring);
+}
+
+/* CSS Controls Row - Keep buttons on same line */
+.css-controls-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+/* CSS Panel */
+.css-panel {
+  background-color: var(--toolbar-surface);
+  border: 1px solid var(--toolbar-border);
+  border-radius: var(--toolbar-chip-radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.css-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.css-control > label {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.58);
+  text-transform: uppercase;
+}
+
+/* Color Swatches */
+.color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.color-swatch {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--toolbar-border);
+  border-radius: var(--toolbar-chip-radius);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.color-swatch:hover {
+  border-color: var(--toolbar-text);
+  transform: scale(1.1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+/* Color Picker Inline */
+.color-picker-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.color-picker-inline input[type='color'] {
+  width: 40px;
+  height: 40px;
+  border: 2px solid var(--toolbar-border);
+  border-radius: var(--toolbar-chip-radius);
+  cursor: pointer;
+  padding: 2px;
+}
+
+/* Align Buttons */
+.align-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.align-buttons .toolbar-btn {
+  flex: 1;
+  min-width: auto;
+}
+
+/* Format Buttons */
+.format-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.format-buttons .toolbar-btn {
+  flex: 1;
+  min-width: auto;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .toolbar {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    right: 0;
+    left: 0;
+    max-width: none;
+    border-radius: 8px 8px 0 0;
+    max-height: 30vh;
+    padding: 12px;
+  }
+
+  .toolbar-section {
+    flex-wrap: wrap;
+  }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .toolbar {
+    background-color: #1e1e1e;
+    border-color: #444;
+  }
+
+  .toolbar-btn {
+    background-color: #2d2d2d;
+    color: #e0e0e0;
+    border-color: #444;
+  }
+
+  .toolbar-btn:hover {
+    background-color: #3a3a3a;
+  }
+
+  .toolbar-select {
+    background-color: #2d2d2d;
+    color: #e0e0e0;
+    border-color: #444;
+  }
+
+  .css-panel {
+    background-color: #2d2d2d;
+    border-color: #444;
+  }
+
+  .css-control > label {
+    color: #999;
+  }
+
+  .color-swatch {
+    border-color: #555;
+  }
+
+  .css-rules-modal {
+    background-color: #2d2d2d;
+    border-color: #444;
+  }
+
+  .css-rules-header {
+    border-bottom-color: #444;
+  }
+
+  .css-rules-header h3 {
+    color: #e0e0e0;
+  }
+
+  .css-rules-content pre {
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+  }
+}
+
+/* CSS Rules Modal */
+.css-rules-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background-color: var(--color-background, #ffffff);
+  border: 1px solid var(--color-border, #ddd);
+  border-radius: 8px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  z-index: 2000;
+  width: 90%;
+  max-width: 600px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.css-rules-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border-bottom: 1px solid var(--color-border, #ddd);
+}
+
+.css-rules-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--color-text, #000);
+}
+
+/* Modal Close Button */
+/* Modal Close Button */
+.modal-close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--color-text, #000);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.modal-close-btn:hover {
+  background-color: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+}
+
+.css-rules-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.css-rules-content pre {
+  margin: 0;
+  background-color: var(--color-border, #f5f5f5);
+  padding: 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'Monaco', 'Courier New', monospace;
+  color: var(--color-text, #000);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.css-rules-footer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-border, #ddd);
+  background-color: var(--color-background, #f9f9f9);
+}

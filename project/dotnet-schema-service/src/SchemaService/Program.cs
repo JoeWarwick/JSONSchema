@@ -12,7 +12,11 @@ if (args is ["--transform-worker"])
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers(options => options.Filters.Add(new ProducesResponseTypeAttribute(typeof(ProblemDetails), 400)))
+builder.Services.AddControllers(options =>
+{
+    options.Filters.Add(new ProducesResponseTypeAttribute(typeof(ProblemDetails), 400));
+    options.InputFormatters.Insert(0, new RawXmlInputFormatter());
+})
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();

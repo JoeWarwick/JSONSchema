@@ -1,0 +1,103 @@
+/**
+ * WysiwygEditor Component Styles
+ */
+
+.wysiwyg-editor-container {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: white;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.wysiwyg-editor-instance {
+  display: contents;
+}
+
+.wysiwyg-editor-instance.color-scheme-independent {
+  --color-background: #ffffff;
+  --color-background-secondary: #ffffff;
+  --color-background-hover: #f5f5f5;
+  --color-text: #000000;
+  --color-text-secondary: #666666;
+  --color-border: #e0e0e0;
+  --color-accent: #3b82f6;
+  color: var(--color-text);
+}
+
+.wysiwyg-editor-container.dark {
+  background: #1e1e1e;
+  border-color: #404040;
+}
+
+.wysiwyg-toolbar-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e0e0e0;
+  background: #f5f5f5;
+  flex-wrap: wrap;
+}
+
+.wysiwyg-editor-container.dark .wysiwyg-toolbar-wrapper {
+  border-bottom-color: #404040;
+  background: #2a2a2a;
+}
+
+.source-toggle-btn,
+.theme-toggle-btn {
+  padding: 6px 12px;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.source-toggle-btn:hover,
+.theme-toggle-btn:hover {
+  background: #f0f0f0;
+  border-color: #d0d0d0;
+}
+
+.wysiwyg-editor-container.dark .source-toggle-btn,
+.wysiwyg-editor-container.dark .theme-toggle-btn {
+  background: #333;
+  border-color: #404040;
+  color: #e0e0e0;
+}
+
+.wysiwyg-editor-container.dark .source-toggle-btn:hover,
+.wysiwyg-editor-container.dark .theme-toggle-btn:hover {
+  background: #404040;
+  border-color: #505050;
+}
+
+.wysiwyg-content-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .wysiwyg-toolbar-wrapper {
+    padding: 6px 8px;
+    gap: 6px;
+  }
+
+  .source-toggle-btn,
+  .theme-toggle-btn {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+}

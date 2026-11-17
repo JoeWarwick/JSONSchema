@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { readPreferredLocale } from '../i18n/intl';
+import { HtmlEditor } from './HtmlEditor';
 
 const COUNTRY_CODES = [
   'US', 'GB', 'CA', 'AU', 'NZ', 'IE', 'FR', 'DE', 'ES', 'IT', 'NL', 'BE',
@@ -12,6 +14,75 @@ const LANGUAGE_TAGS = [
   'pt-BR', 'nl', 'sv', 'no', 'da', 'fi', 'pl', 'cs', 'hu', 'el', 'tr', 'ru',
   'uk', 'ja', 'ko', 'zh', 'zh-CN', 'zh-TW', 'ar', 'hi',
 ] as const;
+
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+const URL_PATTERN = 'https?://[^\\s]+';
+
+function isValidWebUrl(value: string): boolean {
+  if (!/^https?:\/\/\S+$/i.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function ImageValueInput({
+  value,
+  onChange,
+  testId,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  testId?: string;
+}) {
+  const [error, setError] = useState<string | null>(null);
+
+  const handleFile = (file: File | undefined) => {
+    setError(null);
+    if (!file) return;
+    if (!IMAGE_TYPES.has(file.type)) {
+      setError('Choose a PNG, JPEG, GIF, or WebP image.');
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setError('Images must be 5 MB or smaller.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onerror = () => setError('The selected image could not be read.');
+    reader.onload = () => {
+      if (typeof reader.result !== 'string' || !reader.result.startsWith(`data:${file.type};base64,`)) {
+        setError('The selected image could not be encoded.');
+        return;
+      }
+      onChange(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 320 }}>
+      <input
+        data-testid={testId}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp"
+        aria-label="Upload image"
+        onChange={(event) => {
+          handleFile(event.target.files?.[0]);
+          event.target.value = '';
+        }}
+      />
+      {value.startsWith('data:image/') && (
+        <img src={value} alt="Selected image preview" style={{ maxWidth: 240, maxHeight: 160, objectFit: 'contain' }} />
+      )}
+      {error && <span role="alert">{error}</span>}
+    </div>
+  );
+}
 
 export function normalizeColorInputValue(value: string): string {
   const trimmed = String(value || '').trim();
@@ -98,14 +169,38 @@ export function renderSimpleValueInput(
   onValueChange: (nextValue: string) => void,
   testId?: string,
 ) {
+  if (widgetHint === 'html') {
+    return <HtmlEditor value={textValue} onChange={onValueChange} testId={testId} />;
+  }
+  if (widgetHint === 'image') {
+    return <ImageValueInput value={textValue} onChange={onValueChange} testId={testId} />;
+  }
   if (widgetHint === 'lang') return renderLanguageInput(textValue, onValueChange, testId);
   if (widgetHint === 'country') return renderCountryInput(textValue, onValueChange, testId);
+  if (widgetHint === 'url') {
+    const invalid = textValue.trim() !== '' && !isValidWebUrl(textValue.trim());
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, maxWidth: 320 }}>
+        <input
+          data-testid={testId}
+          type="url"
+          pattern={URL_PATTERN}
+          title="Enter a valid HTTP or HTTPS URL."
+          aria-invalid={invalid}
+          value={textValue}
+          onChange={(event) => onValueChange(event.target.value)}
+          style={{ flex: 1, maxWidth: 320, padding: '6px 8px', border: '1px solid #ddd', borderRadius: 3, fontSize: 12 }}
+        />
+        {invalid && <span role="alert">Enter a valid HTTP or HTTPS URL.</span>}
+      </div>
+    );
+  }
 
   if (htmlInputType !== 'color') {
     return (
       <input
         data-testid={testId}
-        type={htmlInputType as any}
+        type={htmlInputType}
         value={textValue}
         onChange={(event) => onValueChange(event.target.value)}
         style={{ flex: 1, maxWidth: 200, padding: '6px 8px', border: '1px solid #ddd', borderRadius: 3, fontSize: 12 }}
